@@ -535,6 +535,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/auth/sites/enroll`: a wrong, used or expired code, or a
   // paused or unregistered site, all alike.
   'site-enrollment-refused': 401,
+  // A key the site, or another site in the workspace at the same address,
+  // retired: only once the code checks out, and the code isn't used up.
+  'site-enrollment-key-retired': 409,
   'site-key-invalid': 400,
   // `POST /v1/auth/site-sign-in`: a statement refused; `details.reason` says why.
   'site-sign-in-refused': 401,

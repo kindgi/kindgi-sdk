@@ -128,11 +128,24 @@ CMD []
  * (a package may be named `build` or `out` further down), and any module's
  * `target/`.
  */
-const SKIPPED_ROOT_DIRS = new Set(['target', 'build', 'out', 'bin', '.idea', '.gradle', '.settings', '.vscode']);
+const SKIPPED_ROOT_DIRS = new Set([
+  'target',
+  'build',
+  'out',
+  'bin',
+  '.idea',
+  '.gradle',
+  '.settings',
+  '.vscode',
+]);
 
 /** Files never shipped: Maven's settings (credentials) and keystores, besides `forbiddenReason`'s. */
 function javaForbidden(name: string): boolean {
-  return name === 'settings.xml' || name === 'settings-security.xml' || /\.(jks|keystore|truststore)$/.test(name);
+  return (
+    name === 'settings.xml' ||
+    name === 'settings-security.xml' ||
+    /\.(jks|keystore|truststore)$/.test(name)
+  );
 }
 
 /**

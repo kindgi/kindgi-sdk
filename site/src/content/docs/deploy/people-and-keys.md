@@ -33,8 +33,8 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
   `curl` examples read the same two variables.
-- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../start/install/)). Inside a pack
+- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.4` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
@@ -50,8 +50,11 @@ With authorization on:
   only those in projects they read. One deployed without a project is the
   default project's.
 - **A role on a project** gives the work in it: its agents, runs and
-  conversations. The roles are `owner`, `admin`, `editor` and `viewer`
-  ([Project memberships](../authorization/#project-memberships)).
+  conversations. The roles are `owner`, `admin`, `editor`, `runner` and
+  `viewer` ([Project memberships](../authorization/#project-memberships)).
+  A `runner` can run: start runs of the project's agents and flows, use
+  their tools inside those runs, stop their own runs, and keep their own
+  schedules.
 - **A service account** has only what it's granted. It isn't a tenant member
   unless you make it one.
 - **A capability** is needed on top of the role to trust signing keys
@@ -107,7 +110,7 @@ Adding a person gives them a place in the workspace, so they can sign in and
 get keys:
 
 ```sh
-npx --yes @kindgi/cli@0.2 people add --name="Sam Rivera" --email=sam@acme.example
+npx --yes @kindgi/cli@0.4 people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -142,8 +145,8 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
 
 - `<project-id>` is the project's id.
 - `email` names the person. `userId` names them by id instead.
-- `role` is their role on the project: `owner`, `admin`, `editor` or
-  `viewer`.
+- `role` is their role on the project: `owner`, `admin`, `editor`,
+  `runner` or `viewer`.
 
 The email matches whatever its case, and the answer names the person. Here a
 project admin added a viewer as `GUS@acme.test`:
@@ -244,7 +247,7 @@ with their email, or send it again. To send it again, open for 7 days from
 then:
 
 ```sh
-npx --yes @kindgi/cli@0.2 people invite <user-id>
+npx --yes @kindgi/cli@0.4 people invite <user-id>
 ```
 
 Someone who has joined, or was never invited, is refused with
@@ -263,7 +266,7 @@ The people invited who haven't signed in yet, with a STATE of `pending` or
 `expired`:
 
 ```sh
-npx --yes @kindgi/cli@0.2 people list --pending --table
+npx --yes @kindgi/cli@0.4 people list --pending --table
 ```
 
 Here Lee Park's invitation expired before they signed in:
@@ -291,8 +294,8 @@ A tenant admin can do everything in the workspace. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-npx --yes @kindgi/cli@0.2 people grant <user-id> --tenant-admin
-npx --yes @kindgi/cli@0.2 people ungrant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.4 people grant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.4 people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
@@ -347,8 +350,8 @@ admin stops being a tenant admin or is removed, and as a tenant admin,
 whoever holds it can make new keys with its capabilities:
 
 ```sh
-npx --yes @kindgi/cli@0.2 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
-npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
+npx --yes @kindgi/cli@0.4 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
+npx --yes @kindgi/cli@0.4 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
 
 It can trust signing keys, so keep it out of CI: trusting CI's signing key
@@ -383,11 +386,22 @@ a role.
   every way you hold one (`via`):
   - `direct`, or through a `team`, with `since` when the runtime keeps it;
   - `org-admin`, as an admin of the org it sits in;
-  - `tenant-admin`.
+  - `tenant-admin`;
+  - `everyone`, where the project also lets everyone in the workspace run it.
+- **`everyoneCanRunProjects`:** each project you hold no role on, and may run
+  because it lets everyone in the workspace run it, by name. It's absent when
+  there are none, and from an older runtime.
 - **`orgs` and `teams`:** your own, with your role in each.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
-  Your project role's entry is what you may do there.
+  Your project role's entry is what you may do there. A `runner`'s
+  `project` entry holds `run`: stopping their own runs and keeping their
+  own schedules. `runner` is absent from a runtime that has no such role.
+- **`everyoneCapabilities`:** what everyone in the workspace may do on a
+  project that lets everyone run it, by kind of object: for each project in
+  `everyoneCanRunProjects`, and each in `projects` whose `via` lists
+  `everyone`, on top of the role you hold there. It's absent from an older
+  runtime.
 - **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
   whatever your role, because the license is the deployment operator's, as
   on a runtime serving many tenants; the console doesn't ask it then.
@@ -420,7 +434,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-npx --yes @kindgi/cli@0.2 tokens create --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.4 tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -465,7 +479,7 @@ Make longer-lived keys with one of those, such as the 90-day key in
 A tenant admin made Sam's first key:
 
 ```sh
-npx --yes @kindgi/cli@0.2 tokens create --for=user:<user-id> --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.4 tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -489,7 +503,7 @@ npx --yes @kindgi/cli@0.2 tokens create --for=user:<user-id> --label=laptop --ex
 ```
 
 ```sh
-npx --yes @kindgi/cli@0.2 tokens list --table
+npx --yes @kindgi/cli@0.4 tokens list --table
 ```
 
 ```text
@@ -525,7 +539,7 @@ Make one. A deploy into a project takes `admin` on it, so this one, which
 deploys from CI, is an admin of one project:
 
 ```sh
-npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
+npx --yes @kindgi/cli@0.4 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
 ```
 
 - `acme-ci` is the account's name.
@@ -553,7 +567,7 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys
 Then make it a key, limited to that same project:
 
 ```sh
-npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.4 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed, and
@@ -648,7 +662,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-npx --yes @kindgi/cli@0.2 people remove <user-id>
+npx --yes @kindgi/cli@0.4 people remove <user-id>
 ```
 
 ```text

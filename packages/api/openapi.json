@@ -530,6 +530,7 @@
           "site-not-found": 404,
           "site-invalid": 400,
           "site-enrollment-refused": 401,
+          "site-enrollment-key-retired": 409,
           "site-key-invalid": 400,
           "site-sign-in-refused": 401,
           "site-request-too-large": 413,
@@ -7285,7 +7286,7 @@
         "required": [
           "runId"
         ],
-        "description": "At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
+        "description": "At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`. A text of only spaces counts as not given.",
         "properties": {
           "runId": {
             "type": "string",
@@ -7391,7 +7392,7 @@
         "required": [
           "runId"
         ],
-        "description": "A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
+        "description": "A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`. A text of only spaces counts as not given.",
         "properties": {
           "runId": {
             "type": "string",
@@ -8192,6 +8193,28 @@
           }
         }
       },
+      "McpExposure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expose"
+        ],
+        "description": "Whether an agent or a flow is a tool in a person's chat app, through the API's MCP server (`/mcp`). An agent's tool is named by its id, a flow's by `flow.` and its id. The chat app lists it only to people who can see it. Absent, or `expose: false`: it isn't one.",
+        "properties": {
+          "expose": {
+            "type": "boolean",
+            "description": "Offer it as a tool to the people who can see it."
+          },
+          "readOnly": {
+            "type": "boolean",
+            "description": "Tells the chat app that a run changes nothing (the tool's `readOnlyHint`). Absent: no hint, so the chat app applies the protocol's default."
+          },
+          "destructive": {
+            "type": "boolean",
+            "description": "Tells the chat app that a run may change or remove things in a way that can't be undone (the tool's `destructiveHint`). Absent: no hint, so the chat app applies the protocol's default."
+          }
+        }
+      },
       "ConversationPolicy": {
         "type": "object",
         "additionalProperties": false,
@@ -8416,6 +8439,9 @@
           "parallelToolCalls": {
             "type": "boolean",
             "description": "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for."
+          },
+          "mcp": {
+            "$ref": "#/components/schemas/McpExposure"
           },
           "pins": {
             "$ref": "#/components/schemas/AgentPins"
@@ -8744,6 +8770,9 @@
           "parallelToolCalls": {
             "type": "boolean",
             "description": "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for."
+          },
+          "mcp": {
+            "$ref": "#/components/schemas/McpExposure"
           }
         }
       },
@@ -9008,6 +9037,9 @@
             "type": "object",
             "additionalProperties": true
           },
+          "mcp": {
+            "$ref": "#/components/schemas/McpExposure"
+          },
           "pins": {
             "$ref": "#/components/schemas/FlowPins"
           },
@@ -9074,6 +9106,9 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          },
+          "mcp": {
+            "$ref": "#/components/schemas/McpExposure"
           }
         }
       },
@@ -20345,9 +20380,10 @@
           "owner",
           "admin",
           "editor",
+          "runner",
           "viewer"
         ],
-        "description": "A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`)."
+        "description": "A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `runner` > `viewer` (a membership stored as `member` is `viewer`)."
       },
       "AccessPathDirect": {
         "type": "object",
@@ -20446,8 +20482,24 @@
           }
         }
       },
+      "AccessPathEveryone": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "A person in the project's workspace, where the project lets everyone run it (`everyoneCanRun`): what `everyoneCapabilities` names, and no role. Listed on a project where the caller also holds a role; one it reaches this way alone is in `everyoneCanRunProjects` instead.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "everyone"
+            ]
+          }
+        }
+      },
       "AccessPath": {
-        "description": "One way the caller holds a role on a project: a membership of its own, a team it is in, an org it administers, or tenant admin.",
+        "description": "One way the caller holds a role on a project, or reaches it: a membership of its own, a team it is in, an org it administers, tenant admin, or everyone in the project's workspace.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/AccessPathDirect"
@@ -20460,6 +20512,9 @@
           },
           {
             "$ref": "#/components/schemas/AccessPathTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/AccessPathEveryone"
           }
         ],
         "discriminator": {
@@ -20468,7 +20523,8 @@
             "direct": "#/components/schemas/AccessPathDirect",
             "team": "#/components/schemas/AccessPathTeam",
             "org-admin": "#/components/schemas/AccessPathOrgAdmin",
-            "tenant-admin": "#/components/schemas/AccessPathTenantAdmin"
+            "tenant-admin": "#/components/schemas/AccessPathTenantAdmin",
+            "everyone": "#/components/schemas/AccessPathEveryone"
           }
         }
       },
@@ -20494,10 +20550,27 @@
           },
           "via": {
             "type": "array",
-            "description": "Every way the caller holds a role on it (for \"My access\").",
+            "description": "Every way the caller holds a role on it (for \"My access\"), and `everyone` when the project also lets everyone in its workspace run it.",
             "items": {
               "$ref": "#/components/schemas/AccessPath"
             }
+          }
+        }
+      },
+      "MyEveryoneCanRunProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "name"
+        ],
+        "description": "A project the caller holds no role on, and may run because it lets everyone in its workspace run it (`everyoneCanRun`): what `everyoneCapabilities` names.",
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -20601,7 +20674,8 @@
                 "read",
                 "write",
                 "admin",
-                "delete"
+                "delete",
+                "run"
               ]
             }
           },
@@ -20753,7 +20827,7 @@
       "RoleCapabilities": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
+        "description": "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it, or, on a project in `everyoneCanRunProjects` or whose `via` lists `everyone`, `everyoneCapabilities[type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
         "required": [
           "owner",
           "admin",
@@ -20768,6 +20842,9 @@
             "$ref": "#/components/schemas/RoleActions"
           },
           "editor": {
+            "$ref": "#/components/schemas/RoleActions"
+          },
+          "runner": {
             "$ref": "#/components/schemas/RoleActions"
           },
           "viewer": {
@@ -20820,7 +20897,7 @@
       "MyPermissions": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.",
+        "description": "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read or run with its role in each and how it holds it, its orgs and teams, what each project role allows, and what everyone in the workspace may do on a project that lets everyone run it. Only what the caller may see: nothing names a project it can neither read nor run, or anyone else's role.",
         "required": [
           "tenantId",
           "tenant",
@@ -20854,9 +20931,16 @@
           },
           "projects": {
             "type": "array",
-            "description": "The projects the caller may read, by name.",
+            "description": "The projects the caller may read, by name. A key limited to a project lists that one alone.",
             "items": {
               "$ref": "#/components/schemas/MyProjectAccess"
+            }
+          },
+          "everyoneCanRunProjects": {
+            "type": "array",
+            "description": "The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.",
+            "items": {
+              "$ref": "#/components/schemas/MyEveryoneCanRunProject"
             }
           },
           "orgs": {
@@ -20875,6 +20959,10 @@
           },
           "capabilities": {
             "$ref": "#/components/schemas/RoleCapabilities"
+          },
+          "everyoneCapabilities": {
+            "$ref": "#/components/schemas/RoleActions",
+            "description": "What everyone in the workspace may do on a project that lets everyone run it, and on every object of each type in it, by object type: on each project in `everyoneCanRunProjects`, and on each in `projects` whose `via` lists `everyone`, on top of the role held there. Worked out from the authorization model as `capabilities` is. Absent from an older server."
           },
           "readOnlyNotice": {
             "type": "string",
@@ -23383,6 +23471,7 @@
         "type": "string",
         "enum": [
           "viewer",
+          "runner",
           "editor",
           "owner",
           "admin",
@@ -23394,20 +23483,22 @@
         "type": "string",
         "enum": [
           "viewer",
+          "runner",
           "editor",
           "owner",
           "admin"
         ],
-        "description": "A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`."
+        "description": "A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`."
       },
       "TeamProjectRole": {
         "type": "string",
         "enum": [
           "viewer",
+          "runner",
           "editor",
           "admin"
         ],
-        "description": "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project."
+        "description": "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project."
       },
       "TeamProjectGrant": {
         "type": "object",
@@ -23657,6 +23748,7 @@
               "owner",
               "admin",
               "editor",
+              "runner",
               "viewer"
             ],
             "description": "The effective role: the highest any way in gives."
@@ -23733,9 +23825,20 @@
             "format": "date-time",
             "description": "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging."
           },
+          "formerSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them."
+          },
           "sortEndUserCorrections": {
             "type": "boolean",
             "description": "`true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve."
+          },
+          "everyoneCanRun": {
+            "type": "boolean",
+            "description": "`true`: everyone in the project's workspace can run this project's agents and flows without a role of their own; service accounts aren't included. That reads nothing more than running takes: the project, its agents and flows with their versions (an agent's owner by id alone), and each person's own runs, conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it off; existing projects and workspaces keep it `false` until a project admin turns it on. Absent from an older server."
           },
           "repoConnectionId": {
             "type": "string",
@@ -23841,6 +23944,10 @@
           },
           "isDefault": {
             "type": "boolean"
+          },
+          "everyoneCanRun": {
+            "type": "boolean",
+            "description": "Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). `true` when left out; `false` to choose people one by one. Existing projects and workspaces keep it `false` until a project admin turns it on."
           }
         }
       },
@@ -23869,6 +23976,10 @@
           "sortEndUserCorrections": {
             "type": "boolean",
             "description": "Whether end users' corrections are sorted like the others and count toward a schedule (the project's `sortEndUserCorrections`). Admin on the project."
+          },
+          "everyoneCanRun": {
+            "type": "boolean",
+            "description": "Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). Existing projects and workspaces keep it `false` until a project admin turns it on. Admin on the project. A runtime enforcing authorization that can't change the grant with it answers `501 authz-membership-unsupported`, and nothing changes."
           }
         }
       },
@@ -24808,7 +24919,8 @@
           },
           "revokedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then."
           }
         }
       },
@@ -25000,7 +25112,8 @@
               },
               "oldVersionRevokedAt": {
                 "type": "string",
-                "format": "date-time"
+                "format": "date-time",
+                "description": "When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid."
               }
             }
           },
@@ -25385,7 +25498,9 @@
           },
           "revokeOldAfterMs": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "maximum": 31536000000,
+            "description": "Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid."
           }
         }
       },
@@ -25414,7 +25529,8 @@
           },
           "oldVersionRevokedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid."
           }
         }
       },
@@ -29071,7 +29187,7 @@
           "app",
           "appName"
         ],
-        "description": "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show \"this person's <appName> account\".",
+        "description": "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show \"this person's <appName> account\", and, to whoever may read the connection (`GET /v1/connections/{connectionId}`), its account.",
         "properties": {
           "app": {
             "type": "string",
@@ -29095,6 +29211,11 @@
           "name": {
             "type": "string",
             "description": "The company connection's name: its label, else the account's label. A person's own connection has none."
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection's id. Whoever may read the connection (its person, a tenant admin) looks its account up by it: `GET /v1/connections/{connectionId}`. Absent from older approvals."
           }
         }
       },
@@ -30357,7 +30478,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.",
+        "description": "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
         "parameters": [
           {
             "name": "limit",
@@ -30536,6 +30657,18 @@
             },
             "required": false,
             "description": "With `flowId`: only runs of this version."
+          },
+          {
+            "name": "actsFor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me"
+              ]
+            },
+            "required": false,
+            "description": "`me`: only the runs that act for the caller (the run's `actsFor`); none for a caller who acts for no one."
           }
         ],
         "security": [
@@ -30841,7 +30974,7 @@
             }
           }
         },
-        "description": "Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.",
+        "description": "Takes `write` on the run's project; a `runner` there may cancel a run that acts for them (one they started, or their own schedule did). Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.",
         "parameters": [
           {
             "name": "runId",
@@ -44441,7 +44574,7 @@
             }
           },
           "403": {
-            "description": "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+            "description": "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44491,7 +44624,7 @@
             }
           }
         },
-        "description": "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).",
+        "description": "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.",
         "parameters": [
           {
             "name": "conversationId",
@@ -48337,7 +48470,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.",
+        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
         "parameters": [
           {
             "name": "limit",
@@ -48433,7 +48566,7 @@
             }
           },
           "403": {
-            "description": "No `write` on the project (`permission-denied`), or the caller's API key is limited to another project (`key-project-mismatch`).",
+            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -48493,7 +48626,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -48561,7 +48694,7 @@
             }
           },
           "404": {
-            "description": "No blob with that id under this workspace, or one in a project the caller can't read.",
+            "description": "No blob with that id under this workspace, or one in a project the caller can't read that isn't a file of their own.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48581,7 +48714,7 @@
             }
           }
         },
-        "description": "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
+        "description": "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
         "parameters": [
           {
             "name": "blobId",
@@ -48627,7 +48760,7 @@
             "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`."
           }
         },
-        "description": "Same headers as GET, empty body. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.",
+        "description": "Same headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.",
         "parameters": [
           {
             "name": "blobId",
@@ -48693,7 +48826,7 @@
             }
           },
           "404": {
-            "description": "An artifact in a project the caller can't read (`blob-not-found`).",
+            "description": "An artifact in a project the caller can't read that isn't a file of their own (`blob-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63043,7 +63176,7 @@
             }
           }
         },
-        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
+        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -63190,7 +63323,7 @@
             }
           },
           "409": {
-            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63219,6 +63352,16 @@
               }
             }
           },
+          "501": {
+            "description": "With authorization enforced, a runtime whose tenant-hierarchy binding can't change `everyoneCanRun` together with its grant refuses with `authz-membership-unsupported`; nothing is changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
@@ -63230,7 +63373,7 @@
             }
           }
         },
-        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.",
+        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
         "parameters": [
           {
             "name": "projectId",
@@ -65687,7 +65830,7 @@
             }
           }
         },
-        "description": "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
+        "description": "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `runner`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
         "parameters": [
           {
             "name": "projectId",
@@ -69050,7 +69193,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+            "description": "`permission-denied`: no `write` on the schedule's project (`run`, for a person's own schedule) or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69110,7 +69253,7 @@
             }
           }
         },
-        "description": "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. Any other schedule the caller registers for themselves, a person with no `runAsServiceAccountId` or `runAsProject`, takes `run` on the project (a `runner` keeps their own schedules); every other one takes `write`. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -69343,7 +69486,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69403,7 +69546,7 @@
             }
           }
         },
-        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
+        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `run` on its project; `write` for an `improve` schedule, or to make it one) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
         "parameters": [
           {
             "name": "triggerId",
@@ -69482,7 +69625,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69532,7 +69675,7 @@
             }
           }
         },
-        "description": "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.",
+        "description": "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner (holding `run` on its project) or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -69601,7 +69744,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69651,7 +69794,7 @@
             }
           }
         },
-        "description": "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.",
+        "description": "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner (holding `run` on its project) or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.",
         "parameters": [
           {
             "name": "triggerId",
@@ -69720,7 +69863,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69760,7 +69903,7 @@
             }
           }
         },
-        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -70107,7 +70250,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70167,7 +70310,7 @@
             }
           }
         },
-        "description": "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.",
+        "description": "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner (holding `run` on its project) or a project admin fires it; a shared one, any writer of its project.",
         "parameters": [
           {
             "name": "triggerId",
@@ -77544,7 +77687,7 @@
             }
           }
         },
-        "description": "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+        "description": "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.",
         "parameters": [
           {
             "name": "projectId",
@@ -77766,6 +77909,16 @@
               }
             }
           },
+          "409": {
+            "description": "The key was retired at this site, or at another site in the workspace at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "413": {
             "description": "The body is over 4096 bytes (`site-request-too-large`).",
             "content": {
@@ -77787,7 +77940,7 @@
             }
           }
         },
-        "description": "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+        "description": "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
         "requestBody": {
           "required": true,
           "content": {

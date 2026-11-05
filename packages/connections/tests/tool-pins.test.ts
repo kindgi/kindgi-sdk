@@ -25,6 +25,7 @@ import {
   googleCalendarEventUpdate,
   googleCalendarEventsList,
   googleCalendarFreeBusy,
+  googleCalendarSharedEventsList,
 } from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
@@ -34,6 +35,7 @@ import {
   outlookCalendarEventUpdate,
   outlookCalendarEventsList,
   outlookCalendarFreeBusy,
+  outlookCalendarSharedEventsList,
   outlookMessageGet,
   outlookMessagesList,
   outlookReply,
@@ -96,6 +98,12 @@ const TOOLS = {
   outlookCalendarCalendarsList: (id: string) => outlookCalendarCalendarsList({ id }),
   'outlookCalendarCalendarsList as company': (id: string) =>
     outlookCalendarCalendarsList({ id, as: 'company' }),
+  googleCalendarSharedEventsList: (id: string) => googleCalendarSharedEventsList({ id }),
+  'googleCalendarSharedEventsList as company': (id: string) =>
+    googleCalendarSharedEventsList({ id, as: 'company' }),
+  outlookCalendarSharedEventsList: (id: string) => outlookCalendarSharedEventsList({ id }),
+  'outlookCalendarSharedEventsList as company': (id: string) =>
+    outlookCalendarSharedEventsList({ id, as: 'company' }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**

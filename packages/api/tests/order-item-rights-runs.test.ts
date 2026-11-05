@@ -46,6 +46,15 @@ const SOLO = 'acme.solo';
 const IN_PROD = randomUUID();
 const IN_STAGING = randomUUID();
 const IN_OTHER = randomUUID();
+/** In prod too: one each of its runners opened. */
+const RUNNERS_IN_PROD = randomUUID();
+const EVERYONES_IN_PROD = randomUUID();
+/** Who opened each conversation in prod. */
+const OPENED_IN_PROD: Record<string, string> = {
+  [IN_PROD]: 'user:prod',
+  [RUNNERS_IN_PROD]: 'user:prod-runner',
+  [EVERYONES_IN_PROD]: 'user:prod-everyone',
+};
 
 function rows(): ItemRow[] {
   return (['agent', 'flow', 'test_set'] as const).flatMap((kind): ItemRow[] => [
@@ -62,6 +71,7 @@ function rows(): ItemRow[] {
 const on = (project: ProjectId, ...actions: string[]) =>
   actions.map((a) => `${a} project:${project}` as Grant);
 
+/** Who holds `write` on a project holds `run` there too, as an editor is a runner. */
 const PEOPLE: Record<string, readonly Grant[]> = {
   /** Calls agents and executes flows in prod; not an editor there. */
   prod: on(PROD, 'read', 'call', 'execute'),
@@ -69,12 +79,16 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   staging: on(STAGING, 'read', 'call', 'execute'),
   /** Calls agents in prod, and doesn't read it: an app's backend. */
   'prod-caller': on(PROD, 'call'),
+  /** Runs prod, and isn't an editor there: a runner. */
+  'prod-runner': on(PROD, 'read', 'call', 'run'),
+  /** Runs prod, as prod lets everyone in the workspace, and doesn't read it. */
+  'prod-everyone': on(PROD, 'call', 'run'),
   /** Calls in both. */
   both: [...on(STAGING, 'read', 'call', 'execute'), ...on(PROD, 'read', 'call', 'execute')],
   /** Today's rights on `acme.desk` and no project's: no longer enough in its projects. */
-  item: [`execute agent:${SERVED}`, `execute flow:${SERVED}`, ...on(PROD, 'write')],
+  item: [`execute agent:${SERVED}`, `execute flow:${SERVED}`, ...on(PROD, 'write', 'run')],
   /** Runs `acme.desk` in a project outside its order, as before: `execute` on it, `write` there. */
-  outside: [`execute agent:${SERVED}`, ...on(OTHER, 'read', 'write')],
+  outside: [`execute agent:${SERVED}`, ...on(OTHER, 'read', 'write', 'run')],
   /** Runs the one-project items, and may not write their project. */
   'solo-caller': [`execute agent:${SOLO}`, `execute flow:${SOLO}`, ...on(OTHER, 'read')],
   /** Runs the one-project items, as today. */
@@ -82,14 +96,14 @@ const PEOPLE: Record<string, readonly Grant[]> = {
     `execute agent:${SOLO}`,
     `execute flow:${SOLO}`,
     ...['read', 'write', 'admin', 'execute'].map((a) => `${a} test_set:${SOLO}` as Grant),
-    ...on(OTHER, 'read', 'write'),
+    ...on(OTHER, 'read', 'write', 'run'),
   ],
   /** Reads and runs evals in prod: execute and call there, write to file its results. */
-  'prod-evals': on(PROD, 'read', 'call', 'execute', 'write'),
+  'prod-evals': on(PROD, 'read', 'call', 'execute', 'write', 'run'),
   /** Runs prod: registers its triggers there, and calls and executes there. */
-  'prod-ops': on(PROD, 'read', 'write', 'call', 'execute'),
+  'prod-ops': on(PROD, 'read', 'write', 'run', 'call', 'execute'),
   /** Writes both projects (an improve schedule in prod makes versions in staging). */
-  'writes-both': [...on(STAGING, 'read', 'write'), ...on(PROD, 'read', 'write')],
+  'writes-both': [...on(STAGING, 'read', 'write', 'run'), ...on(PROD, 'read', 'write', 'run')],
   /** Edits the flow (today's right to register its event triggers) and executes in staging. */
   'event-maker': [`write flow:${SERVED}`, ...on(STAGING, 'read', 'execute')],
   /** Edits the flow, and executes in prod only. */
@@ -105,7 +119,7 @@ const PEOPLE: Record<string, readonly Grant[]> = {
     ...(['agent', 'flow'] as const).flatMap(
       (kind) => [`execute ${kind}:${SERVED}`, `execute ${kind}:${SOLO}`] as Grant[],
     ),
-    ...[STAGING, PROD, OTHER].flatMap((p) => on(p, 'read', 'write', 'call', 'execute')),
+    ...[STAGING, PROD, OTHER].flatMap((p) => on(p, 'read', 'write', 'run', 'call', 'execute')),
   ],
 };
 
@@ -177,8 +191,8 @@ function harness(opts: { served?: boolean; projects?: readonly ProjectId[] } = {
   const conversationBinding = {
     ...stubs.conversationBinding,
     getConversation: async (_t: TenantId, id: string) =>
-      id === IN_PROD
-        ? { kind: 'ok', value: conversation(IN_PROD, PROD, 'user:prod') }
+      OPENED_IN_PROD[id] !== undefined
+        ? { kind: 'ok', value: conversation(id, PROD, OPENED_IN_PROD[id]) }
         : id === IN_STAGING
           ? { kind: 'ok', value: conversation(IN_STAGING, STAGING) }
           : id === IN_OTHER
@@ -663,6 +677,37 @@ describe('conversations with an agent an order carries', () => {
     expect(conversations, prod.text).toEqual([`close ${IN_PROD}`, `close ${IN_PROD}`]);
   });
 
+  test("one who may run prod without write there closes only its own: another person's is the 403, or, unread, the 404 a missing one gets", async () => {
+    const { call, conversations } = harness();
+    const runner = await call('prod-runner', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(runner.status, runner.text).toBe(403);
+    expect(runner.body.error.message).toBe(
+      'Closing a conversation someone else opened takes write on its project',
+    );
+    expect(runner.asked).toEqual(
+      ['call', 'run', 'write', 'read'].map((a) => `prod-runner ${a} project:${PROD}`),
+    );
+    const everyone = await call('prod-everyone', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    const staging = await call('staging', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(everyone.status, everyone.text).toBe(404);
+    expect(everyone.text).toBe(staging.text);
+    expect(everyone.asked).toEqual(
+      ['call', 'run', 'write', 'read'].map((a) => `prod-everyone ${a} project:${PROD}`),
+    );
+    expect(conversations).toEqual([]);
+    // Their own: through on prod's call, nothing more asked.
+    const own = await call('prod-runner', 'POST', `/v1/conversations/${RUNNERS_IN_PROD}/close`);
+    expect(own.asked).toEqual([`prod-runner call project:${PROD}`]);
+    await call('prod-everyone', 'POST', `/v1/conversations/${EVERYONES_IN_PROD}/close`);
+    // With write there as well, any.
+    await call('prod-ops', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(conversations).toEqual([
+      `close ${RUNNERS_IN_PROD}`,
+      `close ${EVERYONES_IN_PROD}`,
+      `close ${IN_PROD}`,
+    ]);
+  });
+
   test('an agent with one project: execute on it, as before', async () => {
     const body = { agentId: SOLO, agentVersion: '1.0.0' };
     const a = await harness().call('solo', 'POST', '/v1/conversations', body);
@@ -767,14 +812,11 @@ describe('schedules of what an order carries', () => {
   });
   const flow = { flowId: SERVED, flowVersion: '1.0.0' };
 
-  test('a prod member schedules the flow in prod: write there, and execute there for the flow', async () => {
+  test('a prod member schedules the flow in prod, as their own: run there, and execute there for the flow', async () => {
     const { call } = harness();
     const res = await call('prod-ops', 'POST', '/v1/schedules', schedule(flow));
     expect(res.status, res.text).toBe(201);
-    expect(res.asked).toEqual([
-      `prod-ops write project:${PROD}`,
-      `prod-ops execute project:${PROD}`,
-    ]);
+    expect(res.asked).toEqual([`prod-ops run project:${PROD}`, `prod-ops execute project:${PROD}`]);
   });
 
   test("today's execute on the flow doesn't schedule it in its projects", async () => {
@@ -793,7 +835,7 @@ describe('schedules of what an order carries', () => {
       config: { cronExpression: '0 2 * * *', input: { userMessage: 'Summarize the night.' } },
     });
     expect(res.status, res.text).toBe(201);
-    expect(res.asked).toEqual([`prod-ops write project:${PROD}`, `prod-ops call project:${PROD}`]);
+    expect(res.asked).toEqual([`prod-ops run project:${PROD}`, `prod-ops call project:${PROD}`]);
   });
 
   test('an improve schedule in prod is write where the agent gets its new versions', async () => {
@@ -814,7 +856,7 @@ describe('schedules of what an order carries', () => {
     const b = await harness({ served: false }).call('solo', 'POST', '/v1/schedules', body);
     expect(a.status, a.text).toBe(b.status);
     expect(a.asked).toEqual(b.asked);
-    expect(a.asked).toEqual([`solo write project:${OTHER}`, `solo execute flow:${SOLO}`]);
+    expect(a.asked).toEqual([`solo run project:${OTHER}`, `solo execute flow:${SOLO}`]);
   });
 });
 

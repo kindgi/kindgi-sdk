@@ -9,6 +9,7 @@ import type { ArtifactId, Cursor, ProjectId, RunId, TenantId } from '@kindgi/typ
 import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { actsForOf } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
@@ -16,17 +17,25 @@ import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { isOwnRun, readableOrRun } from './runner-reach.js';
 import { savedFileHeaders } from './stored-bytes.js';
 
 /** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 
 export interface ArtifactsRouterDeps {
-  /** Resolves an upload's owner run, whose project the artifact belongs to. */
+  /**
+   * Resolves an upload's owner run, whose project the artifact belongs to,
+   * and an artifact's, to tell whether it's the caller's own run.
+   */
   readonly runBinding?: RunBinding;
   /** The tenant's default project, for an upload that names neither run nor project. */
   readonly projectBinding?: ProjectBinding;
-  /** Reads need `read` on the artifact's project; uploads and deletes need `write`. */
+  /**
+   * Reads need `read` on the artifact's project; uploads and deletes need
+   * `write`. `run` there reaches a caller's own files, and an upload of
+   * their own for a run's input (`artifactsRouter`).
+   */
   readonly authorizer?: Authorizer;
 }
 
@@ -81,8 +90,11 @@ export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv>
  * uploads only into that project: any other is `403 key-project-mismatch`.
  * With an authorizer, listing and downloading need `read` there (an
  * artifact the caller can't read is `404`, as if absent), and uploading
- * and deleting need `write`. An upload's size limit is
- * `artifactUploadLimit`'s.
+ * and deleting need `write`. `run` there is enough for a caller's own
+ * files (`runner-reach.ts`): downloading one they uploaded or one a run of
+ * their own stored, listing an own run's files (`?ownerRunId=`), and
+ * uploading a file of their own that names no run, to start a run with.
+ * An upload's size limit is `artifactUploadLimit`'s.
  */
 export function artifactsRouter(
   binding: BlobStorageBinding,
@@ -97,6 +109,36 @@ export function artifactsRouter(
       : ref('tenant', c.get('tenantId') as unknown as string);
   const may = async (c: Context<AppEnv>, action: 'read' | 'write', m: BlobMeta) =>
     authorizer === undefined || (await authorizer.can(c, action, scopeOf(c, m)));
+  /** The run, when it's the caller's own (`isOwnRun`). */
+  const ownRun = async (c: Context<AppEnv>, runId: RunId) => {
+    const run =
+      deps.runBinding === undefined
+        ? null
+        : await deps.runBinding.getRun(c.get('tenantId') as TenantId, runId);
+    return run !== null && isOwnRun(c, run) ? run : undefined;
+  };
+  /**
+   * A file of the caller's own: one they uploaded (`createdBy`), or one a
+   * run of their own stored (`ownerRunId`). A file of a run that acts for
+   * a service account, for the project or for no one is never a person's.
+   */
+  const ownFile = async (c: Context<AppEnv>, m: BlobMeta) => {
+    const me = actsForOf(c);
+    if (me === undefined) return false;
+    if (m.createdBy === me) return true;
+    return m.ownerRunId !== undefined && (await ownRun(c, m.ownerRunId)) !== undefined;
+  };
+  /**
+   * Whether the caller may see the artifact: `read` on its project, or,
+   * on a file of their own, `run` there. `run` is asked only when `read`
+   * refuses.
+   */
+  const maySee = async (c: Context<AppEnv>, m: BlobMeta) =>
+    (await may(c, 'read', m)) ||
+    (authorizer !== undefined &&
+      m.projectId !== undefined &&
+      (await ownFile(c, m)) &&
+      (await authorizer.can(c, 'run', scopeOf(c, m))));
 
   // ---------- GET / (list, cursor-paginated metadata) ----------
   r.get('/', async (c) => {
@@ -123,10 +165,25 @@ export function artifactsRouter(
       c.status(statusFor(page.error.code) as never);
       return c.json(toWireError(page.error as never, requestId));
     }
+    // `read` on a file's project; with `?ownerRunId=` of a run of the
+    // caller's own, `run` there too, so the run's files fill the page.
+    const own =
+      authorizer !== undefined && filter.value.ownerRunId !== undefined
+        ? await ownRun(c, filter.value.ownerRunId)
+        : undefined;
     const visible =
       authorizer === undefined
         ? page.value.data
-        : await authorizer.filterByCan(c, 'read', page.value.data, (m) => scopeOf(c, m));
+        : await readableOrRun(
+            authorizer,
+            c,
+            page.value.data,
+            (m) => scopeOf(c, m),
+            (m) =>
+              own !== undefined && m.ownerRunId === own.runId && m.projectId !== undefined
+                ? (m.projectId as unknown as string)
+                : undefined,
+          );
     return c.json({
       data: visible.map(serializeMeta),
       hasMore: page.value.nextCursor !== undefined,
@@ -190,6 +247,10 @@ export function artifactsRouter(
         details: { keyProjectId: keyProject, projectId: named },
       });
     }
+    const userId = c.get('userId') as unknown as string | undefined;
+    const createdBy = userId !== undefined ? `user:${userId}` : undefined;
+    // `write`, or `run` for a file of the caller's own that names no run:
+    // an input for a run they start. One that names a run stays `write`.
     if (
       authorizer !== undefined &&
       !(await authorizer.can(
@@ -198,7 +259,14 @@ export function artifactsRouter(
         project.projectId !== undefined
           ? ref('project', project.projectId as unknown as string)
           : ref('tenant', tenantId as unknown as string),
-      ))
+      )) &&
+      !(
+        project.projectId !== undefined &&
+        validated.value.ownerRunId === undefined &&
+        createdBy !== undefined &&
+        createdBy === actsForOf(c) &&
+        (await authorizer.can(c, 'run', ref('project', project.projectId as unknown as string)))
+      )
     ) {
       c.status(statusFor('permission-denied') as never);
       return c.json(
@@ -208,11 +276,10 @@ export function artifactsRouter(
         ),
       );
     }
-    const userId = c.get('userId') as unknown as string | undefined;
     const input: BlobPutInput = {
       ...validated.value,
       ...(project.projectId !== undefined && { projectId: project.projectId }),
-      ...(userId !== undefined && { createdBy: `user:${userId}` }),
+      ...(createdBy !== undefined && { createdBy }),
     };
 
     const outcome = await binding.put(tenantId, input);
@@ -231,7 +298,7 @@ export function artifactsRouter(
     const blobId = c.req.param('blobId') as ArtifactId;
 
     const found = await binding.head(tenantId, blobId);
-    if (found === null || !(await may(c, 'read', found))) return notFound(c, blobId);
+    if (found === null || !(await maySee(c, found))) return notFound(c, blobId);
     // Hono answers a HEAD with this GET route and drops the body. So a HEAD
     // answers the GET's headers from the metadata and never opens the blob:
     // a blob opened and never read stays open (a file handle, a connection).
@@ -258,7 +325,7 @@ export function artifactsRouter(
 
     const found = await binding.head(tenantId, blobId);
     if (found !== null) {
-      if (!(await may(c, 'read', found))) return notFound(c, blobId);
+      if (!(await maySee(c, found))) return notFound(c, blobId);
       if (!(await may(c, 'write', found))) {
         c.status(statusFor('permission-denied') as never);
         return c.json(

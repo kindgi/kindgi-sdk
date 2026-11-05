@@ -1177,7 +1177,8 @@ function parseExpectedCall(call: unknown): ExpectedCall | string {
 
 /**
  * `why`, and `shouldSay` only with `answer: "wrong"`, which needs one of
- * them, so a judging model has something to check against.
+ * them, so a judging model has something to check against. A text of only
+ * spaces counts as not given, as an empty one does. Each is stored as given.
  */
 function parseTexts(
   b: Record<string, unknown>,
@@ -1189,9 +1190,8 @@ function parseTexts(
       return `${name} must be a string of at most ${MAX_TEXT} characters.`;
     }
   }
-  const shouldSay =
-    typeof b.shouldSay === 'string' && b.shouldSay.length > 0 ? b.shouldSay : undefined;
-  const why = typeof b.why === 'string' && b.why.length > 0 ? b.why : undefined;
+  const shouldSay = nonEmpty(b.shouldSay) ? b.shouldSay : undefined;
+  const why = nonEmpty(b.why) ? b.why : undefined;
   if (shouldSay !== undefined && answer !== 'wrong') return 'shouldSay goes with answer: "wrong".';
   if (answer === 'wrong' && shouldSay === undefined && why === undefined) {
     return 'answer: "wrong" needs shouldSay or why.';

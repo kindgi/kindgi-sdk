@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.8"
+version: "0.1.10"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -65,7 +65,7 @@ You need a JDK 17 or later (`JAVA_HOME`). Maven comes with the pack
 (`./mvnw`).
 
 ```sh
-npx --yes @kindgi/cli@0.2 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.2,<0.3" kindgi init …
+npx --yes @kindgi/cli@0.4 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.4,<0.5" kindgi init …
 cd my-pack
 ./mvnw test        # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
@@ -79,7 +79,7 @@ and don't stop theirs.
 Each linked git worktree runs its own `kindgi dev`, side by side, with its
 own workspace, user and token. In the bundled Postgres it has its own
 database too, `kindgi_<project>__<worktree>`, and its workspace and user are
-named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+named from it; with your own (`KINDGI_DATABASE_URL`),
 it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
 git, keeps the token, workspace and user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,
@@ -104,7 +104,7 @@ reported as `file:line:col`, and the last good code keeps serving.
 In the app's directory (where its `pom.xml` is):
 
 ```sh
-npx --yes @kindgi/cli@0.2 init   # --pack-id=<id> if the app's artifactId doesn't make one
+npx --yes @kindgi/cli@0.4 init   # --pack-id=<id> if the app's artifactId doesn't make one
 ./kindgiw dev
 ```
 

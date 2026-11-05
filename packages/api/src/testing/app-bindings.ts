@@ -76,6 +76,7 @@ export function createStubAppBindings(): StubAppBindings {
       updateTeamMemberRole: true,
       removeProjectMember: true,
       updateProjectMemberRole: true,
+      updateProject: true,
       addTeamProjectGrant: true,
       updateTeamProjectGrantRole: true,
       removeTeamProjectGrant: true,

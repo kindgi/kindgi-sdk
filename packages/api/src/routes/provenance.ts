@@ -38,6 +38,7 @@ import {
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { actionOrRunRefusal, isOwnRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
 import { parseTimeInput } from './time-input.js';
 import { UUID_RE } from './uuid-param.js';
@@ -86,8 +87,9 @@ export function provenanceRouter(
   options: ProvenanceRouterOptions = {},
   /**
    * With one (T243 A): a run's provenance (and its export) needs `read`
-   * on the run's project; the list holds only records whose project the
-   * caller may read (the tenant, for one with no project).
+   * on the run's project, or, for a run of the caller's own (`isOwnRun`),
+   * `run` there; the list holds only records whose project the caller may
+   * read (the tenant, for one with no project).
    */
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
@@ -102,11 +104,16 @@ export function provenanceRouter(
       const run = UUID_RE.test(runId)
         ? await options.runBinding?.getRun(tenantId, runId as RunId)
         : undefined;
-      const at =
-        run === undefined || run === null
-          ? ref('tenant', tenantId as unknown as string)
-          : ref('project', run.projectId as unknown as string);
-      return authorizer.authorize('read', () => at)(c, next);
+      if (run === undefined || run === null) {
+        return authorizer.authorize('read', () => ref('tenant', tenantId as unknown as string))(
+          c,
+          next,
+        );
+      }
+      const project = run.projectId as unknown as string;
+      const own = isOwnRun(c, run) ? project : undefined;
+      const refused = await actionOrRunRefusal(authorizer, c, 'read', ref('project', project), own);
+      return refused ?? next();
     };
     r.use('/:runId', async (c, next) =>
       isReadMethod(c.req.method) ? onRunProject(c, next) : next(),

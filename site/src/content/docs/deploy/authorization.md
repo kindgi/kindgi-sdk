@@ -38,8 +38,10 @@ different access:
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
-- **Every decision is recorded,** allowed or denied, with who asked, what for
-  and why ([The access audit](#the-access-audit)).
+- **Every decision on what a request may do or read is recorded,** allowed
+  or denied, with who asked, what for and why
+  ([The access audit](#the-access-audit)). What the console reads to show
+  you your own access isn't (runtime 0.6.0 or later).
 - **Registering an approval reviewer takes a tenant admin.** A tenant admin
   reads approvals at every tier without registering, through a session or an
   `admin` key not limited to a project, in the projects they may read.
@@ -303,8 +305,12 @@ what each role allows on each kind of object.
 
 ## Project memberships
 
-A project's members have a role: `owner`, `admin`, `editor` or `viewer`. Each
-includes the next ones: an owner is also an admin, an editor and a viewer.
+A project's members have a role: `owner`, `admin`, `editor`, `runner` or
+`viewer`. Each includes the next ones: an owner is also an admin, an editor,
+a runner and a viewer. A `runner` can run: start runs of the project's
+agents and flows, use their tools inside those runs, stop their own runs,
+close the conversations they opened, and keep their own schedules. They
+change nothing else in the project.
 A role given as `member` before it was retired still reads back as `member`
 and grants what `viewer` does. Giving it is a `400` that says to use
 `viewer`. An API key's `member` role is a different one, and stays
@@ -318,8 +324,8 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
 ```
 
 - `<project-id>` is the project's id, and `<user-id>` the person's.
-- `role` is their role on the project: `owner`, `admin`, `editor` or
-  `viewer`.
+- `role` is their role on the project: `owner`, `admin`, `editor`,
+  `runner` or `viewer`.
 - `KINDGI_API_URL` is the runtime's address, and `KINDGI_API_TOKEN` your
   API key.
 
@@ -349,6 +355,41 @@ through [their grants](../people-and-keys/#make-someone-a-tenant-admin)
 
 In the console, a project's admins do this on its **Members** page: see
 [In the console: Members](#in-the-console-members).
+
+### Everyone can run a project
+
+A project can let everyone in its workspace run its agents and flows,
+without a role of their own. It's the project's `everyoneCanRun`:
+
+- A new project has it. Send `"everyoneCanRun": false` with
+  `POST /v1/projects` to choose people one by one.
+- Existing projects and workspaces keep it `false` until a project admin
+  turns it on.
+- It reaches people only. A service account gets a role of its own, as
+  before.
+- It lets people run, and reads nothing else by itself. Someone who holds
+  no role there sees the project; its agents and flows with their
+  versions, where an agent names its owner by id alone; their own runs,
+  with their journal, progress and provenance, and their public links; the
+  files they upload as inputs for their runs, and the files their runs
+  store; the conversations they opened; and their own schedules. They can
+  stop their own runs, close the conversations they opened, and keep their
+  own schedules. Anyone else's runs, files, conversations and schedules, an
+  agent's other pages, its tools, test sets and approvals take a role, as
+  before. Deleting a file takes `write`, even one of their own.
+- A role given to someone still counts: an editor stays an editor, and a
+  viewer runs as a runner does.
+
+A project admin turns it on or off:
+
+```sh
+curl -X PATCH "$KINDGI_API_URL/v1/projects/<project-id>" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
+  -d '{"everyoneCanRun":true}'
+```
+
+`GET /v1/projects/<project-id>` and the project list show it. Without an
+authorization store there are no roles, so it grants nothing.
 
 ## Teams
 
@@ -388,7 +429,7 @@ role on a project yet: the API does (team grants)."
 
 ## Team grants
 
-A team can have a role on a project: `viewer`, `editor` or `admin`. Every
+A team can have a role on a project: `viewer`, `runner`, `editor` or `admin`. Every
 member of the team then holds that role there, the team's admins included. A
 team never owns a project: `owner` is a person's role.
 
@@ -399,7 +440,8 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
 ```
 
 - `<team-id>` is the team's id.
-- `role` is the team's role on the project: `viewer`, `editor` or `admin`.
+- `role` is the team's role on the project: `viewer`, `runner`, `editor` or
+  `admin`.
 
 Giving a team a role takes `admin` on the project and `read` on the team:
 you give your project only to a team you can see. Giving a team `admin`
@@ -523,14 +565,14 @@ more.
 
 ## The access audit
 
-Each decision the authorization model makes, allowed or denied, is kept. So
-is a refusal the API answers from its own checks. `GET /v1/audit/authz`
-lists them, oldest first, for a tenant admin. `order=desc` lists the newest
-first, and its cursor goes on in that order: `order: 'desc'` in TypeScript,
-`order="desc"` in Python. They're kept for good, unless the runtime purges
-audit events. With `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed
-ones after 90 days and denied ones after 365
-([Audit events](../retention/#audit-events)).
+Each decision the authorization model makes on what a request may do or
+read, allowed or denied, is kept. So is a refusal the API answers from its
+own checks. `GET /v1/audit/authz` lists them, oldest first, for a tenant
+admin. `order=desc` lists the newest first, and its cursor goes on in that
+order: `order: 'desc'` in TypeScript, `order="desc"` in Python. They're kept
+for good, unless the runtime purges audit events. With
+`KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed ones after 90 days
+and denied ones after 365 ([Audit events](../retention/#audit-events)).
 
 ```json
 {
@@ -578,6 +620,14 @@ Never kept, since they don't refuse the caller: `signer-not-trusted`,
 being minted. Nor is a refusal of a request with no principal behind it: a
 public run token used outside its two progress routes, or correcting a run
 without a user or a service token. A `401`, for an unknown caller, never is.
+
+On runtime 0.6.0 or later, what a caller is shown about its own access isn't
+kept either, allowed or not: whoami's `tenantAdmin`
+(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and an
+expert queue item's `can` (whether you may dismiss or reopen it). A console
+reads them often, to choose which pages and buttons to show, and none of
+them lets the caller do anything. Each request it then makes is checked, and
+kept, as above.
 
 ### In the console
 

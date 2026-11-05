@@ -59,6 +59,7 @@
     "@kindgi/schema": "workspace:*",
     "@kindgi/tools": "workspace:*",
     "@kindgi/types": "workspace:*",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@scalar/hono-api-reference": "^0.12.2",
     "hono": "^4.13.8"
   },

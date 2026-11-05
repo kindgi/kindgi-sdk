@@ -62,7 +62,11 @@ export function computedImportsFrom(
   const sites = new Map<string, ComputedImport>();
   for (const warning of warnings) {
     const at = warning.location;
-    if (at == null || !(COMPUTED_IMPORT_NOTES as readonly (string | undefined)[]).includes(warning.id)) continue;
+    if (
+      at == null ||
+      !(COMPUTED_IMPORT_NOTES as readonly (string | undefined)[]).includes(warning.id)
+    )
+      continue;
     const file = resolve(workingDir, at.file);
     if (/[\\/]node_modules[\\/]/.test(file)) continue;
     sites.set(`${file}:${at.line}`, { file, line: at.line, text: at.lineText.trim() });

@@ -16,7 +16,7 @@ description: >
   models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.15"
+version: "0.1.17"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -56,7 +56,7 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-pack --template=python
 cd my-pack
 uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
@@ -71,7 +71,7 @@ and don't stop theirs.
 Each linked git worktree runs its own `kindgi dev`, side by side, with its
 own workspace, user and token. In the bundled Postgres it has its own
 database too, `kindgi_<project>__<worktree>`, and its workspace and user are
-named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+named from it; with your own (`KINDGI_DATABASE_URL`),
 it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
 git, keeps the token, workspace and user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,
@@ -94,7 +94,7 @@ to one worktree, and so does an env file git doesn't track, such as
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.2,<0.3"   # the CLI (Poetry: poetry add --group dev …)
+uv add --dev "kindgi-cli>=0.4,<0.5"   # the CLI (Poetry: poetry add --group dev …)
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
 uv run kindgi dev
