@@ -529,6 +529,19 @@ export interface ToolManifest {
    */
   readonly readsFiles?: boolean;
   /**
+   * `true` when the tool may add versions to files its run has, such as
+   * a sheet it fills in. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.update`: it sends a file's new bytes
+   * with the version it read, and returns the new version it gets back
+   * in its result's top-level `files`. When the file's Latest isn't the
+   * version it read, it gets Latest back instead. Only a file of the
+   * call's run, and only where the run may write.
+   *
+   * Only a tool with a handler can update files: not one with a
+   * declarative `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly updatesFiles?: boolean;
+  /**
    * `true` when the tool's results are text from outside that nobody
    * checked, such as a mail someone sent or a page a search found. An
    * agent reads each result of the tool as data, not instructions: in an

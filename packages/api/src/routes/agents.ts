@@ -1177,6 +1177,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     tools: a.tools,
     retrieval: a.retrieval,
     ...(a.memory !== undefined && { memory: a.memory }),
+    ...(a.files !== undefined && { files: a.files }),
     guardrails: a.guardrails,
     ...(a.conversationPolicy !== undefined && {
       conversationPolicy: answeredPolicy(a.conversationPolicy),

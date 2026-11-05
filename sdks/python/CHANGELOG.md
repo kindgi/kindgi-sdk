@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool can declare that it updates files, and an agent that its
+  model may change files.** `@tool(updates_files=True)` declares a tool that
+  adds versions to files its run has; only a tool with a handler can.
+  `Agent(files={"update": True, "create": True})` offers the agent's model the
+  built-in `kindgi_update_file` and `kindgi_create_file`. The indexer writes
+  `updatesFiles` and `files` into the pack index, and the vendored
+  `tool.schema.json` (1.5.0) and `pack-index.schema.json` (1.10.0) take them.
+  The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
+  its publish body, and `updates_files` on a tool.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,

@@ -457,6 +457,33 @@ def test_the_index_says_which_tools_store_files(make_pack: Callable[..., Path]) 
     assert "readsFiles" not in entries["acme.mail.attachment-get"]
 
 
+UPDATE_PACK = """
+from typing import Any
+from pydantic import BaseModel
+from kindgi import tool
+
+class Fill(BaseModel):
+    file_id: str
+
+@tool(id="acme.sheets.fill", updates_files=True)
+def fill(input: Fill) -> Any:
+    "Fills in a sheet the run has."
+    return {}
+
+@tool(id="acme.sheets.read")
+def read(input: Fill) -> Any:
+    "Reads a sheet; it changes nothing."
+    return {}
+"""
+
+
+def test_the_index_says_which_tools_update_files(make_pack: Callable[..., Path]) -> None:
+    entries = {t["id"]: t for t in _index(make_pack({"tools/sheets.py": UPDATE_PACK}))["tools"]}
+    assert entries["acme.sheets.fill"]["updatesFiles"] is True
+    assert "storesFiles" not in entries["acme.sheets.fill"]
+    assert "updatesFiles" not in entries["acme.sheets.read"]
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"

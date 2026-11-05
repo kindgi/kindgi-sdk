@@ -3577,6 +3577,23 @@ export const AgentMemoryPolicySchema: JsonSchema = {
   },
 };
 
+export const AgentFilesPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Lets the agent's model change its run's files, text only. `update: true` offers the built-in tool `kindgi_update_file`: a new version of a text file the run has, given the version the model read. `create: true` offers `kindgi_create_file`: a new text file of the run's. Built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`. Each call changes something, so the agent's approval rules apply, and the run needs `write` where the file is. A runtime with no file store offers neither. Absent: neither tool.",
+  properties: {
+    update: {
+      type: 'boolean',
+      description: 'Offers `kindgi_update_file`. Absent means `false`.',
+    },
+    create: {
+      type: 'boolean',
+      description: 'Offers `kindgi_create_file`. Absent means `false`.',
+    },
+  },
+};
+
 export const ConversationPolicySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3711,6 +3728,7 @@ export const AgentSchema: JsonSchema = {
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
     memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
+    files: { $ref: '#/components/schemas/AgentFilesPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -3864,6 +3882,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
     memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
+    files: { $ref: '#/components/schemas/AgentFilesPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -4529,6 +4548,11 @@ export const ToolSchema: JsonSchema = {
       type: 'boolean',
       description:
         "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
+    updatesFiles: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
     },
     resultIsOutsideData: {
       type: 'boolean',
@@ -18613,6 +18637,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
+  ['AgentFilesPolicy', AgentFilesPolicySchema],
   ['McpExposure', McpExposureSchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],

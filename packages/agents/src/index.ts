@@ -167,6 +167,7 @@ export {
   looksLikeInstruction,
 } from './remember.js';
 export type { RememberToolOutput } from './handlers/remember-tool.js';
+export { CREATE_FILE_TOOL_ID, UPDATE_FILE_TOOL_ID } from './file-tools.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
@@ -200,6 +201,7 @@ export type {
 export type {
   Agent,
   AgentBindings,
+  AgentFilesPolicy,
   AgentId,
   AgentMemoryPolicy,
   AgentOutputSpec,

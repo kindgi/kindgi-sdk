@@ -26,6 +26,7 @@
   "Agent": ["Agent"],
   "Agent1": [],
   "AgentCollectionPage": ["AgentCollectionPage"],
+  "AgentFilesPolicy": ["AgentFilesPolicy"],
   "AgentHighestVersion": ["AgentHighestVersion"],
   "AgentMemoryPolicy": ["AgentMemoryPolicy"],
   "AgentOutputSpec": ["AgentOutputSpec"],

@@ -3024,6 +3024,25 @@ class AgentMemoryPolicy(BaseModel):
     """
 
 
+class AgentFilesPolicy(BaseModel):
+    """
+    Lets the agent's model change its run's files, text only. `update: true` offers the built-in tool `kindgi_update_file`: a new version of a text file the run has, given the version the model read. `create: true` offers `kindgi_create_file`: a new text file of the run's. Built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`. Each call changes something, so the agent's approval rules apply, and the run needs `write` where the file is. A runtime with no file store offers neither. Absent: neither tool.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    update: bool | None = None
+    """
+    Offers `kindgi_update_file`. Absent means `false`.
+    """
+    create: bool | None = None
+    """
+    Offers `kindgi_create_file`. Absent means `false`.
+    """
+
+
 class McpExposure(BaseModel):
     """
     Whether an agent or a flow is a tool in a person's chat app, through the API's MCP server (`/mcp`). An agent's tool is named by its id, a flow's by `flow.` and its id. The chat app lists it only to people who can see it. Absent, or `expose: false`: it isn't one.
@@ -3324,6 +3343,7 @@ class PublishAgentBody(BaseModel):
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
     memory: AgentMemoryPolicy | None = None
+    files: AgentFilesPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -16509,6 +16529,7 @@ class Agent(BaseModel):
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
     memory: AgentMemoryPolicy | None = None
+    files: AgentFilesPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -16669,6 +16690,10 @@ class RegisterToolBody(BaseModel):
     reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
     """
     `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    updates_files: Annotated[bool | None, Field(alias="updatesFiles")] = None
+    """
+    `true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
@@ -19863,6 +19888,10 @@ class Tool(BaseModel):
     """
     `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
+    updates_files: Annotated[bool | None, Field(alias="updatesFiles")] = None
+    """
+    `true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
@@ -19983,6 +20012,10 @@ class ToolVersionRow(BaseModel):
     reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
     """
     `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    updates_files: Annotated[bool | None, Field(alias="updatesFiles")] = None
+    """
+    `true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
