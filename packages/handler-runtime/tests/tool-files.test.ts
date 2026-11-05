@@ -499,9 +499,9 @@ describe('a tool that updates files', () => {
   });
 
   test.each([
-    ['the new version', { file: version }],
-    ['Latest, for the same bytes', { same: latest }],
-    ['Latest, for a conflict', { conflict: latest }],
+    ['the new version', { file: version }] as const,
+    ['Latest, for the same bytes', { same: latest }] as const,
+    ['Latest, for a conflict', { conflict: latest }] as const,
     ...(['rule', 'denied', 'gone', 'type', 'size', 'storage'] as const).map(
       (reason) => [`why none was added: ${reason}`, { notUpdated: reason }] as const,
     ),
