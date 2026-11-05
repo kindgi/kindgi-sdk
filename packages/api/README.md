@@ -209,6 +209,82 @@ S3 object to its `blobId`.
 | 501  | `NotImplemented`                 | Unsupported operation                    |
 | 500  | `InternalError`                  | Backing store failure                    |
 
+## Drawing a run's result
+
+`@kindgi/api/run-result` is what a place that shows a run's result draws
+from, so the Kindgi console and a chat's run view say the same. It's plain
+functions and data, with no runtime dependencies, so a browser bundle can
+import it.
+
+```ts
+import { RUN_STATUS_WORDS, RESULT_LIMIT, answerBlocks, answerValue } from '@kindgi/api/run-result';
+
+const run = await (await fetch(`${base}/v1/runs/${runId}?include=output`, { headers })).json();
+const status = RUN_STATUS_WORDS[run.status]; // 'Done'
+const { blocks, truncated } = answerBlocks(answerValue(run), RESULT_LIMIT);
+```
+
+- `answerValue(run)` is what the run answered: an agent's typed `output`
+  when it declares one, else its reply's content; a flow's output. It then
+  calls `answerOfText`, which reads a JSON object or array written as text
+  (bare, or in one ```` ``` ```` or ```` ```json ```` fence) as its value.
+  The text is trimmed for that check, and anything else comes back as it
+  was sent.
+- `answerBlocks(answer, limit)` splits an answer into blocks by its shape
+  alone:
+
+  | The answer | Its blocks |
+  | --- | --- |
+  | null, absent, `[]` or `{}` | none |
+  | A string on one line, at most 280 characters; a number; a boolean | one `value` |
+  | Any other string | one `text` |
+  | An array of objects with only scalar values, and at most 12 different keys between them | one `records`: the keys in the order they first appear are its columns, and a missing key or null is an empty cell |
+  | An object | a block for each key, in key order, as below |
+  | Anything else | one `text` of its JSON |
+
+  In an object, the value-sized scalars (a string `value` would take, a
+  number, a boolean, null) make one untitled `fields` block, at the place of
+  the first one, with null as an empty value. A longer string, an array
+  that makes `records`, and an object of value-sized scalars are each a
+  block of their own, titled with their key. Anything deeper is a `text`
+  block of its JSON, indented by two spaces. So
+  `{ answer: "<a long, many-line text>", confidence: "high" }` is a `text`
+  block titled `answer`, then a `fields` block with `confidence: high`.
+- A `text`, `fields` or `records` block is `long` past 1,200 drawn
+  characters, 12 fields or 10 rows, whichever comes first. A place draws a
+  long block folded, with a way to show all of it.
+- Every string a block draws counts toward `limit`, in UTF-16 units: its
+  title, each field's name and value, each column name and cell, and its
+  text. The block that crosses the limit is cut there, the blocks after it
+  are left out, and `truncated` is true. A cut never ends in half a
+  character. The console draws up to `RESULT_LIMIT` (100,000), and a chat
+  up to 8,000.
+- A block's text is the answer's words as they are: markdown isn't turned
+  into headings, lists or tables. Draw it as text (`textContent`), never as
+  markup.
+- `RUN_STATUS_WORDS` is a run's status in words:
+
+  | Status | Words |
+  | --- | --- |
+  | `pending` | Waiting to start |
+  | `running` | Running |
+  | `suspended` | Waiting |
+  | `completed` | Done |
+  | `failed` | Failed |
+  | `cancelled` | Cancelled |
+
+- `clipText(text, limit)` cuts a text at `limit` UTF-16 units, never in half
+  a character.
+
+In a chat, `kindgi.run_state`'s result and an agent or flow tool's result
+carry the answer's blocks, within 8,000 characters, in
+`_meta["kindgi/blocks"]`, an `AnswerBlocks`. That's for the run view to
+draw. MCP Apps keeps `_meta` out of a model's context, so a model doesn't
+get the answer twice. When a result comes without `_meta`, the run view
+shows the answer as one text. The
+result's `structuredContent` and its text keep the answer as one string, as
+an agent output to treat as data.
+
 ## Development
 
 ```sh
