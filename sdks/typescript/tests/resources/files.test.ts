@@ -87,7 +87,10 @@ describe('files.list / get / delete / pinHistory', () => {
     const got = jsonFetch(WIRE_FILE);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: got.fetch });
     expect((await client.files.get(FILE_ID)).latestVersion).toBe(2);
-    expect([got.calls[0]!.method, got.calls[0]!.url]).toEqual(['GET', `${API}/v1/files/${FILE_ID}`]);
+    expect([got.calls[0]!.method, got.calls[0]!.url]).toEqual([
+      'GET',
+      `${API}/v1/files/${FILE_ID}`,
+    ]);
 
     const del = jsonFetch({ fileId: FILE_ID, deleted: true });
     const c2 = createClient({ apiUrl: API, auth: AUTH, fetch: del.fetch });
@@ -125,7 +128,9 @@ describe('files.list / get / delete / pinHistory', () => {
 
 describe('files.create / versions.add', () => {
   it('create POSTs a multipart form with the file and its fields', async () => {
-    const stub = capture(() => json({ version: { ...WIRE_VERSION, version: 1 }, created: true }, 201));
+    const stub = capture(() =>
+      json({ version: { ...WIRE_VERSION, version: 1 }, created: true }, 201),
+    );
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetchImpl });
 
     const write = await client.files.create(
@@ -274,11 +279,19 @@ describe('files.versions', () => {
   it('restore, pin and unpin POST their bodies', async () => {
     const stub = recordingFetch([
       ok({ version: { ...WIRE_VERSION, version: 3, restoredFrom: 1 }, created: true }),
-      ok({ ...WIRE_VERSION, pin: { by: 'user:u-1', at: '2026-11-05T08:00:00Z', reason: 'signed' } }),
+      ok({
+        ...WIRE_VERSION,
+        pin: { by: 'user:u-1', at: '2026-11-05T08:00:00Z', reason: 'signed' },
+      }),
       ok(WIRE_VERSION),
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
-    await client.files.versions.restore(FILE_ID, 1, { expectedVersion: 2 }, { idempotencyKey: 'idem-r' });
+    await client.files.versions.restore(
+      FILE_ID,
+      1,
+      { expectedVersion: 2 },
+      { idempotencyKey: 'idem-r' },
+    );
     await client.files.versions.pin(FILE_ID, 1, { reason: 'signed' });
     await client.files.versions.unpin(FILE_ID, 1);
 

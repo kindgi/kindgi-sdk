@@ -21,8 +21,9 @@ import type { Transport } from '../transport.js';
  * through every later version. Version numbers start at 1, only grow, and
  * are never reused. Latest is the highest version that isn't deleted.
  * Every file belongs to a project: reading it needs `read` there (or `run`,
- * for a file of the caller's own), and changing it needs `write`. A file
- * the caller can't read is `404 file-not-found`, as if absent.
+ * for a file the caller made as a person, or that a run of theirs made),
+ * and changing it needs `write`. A file the caller can't read is
+ * `404 file-not-found`, as if absent.
  *
  * On a runtime that doesn't keep files, every call is
  * `404 route-not-found`.

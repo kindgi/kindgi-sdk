@@ -2824,7 +2824,10 @@ export interface BlobMeta {
    * both or neither. Absent from older servers.
    */
   readonly fileId?: import('@kindgi/types').FileId;
-  /** Which version of `fileId` these bytes are. */
+  /**
+   * Which version of `fileId` these bytes are: the lowest, when versions
+   * share them.
+   */
   readonly version?: number;
   /**
    * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
