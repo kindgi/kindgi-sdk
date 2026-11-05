@@ -115,6 +115,8 @@ function run(agentId: string, projectId: ProjectId): KernelRunRecord {
 }
 
 const RUNS = { away: run(AWAY, P2), home: run(HOME, P1) };
+/** A run whose lookup fails. */
+const THROWING_RUN = randomUUID() as RunId;
 
 /** Which record a row acts on: another project's, or the key's own. */
 type Side = 'away' | 'home';
@@ -144,6 +146,11 @@ const CONVERSATIONS = {
   home: { id: id(), agentId: HOME, projectId: P1 },
   /** From before projects: the agent's version says where it is. */
   unfiled: { id: id(), agentId: AWAY },
+  /** In the key's project, of an agent only another project has: a store asks `execute` on the agent. */
+  awayAgent: { id: id(), agentId: AWAY, projectId: P1 },
+  /** Of an agent the key's project and another serve: a store asks `call` where it is. */
+  sharedAway: { id: id(), agentId: SHARED, projectId: P2 },
+  sharedHome: { id: id(), agentId: SHARED, projectId: P1 },
 };
 const ARTIFACTS = {
   away: { blobId: id(), projectId: P2 },
@@ -202,7 +209,10 @@ function harness(mode: Mode) {
   const { authz, sites, ...base } = fullAppInput();
   const runBinding = {
     ...base.kernelBinding.run,
-    getRun: async (_t: TenantId, runId: RunId) => byKey(RUNS, 'runId', runId),
+    getRun: async (_t: TenantId, runId: RunId) => {
+      if (runId === THROWING_RUN) throw new Error('the run store is down');
+      return byKey(RUNS, 'runId', runId);
+    },
     cancelRun: write('runs.cancelRun'),
   } as unknown as RunBinding;
   const agents = {
@@ -441,6 +451,8 @@ type Row = {
   readonly method: string;
   /** What the refusal names. */
   readonly word: string;
+  /** What a store asks there, as the refusal carries it. */
+  readonly action: Action;
   /** The request on the side's record. */
   readonly to: (side: Side) => { path: string; body?: unknown };
 };
@@ -452,6 +464,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/runs/{runId}/cancel',
     method: 'POST',
     word: 'the run',
+    action: 'write',
     to: (side) => ({ path: `/v1/runs/${RUNS[side].runId}/cancel` }),
   },
   {
@@ -459,7 +472,9 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/runs/{runId}/resume',
     method: 'POST',
     word: 'the run',
-    // A pause token, so the row reaches the hold and not the 400 or the 422.
+    action: 'write',
+    // A pause token, so the home row gets past the 400 and the 422 to the
+    // resume itself. The hold comes before both.
     to: (side) => ({
       path: `/v1/runs/${RUNS[side].runId}/resume`,
       body: { waitpointId: 'pause:acme', value: {} },
@@ -471,6 +486,7 @@ const HELD: readonly Row[] = [
       op: `POST /v1/test-runs/{testRunId}/${verb}`,
       method: 'POST',
       word: 'the test set',
+      action: verb === 'rescore' ? 'admin' : 'write',
       to: (side) => ({ path: `/v1/test-runs/${TEST_RUNS[side].testRunId}/${verb}` }),
     }),
   ),
@@ -479,6 +495,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/approvals/{approvalId}/complete',
     method: 'POST',
     word: 'the approval',
+    action: 'read',
     to: (side) => ({
       path: `/v1/approvals/${APPROVALS[side].id}/complete`,
       body: { decision: 'approve' },
@@ -489,6 +506,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/approvals/{approvalId}/audit-bundle',
     method: 'POST',
     word: 'the approval',
+    action: 'read',
     to: (side) => ({ path: `/v1/approvals/${APPROVALS[side].id}/audit-bundle`, body: {} }),
   },
   {
@@ -496,6 +514,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/provenance/{runId}/export',
     method: 'POST',
     word: 'the run',
+    action: 'read',
     to: (side) => ({ path: `/v1/provenance/${RUNS[side].runId}/export`, body: {} }),
   },
   {
@@ -503,6 +522,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/corrections/{correctionId}/remove',
     method: 'POST',
     word: 'the correction',
+    action: 'admin',
     to: (side) => ({ path: `/v1/corrections/${CORRECTIONS[side].correctionId}/remove` }),
   },
   {
@@ -510,6 +530,7 @@ const HELD: readonly Row[] = [
     op: 'PATCH /v1/corrections/{correctionId}',
     method: 'PATCH',
     word: 'the correction',
+    action: 'read',
     to: (side) => ({
       path: `/v1/corrections/${CORRECTIONS[side].correctionId}`,
       body: { status: 'fixed' },
@@ -520,6 +541,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/corrections',
     method: 'POST',
     word: 'the run',
+    action: 'write',
     to: (side) => ({ path: '/v1/corrections', body: { runId: RUNS[side].runId, answer: 'right' } }),
   },
   ...(['close', 'unregister'] as const).map(
@@ -528,6 +550,7 @@ const HELD: readonly Row[] = [
       op: `POST /v1/conversations/{conversationId}/${verb}`,
       method: 'POST',
       word: 'the conversation',
+      action: verb === 'close' ? 'execute' : 'write',
       to: (side) => ({ path: `/v1/conversations/${CONVERSATIONS[side].id}/${verb}` }),
     }),
   ),
@@ -536,6 +559,7 @@ const HELD: readonly Row[] = [
     op: 'DELETE /v1/artifacts/{blobId}',
     method: 'DELETE',
     word: 'the artifact',
+    action: 'write',
     to: (side) => ({ path: `/v1/artifacts/${ARTIFACTS[side].blobId}` }),
   },
   {
@@ -543,6 +567,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/deployments/{deploymentId}/secrets',
     method: 'POST',
     word: 'the deployment',
+    action: 'admin',
     to: (side) => ({
       path: `/v1/deployments/${DEPLOYMENTS[side].deploymentId}/secrets`,
       body: { envName: 'test', secrets: [{ name: 'ACME_KEY', value: 'x' }] },
@@ -554,6 +579,7 @@ const HELD: readonly Row[] = [
       op: `POST /v1/suggested-changes/{suggestedChangeId}/${verb}`,
       method: 'POST',
       word: 'the agent',
+      action: verb === 'withdraw' ? 'publish' : 'pin',
       to: (side) => ({ path: `/v1/suggested-changes/${CARDS[side].id}/${verb}`, body: {} }),
     }),
   ),
@@ -562,6 +588,7 @@ const HELD: readonly Row[] = [
     op: 'POST /v1/improve-runs/{improveRunId}/cancel',
     method: 'POST',
     word: 'the agent',
+    action: 'publish',
     to: (side) => ({ path: `/v1/improve-runs/${IMPROVE_RUNS[side].id}/cancel`, body: {} }),
   },
   {
@@ -569,6 +596,7 @@ const HELD: readonly Row[] = [
     op: 'DELETE /v1/connection-choices/{choiceId}',
     method: 'DELETE',
     word: 'the connection choice',
+    action: 'read',
     to: (side) => ({ path: `/v1/connection-choices/${CHOICES[side].choiceId}` }),
   },
 ];
@@ -584,12 +612,13 @@ const refusedWith = (
   res: Awaited<ReturnType<Harness['send']>>,
   message: string,
   projectId: string | undefined,
+  action: Action,
 ) => {
   expect(res.status, JSON.stringify(res.body)).toBe(403);
   expect(res.body.error).toMatchObject({
     code: 'key-project-mismatch',
     message,
-    details: { keyProjectId: P1, ...(projectId !== undefined && { projectId }) },
+    details: { keyProjectId: P1, action, ...(projectId !== undefined && { projectId }) },
   });
   if (projectId === undefined) expect(res.body.error?.details).not.toHaveProperty('projectId');
   expect(res.changed).toEqual([]);
@@ -615,7 +644,12 @@ describe.each([
 ] as const)("another project's record, with no store, where %s", (_where, h) => {
   test.each(HELD)('$label: 403 key-project-mismatch, nothing written', async (r) => {
     const res = await send(h, LIMITED, r, 'away');
-    refusedWith(res, `This API key is limited to project ${P1}; ${r.word} is in project ${P2}`, P2);
+    refusedWith(
+      res,
+      `This API key is limited to project ${P1}; ${r.word} is in project ${P2}`,
+      P2,
+      r.action,
+    );
   });
 
   test.each(HELD)("$label, on the key project's own record: not refused", async (r) => {
@@ -628,7 +662,12 @@ describe.each([
 
   test.each(HELD)('$label, by a session limited to a project: the same refusal', async (r) => {
     const res = await send(h, SESSION, r, 'away');
-    refusedWith(res, `This session is limited to project ${P1}; ${r.word} is in project ${P2}`, P2);
+    refusedWith(
+      res,
+      `This session is limited to project ${P1}; ${r.word} is in project ${P2}`,
+      P2,
+      r.action,
+    );
   });
 
   test("a test run in the key's project, of another project's test set, is refused for the test set", async () => {
@@ -641,6 +680,7 @@ describe.each([
       res,
       `This API key is limited to project ${P1}; the test set is in project ${P2}`,
       P2,
+      'write',
     );
   });
 
@@ -651,7 +691,12 @@ describe.each([
       `/v1/corrections/${CORRECTIONS.awayAgent.correctionId}`,
       { status: 'fixed' },
     );
-    refusedWith(res, `This API key is limited to project ${P1}; the agent is in project ${P2}`, P2);
+    refusedWith(
+      res,
+      `This API key is limited to project ${P1}; the agent is in project ${P2}`,
+      P2,
+      'publish',
+    );
   });
 
   test("a correction's author removes it, as with a store", async () => {
@@ -674,7 +719,29 @@ describe.each([
       res,
       `This API key is limited to project ${P1}; the conversation is in project ${P2}`,
       P2,
+      'write',
     );
+  });
+
+  test("a conversation in the key's project, of another project's agent, is refused its close for the agent", async () => {
+    const res = await h.send(
+      LIMITED,
+      'POST',
+      `/v1/conversations/${CONVERSATIONS.awayAgent.id}/close`,
+    );
+    refusedWith(
+      res,
+      `This API key is limited to project ${P1}; the agent is in project ${P2}`,
+      P2,
+      'execute',
+    );
+  });
+
+  test("a lookup that fails is the error mapper's answer, not a refusal", async () => {
+    const res = await h.send(LIMITED, 'POST', `/v1/runs/${THROWING_RUN}/cancel`);
+    expect(res.status, JSON.stringify(res.body)).toBe(500);
+    expect(res.body.error?.code).toBe('internal-server-error');
+    expect(res.changed).toEqual([]);
   });
 
   test("another person's connection choice is still not found", async () => {
@@ -699,7 +766,7 @@ describe.each([
         `/v1/suggested-changes/${CARDS.away.id}/${verb}`,
         {},
       );
-      refusedWith(res, `This API key is limited to project ${P1}; ${words} ${P2}`, P2);
+      refusedWith(res, `This API key is limited to project ${P1}; ${words} ${P2}`, P2, 'pin');
     },
   );
 
@@ -718,6 +785,7 @@ describe.each([
         res,
         `This API key is limited to project ${P1}; the suggested change is in project ${P2}`,
         P2,
+        verb === 'pin' ? 'admin' : 'pin',
       );
     },
   );
@@ -752,7 +820,32 @@ describe('an agent more than one project serves, with no store: what a store ask
       res,
       `This API key is limited to project ${P1}; the suggested change is in project ${P2}`,
       P2,
+      'admin',
     );
+  });
+
+  test('a conversation at another of its projects is refused its close there, as a store asks `call`', async () => {
+    const res = await served.send(
+      LIMITED,
+      'POST',
+      `/v1/conversations/${CONVERSATIONS.sharedAway.id}/close`,
+    );
+    refusedWith(
+      res,
+      `This API key is limited to project ${P1}; the conversation is in project ${P2}`,
+      P2,
+      'call',
+    );
+  });
+
+  test('a conversation at the key project is closed: `call` there is all a store asks', async () => {
+    const res = await served.send(
+      LIMITED,
+      'POST',
+      `/v1/conversations/${CONVERSATIONS.sharedHome.id}/close`,
+    );
+    notRefused(res);
+    expect(res.changed).toEqual(['conversations.closeConversation']);
   });
 
   test.each([
@@ -764,6 +857,7 @@ describe('an agent more than one project serves, with no store: what a store ask
       res,
       `This API key is limited to project ${P1}; new versions of the agent are made in project ${P0}`,
       P0,
+      'write',
     );
   });
 });
