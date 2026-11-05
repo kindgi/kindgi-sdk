@@ -22,7 +22,7 @@ import type {
 } from '@kindgi/platform';
 import type { KernelBinding } from '@kindgi/runtime';
 
-import type { BlobStorageBinding } from '@kindgi/blob-binding';
+import type { BlobStorageBinding, FileVersionsBinding } from '@kindgi/blob-binding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
 import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
@@ -129,6 +129,7 @@ import { approvalsRouter } from './routes/approvals.js';
 import {
   DEFAULT_ARTIFACT_MAX_BYTES,
   artifactUploadLimit,
+  artifactsDeprecationLink,
   artifactsRouter,
 } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
@@ -154,6 +155,7 @@ import { environmentsRouter } from './routes/environments.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
+import { fileUploadLimit, filesRouter } from './routes/files.js';
 import { flowsRouter } from './routes/flows.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
@@ -492,9 +494,11 @@ export interface CreateAppInput {
   readonly waitTokens?: WaitTokenBinding;
   /**
    * Files a pack tool that declares `storesFiles` stores for its call
-   * (`POST /v1/tool-files`), and one that declares `readsFiles` reads
-   * (`GET /v1/tool-files/{artifactId}`), with the call's token as the
-   * bearer (no API key). Absent: both answer `404 tool-file-token-not-found`.
+   * (`POST /v1/tool-files`), one that declares `readsFiles` reads
+   * (`GET /v1/tool-files/{artifactId}`), and one that declares
+   * `updatesFiles` adds versions to (`POST /v1/tool-files/{fileId}/versions`,
+   * when the binding has `update`), with the call's token as the bearer
+   * (no API key). Absent: each answers `404 tool-file-token-not-found`.
    * The Kindgi runtime supplies one. The route limits requests per client,
    * telling clients apart and counting where `webhookReceiver` says (its
    * defaults when it's absent).
@@ -776,10 +780,19 @@ export interface CreateAppInput {
    */
   readonly blobStorage?: BlobStorageBinding;
   /**
+   * Optional. When present, mounts the files surface (`/v1/files`): files
+   * with every edit kept as a version, read by a number or Latest,
+   * restored, pinned and deleted. Caller-plugged, as
+   * `blobStorage` is; a version's bytes are a blob.
+   */
+  readonly fileVersions?: FileVersionsBinding;
+  /**
    * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
-   * more is `413 artifact-too-large`. Also the most one request to the
-   * S3-compatible routes may carry (`/s3/*`: an object, or a part of a
-   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
+   * more is `413 artifact-too-large`. Also the most one file version may
+   * carry (`POST /v1/files`, `POST /v1/files/{fileId}/versions`); more is
+   * `413 file-too-large`. Also the most one request to the S3-compatible
+   * routes may carry (`/s3/*`: an object, or a part of a multipart
+   * upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
    */
   readonly artifactMaxBytes?: number;
   /**
@@ -1572,14 +1585,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // The artifacts routes go in 0.8.0: each of their answers, a 401 or a
+  // 413 too, links to what replaces them (`/v1/artifacts/*` matches
+  // `/v1/artifacts`). Before the body limits, so their refusals carry it.
+  if (input.blobStorage !== undefined) app.use('/v1/artifacts/*', artifactsDeprecationLink());
   // An upload is read under its own limit, once the caller is known
   // (`readBodyOnce`); every other body under the API's, before anything.
+  const fileLimit = fileUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES);
   const ownBodyLimits: readonly OwnBodyLimit[] = [
     {
       method: 'POST',
       path: '/v1/artifacts',
       limit: artifactUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
     },
+    { method: 'POST', path: '/v1/files', limit: fileLimit },
+    { method: 'POST', path: /^\/v1\/files\/[^/]+\/versions$/, limit: fileLimit },
   ];
   app.use('*', requestBodyLimit(ownBodyLimits));
   // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
@@ -1868,6 +1888,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.memory?.conversationRecall !== undefined && {
             conversationRecall: input.memory.conversationRecall,
           }),
+          // An agent's file tools write to the store `/v1/files` serves.
+          files: input.fileVersions !== undefined,
         },
         input.referenceScope,
         input.environmentOrders,
@@ -2192,6 +2214,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route(
       '/artifacts',
       artifactsRouter(input.blobStorage, {
+        runBinding,
+        ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.fileVersions !== undefined) {
+    v1.route(
+      '/files',
+      filesRouter(input.fileVersions, {
         runBinding,
         ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),

@@ -1170,19 +1170,19 @@ export const ERROR_ENTRIES = {
   },
   'tool-file-token-not-found': {
     description:
-      "No tool call's files match the bearer of a request to `/v1/tool-files`: there's no token, the token is unknown, its secret is wrong, or its call may not do what was asked (a tool that only stores reading a file, or one that only reads storing one). The pack service's runner sends the token a call carries; a handler never sees it. Also the answer of a runtime that stores no files.",
+      "No tool call's files match the bearer of a request to `/v1/tool-files`: there's no token, the token is unknown, its secret is wrong, or its call may not do what was asked (a tool that only stores reading a file, one that only reads storing one, or one that doesn't update files adding a version). The pack service's runner sends the token a call carries; a handler never sees it. Also the answer of a runtime that stores no files.",
     details: [],
   },
   'tool-file-token-closed': {
     description:
-      "The tool call's files are closed, so the call stores and reads no more: the call has answered, its time has passed, or its run has ended.",
+      "The tool call's files are closed, so the call stores, reads and updates no more: the call has answered, its time has passed, or its run has ended.",
     details: [],
   },
   'tool-files-busy': {
     description:
-      "The runtime's memory for files had no room for the file's bytes in time, so nothing was stored or read. Send the request again after the `Retry-After` header. The pack service's runner fails the tool's call with it, as it fails any 5xx.",
+      "The runtime's memory for files had no room for the file's bytes in time, so nothing was stored, read or updated. Send the request again after the `Retry-After` header. The pack service's runner fails the tool's call with it, as it fails any 5xx.",
     details: [],
-    seeAlso: ['POST /v1/tool-files'],
+    seeAlso: ['POST /v1/tool-files', 'POST /v1/tool-files/{fileId}/versions'],
   },
   'wait-token-output-invalid': {
     description:
@@ -1680,6 +1680,91 @@ export const ERROR_ENTRIES = {
       "The runtime's artifact storage failed while reading or writing the bytes. Retry; contact the operator if it persists.",
     details: [],
     seeAlso: ['guides/runs/keep-files-with-a-run'],
+  },
+  'artifact-in-file': {
+    description:
+      "The artifact's bytes are a version a file still needs: a pinned version's, or bytes more than one version shares. Nothing is deleted. Delete the version (`DELETE /v1/files/{fileId}/versions/{version}`) or the whole file instead.",
+    details: [
+      {
+        key: 'blobId',
+        meaning: 'the artifact id you asked to delete',
+      },
+      {
+        key: 'fileId',
+        meaning: 'the file whose version it is',
+      },
+    ],
+  },
+  'file-not-found': {
+    description:
+      "No file with that id exists in the workspace, it was deleted, or it's in a project you can't read and isn't a file of your own.",
+    details: [
+      {
+        key: 'fileId',
+        meaning: 'the file id that was looked up',
+      },
+    ],
+  },
+  'file-version-not-found': {
+    description:
+      "The file has no version with that number. For a version's bytes, a restore or a pin, also a deleted version, or one whose bytes retention dropped: its record stays in the file's versions, but there's nothing to read, restore or pin. A version is never replaced with Latest.",
+    details: [
+      {
+        key: 'fileId',
+        meaning: 'the file',
+      },
+      {
+        key: 'version',
+        meaning: 'the version number, or `latest`, that was looked up',
+      },
+    ],
+  },
+  'file-version-conflict': {
+    description:
+      "You sent `expectedVersion`, and the file's Latest isn't that version: someone added or restored a version since you read it. Nothing is written. Read Latest, merge your change into it if you need to, and send again with its number.",
+    details: [
+      {
+        key: 'fileId',
+        meaning: 'the file',
+      },
+      {
+        key: 'expectedVersion',
+        meaning: 'the version you sent',
+      },
+      {
+        key: 'latestVersion',
+        meaning: "the file's Latest",
+      },
+    ],
+  },
+  'file-version-pinned': {
+    description:
+      "The version is pinned, so it can't be deleted, and a file with any pinned version can't be deleted as a whole. Nothing is deleted. Unpin it first.",
+    details: [
+      {
+        key: 'fileId',
+        meaning: 'the file',
+      },
+      {
+        key: 'version',
+        meaning:
+          'the pinned version: the one you named, or for a whole file, its lowest pinned one',
+      },
+    ],
+  },
+  'file-last-version': {
+    description:
+      "The version is the file's last one that isn't deleted, and a file always keeps one. Nothing is deleted. Delete the whole file instead.",
+    details: [
+      {
+        key: 'fileId',
+        meaning: 'the file',
+      },
+      {
+        key: 'version',
+        meaning: 'the version you asked to delete',
+      },
+    ],
   },
   'capability-not-found': {
     description: 'No capability is registered with that id in the workspace.',
@@ -2708,9 +2793,19 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'file-too-large': {
+    description:
+      'The uploaded file version is larger than the upload cap, the same cap an artifact upload has. Nothing is stored. Upload a smaller file.',
+    details: [
+      {
+        key: 'maxBytes',
+        meaning: 'the largest accepted size, in bytes',
+      },
+    ],
+  },
   'request-too-large': {
     description:
-      "The request body is larger than the API's limit. Send a smaller body. An artifact upload and a webhook delivery have limits of their own (`artifact-too-large`, `webhook-body-too-large`).",
+      "The request body is larger than the API's limit. Send a smaller body. An artifact upload, a file upload and a webhook delivery have limits of their own (`artifact-too-large`, `file-too-large`, `webhook-body-too-large`).",
     details: [
       {
         key: 'maxBytes',
