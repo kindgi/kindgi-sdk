@@ -36,6 +36,23 @@ From your app, in TypeScript, it's `memory.facts.write`, `read`, `list`,
 `memory.write_fact`, `get_fact`, `list_facts`, `supersede_fact`,
 `delete_fact`, `verify_fact` and `list_fact_revisions`.
 
+### The `time-zone` fact
+
+One type means something to the runtime: `time-zone`, the workspace's time
+zone. Its content is `{ "timeZone": "America/Toronto" }`, an IANA name, and
+its scope is the workspace alone. A tenant admin sets it on the console's
+**Time zone** page, or an app writes it as it writes any workspace-wide fact.
+
+- An agent turn that offers tools reads it once, and hands the zone to each
+  tool call as `ctx.timeZone`
+  ([Answer in the workspace's time zone](../../tools/write-a-tool/#answer-in-the-workspaces-time-zone)).
+- The newest one a person or a service wrote counts. One an agent wrote, and
+  one scoped narrower than the workspace, don't.
+- The zone is `UTC` when there's none, when the read fails, and when the
+  fact's `timeZone` isn't a zone name.
+- Change it by superseding it, and clear it by deleting it, so the workspace
+  keeps one.
+
 ## How memory reaches the model
 
 Retrieved facts go in one message right before the user's, as data, in this

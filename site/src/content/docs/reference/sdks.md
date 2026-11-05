@@ -32,6 +32,7 @@ Java client.
 | [Read-only tools](../../guides/tools/read-only-tools/) | Yes | Yes | Yes | Yes |
 | [Logging from a tool](../../guides/tools/write-a-tool/#log-from-a-tool) | Yes | Yes | Yes | Yes |
 | [A side effect done once](../../guides/tools/write-a-tool/#make-a-side-effect-happen-once) (the idempotency key) | Yes | Yes | Yes | Yes |
+| [Answering in the workspace's time zone](../../guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone) (`ctx.timeZone`) | Yes | Yes | Yes | Yes |
 | Cancellation | Yes | Yes | Yes | Yes |
 | [A tool's secrets](../../guides/tools/give-a-tool-a-secret/) and [per-project values](../../guides/tools/give-a-tool-env-values/) | Yes | Yes | Yes | Yes |
 | [Settings blocks](../../guides/improve/change-a-prompt-or-setting/) a tool reads | Yes | Yes | Yes | Yes |
