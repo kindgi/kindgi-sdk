@@ -52,6 +52,7 @@ import type {
   OrderItemKind,
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
+import { limitedCallerRefusal } from './middleware/key-project.js';
 import { isReadMethod } from './read-method.js';
 import { deniedBy } from './routes/denied.js';
 import { noteReadItself, readableOrRun } from './routes/runner-reach.js';
@@ -732,7 +733,19 @@ async function newestIn(
  * newest version that can run in them. `ItemRights` answers under rules 1
  * and 2; `itemServingOf`, from the binding alone.
  */
-export type ItemServing = Pick<ItemRights, 'projects' | 'newestVisible'>;
+export type ItemServing = Pick<ItemRights, 'projects' | 'newestVisible'> & {
+  /**
+   * The projects one version can run in (`versionProjectsOf`), for the
+   * hold without a store (`limitedItemRefusal`). `itemServingOf` answers
+   * it; `ItemRights` doesn't need it.
+   */
+  readonly versionProjects?: (
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+    version: string,
+  ) => Promise<readonly ProjectId[] | undefined>;
+};
 
 /**
  * The binding's answers with no rights asked, for a deployment with no
@@ -743,6 +756,8 @@ export function itemServingOf(binding: ItemProjectsBinding): ItemServing {
     projects: (c, kind, id) => binding.projectsOf({ tenantId: tenantOf(c), kind, id }),
     newestVisible: (c, kind, id, projects, inProject) =>
       newestIn(c, binding, kind, id, projects, inProject),
+    versionProjects: (c, kind, id, version) =>
+      binding.versionProjectsOf({ tenantId: tenantOf(c), kind, id, version }),
   };
 }
 
@@ -1223,6 +1238,243 @@ async function readOrRunRefusal(
   const project = await runIn(c);
   const runs = project !== undefined && (await authorizer.can(c, 'run', ref('project', project)));
   return runs ? undefined : refused;
+}
+
+/**
+ * Where the hold without a store reads an item's projects
+ * (`limitedItemRefusal`), as `heldProjects` builds it.
+ */
+export interface HeldProjects {
+  /** The item's projects, its own first. `undefined`: no such item; empty: it records none. */
+  readonly projects: (c: Ctx, id: string) => Promise<readonly ProjectId[] | undefined>;
+  /** One version's projects. Absent (no binding): an item with one project. */
+  readonly versionProjects?: (
+    c: Ctx,
+    id: string,
+    version: string,
+  ) => Promise<readonly ProjectId[] | undefined>;
+}
+
+/**
+ * `HeldProjects` for one kind: the projects that serve an item, from the
+ * host's binding (`itemServing`); without one, the project its record
+ * names (`recorded`), its only one.
+ */
+export function heldProjects(
+  serving: ItemServing | undefined,
+  kind: OrderItemKind,
+  recorded: (c: Ctx, id: string) => Promise<readonly ProjectId[] | undefined>,
+): HeldProjects {
+  if (serving === undefined) return { projects: recorded };
+  const { versionProjects } = serving;
+  return {
+    projects: (c, id) => serving.projects(c, kind, id),
+    ...(versionProjects !== undefined && {
+      versionProjects: (c: Ctx, id: string, version: string) =>
+        versionProjects(c, kind, id, version),
+    }),
+  };
+}
+
+/**
+ * An item's own project with no item-projects binding, as its newest
+ * version records it (a retired item's too): every version records the
+ * same one. `undefined`: no such item; empty: the store records none.
+ */
+export async function recordedProjects(
+  newest: Promise<{ readonly data: readonly { readonly projectId?: ProjectId | undefined }[] }>,
+): Promise<readonly ProjectId[] | undefined> {
+  const row = (await newest).data[0];
+  if (row === undefined) return undefined;
+  return row.projectId !== undefined ? [row.projectId] : [];
+}
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change to an item for that limit alone, as a store refuses
+ * it: `403 key-project-mismatch` (`limitedCallerRefusal`). What the change
+ * reaches is what the store asks. For an item more than one project
+ * serves, it is the projects `check` names (rules 3 and 4): one project,
+ * each of the item's, or each one the version can run in. Else it is the
+ * item's own project, where `today` asks on the item. The refusal names
+ * the first of those that isn't the key's. It says the item "is in" its
+ * own project, and "runs in" another one too.
+ *
+ * It never fails closed. A read passes, as does a caller with no limit,
+ * an item that isn't there (the route answers its 404), and one that
+ * records no project. A lookup that fails throws, for the error mapper.
+ */
+export async function limitedItemRefusal(
+  c: Ctx,
+  how: {
+    readonly kind: OrderItemKind;
+    readonly id: string;
+    readonly today: Action;
+    readonly check: ItemCheck;
+    readonly held: HeldProjects;
+  },
+): Promise<Response | undefined> {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
+  const { check } = how;
+  if (check.rule === 'read' || check.rule === 'version') return undefined;
+  const projects = await how.held.projects(c, how.id);
+  if (projects === undefined || projects.length === 0) return undefined;
+  const one = projects.length === 1;
+  const reached = one ? projects : await reachedBy(c, how.held, how.id, projects, check);
+  const other = reached.find((p) => (p as unknown as string) !== keyProject);
+  if (other === undefined) return undefined;
+  return limitedCallerRefusal(
+    c,
+    one ? how.today : check.action,
+    ref('project', other as unknown as string),
+    `the ${KIND_NAME[how.kind]}`,
+    other === projects[0] ? undefined : 'served',
+  );
+}
+
+/** The projects a change to an item more than one project serves asks, as `enforce` asks them. */
+async function reachedBy(
+  c: Ctx,
+  held: HeldProjects,
+  id: string,
+  projects: readonly ProjectId[],
+  check: Exclude<ItemCheck, { readonly rule: 'read' | 'version' }>,
+): Promise<readonly ProjectId[]> {
+  switch (check.rule) {
+    case 'on':
+      // Always the key's own: refuseOtherProjectForKey refuses a scope naming another first.
+      return [check.projectId as unknown as ProjectId];
+    case 'every':
+      return projects;
+    case 'every-version': {
+      const where = await held.versionProjects?.(c, id, check.version);
+      return where !== undefined && where.length > 0 ? where : projects;
+    }
+  }
+}
+
+/**
+ * `limitedItemRefusal` as the middleware under one item (`/:id` and
+ * `/:id/*`), for a router without a store, where `itemMiddleware` would
+ * be with one. `today` returning `undefined` leaves the route to check for
+ * itself, as it does there.
+ */
+export function itemHold(how: {
+  readonly kind: OrderItemKind;
+  readonly id: (c: Ctx) => string;
+  readonly today: (c: Ctx) => Action | undefined;
+  readonly check: (c: Ctx) => ItemCheck | Promise<ItemCheck>;
+  readonly held: HeldProjects;
+}): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('tokenProjectId') === undefined || isReadMethod(c.req.method)) return next();
+    const today = how.today(c);
+    if (today === undefined) return next();
+    const refused = await limitedItemRefusal(c, {
+      kind: how.kind,
+      id: how.id(c),
+      today,
+      check: await how.check(c),
+      held: how.held,
+    });
+    return refused ?? next();
+  };
+}
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change that makes new versions of an item beyond it, as a
+ * store refuses it (`limitedCallerRefusal`): an Improve run, a suggested
+ * change. For an item one project serves, that's `publish` on the item,
+ * so its own project; for one more than one serves, `write` where its new
+ * versions are made (`madeIn`, as `writeWhereMade` asks it): the first
+ * environment of its own project's order, else its own project.
+ *
+ * It never fails closed. A read passes, as does a caller with no limit,
+ * an item that isn't there (the route answers its 404), and one that
+ * records no project. A lookup that fails throws, for the error mapper.
+ */
+export async function limitedMadeInRefusal(
+  c: Ctx,
+  how: {
+    readonly kind: OrderItemKind;
+    readonly id: string;
+    readonly held: HeldProjects;
+    readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined;
+  },
+): Promise<Response | undefined> {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
+  const projects = await how.held.projects(c, how.id);
+  const home = projects?.[0];
+  if (projects === undefined || home === undefined) return undefined;
+  const item = `the ${KIND_NAME[how.kind]}`;
+  if (projects.length === 1) {
+    return limitedCallerRefusal(c, 'publish', ref('project', home as unknown as string), item);
+  }
+  const where = (await firstEnvironmentOf(how.orders, tenantOf(c), home)) ?? home;
+  return limitedCallerRefusal(
+    c,
+    'write',
+    ref('project', where as unknown as string),
+    item,
+    where === home ? undefined : 'made-in',
+  );
+}
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * starts work only on an item its project serves, as a store refuses the
+ * rest (`limitedCallerRefusal`): a run, a conversation, a test-set run and
+ * what it runs. `placed`: the key's project, for an item more than one
+ * project serves among them, where an unnamed start lands, as a store
+ * places it. Else the start is refused on the first of the item's
+ * projects, with the right a store asks where the start lands: `call` for
+ * an `unnamed` start of an agent more than one project serves (it lands in
+ * the first, `runIn`), else `execute` on the item. The refusal says the
+ * item "is in" it.
+ *
+ * It never fails closed. A read passes, as does a caller with no limit,
+ * an item that isn't there (the route answers it), and one that records
+ * no project. A lookup that fails throws, for the error mapper.
+ */
+export async function limitedStartRefusal(
+  c: Ctx,
+  how: {
+    readonly kind: 'agent' | 'flow' | 'test_set';
+    readonly id: string;
+    readonly held: HeldProjects;
+    readonly unnamed: boolean;
+  },
+): Promise<{ readonly refused?: Response | undefined; readonly placed?: ProjectId } | undefined> {
+  const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+  if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
+  const projects = await how.held.projects(c, how.id);
+  const first = projects?.[0];
+  if (projects === undefined || first === undefined) return undefined;
+  const several = projects.length > 1;
+  if (projects.includes(keyProject)) return several ? { placed: keyProject } : undefined;
+  return {
+    refused: limitedCallerRefusal(
+      c,
+      several && how.unnamed && how.kind === 'agent' ? 'call' : 'execute',
+      ref('project', first as unknown as string),
+      `the ${KIND_NAME[how.kind]}`,
+    ),
+  };
+}
+
+/**
+ * Where the routes of a runtime without a store read the projects of the
+ * items their records belong to and their starts run (`HeldProjects`,
+ * each kind's), and the orders their new versions follow.
+ */
+export interface HeldItems {
+  readonly agents: HeldProjects;
+  readonly flows: HeldProjects;
+  readonly testSets: HeldProjects;
+  readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined;
 }
 
 /** What `shownLatest` answers. */

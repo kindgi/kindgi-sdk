@@ -13,6 +13,7 @@ import { actsForOf } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
@@ -109,6 +110,11 @@ export function artifactsRouter(
       : ref('tenant', c.get('tenantId') as unknown as string);
   const may = async (c: Context<AppEnv>, action: 'read' | 'write', m: BlobMeta) =>
     authorizer === undefined || (await authorizer.can(c, action, scopeOf(c, m)));
+  /** Without a store, a project-limited key's write, held where a store refuses it. */
+  const held = (c: Context<AppEnv>, m: BlobMeta) =>
+    authorizer === undefined
+      ? limitedCallerRefusal(c, 'write', scopeOf(c, m), 'the artifact')
+      : undefined;
   /** The run, when it's the caller's own (`isOwnRun`). */
   const ownRun = async (c: Context<AppEnv>, runId: RunId) => {
     const run =
@@ -324,6 +330,8 @@ export function artifactsRouter(
     const blobId = c.req.param('blobId') as ArtifactId;
 
     const found = await binding.head(tenantId, blobId);
+    const refused = found === null ? undefined : held(c, found);
+    if (refused !== undefined) return refused;
     if (found !== null) {
       if (!(await maySee(c, found))) return notFound(c, blobId);
       if (!(await may(c, 'write', found))) {
