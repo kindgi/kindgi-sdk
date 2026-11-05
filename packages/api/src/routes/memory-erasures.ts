@@ -18,6 +18,7 @@ import type { AppEnv } from '../types.js';
 import { callerRef } from './memory-access.js';
 import { clampLimit } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Erasing a person's words (T273 M-5):
@@ -111,7 +112,7 @@ export function memoryErasuresRouter(
     ) {
       return fail(c, 'bad-input', 'The body is `{force?: boolean}`');
     }
-    const erasure = UUID.test(id)
+    const erasure = UUID_RE.test(id)
       ? await binding.resume(tenantId, id, { ...(force === true && { force: true }) })
       : undefined;
     if (erasure === undefined) return fail(c, 'not-found', `No erasure ${id}`);
@@ -121,7 +122,7 @@ export function memoryErasuresRouter(
   r.get('/:erasureId', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const id = c.req.param('erasureId');
-    const erasure = UUID.test(id) ? await binding.get(tenantId, id) : undefined;
+    const erasure = UUID_RE.test(id) ? await binding.get(tenantId, id) : undefined;
     if (erasure === undefined) return fail(c, 'not-found', `No erasure ${id}`);
     return c.json(erasure);
   });
@@ -129,7 +130,6 @@ export function memoryErasuresRouter(
   return r;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUBJECT_KINDS = ['participant', 'external'] as const;
 const SELECTOR_KINDS: readonly MemoryErasureSelectorKind[] = [
   'fact',
@@ -206,7 +206,7 @@ function parseLedger(body: unknown): MemoryErasureLedgerEntry[] | string {
     const e = raw as Record<string, unknown> | null;
     const at = `erasures[${i}]`;
     if (e === null || typeof e !== 'object') return `${at} must be an object`;
-    if (typeof e.id !== 'string' || !UUID.test(e.id)) return `${at}.id must be a uuid`;
+    if (typeof e.id !== 'string' || !UUID_RE.test(e.id)) return `${at}.id must be a uuid`;
     if (!SELECTOR_KINDS.includes(e.selectorKind as MemoryErasureSelectorKind)) {
       return `${at}.selectorKind must be one of ${SELECTOR_KINDS.join(', ')}`;
     }
