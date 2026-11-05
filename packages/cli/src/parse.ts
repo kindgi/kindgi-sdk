@@ -4,6 +4,7 @@
 import { parseArgs } from 'node:util';
 
 import type { OutputFormat } from './output.js';
+import { PROFILE_NAME, PROFILE_NAME_RULE } from './profiles.js';
 
 /**
  * Global flags recognised on every command. Kept small on purpose —
@@ -14,17 +15,22 @@ export const GLOBAL_OPTION_SPEC = {
   url: {
     type: 'string' as const,
     description:
-      "The Kindgi API's URL. Overrides `KINDGI_API_URL` and the config files. A stored key goes only to the address stored with it.",
+      "The Kindgi API's URL. Overrides `--profile`, `KINDGI_API_URL` and the config files. A stored key goes only to the address stored with it.",
   },
   token: {
     type: 'string' as const,
     description:
-      'The API token. Overrides `KINDGI_API_TOKEN` and the config files, and goes to the address the command does.',
+      'The API token. Overrides `--profile`, `KINDGI_API_TOKEN` and the config files, and goes to the address the command does. A key given here lands in shell history and `ps`: `kindgi auth login` takes it on stdin with `--token-stdin`.',
+  },
+  profile: {
+    type: 'string' as const,
+    description:
+      'Go on a Kindgi login profile: the address and key `kindgi auth login --profile <name>` saved in ~/.kindgi/config.json. Overrides `KINDGI_PROFILE`, `KINDGI_API_URL`, `KINDGI_API_TOKEN` and `.kindgirc.json`. `kindgi dev` refuses it.',
   },
   hosted: {
     type: 'boolean' as const,
     description:
-      "Go to the CLI's own address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored), never a `kindgi dev` runtime's `.kindgirc.json`; `kindgi build` and `kindgi deploy` then use the hosted build service. An env block's `build: 'hosted'` does the same for the env a command acts in. `kindgi dev` refuses it: a dev runtime is never hosted.",
+      "Go to the CLI's own address (`--url`, `--profile`, `KINDGI_API_URL` or the one `kindgi auth login` stored), never a `kindgi dev` runtime's `.kindgirc.json`; `kindgi build` and `kindgi deploy` then use the hosted build service. An env block's `build: 'hosted'` does the same for the env a command acts in. `kindgi dev` refuses it: a dev runtime is never hosted.",
   },
   verbose: {
     type: 'boolean' as const,
@@ -46,6 +52,8 @@ export const GLOBAL_OPTION_SPEC = {
 export interface GlobalFlags {
   readonly url?: string;
   readonly token?: string;
+  /** `--profile`: a login profile's name, checked here (profiles.ts). */
+  readonly profile?: string;
   /** `--hosted`: the command goes to the CLI's own address, never a `kindgi dev` runtime's (api-address.ts `hostedScope`). */
   readonly hosted: boolean;
   readonly verbose: boolean;
@@ -113,6 +121,9 @@ export function parseCommand(
   const values = parsed.values as Record<string, OptionValue>;
   const positionals = parsed.positionals ?? [];
 
+  if (typeof values.profile === 'string' && !PROFILE_NAME.test(values.profile)) {
+    throw new Error(`--profile takes a profile's name: ${PROFILE_NAME_RULE}.`);
+  }
   const format = pickFormat(
     values.json === true,
     values.table === true,
@@ -128,6 +139,7 @@ export function parseCommand(
     formatRequested: [values.json, values.table, values.raw, values.quiet].includes(true),
     ...(typeof values.url === 'string' ? { url: values.url } : {}),
     ...(typeof values.token === 'string' ? { token: values.token } : {}),
+    ...(typeof values.profile === 'string' ? { profile: values.profile } : {}),
   };
   // Strip global keys from options so command handlers see only their own.
   const own: Record<string, OptionValue> = {};

@@ -1292,7 +1292,7 @@ describe('the API key: a stored key goes only to the address stored with it', ()
       id: 'api-key',
       status: 'fail',
       message: `Every command that needs the API key refuses: it would send the API key stored in ${join(home, '.kindgi', 'config.json')}, which is for ${SIGNED_IN}, to ${OTHER}, which KINDGI_API_URL names.`,
-      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
     });
     expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')?.message).toContain(
@@ -1310,6 +1310,51 @@ describe('the API key: a stored key goes only to the address stored with it', ()
     expect(sent.filter((a) => a !== null)).toEqual([]);
     expect(out.stdout).not.toContain(KEY);
     expect(out.stderr).not.toContain(KEY);
+  });
+
+  describe('login profiles', () => {
+    const PROD_KEY = 'kgi_tk_prod_never_printed';
+    const homeFile = () => join(home, '.kindgi', 'config.json');
+    const UNUSABLE_FIX =
+      'Save it again with `kindgi auth login --profile <name> --url <url> --token-stdin --force`, or remove it with `kindgi auth logout --profile <name>`.';
+    const signedInWithProfiles = async (profiles: Record<string, unknown>) => {
+      await mkdir(join(home, '.kindgi'), { recursive: true });
+      await writeFile(homeFile(), JSON.stringify({ apiUrl: SIGNED_IN, token: KEY, profiles }));
+    };
+
+    test("on a profile: pass, naming the profile's key", async () => {
+      await signedInWithProfiles({ prod: { apiUrl: OTHER, token: PROD_KEY } });
+      const { out, check } = await doctor({
+        args: ['--profile', 'prod'],
+        fetchImpl: recording([]),
+      });
+      expect(check('api-key')).toMatchObject({
+        status: 'pass',
+        message: `The profile prod's key in ${homeFile()} is for ${OTHER}, the address commands go to.`,
+      });
+      expect(out.stdout).not.toContain(PROD_KEY);
+      expect(out.stderr).not.toContain(PROD_KEY);
+    });
+
+    test("a profile that can't be used: a warning on the API key check, with the fix", async () => {
+      await signedInWithProfiles({ broken: { apiUrl: OTHER } });
+      const { check } = await doctor({ fetchImpl: recording([]) });
+      expect(check('api-key')).toMatchObject({
+        status: 'warn',
+        message: `The API key stored in ${homeFile()} is for ${SIGNED_IN}, the address commands go to. The profile broken in ${homeFile()} can't be used: it has no token.`,
+        fix: UNUSABLE_FIX,
+      });
+    });
+
+    test("the API key check failing: the profile that can't be used is said too, the failure and its fix kept", async () => {
+      await signedInWithProfiles({ broken: { apiUrl: OTHER } });
+      const { check } = await doctor({ env: { KINDGI_API_URL: OTHER }, fetchImpl: recording([]) });
+      expect(check('api-key')).toMatchObject({
+        status: 'fail',
+        message: `Every command that needs the API key refuses: it would send the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, to ${OTHER}, which KINDGI_API_URL names. The profile broken in ${homeFile()} can't be used: it has no token.`,
+        fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      });
+    });
   });
 });
 

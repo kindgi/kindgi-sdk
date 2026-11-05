@@ -3,14 +3,20 @@
 
 /**
  * Where the CLI may send its API key. A stored key (`kindgi auth login`'s
- * ~/.kindgi/config.json, or `kindgi dev`'s .kindgirc.json) is for the
- * address stored beside it, and goes only there. The key for an address
- * is the one stored with it (`storedKeyFor`); when none is,
+ * ~/.kindgi/config.json, a Kindgi login profile's there, or `kindgi
+ * dev`'s .kindgirc.json) is for the address stored beside it, and goes
+ * only there. The key for an address is the one stored with it
+ * (`storedKeyFor`); when none is,
  * the command is refused before it sends anything, naming both addresses
  * and the file, wherever the address is named (`--url`, KINDGI_API_URL, a
  * folder's .kindgirc.json, an env block's `endpoint`, `--endpoint`). A
  * key given for the command (`--token`, KINDGI_API_TOKEN) goes where the
  * command says.
+ *
+ * A profile's key is reached only by naming the profile (`--profile`,
+ * KINDGI_PROFILE), never by its address: under a profile the stored keys
+ * are that profile's alone, and without one a refusal names the profiles
+ * that hold a key for the address (`profilesHolding`).
  *
  * - **Every command** that sends the key to the CLI's own address
  *   (`ctx.client()`, `ctx.token()`): `ownAddressKeyRefusal`.
@@ -31,7 +37,7 @@
  *   them; a stored key only to its own address.
  */
 
-import type { ResolvedConfig, StoredKey } from './config.js';
+import type { ConfigFile, ResolvedConfig, StoredKey } from './config.js';
 
 /**
  * The stored key for `url`: the one the files' order picks (this folder's
@@ -100,7 +106,7 @@ export function hostedApiAddress(
     return refused(
       `${command} sends your API key to ${own}, the address it's for (${ownSource(hosted)}), ` +
         `and ${other.where} names another: ${other.url}. The key goes only to its own address: ` +
-        `remove ${other.where} (Kindgi Cloud needs none), or ${signIn(other.url as string)}.`,
+        `remove ${other.where} (Kindgi Cloud needs none), or ${signIn(other.url as string, hosted)}.`,
     );
   }
   return { kind: 'ok', url: own, config: hosted };
@@ -118,7 +124,7 @@ export function hostedNoAddress(command: string, config: ResolvedConfig): string
     dev === undefined
       ? ''
       : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
-  return `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`;
+  return `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token-stdin\` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`;
 }
 
 /** Whether a command is hosted, and the config it goes on with. */
@@ -280,32 +286,73 @@ function keyElsewhere(
   const keyAddress = config.keyAddress;
   if (keyAddress !== undefined && sameAddress(url, keyAddress)) return undefined;
   const keyFile = config.files?.token;
-  const stored =
-    keyFile === undefined ? 'the API key stored' : `the API key stored in ${keyFile.path}`;
+  const stored = keyFile === undefined ? 'the API key stored' : storedIn(keyFile);
   const giveKey = keyForCommand ? ["give that server's key with --token or KINDGI_API_TOKEN"] : [];
+  // A profile's key is reached only by its name, so a profile that holds
+  // the address is named first.
+  const byProfile = profilesHolding(config, url);
   if (keyAddress === undefined) {
     const addAddress = `add "apiUrl": "${url}" beside it in ${keyFile?.path ?? 'its file'}, if it's that server's key`;
     return {
       sends: `${stored} to ${url}, and no address is stored with that key, so nothing shows it's for ${url}`,
       stored: '',
-      fix: ownAddressOnly([addAddress, signIn(url), ...giveKey]),
+      fix: ownAddressOnly([...byProfile, addAddress, signIn(url, config), ...giveKey]),
     };
   }
   return {
     sends: `${stored}, which is for ${keyAddress}, to ${url}, which ${where} names`,
     stored: otherKeys(config, url),
-    fix: ownAddressOnly([`point ${where} at ${keyAddress}`, signIn(url), ...giveKey]),
+    fix: ownAddressOnly([
+      ...byProfile,
+      `point ${where} at ${keyAddress}`,
+      signIn(url, config),
+      ...giveKey,
+    ]),
   };
+}
+
+/** Where a stored key is: "the API key stored in <file>", or "prod's key in <file>" for a profile's. */
+export function storedIn(file: ConfigFile): string {
+  return file.profile === undefined
+    ? `the API key stored in ${file.path}`
+    : `${file.profile}'s key in ${file.path}`;
+}
+
+/**
+ * The fix that names the profiles holding a key for `url`, when the
+ * command didn't name one: "add --profile prod". Empty under a profile,
+ * or when none holds it.
+ */
+function profilesHolding(config: ResolvedConfig, url: string): string[] {
+  const names = profileNamesFor(config, url);
+  if (config.profile !== undefined || names.length === 0) return [];
+  return [
+    `add ${names.map((name) => `--profile ${name}`).join(' or ')} (it holds a key for ${url})`,
+  ];
+}
+
+/** The usable profiles whose address is `url`: never their keys. */
+export function profileNamesFor(config: ResolvedConfig, url: string): string[] {
+  return (config.profiles ?? [])
+    .filter((p) => p.problem === undefined && p.apiUrl !== undefined && sameAddress(p.apiUrl, url))
+    .map((p) => p.name);
 }
 
 /**
  * How to sign in to `url`. `kindgi auth login` keeps the key with its
- * address in the home file, where it's found by that address from any
- * folder; it saves only a key it's given (auth.ts), never a stored one for
- * another address, so the hint always gives one.
+ * address in the home file; it saves only a key it's given (auth.ts),
+ * never a stored one for another address, so the hint always gives one,
+ * on stdin. When the login without a name holds another address, or the
+ * command is on a profile, a profile keeps both: the hint names one.
  */
-function signIn(url: string): string {
-  return `sign in to ${url} with \`kindgi auth login --url ${url} --token <its key>\``;
+function signIn(url: string, config: ResolvedConfig): string {
+  const home = (config.storedKeys ?? []).find(
+    (k) => k.file.kind === 'home' && k.file.profile === undefined,
+  );
+  const elsewhere =
+    home !== undefined && (home.apiUrl === undefined || !sameAddress(home.apiUrl, url));
+  const profile = elsewhere || config.profile !== undefined ? ' --profile <name>' : '';
+  return `sign in to ${url} with \`kindgi auth login${profile} --url ${url} --token-stdin\`, its key on stdin`;
 }
 
 function ownAddressOnly(fixes: readonly string[]): string {
@@ -319,13 +366,18 @@ function ownAddressOnly(fixes: readonly string[]): string {
  */
 function otherKeys(config: ResolvedConfig, url: string): string {
   const keyFile = config.files?.token;
-  const others = (config.storedKeys ?? []).filter((k) => k.file.path !== keyFile?.path);
-  if (others.length === 0) return '';
-  const each = others.map((k) =>
-    k.apiUrl === undefined
-      ? `${k.file.path} has one with no address`
-      : `${k.file.path} has one for ${k.apiUrl}`,
+  // A file no longer tells keys apart: a profile's shares the home file.
+  const others = (config.storedKeys ?? []).filter(
+    (k) => k.file.path !== keyFile?.path || k.file.profile !== keyFile?.profile,
   );
+  if (others.length === 0) return '';
+  const each = others.map((k) => {
+    const where =
+      k.file.profile === undefined ? k.file.path : `${k.file.profile} in ${k.file.path}`;
+    return k.apiUrl === undefined
+      ? `${where} has one with no address`
+      : `${where} has one for ${k.apiUrl}`;
+  });
   return `${each.join(', and ')}, and none is stored for ${url}. `;
 }
 

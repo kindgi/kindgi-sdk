@@ -974,24 +974,84 @@ The API URL and token come from, in order:
 | Source | API URL | Token |
 |---|---|---|
 | Flag | `--url` | `--token` |
-| Environment | `KINDGI_API_URL` | `KINDGI_API_TOKEN` |
+| A profile named with `--profile` | its `apiUrl` | its `token` |
+| Environment | `KINDGI_API_URL`, or a profile's named by `KINDGI_PROFILE` | `KINDGI_API_TOKEN`, or that profile's |
 | `.kindgirc.json` in the current directory | `apiUrl` | `token` |
 | `~/.kindgi/config.json` | `apiUrl` | `token` |
 
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
-pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
-with `kindgi auth whoami`. Login keeps a login `~/.kindgi/config.json` holds
-for another address, or a key with no address beside it, and exits 2 naming
-it: to use both, skip the login, and set `KINDGI_API_URL` and
-`KINDGI_API_TOKEN` to the new address and its key in the shell you use it
-from. `--force` replaces it, and warns that its key is no
-longer stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
-that's `0700`, and tightens ones an older CLI left looser (not on Windows).
+pair once, with the key on stdin, and check it:
+
+```sh
+printf '%s' "$KEY" | kindgi auth login --url https://kindgi.example.com --token-stdin
+kindgi auth whoami
+```
+
+`--token-stdin` reads all of stdin as the key (one trailing newline is
+dropped), so `--token-stdin < key.txt` reads it from a file. `printf` is
+built into bash and zsh, so the key is in no process's argv.
+`--token=<token>` works too, but a key in argv lands in shell history and
+`ps`. Login keeps a login `~/.kindgi/config.json` holds for another
+address, or a key with no address beside it, and exits 2 naming it: to
+keep both, save the new one as a profile (below). `--force` replaces it,
+and warns that its key is no longer stored. Login writes
+`~/.kindgi/config.json` `0600`, in a `~/.kindgi` that's `0700`, and
+tightens ones an older CLI left looser (not on Windows).
+
+### Profiles: a login for each runtime
+
+A team with a dev runtime and a prod one, or a runtime of its own beside
+Kindgi Cloud, keeps a login for each as a Kindgi login profile: a name,
+with an address and its key, in `~/.kindgi/config.json` beside the login
+without a name.
+
+```sh
+printf '%s' "$DEV_KEY" | kindgi auth login --profile dev --url https://dev.kindgi.example.com --token-stdin
+printf '%s' "$PROD_KEY" | kindgi auth login --profile prod --url https://kindgi.example.com --token-stdin
+kindgi deploy --env prod --profile prod
+kindgi auth list
+```
+
+- **A command uses a profile only when it names it,** with
+  `--profile <name>`, or `KINDGI_PROFILE=<name>` in that shell. A CLI
+  before 0.7.0 refuses `--profile`, but ignores `KINDGI_PROFILE` and goes
+  to the login without a name. No current profile is stored, so two
+  scripts at once never switch each other's runtime.
+- **A profile's key is never found by its address.** A folder's
+  `.kindgirc.json` or an env block's `endpoint` that names prod's address
+  doesn't reach prod's key: the command is refused, and the refusal names
+  the profile to add. Under a profile, the only stored key is that
+  profile's.
+- **`--profile` beats `KINDGI_API_URL` and `KINDGI_API_TOKEN`,** and says
+  so on stderr. `KINDGI_PROFILE` beside either is refused (exit 2), naming
+  both: a shell uses the env pair or a profile. `--url` and `--token` still
+  win over a profile, but a `--url` for another address than the
+  profile's is refused: its key goes only to its own.
+- **A profile skips this folder's `.kindgirc.json`,** so in a `kindgi dev`
+  folder `--profile prod` goes to prod, and says so first.
+- **A name** is lowercase letters, digits and `-`, 1 to 32 characters,
+  starting with a letter. A name the file doesn't hold is refused, listing
+  the ones it holds. So is an entry that can't be used (it has no `apiUrl`
+  or `token`), but only when it's named.
+- **Saving:** `kindgi auth login --profile <name>` takes the address from
+  `--url` and the key from `--token-stdin` or `--token`, never from the env
+  vars. For a profile it holds, the same line replaces its key at its own
+  address, so a key rotation is the same line. A held profile for another
+  address is kept unless `--force`.
+- **Checking:** `kindgi auth whoami --profile prod` adds `profile` beside
+  the identity. `kindgi auth list` gives each login's name (`null` for the
+  one without a name), address and file, and whether it can be used.
+  Neither shows a key.
+- **Removing:** `kindgi auth logout --profile prod` removes that profile,
+  and `kindgi auth logout` the login without a name. The file stays
+  `0600`.
+- `kindgi dev` refuses `--profile` and ignores `KINDGI_PROFILE`: a dev
+  runtime is local.
 
 **In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
 There, `.kindgirc.json` points every command at the dev runtime, ahead of
 your `kindgi auth login`. With `--hosted`, a command goes to the CLI's own
-address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored),
+address (`--url`, `--profile`, `KINDGI_API_URL` or the one `kindgi auth login` stored),
 with that address's key, and doesn't read the dev runtime's
 `.kindgirc.json`: `kindgi auth whoami --hosted` checks your sign-in. An env
 with `build: 'hosted'` in `kindgi.config.ts` does the same for a command
@@ -1023,7 +1083,8 @@ folder `apiUrl` that names another one, or a key with no `apiUrl` beside
 it), a command that needs the key is refused before it sends anything,
 naming both addresses and the file. A command that sends no key isn't.
 `kindgi auth login --url=<url>` saves a stored key only for its own address:
-for another one, give that server's key with `--token` or `KINDGI_API_TOKEN`.
+for another one, give that server's key with `--token-stdin`, `--token` or
+`KINDGI_API_TOKEN`.
 A key given with `--token` or `KINDGI_API_TOKEN` goes to whatever address
 the command goes to. `kindgi doctor` says which key the CLI would use, and
 whether it's for the API URL.

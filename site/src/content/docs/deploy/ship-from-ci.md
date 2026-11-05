@@ -493,6 +493,12 @@ from the same commit for each runtime, and deploy each build to its
 runtime's first environment. Set up each runtime once: its trusted signing
 key, providers, release gates, test cases and triggers.
 
+CI gives each job its runtime's key in `KINDGI_API_TOKEN`, as above, and
+the env block names the endpoint. A person's terminal keeps a Kindgi login
+profile for each runtime instead (`kindgi auth login --profile prod`), and
+names it on each command with `--profile prod`. `kindgi auth list` shows
+the ones it keeps.
+
 ## Python, Java and Scala packs
 
 The jobs are the same. What changes is how each job sets up the pack and
