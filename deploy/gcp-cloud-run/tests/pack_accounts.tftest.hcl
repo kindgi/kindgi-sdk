@@ -103,7 +103,8 @@ run "an_id_in_another_case_keeps_every_address" {
 }
 
 run "each_tenant_reads_only_its_own_secrets" {
-  command = plan
+  # Applied against the mock, so the pack account's email is known.
+  command = apply
 
   assert {
     condition = (
@@ -134,7 +135,8 @@ run "each_tenant_reads_only_its_own_secrets" {
 }
 
 run "the_orchestrator_acts_as_each_tenant" {
-  command = plan
+  # Applied against the mock, so the orchestrator's email is known.
+  command = apply
 
   assert {
     condition = (
@@ -331,7 +333,8 @@ run "per_tenant_with_no_tenants_names_an_empty_map" {
 }
 
 run "shared_mode_has_no_tenant_account_and_no_env" {
-  command = plan
+  # Applied against the mock, so the pack account's email is known.
+  command = apply
 
   variables {
     pack_accounts = "shared"
