@@ -13,7 +13,11 @@ import {
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
-import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
+import type {
+  AgentRegistryBinding,
+  AgentReinstateVersionOutcome,
+  AgentVersionRecord,
+} from '../agent-binding.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
@@ -38,8 +42,8 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import type { PlanGate } from '../plan-limits.js';
-import { admitPlan } from '../plan-limits.js';
+import type { PlanAdmitted, PlanGate } from '../plan-limits.js';
+import { admitPlan, planWarningField } from '../plan-limits.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -875,14 +879,15 @@ export function agentsRouter(
 
     // A retired version counts again wherever it runs, so only a retired
     // one is asked about: reinstating an active one adds nothing.
-    const reinstating =
+    const madeIn = retired?.madeInProjectId ?? retired?.projectId;
+    const reinstating: PlanAdmitted<AgentReinstateVersionOutcome> =
       retired?.unregisteredAt !== undefined
         ? await admitPlan(
             c,
             plan,
             {
               tenantId,
-              projectId: (retired.madeInProjectId ?? retired.projectId) as ProjectId,
+              ...(madeIn !== undefined && { projectId: madeIn }),
               adding: {
                 reinstate: {
                   limit: 'agents',
@@ -917,6 +922,7 @@ export function agentsRouter(
       agentId: outcome.agentId as unknown as string,
       version: outcome.version as unknown as string,
       wasTombstoned: outcome.wasTombstoned,
+      ...planWarningField(reinstating.planWarning),
     });
   });
 

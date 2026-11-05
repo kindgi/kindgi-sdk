@@ -26,7 +26,7 @@ export interface PlanWarningRecord {
 
 /**
  * A line for each count, flows first, each after `indent`:
- * `⚠ 10 of your plan's 10 agents run in production. Past 12, new ones are refused.`
+ * `⚠ 11 agents run in production; your plan has 10. Past 12, new ones are refused.`
  * None without a warning.
  */
 export function planWarningLines(warning: PlanWarningRecord | undefined, indent = ''): string[] {
@@ -39,8 +39,8 @@ export function planWarningLines(warning: PlanWarningRecord | undefined, indent 
     count === undefined
       ? []
       : [
-          `${indent}⚠ ${count.inUse} of your plan's ${count.plan} ${count.plan === 1 ? noun : `${noun}s`} ` +
-            `${count.inUse === 1 ? 'runs' : 'run'} in production. Past ${count.most}, new ones are refused.`,
+          `${indent}⚠ ${count.inUse} ${count.inUse === 1 ? `${noun} runs` : `${noun}s run`} in production; ` +
+            `your plan has ${count.plan}. Past ${count.most}, new ones are refused.`,
         ],
   );
 }

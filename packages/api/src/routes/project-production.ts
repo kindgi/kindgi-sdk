@@ -116,7 +116,9 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
 
     // The gate guards going into production, not staying there: a project
     // already in production answers its repeat unchanged. The binding
-    // checks the limit. Only going in is counted against the plan limits.
+    // checks the limit. Every put into production asks the plan limits,
+    // which count under their own lock: a project already in adds nothing
+    // there, and one a racing take-out let out is counted coming back.
     const goingLive = production && project.productionSince === undefined;
     if (gate && goingLive) {
       const closed = gateRefusal(await tenantHierarchy.getTenant(tenantId), tenantId, projectId);
@@ -126,7 +128,7 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     const setProduction = projects.setProduction;
     const admitted = await admitPlan(
       c,
-      goingLive ? options.plan : undefined,
+      production ? options.plan : undefined,
       { tenantId, projectId, adding: 'whole-project' },
       () => setProduction.call(projects, tenantId, projectId, production),
       true,

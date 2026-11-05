@@ -3459,6 +3459,7 @@ class ReinstateAgentVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowNode(BaseModel):
@@ -3592,6 +3593,7 @@ class ReinstateFlowVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowCollectionPage(BaseModel):

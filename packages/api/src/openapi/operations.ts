@@ -1634,13 +1634,13 @@ const LIMITED_ABOVE_PROJECT_403 = ErrorResponse(
 /**
  * The plan limits (`CreateAppInput.planLimits`): a write that would add
  * flows or agents to production past the most the runtime's license key
- * runs is refused, with nothing written. Each such write's 403 names
- * `plan-limit-reached`, and its 503 `plan-count-busy`.
+ * runs is refused, and none of them is added. Each such write's 403
+ * names `plan-limit-reached`, and its 503 `plan-count-busy`.
  */
 const PLAN_LIMIT_REACHED =
-  "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.";
+  "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.";
 const PLAN_COUNT_BUSY =
-  '`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe.';
+  '`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe.';
 /** The `Idempotency-Key` store's 503, which a keyed write that declares its own 503 names too. */
 const IDEMPOTENCY_STORE_UNAVAILABLE_TOO =
   "Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.";
@@ -1654,9 +1654,15 @@ const PUBLISH_403 = ErrorResponse(
     `\`permission-denied\`: the caller may not make this change. Or ${PLAN_LIMIT_REACHED}`,
   ),
 );
+/** What a suggested change's check keeps when the plan stops its agent version. */
+const SUGGESTED_CHANGE_KEEPS =
+  "The suggested change and its edit's block version are kept, as a failed check keeps them.";
 /** Where a suggested change's check counts: the agent version it makes, in the project it's made in. */
-const SUGGESTED_CHANGE_COUNTS =
-  "Here it's the agent version a check makes that counts, in the project it's made in.";
+const SUGGESTED_CHANGE_COUNTS = `Here it's the agent version a check makes that counts, in the project it's made in. ${SUGGESTED_CHANGE_KEEPS}`;
+/** A suggested change's check, pin or add-as-Latest 503: the plan count, or its `Idempotency-Key` store. */
+const SUGGESTED_CHANGE_BUSY_503 = ErrorResponse(
+  `${PLAN_COUNT_BUSY} ${SUGGESTED_CHANGE_KEEPS} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO}`,
+);
 /** A reinstate's 403: only a retired version counts again. */
 const REINSTATE_403 = ErrorResponse(
   `${PLAN_LIMIT_REACHED} Only a retired version counts again; reinstating an active one adds nothing.`,
@@ -5596,7 +5602,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         `The suggested change is made, but its check didn't start (\`details.suggestedChangeId\`; check it again with \`POST /v1/suggested-changes/{suggestedChangeId}/check\`): ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`,
       ),
       '503': ErrorResponse(
-        `\`plan-count-busy\` (with \`Retry-After\`): the suggested change is made (\`details.suggestedChangeId\`), but counting the flows and agents in production for its check took too long; check it again. ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO}`,
+        `\`plan-count-busy\` (with \`Retry-After\`): the suggested change and its edit's block version are made (\`details.suggestedChangeId\`), but counting the flows and agents in production for its check took too long; check it again. ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO}`,
       ),
       '400': ErrorResponse(
         "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
@@ -5628,7 +5634,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
       '403': ErrorResponse(`${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`),
-      '503': PLAN_COUNT_BUSY_503,
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
@@ -5669,7 +5675,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         `When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`,
       ),
-      '503': PLAN_COUNT_BUSY_503,
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
@@ -5703,7 +5709,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         `When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`,
       ),
-      '503': PLAN_COUNT_BUSY_503,
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '404': ErrorResponse(
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
@@ -8668,7 +8674,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '200': {
         description:
-          'The target has this build already: its deployment, with the edits made since recorded.',
+          'The target has this build already: its deployment, with the edits made since recorded, and no `planWarning`.',
         schema: ref('DeploymentPromotion'),
       },
       ...CommonAuthErrors,

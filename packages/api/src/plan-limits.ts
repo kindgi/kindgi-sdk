@@ -48,7 +48,7 @@ export interface PlanWords {
 
 /**
  * What a write through the plan limits came to: an answer for the route
- * to give as it is (refused or busy, with nothing written), or the
+ * to give as it is (refused or busy, with `write` never run), or the
  * write's value with the `planWarning` its answer carries.
  */
 export type PlanAdmitted<T> =
@@ -119,7 +119,7 @@ export function planWarningField(warning: PlanWarning | undefined): {
   return kept.flows === undefined && kept.agents === undefined ? {} : { planWarning: kept };
 }
 
-/** The `403 plan-limit-reached` answer, with nothing written. */
+/** The `403 plan-limit-reached` answer: `write` never ran. */
 export function planRefusedAnswer(
   c: Context<AppEnv>,
   input: PlanLimitsInput,
@@ -137,7 +137,7 @@ export function planRefusedAnswer(
  * answers its errors itself: what `planRefusedAnswer` answers.
  */
 export function planRefusedError(
-  projectId: ProjectId,
+  projectId: ProjectId | undefined,
   refused: PlanRefused,
   words: PlanWords,
 ): { readonly code: 'plan-limit-reached'; readonly message: string } & Readonly<
@@ -147,7 +147,7 @@ export function planRefusedError(
   return {
     code: 'plan-limit-reached',
     message: planRefusedMessage(refused.over, words),
-    projectId: projectId as unknown as string,
+    ...(projectId !== undefined && { projectId: projectId as unknown as string }),
     ...overDetail(first),
     over: refused.over.map(overDetail),
     newIds: { flows: [...refused.newIds.flows], agents: [...refused.newIds.agents] },
@@ -170,7 +170,7 @@ export function planBusyError(): { readonly code: 'plan-count-busy'; readonly me
   return {
     code: 'plan-count-busy',
     message:
-      'Counting the agents and flows in production took too long, so nothing was written. Try again after Retry-After.',
+      'Counting the agents and flows in production took too long, so none were added. Try again after Retry-After.',
   };
 }
 

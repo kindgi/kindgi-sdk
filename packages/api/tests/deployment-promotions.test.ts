@@ -1827,6 +1827,16 @@ describe('a promotion through the plan limits', () => {
     expect(res.body.planWarning).toEqual(warning);
   });
 
+  test('a target that had the build already: 200, and no planWarning, as it adds nothing', async () => {
+    const warning = { agents: { plan: 3, most: 4, inUse: 3 } };
+    const h = harness({ plan: planLimits({ kind: 'done', warning }).binding });
+    expect((await h.promote('dep-s1', S2)).status).toBe(201);
+    const again = await h.promote('dep-s1', S2);
+    expect(again.status).toBe(200);
+    expect(again.body.created).toBe(false);
+    expect(again.body.planWarning).toBeUndefined();
+  });
+
   test("a deployment that isn't there is answered before admit is asked", async () => {
     const plan = planLimits({ kind: 'done' });
     const h = harness({ plan: plan.binding });

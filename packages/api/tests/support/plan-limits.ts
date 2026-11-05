@@ -20,20 +20,26 @@ export type PlanAnswer =
  * asked. `order`, when given, gets `plan: admit` before the write `admit`
  * runs and `plan: admitted` after it, so a test sees which writes ran
  * inside. `check` answers `done` as ok; `busy` is only `admit`'s.
+ * `answer` changes what it answers from then on.
  */
 export function planLimits(
-  answer: PlanAnswer,
+  first: PlanAnswer,
   order?: string[],
 ): {
   readonly binding: PlanLimitsBinding;
   readonly admitted: PlanLimitsInput[];
   readonly checked: PlanLimitsInput[];
+  answer(next: PlanAnswer): void;
 } {
   const admitted: PlanLimitsInput[] = [];
   const checked: PlanLimitsInput[] = [];
+  let answer = first;
   return {
     admitted,
     checked,
+    answer(next) {
+      answer = next;
+    },
     binding: {
       async admit(input, write) {
         admitted.push(input);

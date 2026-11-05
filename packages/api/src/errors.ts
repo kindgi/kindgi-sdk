@@ -588,7 +588,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /**
    * A write that would add agents or flows to production past the most the
    * plan allows (`details.limit`, `over`, `newIds`; `plan`, `most`, `inUse`
-   * when this tenant may see them). Nothing was written.
+   * when this tenant may see them). None of them was added; a suggested
+   * change keeps its edit's block version.
    */
   'plan-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */

@@ -8944,6 +8944,9 @@
           "wasTombstoned": {
             "type": "boolean",
             "description": "`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op)."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -9215,6 +9218,9 @@
           "wasTombstoned": {
             "type": "boolean",
             "description": "`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op)."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -38421,7 +38427,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38481,7 +38487,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39628,7 +39634,7 @@
             }
           },
           "403": {
-            "description": "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Only a retired version counts again; reinstating an active one adds nothing.",
+            "description": "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Only a retired version counts again; reinstating an active one adds nothing.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39668,7 +39674,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41433,7 +41439,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -41493,7 +41499,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41961,7 +41967,7 @@
             }
           },
           "403": {
-            "description": "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Only a retired version counts again; reinstating an active one adds nothing.",
+            "description": "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Only a retired version counts again; reinstating an active one adds nothing.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42001,7 +42007,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46838,7 +46844,7 @@
             }
           },
           "403": {
-            "description": "The suggested change is made, but its check didn't start (`details.suggestedChangeId`; check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check`): `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in.",
+            "description": "The suggested change is made, but its check didn't start (`details.suggestedChangeId`; check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check`): `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46908,7 +46914,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): the suggested change is made (`details.suggestedChangeId`), but counting the flows and agents in production for its check took too long; check it again. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): the suggested change and its edit's block version are made (`details.suggestedChangeId`), but counting the flows and agents in production for its check took too long; check it again. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47403,7 +47409,7 @@
             }
           },
           "403": {
-            "description": "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in.",
+            "description": "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47463,7 +47469,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. The suggested change and its edit's block version are kept, as a failed check keeps them. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47552,7 +47558,7 @@
             }
           },
           "403": {
-            "description": "When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in.",
+            "description": "When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47612,7 +47618,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. The suggested change and its edit's block version are kept, as a failed check keeps them. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47701,7 +47707,7 @@
             }
           },
           "403": {
-            "description": "When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in.",
+            "description": "When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47751,7 +47757,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. The suggested change and its edit's block version are kept, as a failed check keeps them. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60054,7 +60060,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts the pack's agents and flows in the project it deploys into. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts the pack's agents and flows in the project it deploys into. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60114,7 +60120,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60317,7 +60323,7 @@
             }
           },
           "403": {
-            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace. Or, as `POST /v1/deployments` answers it, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace. Or, as `POST /v1/deployments` answers it, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60789,7 +60795,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The target has this build already: its deployment, with the edits made since recorded.",
+            "description": "The target has this build already: its deployment, with the edits made since recorded, and no `planWarning`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60829,7 +60835,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts what the build ships and carries in the target, before the move: nothing moved. With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts what the build ships and carries in the target, before the move: nothing moved. With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60899,7 +60905,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60978,7 +60984,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted. Or, as the promotion answers it, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.",
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted. Or, as the promotion answers it, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65624,7 +65630,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one). Or, putting it in production, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so nothing was written; what runs keeps running. `details` has `projectId`; `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts every flow and agent that runs in the project; taking a project out of production, or one already in it, adds nothing. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one). Or, putting it in production, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts every flow and agent that runs in the project; taking a project out of production, or one already in it, adds nothing. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -65684,7 +65690,7 @@
             }
           },
           "503": {
-            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so nothing was written; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
             "content": {
               "application/json": {
                 "schema": {

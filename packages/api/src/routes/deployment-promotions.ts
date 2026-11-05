@@ -502,7 +502,7 @@ export function mountDeploymentPromotions(
       leftBehind: plan.carried.leftBehind,
       created: outcome.kind === 'ok',
       ...(blockCheck !== undefined && { blockCheck }),
-      ...planWarningField(admitted.planWarning),
+      ...promotionWarningField(outcome.kind === 'ok', admitted.planWarning),
     };
     return finishPromotion(c, bindings, authorizer, plan, result, outcome.carried, body);
   });
@@ -569,6 +569,18 @@ function promotionPlanInput(plan: PromotionPlan): {
       flows: ids('flow', plan.source.contents.flows),
     },
   };
+}
+
+/**
+ * A promotion answer's `{planWarning}`, only when it made the target's
+ * version. A target that had the build already added nothing, so, as a
+ * deploy's digest replay, it carries none.
+ */
+function promotionWarningField(
+  created: boolean,
+  warning: PlanWarning | undefined,
+): { readonly planWarning?: PlanWarning } {
+  return created ? planWarningField(warning) : {};
 }
 
 /**

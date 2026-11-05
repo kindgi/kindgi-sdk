@@ -558,14 +558,32 @@ describe('going live through the plan limits', () => {
     expect(((await res.json()) as Record<string, unknown>).planWarning).toEqual(warning);
   });
 
-  test('a repeat, and taking a project out, never ask: they add nothing', async () => {
+  test('a repeat asks too, as the count decides what a project already in adds; taking one out never asks', async () => {
     const plan = planLimits({ kind: 'done' });
     const { app, trio } = makeApp({ plan: plan.binding });
     const id = await newProject(trio);
     expect((await put(app, id, { production: true })).status).toBe(200);
     expect((await put(app, id, { production: true })).status).toBe(200);
     expect((await put(app, id, { production: false })).status).toBe(200);
-    expect(plan.admitted).toEqual([{ tenantId, projectId: id, adding: 'whole-project' }]);
+    const asked = { tenantId, projectId: id, adding: 'whole-project' };
+    expect(plan.admitted).toEqual([asked, asked]);
+  });
+
+  test('a repeat the count refuses is refused: after a racing take-out, it counts as going in', async () => {
+    const plan = planLimits({ kind: 'done' });
+    const { app, trio } = makeApp({ plan: plan.binding });
+    const id = await newProject(trio);
+    expect((await put(app, id, { production: true })).status).toBe(200);
+    plan.answer({
+      kind: 'refused',
+      over: [{ limit: 'agents', adding: 2 }],
+      newIds: { flows: [], agents: ['acme.drafting', 'acme.review'] },
+    });
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'plan-limit-reached',
+    );
   });
 
   test('the gate refuses first: admit is never asked', async () => {

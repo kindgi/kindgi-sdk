@@ -4010,6 +4010,7 @@ export const ReinstateAgentVersionResultSchema: JsonSchema = {
       description:
         '`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -4194,6 +4195,7 @@ export const ReinstateFlowVersionResultSchema: JsonSchema = {
       description:
         '`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 

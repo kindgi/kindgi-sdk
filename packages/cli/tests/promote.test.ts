@@ -330,8 +330,8 @@ describe('kindgi promote', () => {
       flows: { plan: 3, most: 4, inUse: 3 },
     };
     const lines =
-      "⚠ 3 of your plan's 3 flows run in production. Past 4, new ones are refused.\n" +
-      "⚠ 11 of your plan's 10 agents run in production. Past 12, new ones are refused.\n";
+      '⚠ 3 flows run in production; your plan has 3. Past 4, new ones are refused.\n' +
+      '⚠ 11 agents run in production; your plan has 10. Past 12, new ones are refused.\n';
     const checked = await run(['promote', '--from=staging', '--to=prod', '--check'], {
       check: { ...READY_CHECK, planWarning },
     });

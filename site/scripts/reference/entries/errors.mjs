@@ -3484,11 +3484,12 @@ export const ERROR_ENTRIES = {
   },
   'plan-limit-reached': {
     description:
-      "A write would add flows or agents to production past the most this runtime's license key runs: publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. The most is the plan's number and a margin, a fifth more and at least one more. Nothing was written, and what runs keeps running: changes to the flows and agents that run go through. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan, where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
+      "A write would add flows or agents to production past the most this runtime's license key runs: publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. The most is the plan's number and a margin, a fifth more and at least one more. None of the flows and agents the write adds is added, and what runs keeps running: changes to the flows and agents that run go through. A suggested change keeps its edit's block version, as a failed check does, and one just made is kept too: check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check` once there's room. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan, where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
     details: [
       {
         key: 'projectId',
-        meaning: 'the project the write adds to, or the one put in production',
+        meaning:
+          'the project the write adds to, or the one put in production; on a reinstate, the project its version was made in, absent when the server records none',
       },
       {
         key: 'limit',
@@ -3520,13 +3521,13 @@ export const ERROR_ENTRIES = {
           'when a suggested change was made but its check refused: the change, which is kept',
       },
     ],
-    seeAlso: ['#plan-count-busy'],
+    seeAlso: ['#plan-count-busy', 'deploy/self-hosted/plan-limits'],
   },
   'plan-count-busy': {
     description:
-      'A write that can add flows or agents to production waited too long for its turn to count them, so it never ran: nothing was written. The same request is safe to send again after the `Retry-After` header.',
+      "A write that can add flows or agents to production waited too long for its turn to count them, so it never ran: none of them is added. A suggested change keeps its edit's block version, as a failed check does. The same request is safe to send again after the `Retry-After` header.",
     details: [],
-    seeAlso: ['#plan-limit-reached'],
+    seeAlso: ['#plan-limit-reached', 'deploy/self-hosted/plan-limits'],
   },
   'production-unsupported': {
     description:

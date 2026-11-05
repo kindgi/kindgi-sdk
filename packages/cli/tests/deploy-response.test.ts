@@ -100,7 +100,7 @@ describe('renderResponse: a refused deploy', () => {
       error: {
         code: 'plan-count-busy',
         message:
-          'Counting the agents and flows in production took too long, so nothing was written. Try again after Retry-After.',
+          'Counting the agents and flows in production took too long, so none were added. Try again after Retry-After.',
       },
     });
     expect(text.replaceAll(/\s+/g, ' ')).toContain(
@@ -178,13 +178,23 @@ describe('renderResponse: a deploy that landed', () => {
       expect(banner(landed(kind, warned))).toContain(
         [
           '',
-          "  ⚠ 2 of your plan's 1 flow run in production. Past 2, new ones are refused.",
-          "  ⚠ 10 of your plan's 10 agents run in production. Past 12, new ones are refused.",
+          '  ⚠ 2 flows run in production; your plan has 1. Past 2, new ones are refused.',
+          '  ⚠ 10 agents run in production; your plan has 10. Past 12, new ones are refused.',
           '',
         ].join('\n'),
       );
       expect(banner(landed(kind, record))).not.toContain('⚠');
     }
+  });
+
+  test('one in production reads in the singular', () => {
+    const warned: DeploymentRecord = {
+      ...record,
+      planWarning: { flows: { plan: 1, most: 2, inUse: 1 } },
+    };
+    expect(banner(landed('created', warned))).toContain(
+      '  ⚠ 1 flow runs in production; your plan has 1. Past 2, new ones are refused.',
+    );
   });
 
   test('a new deployment says what new runs use; a same-image deploy names the digest deployed before', () => {

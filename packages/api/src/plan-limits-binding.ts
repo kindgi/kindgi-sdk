@@ -11,16 +11,20 @@ import type { ProjectId, TenantId } from '@kindgi/types';
  * whole. What runs keeps running: an id already counted is never new, so
  * a new version, an edit or a redeploy of one goes through.
  *
- * The routes that can add an id to a project in production ask it:
- * deploy, promote, agent and flow publish, reinstate, and putting a
- * project in production. `admit` wraps only a route's writes, after its
- * own checks; `check` answers the two dry checks, with nothing held and
- * nothing written. Without it, every route writes as it would, and
- * nothing is counted.
+ * The writes that can add an id to a project in production ask it:
+ * deploy, promote, agent and flow publish, reinstate, putting a project
+ * in production, and the agent version a suggested change's check makes.
+ * `admit` wraps only a route's writes, after its own checks; `check`
+ * answers the two dry checks, with nothing held and nothing written.
+ * Without it, every route writes as it would, and nothing is counted.
  *
  * Neither is re-entrant: a write `admit` wraps never calls `admit` or
  * `check`. A read the binding needs that fails rejects, with nothing
  * written, and the route answers it as any store failure.
+ *
+ * When `write` rejects, `admit` rejects with that same error, unchanged:
+ * the routes answer a write's own refusals (a deploy's tool schema
+ * budget, a publish refused) from the error they threw.
  */
 export interface PlanLimitsBinding {
   admit<T>(input: PlanLimitsInput, write: () => Promise<T>): Promise<PlanAdmission<T>>;
@@ -30,8 +34,12 @@ export interface PlanLimitsBinding {
 /** What a write lands, and where. */
 export interface PlanLimitsInput {
   readonly tenantId: TenantId;
-  /** The project the write lands in. */
-  readonly projectId: ProjectId;
+  /**
+   * The project the write lands in. A reinstate names the project its
+   * version was made in, and none when the store records none: a
+   * reinstated version counts wherever it runs either way.
+   */
+  readonly projectId?: ProjectId;
   /**
    * The agent and flow ids the write lands in it; `whole-project` for
    * putting the project in production, when every id it runs counts; or
@@ -90,7 +98,7 @@ export interface PlanWarning {
   readonly agents?: PlanCount;
 }
 
-/** A write refused, with nothing written. */
+/** A write refused: none of the flows and agents it adds is added. */
 export interface PlanRefused {
   readonly kind: 'refused';
   /** Every count the write would pass, flows first. */

@@ -456,4 +456,60 @@ describe('reinstate through the plan limits', () => {
     });
     expect(flows.writes).toEqual([]);
   });
+
+  test('at its plan: the reinstate answer carries planWarning, for an agent and a flow', async () => {
+    const warning = { agents: { plan: 10, most: 12, inUse: 10 } };
+    const agents = agentRegistry(retiredAgent);
+    const agentApp = makeApp({
+      agents: agents.binding,
+      planLimits: planLimits({ kind: 'done', warning }).binding,
+    });
+    const agentRes = await agentApp.request(
+      '/v1/agents/acme.drafting/versions/1.0.0/reinstate',
+      post(),
+    );
+    expect(agentRes.status).toBe(200);
+    expect(((await agentRes.json()) as Record<string, unknown>).planWarning).toEqual(warning);
+
+    const retiredFlow = {
+      ...(flowBody(home) as object),
+      projectId: home,
+      madeInProjectId: madeIn,
+      unregisteredAt: '2026-11-01T00:00:00.000Z',
+    } as unknown as FlowVersionRecord;
+    const flowWarning = { flows: { plan: 3, most: 4, inUse: 4 } };
+    const flowApp = makeApp({
+      flows: flowRegistry(retiredFlow).binding,
+      planLimits: planLimits({ kind: 'done', warning: flowWarning }).binding,
+    });
+    const flowRes = await flowApp.request(
+      '/v1/flows/ingest.contract-pdf/versions/1.0.0/reinstate',
+      post(),
+    );
+    expect(flowRes.status).toBe(200);
+    expect(((await flowRes.json()) as Record<string, unknown>).planWarning).toEqual(flowWarning);
+  });
+
+  test('a version whose store records no project asks with none, and its refusal names none', async () => {
+    const {
+      projectId: _home,
+      madeInProjectId: _madeIn,
+      ...noProject
+    } = retiredAgent as AgentVersionRecord & { madeInProjectId?: ProjectId };
+    const plan = planLimits(AGENTS_AT_MOST);
+    const app = makeApp({
+      agents: agentRegistry(noProject as AgentVersionRecord).binding,
+      planLimits: plan.binding,
+    });
+    const res = await app.request('/v1/agents/acme.drafting/versions/1.0.0/reinstate', post());
+    expect(res.status).toBe(403);
+    expect(plan.admitted).toEqual([
+      {
+        tenantId,
+        adding: { reinstate: { limit: 'agents', id: 'acme.drafting', version: '1.0.0' } },
+      },
+    ]);
+    const body = (await res.json()) as { error: { details: Record<string, unknown> } };
+    expect(body.error.details).not.toHaveProperty('projectId');
+  });
 });

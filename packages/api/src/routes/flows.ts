@@ -13,7 +13,11 @@ import { type UnpinnableRef, toolPinLookup } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
+import type {
+  FlowRegistryBinding,
+  FlowReinstateVersionOutcome,
+  FlowVersionRecord,
+} from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
 import {
   type ItemCheck,
@@ -30,8 +34,8 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import type { PlanGate } from '../plan-limits.js';
-import { admitPlan } from '../plan-limits.js';
+import type { PlanAdmitted, PlanGate } from '../plan-limits.js';
+import { admitPlan, planWarningField } from '../plan-limits.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -627,14 +631,15 @@ export function flowsRouter(
 
     // A retired version counts again wherever it runs, so only a retired
     // one is asked about: reinstating an active one adds nothing.
-    const reinstating =
+    const madeIn = retired?.madeInProjectId ?? retired?.projectId;
+    const reinstating: PlanAdmitted<FlowReinstateVersionOutcome> =
       retired?.unregisteredAt !== undefined
         ? await admitPlan(
             c,
             plan,
             {
               tenantId,
-              projectId: (retired.madeInProjectId ?? retired.projectId) as ProjectId,
+              ...(madeIn !== undefined && { projectId: madeIn }),
               adding: {
                 reinstate: { limit: 'flows', id: flowId as unknown as string, version },
               },
@@ -665,6 +670,7 @@ export function flowsRouter(
       flowId: outcome.flowId as unknown as string,
       version: outcome.version,
       wasTombstoned: outcome.wasTombstoned,
+      ...planWarningField(reinstating.planWarning),
     });
   });
 

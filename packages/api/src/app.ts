@@ -1315,8 +1315,8 @@ export interface CreateAppInput {
    * Optional. The plan limits on agents and flows in production
    * (`plan-limits-binding.ts`). Deploy, promote, publish, reinstate, a
    * suggested change's new version and putting a project in production ask
-   * it, and a write past the most the plan allows is refused, with nothing
-   * written. Absent: nothing is counted.
+   * it, and a write past the most the plan allows is refused: none of the
+   * flows and agents it adds is added. Absent: nothing is counted.
    */
   readonly planLimits?: PlanLimitsBinding;
   /**
