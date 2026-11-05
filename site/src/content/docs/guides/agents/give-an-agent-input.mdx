@@ -200,6 +200,12 @@ message, and the conversation keeps them with it.
 
 Keep each file in the runtime first, in the project the run starts in, as
 [Keep files with a run](../../runs/keep-files-with-a-run/#upload-one) shows.
+A run that names no project starts in its agent's own project, the one its
+deploy named, else the default project, as
+[Organize by org and project](../../projects/organize-by-org-and-project/)
+describes. A turn in a conversation stays in the conversation's project. For
+an agent outside the default project, upload with `--project=<project-id>`.
+
 The upload prints the file's record, and its `blobId` is the `artifactId`
 the run's `files` name:
 
@@ -256,10 +262,10 @@ more than its model's window has tokens. A file past these is a line naming
 it and why, and the call goes on.
 
 A run's input carries at most 10 files, and more are refused with
-`400 bad-input`. A file is refused the same way, naming it, when:
+`400 bad-input`. A runtime that keeps no files refuses any `files` the same
+way, until you [turn them on](../../runs/keep-files-with-a-run/#turn-them-on).
+A file is refused the same way, naming it, when:
 
-- the runtime keeps no files, until you
-  [turn them on](../../runs/keep-files-with-a-run/#turn-them-on);
 - there's no such file, or you can't read it;
 - it's in a project other than the run's;
 - it isn't one of the files above, or it's over its size.
