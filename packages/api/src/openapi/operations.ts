@@ -102,6 +102,12 @@ export interface OperationSpec {
    * Python client yields its chunks.
    */
   readonly streamed?: true;
+  /**
+   * The operation is going: its description's first paragraph names the
+   * one to use instead and the release that removes it. Emitted as
+   * `deprecated: true`, which the clients mark.
+   */
+  readonly deprecated?: true;
 }
 
 // ---------------- shared parameters ----------------
@@ -5935,7 +5941,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.list',
     summary: 'List artifact metadata',
     description:
-      "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
+      "Use `files.list`. Removed in 0.8.0.\n\nCursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5976,7 +5983,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+      "Use `files.create`. Removed in 0.8.0.\n\nMultipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6011,7 +6019,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.download',
     summary: 'Download an artifact (stream)',
     description:
-      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
+      "Use `files.versions.download`. Removed in 0.8.0.\n\nStreams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -6042,7 +6051,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.head',
     summary: 'Fetch artifact metadata (no body)',
     description:
-      'Same headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.',
+      "Use `files.versions.get` for the version's record, or a `HEAD` on `files.versions.download`. Removed in 0.8.0.\n\nSame headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -6070,7 +6080,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.delete',
     summary: 'Delete an artifact',
     description:
-      'Idempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).',
+      'Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.\n\nIdempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).',
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [

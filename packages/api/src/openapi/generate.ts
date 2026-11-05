@@ -395,6 +395,7 @@ function buildOperation(op: OperationSpec): Record<string, unknown> {
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
   if (op.streamed === true) doc['x-kindgi-streamed'] = true;
+  if (op.deprecated === true) doc.deprecated = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }
