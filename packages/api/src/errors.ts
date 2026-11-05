@@ -245,6 +245,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'blob-hash-mismatch': 400,
   'blob-size-mismatch': 400,
   'blob-storage-error': 500,
+  /** A file past the tenant's storage limit (`details.limit`, `storageMiB`, `usedBytes`, `neededBytes`). Nothing was stored. */
+  'storage-limit-reached': 403,
   // Admin plane — capabilities + providers.
   'capability-not-found': 404,
   'provider-not-found': 404,

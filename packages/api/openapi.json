@@ -374,6 +374,7 @@
           "blob-hash-mismatch": 400,
           "blob-size-mismatch": 400,
           "blob-storage-error": 500,
+          "storage-limit-reached": 403,
           "capability-not-found": 404,
           "provider-not-found": 404,
           "provider-already-registered": 409,

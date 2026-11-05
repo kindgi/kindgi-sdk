@@ -1681,6 +1681,31 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/runs/keep-files-with-a-run'],
   },
+  'storage-limit-reached': {
+    description:
+      "You stored a file that the workspace's storage limit has no room for (`storageMiB`, set by whoever runs the server). Nothing was stored. Uploads still under way count until they finish. Delete files the workspace no longer needs, or ask whoever runs the server to raise the limit; then send the file again.",
+    details: [
+      {
+        key: 'limit',
+        meaning: 'which limit: `storage`',
+      },
+      {
+        key: 'storageMiB',
+        meaning: "the workspace's storage limit, in MiB",
+      },
+      {
+        key: 'usedBytes',
+        meaning:
+          "what the workspace's files take, with the uploads under way, before this file; over the limit when the limit was lowered below it",
+      },
+      {
+        key: 'neededBytes',
+        meaning:
+          "what this file needs: its size, or the largest an upload may be when its size wasn't known ahead",
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants', 'guides/runs/keep-files-with-a-run'],
+  },
   'capability-not-found': {
     description: 'No capability is registered with that id in the workspace.',
     details: [

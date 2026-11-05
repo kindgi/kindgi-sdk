@@ -270,6 +270,15 @@ export interface BlobPutInput {
    * the hash in `BlobMeta.hash`.
    */
   readonly expectedHash?: string;
+  /**
+   * Uploaded for a run that hasn't started yet. The blob is deleted once
+   * the deployment's unused-upload time has passed (24 hours by default),
+   * unless a run that names it in its input has started by then. From
+   * that start on, it stays until it's deleted, as any other blob.
+   * Bindings store its `expiresAt` and return it on `BlobMeta`. The API
+   * sets it on every upload by someone who may run but not write.
+   */
+  readonly forRun?: boolean;
 }
 
 export interface BlobMeta {
@@ -287,6 +296,12 @@ export interface BlobMeta {
   /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: Timestamp;
+  /**
+   * When an upload made for a run (`BlobPutInput.forRun`) is deleted if
+   * no run that names it has started. Absent once such a run has started,
+   * and on every other blob.
+   */
+  readonly expiresAt?: Timestamp;
   /**
    * S3-compat address. Every persisted blob carries a `(bucket, key)`
    * pair — bespoke uploads default to `bucket: 'artifacts', key:
@@ -369,4 +384,16 @@ export type BlobError =
       readonly declared: number;
       readonly actual: number;
     }
-  | { readonly code: 'blob-storage-error'; readonly message: string; readonly cause?: unknown };
+  | { readonly code: 'blob-storage-error'; readonly message: string; readonly cause?: unknown }
+  | {
+      /** The tenant's storage limit has no room for the put. Nothing was stored. */
+      readonly code: 'storage-limit-reached';
+      readonly message: string;
+      readonly limit: 'storage';
+      /** The tenant's limit, in MiB. */
+      readonly storageMiB: number;
+      /** What the tenant's files take, with the uploads under way, before this put. It may be past the limit already. */
+      readonly usedBytes: number;
+      /** What this put needs: its declared size, else the most an upload may be. */
+      readonly neededBytes: number;
+    };
