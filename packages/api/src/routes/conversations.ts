@@ -18,7 +18,7 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type HeldItems, type ItemRights, runIn } from '../item-rights.js';
+import { type HeldItems, type ItemRights, limitedItemRefusal, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
@@ -156,22 +156,20 @@ export function conversationsRouter(
             ref('project', project),
             'the conversation',
           );
-    return onConversation ?? (callsIn ? undefined : limitedOnAgent(c, projects)) ?? next();
+    return onConversation ?? (callsIn ? undefined : await limitedOnAgent(c, conv)) ?? next();
   };
 
-  /** `execute` on an agent: held on the first of its projects that isn't the key's. */
-  const limitedOnAgent = (c: Context<AppEnv>, projects: readonly ProjectId[]) => {
-    const other = projects.find((p) => (p as unknown as string) !== c.get('tokenProjectId'));
-    return other === undefined
+  /** `execute` on a conversation's agent, on its project or each one that serves it. */
+  const limitedOnAgent = (c: Context<AppEnv>, conv: Conversation) =>
+    held === undefined
       ? undefined
-      : limitedCallerRefusal(
-          c,
-          'execute',
-          ref('project', other as unknown as string),
-          'the agent',
-          other === projects[0] ? undefined : 'served',
-        );
-  };
+      : limitedItemRefusal(c, {
+          kind: 'agent',
+          id: conv.agentId as unknown as string,
+          today: 'execute',
+          check: { rule: 'every', action: 'execute' },
+          held: held.agents,
+        });
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
