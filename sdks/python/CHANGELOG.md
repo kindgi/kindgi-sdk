@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **the client's models carry a runtime's plan warning.** Once a
+  count of the flows or agents in production reaches the runtime's license
+  key's plan, `plan_warning` (`PlanWarning`: `flows` and `agents`, each a
+  `PlanCount` with `plan`, `most` and `in_use`) is on a published agent's or
+  flow's answer, a deployment, a deploy check, a promotion and its check, and
+  a project's production answer; a runtime that doesn't count them leaves it
+  out. `DeployCheckBody` gains `flows`.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,
