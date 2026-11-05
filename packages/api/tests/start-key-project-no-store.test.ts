@@ -406,7 +406,9 @@ const RUNS = STARTS.filter((r) => !/^(Improve|suggested)/.test(r.label));
  * Runs continuing a conversation whose item is refused too, as a store
  * refuses them, in its order: the item where the run lands, then the
  * conversation. An agent more than one project serves, continuing a
- * conversation in one of them, lands there.
+ * conversation in one of them, lands there. A run that names the key's
+ * project, continuing a conversation in another, is refused `read` on the
+ * conversation, which a store asks first (its 404, as if it weren't there).
  */
 const CONTINUED = [
   {
@@ -451,20 +453,40 @@ const CONTINUED = [
     projectId: P2,
     action: 'execute',
   },
+  {
+    where: "in another project, by a run that names the key's",
+    target: { agent: HOME, projectId: P1 },
+    conversation: CONVERSATIONS.away,
+    word: 'the conversation',
+    projectId: P2,
+    action: 'read',
+    hidden: true,
+  },
 ] as const satisfies readonly {
   readonly where: string;
-  readonly target: { readonly agent: string } | { readonly flow: string };
+  readonly target: ({ readonly agent: string } | { readonly flow: string }) & {
+    readonly projectId?: ProjectId;
+  };
   readonly conversation: { readonly id: string };
   readonly word: string;
   readonly projectId: ProjectId;
   readonly action: Action;
   readonly unbound?: { readonly word: string; readonly action: Action };
+  /** A store answers it as if the conversation weren't there, `404` (`turnRefusal`). */
+  readonly hidden?: true;
 }[];
 
 const send = (h: Harness, token: string, r: Row, item: string) => {
   const { path, body } = r.to(item);
   return h.send(token, 'POST', path, body);
 };
+
+/** The run a `CONTINUED` row starts. */
+const continuing = (h: Harness, k: (typeof CONTINUED)[number]) =>
+  h.send(LIMITED, 'POST', '/v1/runs', {
+    ...k.target,
+    input: { conversationId: k.conversation.id },
+  });
 
 const refusedWith = (res: Sent, message: string, projectId: string, action: Action) => {
   expect(res.status, JSON.stringify(res.body)).toBe(403);
@@ -552,10 +574,7 @@ describe.each([
   test.each(CONTINUED)(
     'a run continuing a conversation $where: refused as a store refuses it, the target first',
     async (k) => {
-      const res = await h.send(LIMITED, 'POST', '/v1/runs', {
-        ...k.target,
-        input: { conversationId: k.conversation.id },
-      });
+      const res = await continuing(h, k);
       const want = !several && 'unbound' in k ? { ...k, ...k.unbound } : k;
       refusedWith(
         res,
@@ -639,16 +658,9 @@ describe('the right a refusal names, with no store, is the one a store asks', ()
         (item) => [`${r.label}, on ${item}`, (h: Harness) => send(h, LIMITED, r, item)] as const,
       ),
     ),
-    ...CONTINUED.map(
+    ...CONTINUED.filter((k) => !('hidden' in k)).map(
       (k) =>
-        [
-          `a run continuing a conversation ${k.where}`,
-          (h: Harness) =>
-            h.send(LIMITED, 'POST', '/v1/runs', {
-              ...k.target,
-              input: { conversationId: k.conversation.id },
-            }),
-        ] as const,
+        [`a run continuing a conversation ${k.where}`, (h: Harness) => continuing(h, k)] as const,
     ),
   ];
 
@@ -660,6 +672,18 @@ describe('the right a refusal names, with no store, is the one a store asks', ()
     expect(held.body.error?.code, JSON.stringify(held.body)).toBe('key-project-mismatch');
     expect(held.body.error?.details?.action).toBe(store.body.error?.details?.action);
   });
+
+  test.each(CONTINUED.filter((k) => 'hidden' in k))(
+    "a run continuing a conversation $where: a store refuses `read`, answering as if it weren't there",
+    async (k) => {
+      const store = await continuing(withStore, k);
+      expect(store.status, JSON.stringify(store.body)).toBe(404);
+      expect(store.body.error?.code).toBe('conversation-not-found');
+      const held = await continuing(served, k);
+      expect(held.body.error?.code, JSON.stringify(held.body)).toBe('key-project-mismatch');
+      expect(held.body.error?.details?.action).toBe('read');
+    },
+  );
 });
 
 describe("a start on another project's item, by a key limited to a project, with a store", () => {

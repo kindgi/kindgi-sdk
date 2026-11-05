@@ -1273,7 +1273,7 @@ async function servedRun(
  * there: `call` on it. Otherwise `limitedStartRefusal`: an unnamed run of
  * an agent, or of a flow, the key's project serves among others lands
  * there, as `servedRun` places it. Then, the target passing, a turn
- * continuing a conversation in another project: `write` on it.
+ * continuing a conversation in another project (`continuedRefusal`).
  */
 async function limitedStart(
   c: Context<AppEnv>,
@@ -1298,14 +1298,33 @@ async function limitedStart(
     unnamed: start.projectId === undefined && !inConversation,
   });
   if (item?.refused !== undefined) return item;
-  const onConversation =
-    continued === undefined
-      ? undefined
-      : limitedCallerRefusal(c, 'write', ref('project', continued), 'the conversation');
+  const onConversation = continuedRefusal(c, continued, start.projectId !== undefined);
   if (onConversation !== undefined) return { refused: onConversation };
   return item?.placed === undefined || start.projectId !== undefined || inConversation
     ? undefined
     : { start: { ...start, projectId: item.placed } };
+}
+
+/**
+ * Without a store, a limited caller's turn continuing a conversation in
+ * another project, its target passing: `write` on it, as `turnRefusal`
+ * asks; or `read` for a run that names its project (the key's), which
+ * `turnRefusal` asks first of a run naming another project than the
+ * conversation's.
+ */
+function continuedRefusal(
+  c: Context<AppEnv>,
+  projectId: string | undefined,
+  named: boolean,
+): Response | undefined {
+  return projectId === undefined
+    ? undefined
+    : limitedCallerRefusal(
+        c,
+        named ? 'read' : 'write',
+        ref('project', projectId),
+        'the conversation',
+      );
 }
 
 /**
