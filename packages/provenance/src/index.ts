@@ -48,6 +48,10 @@ export type {
   FlowStepNodePlace,
 } from './flow-build.js';
 
+// ============ A file version's node ============
+export { fileVersionOf } from './file-version.js';
+export type { FileVersionAttributes } from './file-version.js';
+
 // ============ Sign + verify ============
 export { signProvenance, verifyExported, verifyProvenance } from './sign.js';
 

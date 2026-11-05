@@ -15,6 +15,9 @@ Record what went into a run's output (inputs, prompts, retrievals, model calls, 
   - **`NODE_KINDS`** / **`NodeKind`** — `input`, `prompt`, `retrieval`, `tool-call`, `tool-result`, `model-call`, `model-output`, `artifact`, `guardrail-check`, `event`, `policy-decision`, `memory-read`, `memory-write`, `wait`, `resume`, `step` (a flow run's step, from record version `1.1.0`).
   - **`EDGE_KINDS`** / **`EdgeKind`** — `caused-by`, `influenced-by`, `retrieved-from`, `invoked`, `produced`, `checked-against`, `waited-on`, `resumed-from`.
   - **`Signature`** — `{ algorithm: 'ed25519', keyId, value, signedAt }`.
+- **A file version's node**
+  - **`FileVersionAttributes`** — what an `artifact` node says of the file version it is, in its `attributes`, on a runtime that keeps file versions: `fileId`, `fileVersion` (from 1), optional `fileName`, and `filePreviousVersion` on an update's node, the version it replaced. The version's sha256 is the node's `contentHash`. A version a run made and one it was given carry the same keys; only the node's edges tell them apart.
+  - **`fileVersionOf(node)`** — those attributes, read from a node: `undefined` for another kind of node, a node from before file versions, or a `fileId` or `fileVersion` not of its shape.
 - **Building**
   - **`newBuilder(options: BuilderOptions)`** — returns a `ProvenanceBuilder` for one run. `BuilderOptions`: `id`, `runId`, `tenantId`, optional `flowRef`, `version` (default `'1.1.0'`), `createdAt`.
   - **`ProvenanceBuilder`** — `addNode(node)`, `addEdge(edge)`, `snapshot()` (the unsigned record so far), `finalize(keyProvider)` (the signed record, as a `Result`). A builder is not safe to share across concurrent runs.

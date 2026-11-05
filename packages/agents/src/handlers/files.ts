@@ -51,6 +51,12 @@ export interface FileBinding {
    * `'changed'` when the value's sha256 isn't the record's. `undefined` when
    * the rule doesn't let the turn show it: the value stays plain JSON.
    *
+   * A value that names a `fileId` and `version` (on a runtime that keeps
+   * file versions) is admitted only when the record says they're its
+   * `artifactId`'s bytes, and the file carries them, from the record; when
+   * it doesn't, the answer is `undefined`. A value that names neither
+   * carries neither, as a value from before file versions.
+   *
    * Without `call`, that's all: the answer is kept, as the turn's input, a
    * tool's result or a message's files. With `call`, it's one model call's
    * copy, never kept (`withFileForms`): each file also carries what the

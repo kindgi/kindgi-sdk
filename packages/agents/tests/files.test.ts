@@ -1008,6 +1008,52 @@ describe('a model call with files', () => {
     expect(c.sent[0]?.messages[1]?.files?.[0]?.notShown).toBe('gone');
   });
 
+  /**
+   * A binding that keeps file versions: it admits a value that names a
+   * `fileId` and `version` only when its record says the same, with them,
+   * and logs what each value named.
+   */
+  function versionsBinding(record: { readonly fileId: string; readonly version: number }) {
+    const named: [string | undefined, number | undefined][] = [];
+    const files: FileBinding = {
+      admit: async (values) =>
+        values.map((v) => {
+          named.push([v.fileId, v.version]);
+          if (v.fileId === undefined) return recordOf(v.artifactId);
+          return v.fileId === record.fileId && v.version === record.version
+            ? { ...recordOf(v.artifactId), ...record }
+            : undefined;
+        }),
+      read: async () => BYTES,
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
+      shown: async () => {},
+      refuse: async () => {},
+    };
+    return { files, named };
+  }
+
+  test("a file's version is the binding's: the call asks it the version each file names, and one its record doesn't have is a `gone` line", async () => {
+    const binding = versionsBinding({ fileId: 'f_1', version: 2 });
+    const c = call({ agent: seeing, binding: binding.files });
+    await c.run(
+      withFiles([
+        { ...recordOf('art-1'), fileId: 'f_1', version: 2 },
+        { ...recordOf('doc-2'), fileId: 'f_1', version: 3 },
+        recordOf('txt-3'),
+      ]),
+    );
+    expect(binding.named).toEqual([
+      ['f_1', 2],
+      ['f_1', 3],
+      [undefined, undefined],
+    ]);
+    const [shown, gone, plain] = c.sent[0]?.messages[1]?.files ?? [];
+    expect(shown).toEqual({ ...recordOf('art-1'), fileId: 'f_1', version: 2 });
+    expect(gone?.notShown).toBe('gone');
+    expect(plain).toEqual(recordOf('txt-3'));
+  });
+
   test('a dry run asks for no form', async () => {
     const binding = filesBinding(['art-1']);
     await call({ agent: seeing, binding: binding.files, dryRun: true }).run(
