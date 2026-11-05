@@ -363,6 +363,19 @@ export function runAsFields(runAs: string | undefined): {
 }
 
 /** Extract an optional integer flag; throws on non-integer values. */
+/** `--tag=key=value`, repeatable (`kindgi files upload`, `kindgi artifacts upload`). */
+export function tagsFlag(ctx: CommandContext): Record<string, string> | undefined {
+  const raw = listFlag(ctx, 'tag');
+  if (raw.length === 0) return undefined;
+  const tags: Record<string, string> = {};
+  for (const t of raw) {
+    const eq = t.indexOf('=');
+    if (eq <= 0) throw new UsageError(`--tag must be key=value, got "${t}"`);
+    tags[t.slice(0, eq)] = t.slice(eq + 1);
+  }
+  return tags;
+}
+
 export function integerFlag(ctx: CommandContext, name: string): number | undefined {
   const raw = ctx.options[name];
   if (typeof raw !== 'string' || raw === '') return undefined;
