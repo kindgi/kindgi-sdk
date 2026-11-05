@@ -54,11 +54,18 @@ const RUNS: Readonly<Record<string, { readonly projectId: string; readonly actsF
 };
 const ABSENT = '00000000-0000-4000-8000-0000000000ee';
 
-/** Alice reads and writes P1 and reads P2; Bob has nothing; Carol may only run P3. */
+/** A service account's key, and the account's id. */
+const ACCOUNT = 'sa-ci';
+
+/**
+ * Alice reads and writes P1 and reads P2; Bob has nothing; Carol, and the
+ * service account, may only run P3.
+ */
 const GRANTS: Readonly<Record<string, readonly string[]>> = {
   alice: [`read:project:${P1}`, `write:project:${P1}`, `read:project:${P2}`],
   bob: [],
   carol: [`run:project:${P3}`],
+  [ACCOUNT]: [`run:project:${P3}`],
 };
 
 /** `alice-key-p1` is alice with an API key limited to project P1. */
@@ -67,7 +74,9 @@ const resolveToken: TokenResolver = async (token) =>
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
     : token === 'alice-key-p1'
       ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
-      : null;
+      : token === ACCOUNT
+        ? { tenantId, serviceAccountId: ACCOUNT, scopes: [], capabilities: [] }
+        : null;
 
 interface MemoryFile {
   readonly fileId: FileId;
@@ -564,13 +573,13 @@ describe('reading versions', () => {
     expect(list.json().data.map((v: FileVersion) => v.version)).toEqual([2, 1]);
     const missing = await h.call('alice', 'GET', `/v1/files/${fileId}/versions/9`);
     expect([missing.status, missing.json().error.code]).toEqual([404, 'file-version-not-found']);
-    for (const bad of ['0', '01', 'first', '-1']) {
+    for (const bad of ['0', '01', '1.5', 'first', '-1']) {
       const r = await h.call('alice', 'GET', `/v1/files/${fileId}/versions/${bad}`);
       expect([bad, r.status]).toEqual([bad, 400]);
     }
   });
 
-  test('restore, delete, pin and unpin take a number only: `latest` is 400', async () => {
+  test('restore, delete, pin and unpin take a number only: `latest`, 0, 1.5 or abc is 400', async () => {
     const h = harness();
     const fileId = await h.seed(P1);
     for (const [method, tail] of [
@@ -579,9 +588,11 @@ describe('reading versions', () => {
       ['POST', 'pin'],
       ['POST', 'unpin'],
     ] as const) {
-      const path = `/v1/files/${fileId}/versions/latest${tail === '' ? '' : `/${tail}`}`;
-      const r = await h.call('alice', method, path);
-      expect([path, r.status, r.json().error.code]).toEqual([path, 400, 'bad-input']);
+      for (const bad of ['latest', '0', '1.5', 'abc']) {
+        const path = `/v1/files/${fileId}/versions/${bad}${tail === '' ? '' : `/${tail}`}`;
+        const r = await h.call('alice', method, path);
+        expect([path, r.status, r.json().error.code]).toEqual([path, 400, 'bad-input']);
+      }
     }
   });
 
@@ -700,6 +711,22 @@ describe('restore, pin and delete', () => {
       expect([op, r.status, r.json().error.code]).toEqual([op, 404, 'file-version-not-found']);
     }
     expect((await h.call('alice', 'GET', `/v1/files/${fileId}`)).json().latestVersion).toBe(2);
+  });
+
+  test('deleting a file twice is 200 `{ deleted: false }` the second time; an unknown one is 404', async () => {
+    const h = harness();
+    const fileId = await h.seed(P1);
+    const first = await h.call('alice', 'DELETE', `/v1/files/${fileId}`);
+    expect([first.status, first.json()]).toEqual([200, { fileId, deleted: true }]);
+    const record = h.store.files.get(fileId)!;
+    const before = structuredClone({ ...record });
+    const again = await h.call('alice', 'DELETE', `/v1/files/${fileId}`);
+    expect([again.status, again.json()]).toEqual([200, { fileId, deleted: false }]);
+    expect(validateAgainst('DeleteFileResult', again.json())).toEqual([]);
+    // The second delete changes nothing: no version, byte or pin.
+    expect({ ...record }).toEqual(before);
+    const unknown = await h.call('alice', 'DELETE', `/v1/files/${ABSENT}`);
+    expect([unknown.status, unknown.json().error.code]).toEqual([404, 'file-not-found']);
   });
 });
 
@@ -820,6 +847,30 @@ describe('someone who may only run the project reaches their own files', () => {
     const added = await h.upload('carol', { fileId, body: 'v2' });
     expect([added.status, added.body.error.code]).toEqual([403, 'permission-denied']);
     expect(h.store.files.size).toBe(1);
+  });
+
+  test('a service account that may only run it makes no input: 403, as on artifacts', async () => {
+    const h = harness();
+    const r = await h.upload(ACCOUNT, { fields: { projectId: P3 } });
+    expect([r.status, r.body.error.code]).toEqual([403, 'permission-denied']);
+    expect(h.store.files.size).toBe(0);
+  });
+
+  test('nor reads a file it made when it could write: 404, as if absent', async () => {
+    const h = harness();
+    const made = await h.store.create(tenantId, {
+      name: 'ci.txt',
+      contentType: 'text/plain',
+      bytes: new TextEncoder().encode('from ci'),
+      projectId: P3 as ProjectId,
+      createdBy: `service_account:${ACCOUNT}`,
+    });
+    if (made.kind === 'err') throw new Error(made.error.message);
+    const fileId = made.value.version.fileId as string;
+    for (const path of [`/v1/files/${fileId}`, `/v1/files/${fileId}/versions/latest/content`]) {
+      const r = await h.call(ACCOUNT, 'GET', path);
+      expect([path, r.status, r.json().error.code]).toEqual([path, 404, 'file-not-found']);
+    }
   });
 });
 

@@ -95,11 +95,15 @@ export function filesRouter(
       deps.runBinding === undefined ? null : await deps.runBinding.getRun(tenantOf(c), runId);
     return run !== null && isOwnRun(c, run) ? run : undefined;
   };
-  /** A file of the caller's own: they made it, or a run of their own did. Decided by version 1. */
+  /**
+   * A file of the caller's own: a person made it, or a run of their own
+   * did. Decided by version 1. A service account's file isn't, as it can't
+   * make one with `run` alone (and an artifact it uploads names no maker).
+   */
   const ownFile = async (c: Context<AppEnv>, f: StoredFile) => {
     const me = actsForOf(c);
     if (me === undefined) return false;
-    if (f.createdBy === me) return true;
+    if (me.startsWith('user:') && f.createdBy === me) return true;
     return f.ownerRunId !== undefined && (await ownRun(c, f.ownerRunId)) !== undefined;
   };
   /** `read` on its project, or `run` there on a file of the caller's own. */
@@ -193,15 +197,16 @@ export function filesRouter(
       });
     }
     const createdBy = madeBy(c);
-    // `write`, or `run` for a file of the caller's own that names no run:
-    // an input for a run they start. One that names a run stays `write`.
+    // `write`, or `run` for a person's own file that names no run: an
+    // input for a run they start. One that names a run stays `write`, and
+    // so does a service account's, as on `artifacts.upload`.
     if (
       authorizer !== undefined &&
       !(await authorizer.can(c, 'write', projectRef(c, project.projectId))) &&
       !(
         project.projectId !== undefined &&
         validated.value.ownerRunId === undefined &&
-        createdBy !== undefined &&
+        createdBy?.startsWith('user:') === true &&
         createdBy === actsForOf(c) &&
         (await authorizer.can(c, 'run', ref('project', project.projectId as unknown as string)))
       )
@@ -226,11 +231,16 @@ export function filesRouter(
 
   // ---------- DELETE /:fileId (the file and every version) ----------
   r.delete('/:fileId', async (c) => {
-    const got = await changeable(c);
-    if ('answer' in got) return got.answer;
-    const outcome = await binding.delete(tenantOf(c), got.file.fileId);
+    const fileId = c.req.param('fileId') as FileId;
+    // A deleted file reads as none, so the store says which it is, as
+    // `artifacts.delete` does: `{ deleted: false }`, or `file-not-found`.
+    if ((await binding.get(tenantOf(c), fileId)) !== null) {
+      const got = await changeable(c);
+      if ('answer' in got) return got.answer;
+    }
+    const outcome = await binding.delete(tenantOf(c), fileId);
     if (outcome.kind === 'err') return fileErrorAnswer(c, outcome.error);
-    return c.json({ fileId: got.file.fileId as unknown as string, deleted: outcome.value.deleted });
+    return c.json({ fileId: fileId as unknown as string, deleted: outcome.value.deleted });
   });
 
   // ---------- GET /:fileId/versions ----------

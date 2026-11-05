@@ -5556,7 +5556,7 @@ class FilesVersionsResource:
     def delete(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         /,
         *,
         idempotency_key: str | None = None,
@@ -5593,7 +5593,7 @@ class FilesVersionsResource:
     def restore(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         body: _models.RestoreFileVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5603,7 +5603,7 @@ class FilesVersionsResource:
     ) -> _models.FileVersionWrite:
         """Restore a version. `POST /v1/files/{fileId}/versions/{version}/restore`
 
-        Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.
+        Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. A deleted or purged version is `404 file-version-not-found`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.
         """
         return self._client._request(
             _OPERATIONS["files.versions.restore"],
@@ -5618,7 +5618,7 @@ class FilesVersionsResource:
     def pin(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5628,7 +5628,7 @@ class FilesVersionsResource:
     ) -> _models.FileVersion:
         """Pin a version. `POST /v1/files/{fileId}/versions/{version}/pin`
 
-        A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing. Each pin is kept in the file's pin history. Needs `write` on the file's project.
+        A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing, and a deleted or purged one is `404 file-version-not-found`. Each pin is kept in the file's pin history. Needs `write` on the file's project.
         """
         return self._client._request(
             _OPERATIONS["files.versions.pin"],
@@ -5643,7 +5643,7 @@ class FilesVersionsResource:
     def unpin(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -16197,7 +16197,7 @@ class AsyncFilesVersionsResource:
     async def delete(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         /,
         *,
         idempotency_key: str | None = None,
@@ -16234,7 +16234,7 @@ class AsyncFilesVersionsResource:
     async def restore(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         body: _models.RestoreFileVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -16244,7 +16244,7 @@ class AsyncFilesVersionsResource:
     ) -> _models.FileVersionWrite:
         """Restore a version. `POST /v1/files/{fileId}/versions/{version}/restore`
 
-        Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.
+        Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. A deleted or purged version is `404 file-version-not-found`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.
         """
         return await self._client._request(
             _OPERATIONS["files.versions.restore"],
@@ -16259,7 +16259,7 @@ class AsyncFilesVersionsResource:
     async def pin(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -16269,7 +16269,7 @@ class AsyncFilesVersionsResource:
     ) -> _models.FileVersion:
         """Pin a version. `POST /v1/files/{fileId}/versions/{version}/pin`
 
-        A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing. Each pin is kept in the file's pin history. Needs `write` on the file's project.
+        A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing, and a deleted or purged one is `404 file-version-not-found`. Each pin is kept in the file's pin history. Needs `write` on the file's project.
         """
         return await self._client._request(
             _OPERATIONS["files.versions.pin"],
@@ -16284,7 +16284,7 @@ class AsyncFilesVersionsResource:
     async def unpin(
         self,
         file_id: str | UUID,
-        version: str,
+        version: int,
         body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
         /,
         *,

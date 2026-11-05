@@ -779,7 +779,7 @@ export interface CreateAppInput {
   /**
    * Optional. When present, mounts the files surface (`/v1/files`): files
    * with every edit kept as a version, read by a number or Latest,
-   * compared, restored, pinned and deleted. Caller-plugged, as
+   * restored, pinned and deleted. Caller-plugged, as
    * `blobStorage` is; a version's bytes are a blob.
    */
   readonly fileVersions?: FileVersionsBinding;

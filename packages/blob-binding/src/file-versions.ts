@@ -83,7 +83,10 @@ export interface FileVersionsBinding {
     cursor?: Cursor,
     limit?: number,
   ): Promise<Result<FileListPage, FileError>>;
-  /** Deletes the file and every version. `{ deleted: false }` when it's already gone. */
+  /**
+   * Deletes the file and every version. `{ deleted: false }` when it's
+   * already gone, and then it changes nothing: no version, blob or pin.
+   */
   delete(tenantId: TenantId, fileId: FileId): Promise<Result<FileDeleteOutcome, FileError>>;
 
   /**

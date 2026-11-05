@@ -1673,7 +1673,7 @@ const FileVersionNumberPathParam: ParameterSpec = {
   in: 'path',
   required: true,
   description: 'A version number from 1.',
-  schema: { type: 'string', pattern: '^[1-9][0-9]*$' },
+  schema: { type: 'integer', minimum: 1 },
 };
 
 /** A files read's description, with who may make it. */
@@ -1685,7 +1685,7 @@ const FileNotFound: ResponseSpec = ErrorResponse(
 );
 
 const FileVersionNotFound: ResponseSpec = ErrorResponse(
-  '`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.',
+  '`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.',
 );
 
 const FileVersionConflict: ResponseSpec = ErrorResponse(
@@ -6203,7 +6203,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteFileResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
-      '404': FileNotFound,
+      '404': ErrorResponse(
+        "`file-not-found`: no such file in this workspace, or one in a project the caller can't read that isn't a file of their own. A deleted file answers `{ deleted: false }`.",
+      ),
       '409': ErrorResponse(
         '`file-version-pinned`: a version is pinned (`details.version`, the lowest); unpin it first.',
       ),
@@ -6255,7 +6257,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed multipart body, bad tag JSON, hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).',
+        "Malformed multipart body, bad tag JSON, an `expectedVersion` that is not a version number, an `ownerRunId` or `projectId` (a version stays in its file's project), hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).",
       ),
       '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
       '404': FileNotFound,
@@ -6312,7 +6314,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'files.versions.restore',
     summary: 'Restore a version',
     description:
-      "Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.",
+      "Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. A deleted or purged version is `404 file-version-not-found`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.",
     tags: ['files'],
     security: 'bearer',
     parameters: [FileIdPathParam, FileVersionNumberPathParam, IdempotencyKeyParam],
@@ -6357,7 +6359,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'files.versions.pin',
     summary: 'Pin a version',
     description:
-      "A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing. Each pin is kept in the file's pin history. Needs `write` on the file's project.",
+      "A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing, and a deleted or purged one is `404 file-version-not-found`. Each pin is kept in the file's pin history. Needs `write` on the file's project.",
     tags: ['files'],
     security: 'bearer',
     parameters: [FileIdPathParam, FileVersionNumberPathParam, IdempotencyKeyParam],

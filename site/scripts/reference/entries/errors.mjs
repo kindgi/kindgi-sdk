@@ -1707,7 +1707,7 @@ export const ERROR_ENTRIES = {
   },
   'file-version-not-found': {
     description:
-      "The file has no version with that number. For a version's bytes, also a deleted version, or one whose bytes retention dropped: its record stays in the file's versions, but there's nothing to read. A version is never replaced with Latest.",
+      "The file has no version with that number. For a version's bytes, a restore or a pin, also a deleted version, or one whose bytes retention dropped: its record stays in the file's versions, but there's nothing to read, restore or pin. A version is never replaced with Latest.",
     details: [
       {
         key: 'fileId',

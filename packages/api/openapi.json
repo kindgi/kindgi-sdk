@@ -108,7 +108,7 @@
     },
     {
       "name": "files",
-      "description": "Files the runtime keeps, with every edit kept as a version: create, read, compare, restore, pin and delete them, by a number or Latest. Served on a runtime that keeps files."
+      "description": "Files the runtime keeps, with every edit kept as a version: create, read, restore, pin and delete them, by a number or Latest. Served on a runtime that keeps files."
     },
     {
       "name": "observations",
@@ -49883,7 +49883,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found`: no such file in this workspace, a deleted one, or one in a project the caller can't read that isn't a file of their own.",
+            "description": "`file-not-found`: no such file in this workspace, or one in a project the caller can't read that isn't a file of their own. A deleted file answers `{ deleted: false }`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50070,7 +50070,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).",
+            "description": "Malformed multipart body, bad tag JSON, an `expectedVersion` that is not a version number, an `ownerRunId` or `projectId` (a version stays in its file's project), hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50227,7 +50227,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.",
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50324,7 +50324,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.",
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50380,8 +50380,8 @@
             "name": "version",
             "in": "path",
             "schema": {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*$"
+              "type": "integer",
+              "minimum": 1
             },
             "required": true,
             "description": "A version number from 1."
@@ -50434,7 +50434,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.",
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50543,7 +50543,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.",
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50593,7 +50593,7 @@
             }
           }
         },
-        "description": "Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.",
+        "description": "Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. A deleted or purged version is `404 file-version-not-found`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.",
         "parameters": [
           {
             "name": "fileId",
@@ -50609,8 +50609,8 @@
             "name": "version",
             "in": "path",
             "schema": {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*$"
+              "type": "integer",
+              "minimum": 1
             },
             "required": true,
             "description": "A version number from 1."
@@ -50692,7 +50692,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.",
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50742,7 +50742,7 @@
             }
           }
         },
-        "description": "A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing. Each pin is kept in the file's pin history. Needs `write` on the file's project.",
+        "description": "A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing, and a deleted or purged one is `404 file-version-not-found`. Each pin is kept in the file's pin history. Needs `write` on the file's project.",
         "parameters": [
           {
             "name": "fileId",
@@ -50758,8 +50758,8 @@
             "name": "version",
             "in": "path",
             "schema": {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*$"
+              "type": "integer",
+              "minimum": 1
             },
             "required": true,
             "description": "A version number from 1."
@@ -50841,7 +50841,7 @@
             }
           },
           "404": {
-            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or (for its bytes) one deleted or purged.",
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50907,8 +50907,8 @@
             "name": "version",
             "in": "path",
             "schema": {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*$"
+              "type": "integer",
+              "minimum": 1
             },
             "required": true,
             "description": "A version number from 1."
