@@ -63,6 +63,8 @@ const DEFAULT_SERVERS: readonly OpenApiServer[] = [
 const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   system: 'Health + spec discovery.',
   runs: 'Run lifecycle (start, list, get, cancel, resume, journal, stream).',
+  files:
+    'Files the runtime keeps, with every edit kept as a version: create, read, compare, restore, pin and delete them, by a number or Latest. Served on a runtime that keeps files.',
   'export-signing-keys':
     'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':

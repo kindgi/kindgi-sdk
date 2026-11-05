@@ -543,6 +543,45 @@ OPERATIONS: dict[str, Operation] = {
     "artifacts.delete": Operation(
         "artifacts.delete", "DELETE", "/v1/artifacts/{blobId}", "json", True
     ),
+    "files.list": Operation("files.list", "GET", "/v1/files", "json", False),
+    "files.create": Operation("files.create", "POST", "/v1/files", "json", True),
+    "files.get": Operation("files.get", "GET", "/v1/files/{fileId}", "json", False),
+    "files.delete": Operation("files.delete", "DELETE", "/v1/files/{fileId}", "json", True),
+    "files.versions.list": Operation(
+        "files.versions.list", "GET", "/v1/files/{fileId}/versions", "json", False
+    ),
+    "files.versions.add": Operation(
+        "files.versions.add", "POST", "/v1/files/{fileId}/versions", "json", True
+    ),
+    "files.versions.get": Operation(
+        "files.versions.get", "GET", "/v1/files/{fileId}/versions/{version}", "json", False
+    ),
+    "files.versions.delete": Operation(
+        "files.versions.delete", "DELETE", "/v1/files/{fileId}/versions/{version}", "json", True
+    ),
+    "files.versions.download": Operation(
+        "files.versions.download",
+        "GET",
+        "/v1/files/{fileId}/versions/{version}/content",
+        "binary",
+        False,
+    ),
+    "files.versions.restore": Operation(
+        "files.versions.restore",
+        "POST",
+        "/v1/files/{fileId}/versions/{version}/restore",
+        "json",
+        True,
+    ),
+    "files.versions.pin": Operation(
+        "files.versions.pin", "POST", "/v1/files/{fileId}/versions/{version}/pin", "json", True
+    ),
+    "files.versions.unpin": Operation(
+        "files.versions.unpin", "POST", "/v1/files/{fileId}/versions/{version}/unpin", "json", True
+    ),
+    "files.pinHistory": Operation(
+        "files.pinHistory", "GET", "/v1/files/{fileId}/pin-history", "json", False
+    ),
     "observations.list": Operation("observations.list", "GET", "/v1/observations", "json", False),
     "capabilities.list": Operation("capabilities.list", "GET", "/v1/capabilities", "json", False),
     "capabilities.get": Operation(
@@ -5445,6 +5484,307 @@ class ArtifactsResource:
         )
 
 
+class FilesVersionsResource:
+    """`client.files.versions` — the `files.versions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        file_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FileVersionCollectionPage:
+        """List a file's versions. `GET /v1/files/{fileId}/versions`
+
+        Cursor-paginated, newest first. Every version, deleted and purged ones included: a number is never left out of the history. An own file shows all its versions, including ones others added. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.list"],
+            path={"fileId": file_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.FileVersionCollectionPage,
+            timeout=timeout,
+        )
+
+    def add(
+        self,
+        file_id: str | UUID,
+        files: Mapping[str, Any],
+        /,
+        *,
+        idempotency_key: str | None = None,
+        data: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> _models.FileVersionWrite:
+        """Add a version. `POST /v1/files/{fileId}/versions`
+
+        Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.add"],
+            path={"fileId": file_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            files=files,
+            data=data,
+            response=_models.FileVersionWrite,
+            timeout=timeout,
+        )
+
+    def get(
+        self, file_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.FileVersion:
+        """Get a version. `GET /v1/files/{fileId}/versions/{version}`
+
+        One version's record, without its bytes: a deleted or purged one too. `latest` names Latest. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.get"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={},
+            response=_models.FileVersion,
+            timeout=timeout,
+        )
+
+    def delete(
+        self,
+        file_id: str | UUID,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeleteFileResult:
+        """Delete a version. `DELETE /v1/files/{fileId}/versions/{version}`
+
+        Deletes one version: a soft delete, kept until a retention policy for `file_version` purges it. Its number is never reused. Deleting Latest moves Latest to the next live version down. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after. Needs `write` on the file's project.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.delete"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeleteFileResult,
+            timeout=timeout,
+        )
+
+    def download(
+        self, file_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> bytes:
+        """Download a version's bytes (stream). `GET /v1/files/{fileId}/versions/{version}/content`
+
+        Streams one version's raw bytes, as a download. `latest` names Latest. A deleted or purged version is `404 file-version-not-found`: a fixed version never falls back to Latest. Response headers: `Content-Type` (as declared when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded name), and `X-Kindgi-File-Version` (the number served). Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.download"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={},
+            timeout=timeout,
+        )
+
+    def restore(
+        self,
+        file_id: str | UUID,
+        version: str,
+        body: _models.RestoreFileVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.FileVersionWrite:
+        """Restore a version. `POST /v1/files/{fileId}/versions/{version}/restore`
+
+        Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.restore"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RestoreFileVersionBody, body, fields),
+            response=_models.FileVersionWrite,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        file_id: str | UUID,
+        version: str,
+        body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.FileVersion:
+        """Pin a version. `POST /v1/files/{fileId}/versions/{version}/pin`
+
+        A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing. Each pin is kept in the file's pin history. Needs `write` on the file's project.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.pin"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinFileVersionBody, body, fields),
+            response=_models.FileVersion,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        file_id: str | UUID,
+        version: str,
+        body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.FileVersion:
+        """Unpin a version. `POST /v1/files/{fileId}/versions/{version}/unpin`
+
+        Takes a version's pin off, kept in the file's pin history with who and why. Unpinning a version with no pin changes nothing. Needs `write` on the file's project.
+        """
+        return self._client._request(
+            _OPERATIONS["files.versions.unpin"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinFileVersionBody, body, fields),
+            response=_models.FileVersion,
+            timeout=timeout,
+        )
+
+
+class FilesResource:
+    """`client.files` — the `files` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.versions = FilesVersionsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        owner_run_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        content_type: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.StoredFileCollectionPage:
+        """List files. `GET /v1/files`
+
+        Cursor-paginated, newest change first. Each file with its Latest (no bytes). Deleted files aren't listed. Filters: `?ownerRunId=`, `?projectId=`, `?contentType=` (Latest's, exactly). With authorization on, only files in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too. On a runtime that doesn't keep files, `/v1/files` isn't served (`404 route-not-found`).
+        """
+        return self._client._request(
+            _OPERATIONS["files.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "ownerRunId": owner_run_id,
+                "projectId": project_id,
+                "contentType": content_type,
+            },
+            headers={},
+            response=_models.StoredFileCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        files: Mapping[str, Any],
+        /,
+        *,
+        idempotency_key: str | None = None,
+        data: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> _models.FileVersionWrite:
+        """Create a file. `POST /v1/files`
+
+        Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`.
+        """
+        return self._client._request(
+            _OPERATIONS["files.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            files=files,
+            data=data,
+            response=_models.FileVersionWrite,
+            timeout=timeout,
+        )
+
+    def get(self, file_id: str | UUID, /, *, timeout: float | None = None) -> _models.StoredFile:
+        """Get a file. `GET /v1/files/{fileId}`
+
+        The file, with its Latest (no bytes). Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return self._client._request(
+            _OPERATIONS["files.get"],
+            path={"fileId": file_id},
+            query={},
+            headers={},
+            response=_models.StoredFile,
+            timeout=timeout,
+        )
+
+    def delete(
+        self,
+        file_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeleteFileResult:
+        """Delete a file. `DELETE /v1/files/{fileId}`
+
+        Deletes the file and every version: a soft delete, kept until a retention policy for `file_version` purges it. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after (already gone). Refused while any version is pinned. Needs `write` on its project.
+        """
+        return self._client._request(
+            _OPERATIONS["files.delete"],
+            path={"fileId": file_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeleteFileResult,
+            timeout=timeout,
+        )
+
+    def pin_history(
+        self,
+        file_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FilePinChangeCollectionPage:
+        """A file's pin history. `GET /v1/files/{fileId}/pin-history`
+
+        Every pin and unpin of its versions, newest first. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return self._client._request(
+            _OPERATIONS["files.pinHistory"],
+            path={"fileId": file_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.FilePinChangeCollectionPage,
+            timeout=timeout,
+        )
+
+
 class ObservationsResource:
     """`client.observations` — the `observations` operations."""
 
@@ -6640,6 +6980,7 @@ class RetentionResource:
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -6710,6 +7051,7 @@ class RetentionResource:
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -15783,6 +16125,309 @@ class AsyncArtifactsResource:
         )
 
 
+class AsyncFilesVersionsResource:
+    """`client.files.versions` — the `files.versions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        file_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FileVersionCollectionPage:
+        """List a file's versions. `GET /v1/files/{fileId}/versions`
+
+        Cursor-paginated, newest first. Every version, deleted and purged ones included: a number is never left out of the history. An own file shows all its versions, including ones others added. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.list"],
+            path={"fileId": file_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.FileVersionCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add(
+        self,
+        file_id: str | UUID,
+        files: Mapping[str, Any],
+        /,
+        *,
+        idempotency_key: str | None = None,
+        data: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> _models.FileVersionWrite:
+        """Add a version. `POST /v1/files/{fileId}/versions`
+
+        Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.add"],
+            path={"fileId": file_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            files=files,
+            data=data,
+            response=_models.FileVersionWrite,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, file_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.FileVersion:
+        """Get a version. `GET /v1/files/{fileId}/versions/{version}`
+
+        One version's record, without its bytes: a deleted or purged one too. `latest` names Latest. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.get"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={},
+            response=_models.FileVersion,
+            timeout=timeout,
+        )
+
+    async def delete(
+        self,
+        file_id: str | UUID,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeleteFileResult:
+        """Delete a version. `DELETE /v1/files/{fileId}/versions/{version}`
+
+        Deletes one version: a soft delete, kept until a retention policy for `file_version` purges it. Its number is never reused. Deleting Latest moves Latest to the next live version down. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after. Needs `write` on the file's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.delete"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeleteFileResult,
+            timeout=timeout,
+        )
+
+    async def download(
+        self, file_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> bytes:
+        """Download a version's bytes (stream). `GET /v1/files/{fileId}/versions/{version}/content`
+
+        Streams one version's raw bytes, as a download. `latest` names Latest. A deleted or purged version is `404 file-version-not-found`: a fixed version never falls back to Latest. Response headers: `Content-Type` (as declared when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded name), and `X-Kindgi-File-Version` (the number served). Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.download"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={},
+            timeout=timeout,
+        )
+
+    async def restore(
+        self,
+        file_id: str | UUID,
+        version: str,
+        body: _models.RestoreFileVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.FileVersionWrite:
+        """Restore a version. `POST /v1/files/{fileId}/versions/{version}/restore`
+
+        Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.restore"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RestoreFileVersionBody, body, fields),
+            response=_models.FileVersionWrite,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        file_id: str | UUID,
+        version: str,
+        body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.FileVersion:
+        """Pin a version. `POST /v1/files/{fileId}/versions/{version}/pin`
+
+        A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing. Each pin is kept in the file's pin history. Needs `write` on the file's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.pin"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinFileVersionBody, body, fields),
+            response=_models.FileVersion,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        file_id: str | UUID,
+        version: str,
+        body: _models.PinFileVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.FileVersion:
+        """Unpin a version. `POST /v1/files/{fileId}/versions/{version}/unpin`
+
+        Takes a version's pin off, kept in the file's pin history with who and why. Unpinning a version with no pin changes nothing. Needs `write` on the file's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.versions.unpin"],
+            path={"fileId": file_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinFileVersionBody, body, fields),
+            response=_models.FileVersion,
+            timeout=timeout,
+        )
+
+
+class AsyncFilesResource:
+    """`client.files` — the `files` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.versions = AsyncFilesVersionsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        owner_run_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        content_type: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.StoredFileCollectionPage:
+        """List files. `GET /v1/files`
+
+        Cursor-paginated, newest change first. Each file with its Latest (no bytes). Deleted files aren't listed. Filters: `?ownerRunId=`, `?projectId=`, `?contentType=` (Latest's, exactly). With authorization on, only files in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too. On a runtime that doesn't keep files, `/v1/files` isn't served (`404 route-not-found`).
+        """
+        return await self._client._request(
+            _OPERATIONS["files.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "ownerRunId": owner_run_id,
+                "projectId": project_id,
+                "contentType": content_type,
+            },
+            headers={},
+            response=_models.StoredFileCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        files: Mapping[str, Any],
+        /,
+        *,
+        idempotency_key: str | None = None,
+        data: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> _models.FileVersionWrite:
+        """Create a file. `POST /v1/files`
+
+        Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            files=files,
+            data=data,
+            response=_models.FileVersionWrite,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, file_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.StoredFile:
+        """Get a file. `GET /v1/files/{fileId}`
+
+        The file, with its Latest (no bytes). Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.get"],
+            path={"fileId": file_id},
+            query={},
+            headers={},
+            response=_models.StoredFile,
+            timeout=timeout,
+        )
+
+    async def delete(
+        self,
+        file_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeleteFileResult:
+        """Delete a file. `DELETE /v1/files/{fileId}`
+
+        Deletes the file and every version: a soft delete, kept until a retention policy for `file_version` purges it. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after (already gone). Refused while any version is pinned. Needs `write` on its project.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.delete"],
+            path={"fileId": file_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeleteFileResult,
+            timeout=timeout,
+        )
+
+    async def pin_history(
+        self,
+        file_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FilePinChangeCollectionPage:
+        """A file's pin history. `GET /v1/files/{fileId}/pin-history`
+
+        Every pin and unpin of its versions, newest first. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.
+        """
+        return await self._client._request(
+            _OPERATIONS["files.pinHistory"],
+            path={"fileId": file_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.FilePinChangeCollectionPage,
+            timeout=timeout,
+        )
+
+
 class AsyncObservationsResource:
     """`client.observations` — the `observations` operations."""
 
@@ -16982,6 +17627,7 @@ class AsyncRetentionResource:
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -17052,6 +17698,7 @@ class AsyncRetentionResource:
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -22133,6 +22780,7 @@ class Resources:
     runtime: RuntimeResource
     export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
+    files: FilesResource
     observations: ObservationsResource
     capabilities: CapabilitiesResource
     providers: ProvidersResource
@@ -22196,6 +22844,7 @@ class Resources:
         self.runtime = RuntimeResource(client)
         self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
+        self.files = FilesResource(client)
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
@@ -22261,6 +22910,7 @@ class AsyncResources:
     runtime: AsyncRuntimeResource
     export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
+    files: AsyncFilesResource
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
@@ -22324,6 +22974,7 @@ class AsyncResources:
         self.runtime = AsyncRuntimeResource(client)
         self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
+        self.files = AsyncFilesResource(client)
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
