@@ -641,6 +641,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // named by a tool, an endpoint, a webhook trigger, a model provider or
   // another connection app registration (400).
   'connection-key-refused': 400,
+  // An identity provider's secret signs the tenant's people in: named by
+  // anything but sign-in (400).
+  'identity-provider-key-refused': 400,
   // A slug another org, team or project in the tenant already has; a
   // second default project.
   'slug-conflict': 409,

@@ -3587,7 +3587,7 @@ export const ERROR_ENTRIES = {
   },
   'provider-key-refused': {
     description:
-      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name.",
+      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name; an identity provider names a secret of its own instead.",
     details: [
       {
         key: 'secret',
@@ -3601,7 +3601,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-key-refused': {
     description:
-      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration, an identity provider or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
     details: [
       {
         key: 'secret',
@@ -3613,6 +3613,21 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['#connection-key-in-use', 'POST /v1/connection-apps'],
+  },
+  'identity-provider-key-refused': {
+    description:
+      "The request names an identity provider's secret (its OIDC client secret, or its SAML signing or decryption key) as a secret for something that isn't sign-in, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, a connection app registration or a pack's `env`. The secret signs the tenant's people in, so only sign-in names it. If one app registration serves both sign-in and a connection, give it a second client secret, store that under its own name and use that name. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is an identity provider's",
+      },
+      {
+        key: 'identityProviderId',
+        meaning: 'id of the identity provider that references that secret',
+      },
+    ],
+    seeAlso: ['POST /v1/auth/providers'],
   },
   'provider-key-in-use': {
     description:

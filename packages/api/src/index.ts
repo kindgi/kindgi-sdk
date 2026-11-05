@@ -1409,20 +1409,26 @@ export {
   secretNameGrammarRefusal,
 } from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
-// A model provider's key is used by its provider only, and a texts
-// registration's account key by its registration only.
+// A model provider's key is used by its provider only, a texts
+// registration's account key by its registration only, and an identity
+// provider's secret by sign-in only.
 export {
   connectionKeyRefusal,
   connectionKeysOf,
   guardProviderKeys,
   guardSecretKeys,
+  identityProviderKeyRefusal,
+  identityProviderKeysOf,
+  identityProviderSecretNames,
   providerKeyRefusal,
   providerKeysOf,
+  refuseIdentityProviderKeyNames,
   refuseSecretNames,
   usersOfSecret,
 } from './provider-keys.js';
 export type {
   ConnectionKeys,
+  IdentityProviderKeys,
   ProviderKeys,
   SecretKeys,
   SecretUse,

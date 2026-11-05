@@ -37,10 +37,14 @@ const resolveToken: TokenResolver = async (token) =>
       ? { tenantId: TENANT, userId: 'user-1' as UserId, scopes: ['tenant-admin'] }
       : null;
 
-/** `texts`: the runtime has connections, with a live texts registration whose key is `acme-telnyx-key`. */
+/**
+ * `texts`: the runtime has connections, with a live texts registration whose
+ * key is `acme-telnyx-key`. `signIn`: the tenant has an identity provider
+ * whose client secret is `acme-okta-secret`.
+ */
 function setup(
   nameRefusal?: SecretBinding['nameRefusal'],
-  opts: { readonly texts?: boolean } = {},
+  opts: { readonly texts?: boolean; readonly signIn?: boolean } = {},
 ) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: DEFAULT_PROJECT as never });
   const app = createApp({
@@ -75,6 +79,16 @@ function setup(
               },
             },
           ],
+        }),
+      } as never,
+    }),
+    ...(opts.signIn === true && {
+      identityProvider: {
+        list: async (input: { tenantId: unknown }) => ({
+          data:
+            input.tenantId === TENANT
+              ? [{ providerId: 'acme-okta', kind: 'oidc', clientSecretRef: 'acme-okta-secret' }]
+              : [],
         }),
       } as never,
     }),
@@ -191,6 +205,18 @@ describe('registering a webhook trigger', () => {
     expect((await call('GET', '')).body.data).toEqual([]);
   });
 
+  test("refuses an identity provider's secret as its secret, and registers nothing", async () => {
+    const { call, base } = setup(undefined, { signIn: true });
+    const res = await call('POST', '', { ...base, hmacSecretName: 'acme-okta-secret' });
+    expect([res.status, res.body.error?.code, res.body.error?.details]).toEqual([
+      400,
+      'identity-provider-key-refused',
+      { secret: 'acme-okta-secret', identityProviderId: 'acme-okta' },
+    ]);
+    expect(res.body.error.message).toContain('a webhook trigger never names it');
+    expect((await call('GET', '')).body.data).toEqual([]);
+  });
+
   test('refuses a reserved `kindgi.` name as its secret, named or generated', async () => {
     const { call, base } = setup();
     const named = await call('POST', '', { ...base, hmacSecretName: 'kindgi.webhook' });
@@ -271,6 +297,14 @@ describe('changing a webhook trigger', () => {
     const t = (await call('POST', '', base)).body;
     const res = await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'acme-telnyx-key' });
     expect([res.status, res.body.error?.code]).toEqual([400, 'connection-key-refused']);
+    expect((await call('GET', `/${t.triggerId}`)).body.hmacSecretName).toBe('acme-hmac');
+  });
+
+  test("refuses an identity provider's secret as its new secret, and keeps the old one", async () => {
+    const { call, base } = setup(undefined, { signIn: true });
+    const t = (await call('POST', '', base)).body;
+    const res = await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'acme-okta-secret' });
+    expect([res.status, res.body.error?.code]).toEqual([400, 'identity-provider-key-refused']);
     expect((await call('GET', `/${t.triggerId}`)).body.hmacSecretName).toBe('acme-hmac');
   });
 });

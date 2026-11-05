@@ -169,6 +169,7 @@ _INVALID = {
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
     "guardrail-config-invalid", "provider-config-invalid",
     "scope-invalid", "artifact-too-large", "provider-key-refused", "connection-key-refused",
+    "identity-provider-key-refused",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",

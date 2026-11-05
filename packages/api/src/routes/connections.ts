@@ -38,6 +38,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import {
   type ConnectionKeys,
+  type IdentityProviderKeys,
   PAGE,
   type ProviderKeys,
   type SecretUse,
@@ -113,6 +114,12 @@ export function connectionAppsRouter(
      */
     readonly connectionKeys?: ConnectionKeys;
     /**
+     * An identity provider's secret is never named by a registration, even
+     * one for the same app (`identity-provider-key-refused`). Absent: not
+     * checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
+    /**
      * What in the tenant uses a secret: a texts registration's key can't be
      * one of them (`409 connection-key-in-use`). Absent: not checked.
      */
@@ -158,6 +165,7 @@ export function connectionAppsRouter(
       secrets.map(([, secretRef]) => secretRef.name),
       'a connection app',
       { keys: options.connectionKeys, ownAppId },
+      options.identityProviderKeys,
     );
   };
 

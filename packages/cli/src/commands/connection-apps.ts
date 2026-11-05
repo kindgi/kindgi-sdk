@@ -264,7 +264,7 @@ const add: LeafCommand = {
     'client-secret-ref': {
       type: 'string',
       description:
-        'The secret holding its client secret: `<env>/<name>`, or `<name>` under the env the runtime serves.',
+        "The secret holding its client secret: `<env>/<name>`, or `<name>` under the env the runtime serves. Not the one sign-in uses: if one app registration serves both, give this one a second client secret under its own name.",
     },
     tenant: {
       type: 'string',

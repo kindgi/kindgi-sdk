@@ -199,6 +199,23 @@ describe('fromWire — pinned versions', () => {
     });
   });
 
+  it("an identity-provider-key-refused is an invalid request, naming the secret and its identity provider", () => {
+    expect(
+      fromWire(
+        {
+          code: 'identity-provider-key-refused',
+          message: 'm',
+          details: { secret: 'ACME_OKTA_SECRET', identityProviderId: 'acme-okta' },
+        },
+        400,
+      ),
+    ).toMatchObject({
+      code: 'invalid-request',
+      serverCode: 'identity-provider-key-refused',
+      fields: { secret: 'ACME_OKTA_SECRET', identityProviderId: 'acme-okta' },
+    });
+  });
+
   it('a scope-invalid is an invalid request', () => {
     expect(fromWire({ code: 'scope-invalid', message: 'no such project' })).toMatchObject({
       code: 'invalid-request',

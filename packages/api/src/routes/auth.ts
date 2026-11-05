@@ -21,7 +21,12 @@ import type {
 import { encodeSessionToken } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type ProviderKeys,
+  identityProviderSecretNames,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import type { SessionCreateOutput, SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability, refused } from './denied.js';
@@ -59,6 +64,8 @@ export interface AuthRouterOptions {
    * names secrets (`refuseSecretNames`).
    */
   readonly providerKeys?: ProviderKeys;
+  /** Nor a texts registration's account key (`connection-key-refused`); absent, not checked. */
+  readonly connectionKeys?: ConnectionKeys;
   /** `signed-out` events, best effort. */
   readonly auditEvents?: AuditEventBinding;
 }
@@ -88,8 +95,9 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
     const refusal = await refuseSecretNames(
       options.providerKeys,
       c.get('tenantId') as TenantId,
-      providerSecretNames(config),
+      identityProviderSecretNames(config),
       'an identity provider',
+      { keys: options.connectionKeys },
     );
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);
@@ -449,23 +457,6 @@ function needsSecretsStore(c: Context<AppEnv>, providerId: string): Response {
       c.get('requestId'),
     ),
   );
-}
-
-/**
- * The names a provider's secret references give in the tenant's store. A
- * reference is `<name>`, or `<env>/<name>` for another environment's, and a
- * name is checked whatever its environment, as a model provider's key is.
- */
-function providerSecretNames(config: ProviderConfig): string[] {
-  const refs =
-    config.kind === 'oidc'
-      ? [config.clientSecretRef]
-      : [config.spSigningKeyRef, config.spDecryptionKeyRef];
-  return refs.flatMap((ref) => {
-    if (ref === undefined) return [];
-    const trimmed = ref.trim();
-    return [trimmed.slice(trimmed.indexOf('/') + 1)];
-  });
 }
 
 /** What the issuer's discovery gave: stale once the issuer changes. */

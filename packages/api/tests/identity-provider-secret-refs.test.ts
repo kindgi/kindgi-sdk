@@ -4,16 +4,17 @@
 /**
  * An identity provider's secret references are checked as every other
  * registration's are: a reference never names a model provider's key, nor a
- * name under the reserved `kindgi.` prefix. `POST /v1/auth/providers` and
- * `PATCH /v1/auth/providers/:providerId` answer 400 with the shared codes
- * and words, and nothing is registered or changed.
+ * name under the reserved `kindgi.` prefix, nor a texts registration's
+ * account key where the runtime has connections. `POST /v1/auth/providers`
+ * and `PATCH /v1/auth/providers/:providerId` answer 400 with the shared
+ * codes and words, and nothing is registered or changed.
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { TenantId } from '@kindgi/types';
+import type { EnvName, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -43,6 +44,9 @@ const noSessions: SessionStoreBinding = {
 
 const MODEL_KEY = 'ANTHROPIC_API_KEY';
 const REFUSED = `\`${MODEL_KEY}\` is the key of model provider "anthropic-main": an identity provider never gets a model provider's key. Store the identity provider's own secret under its own name and use that name`;
+const TEXTS_KEY = 'ACME_TELNYX_KEY';
+const TEXTS_APP = randomUUID();
+const TEXTS_REFUSED = `\`${TEXTS_KEY}\` is the account key of connection app registration "${TEXTS_APP}": an identity provider never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`;
 const HELD = 'kindgi.connection-token';
 const RESERVED = `\`${HELD}\` uses the reserved "kindgi." prefix: an identity provider never names one. Those names are Kindgi's own; store the secret under a name of its own and use that`;
 
@@ -67,7 +71,8 @@ const ADFS = {
   domains: ['acme.com'],
 };
 
-function makeApp() {
+/** `texts`: the runtime has connections, with a live texts registration whose key is `TEXTS_KEY`. */
+function makeApp(opts: { readonly texts?: boolean } = {}) {
   const stored = new Map<string, ProviderConfig>();
   const registered: ProviderConfig[] = [];
   const updated: ProviderConfig[] = [];
@@ -106,6 +111,26 @@ function makeApp() {
       list: async () => ({ data: [] }),
       get: async () => null,
     } as never,
+    ...(opts.texts === true && {
+      envName: 'local' as EnvName,
+      connections: {
+        entries: () => [],
+        listApps: async () => ({
+          data: [
+            {
+              appId: TEXTS_APP,
+              tenantId,
+              app: 'texts',
+              token: {
+                provider: 'telnyx',
+                apiKey: { envName: 'local', name: TEXTS_KEY },
+                publicKey: `${'A'.repeat(43)}=`,
+              },
+            },
+          ],
+        }),
+      } as never,
+    }),
   });
   return { app, stored, registered, updated };
 }
@@ -159,6 +184,28 @@ describe('POST /v1/auth/providers', () => {
       ]);
     }
     expect(h.registered).toEqual([]);
+  });
+
+  test("an OIDC client secret that's a texts registration's account key: 400, naming it, and nothing is registered", async () => {
+    const h = makeApp({ texts: true });
+    const res = await register(h.app, { ...OKTA, clientSecretRef: `production/${TEXTS_KEY}` });
+    expect(await answerOf(res)).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'connection-key-refused',
+        message: TEXTS_REFUSED,
+        details: { secret: TEXTS_KEY, appId: TEXTS_APP },
+      }),
+    ]);
+    expect(h.registered).toEqual([]);
+  });
+
+  test("a secret another identity provider references is sign-in's too: registered", async () => {
+    const h = makeApp();
+    expect((await register(h.app, OKTA)).status).toBe(201);
+    const second = await register(h.app, { ...OKTA, providerId: 'acme-okta-staff' });
+    expect(second.status).toBe(201);
+    expect(h.registered.map((p) => p.providerId)).toEqual(['acme-okta', 'acme-okta-staff']);
   });
 
   test('secrets of their own: registered as before', async () => {

@@ -98,6 +98,11 @@ npx --yes @kindgi/cli@0.4 secrets set ACME_ENTRA_SECRET --env=production --scope
 - `--env` is the runtime's environment, its `KINDGI_ENV`.
 - `--scope=tenant` stores the secret for the whole workspace.
 
+This secret is sign-in's only: a tool, an endpoint or a connection that
+names it is refused with `identity-provider-key-refused`. If the same app
+registration also serves a Microsoft connection, give the connection a
+second client secret, stored under its own name.
+
 The command asks for the value twice, and doesn't show what you type.
 Then it prints what it stored:
 

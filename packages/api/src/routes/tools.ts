@@ -22,7 +22,12 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -95,6 +100,11 @@ export function toolsRouter(
      * (`connection-key-refused`); absent, not checked.
      */
     readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /** Where each secret a tool names is read is recorded at publish (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
@@ -504,6 +514,7 @@ export function toolsRouter(
       toolSecretNames(validated.value),
       'a tool',
       { keys: options.connectionKeys },
+      options.identityProviderKeys,
     );
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
@@ -653,6 +664,7 @@ export function toolsRouter(
             toolSecretNames(retired),
             'a tool',
             { keys: options.connectionKeys },
+            options.identityProviderKeys,
           );
     if (named !== undefined) {
       c.status(statusFor(named.code) as never);
