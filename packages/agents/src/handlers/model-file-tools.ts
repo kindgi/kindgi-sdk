@@ -15,8 +15,8 @@
  */
 
 import type { ModelToolDefinition } from '@kindgi/capabilities';
-import { type Tool, type ToolContext, defineTool } from '@kindgi/tools';
-import { type FileValue, type ToolId, isTextFileType } from '@kindgi/types';
+import { type Tool, type ToolContext, type ToolError, defineTool } from '@kindgi/tools';
+import { type FileValue, type Result, type ToolId, isTextFileType } from '@kindgi/types';
 
 import {
   CREATE_FILE_TOOL_ID,
@@ -226,7 +226,7 @@ function outputSchema(statuses: readonly string[]): Readonly<Record<string, unkn
 }
 
 /** The schemas are fixed here: a failure is a bug, not an input problem. */
-function built(defined: ReturnType<typeof defineTool>): Tool {
+function built<TInput, TOutput>(defined: Result<Tool<TInput, TOutput>, ToolError>): Tool {
   if (defined.kind === 'err') {
     throw new Error(`a built-in file tool failed to build: ${defined.error.message}`);
   }
