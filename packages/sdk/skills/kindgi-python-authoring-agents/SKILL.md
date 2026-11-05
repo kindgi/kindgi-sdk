@@ -141,6 +141,12 @@ brief_writer = Agent(
   `version` is a semver **range**; the highest active matching version
   is picked at turn start. A bare string is rejected. Empty = a
   chat-only agent.
+  - **Dates:** a model doesn't know the date. When the agent reasons about
+    dates ("this month's invoices", "due in 14 days", "was this delivered
+    within the window"), give it a date and time tool. The
+    kindgi-python-authoring-tools skill has one ("A date and time tool", under `ToolContext`);
+    it answers in the workspace's time zone. `{{ today }}` in the
+    instructions is in UTC.
 - **`guardrails`** — `Guardrail` objects or ids. They check the final
   answer, before it is stored; one whose action is `retry` sends the
   answer back to the model for a new one, up to `retry.maxAttempts`

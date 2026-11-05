@@ -115,6 +115,11 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
   Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+- `ctx.time_zone` — the workspace's time zone, an IANA name such as
+  `"America/Toronto"`: an agent turn reads it once, so all its calls get the
+  same one, `"UTC"` when the workspace sets none. `None` outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -139,6 +144,50 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
   https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#log-from-a-tool
+
+### A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```python
+# tools/today.py
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, Field
+
+from kindgi import ToolContext, tool
+
+
+class NoInput(BaseModel):
+    pass
+
+
+class Today(BaseModel):
+    date: str
+    weekday: str
+    time: str
+    time_zone: str = Field(alias="timeZone")
+
+
+@tool(id="acme.today", mutating=False)
+def today(_input: NoInput, ctx: ToolContext) -> Today:
+    """Today's date, weekday and time in the workspace's time zone. Call it before answering
+    anything that depends on today's date."""
+    zone = ctx.time_zone or "UTC"
+    now = datetime.now(ZoneInfo(zone))
+    return Today(
+        date=now.date().isoformat(),
+        weekday=now.strftime("%A"),
+        time=now.strftime("%H:%M"),
+        timeZone=zone,
+    )
+```
+
+Test it with `ToolContext.for_test(time_zone="Asia/Tokyo")`. Docs:
+https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 

@@ -149,6 +149,12 @@ object BriefWriter {
   **`tool(id, range)`** is a tool of another pack, with a semver **range**
   (`"^1.0.0"`); the highest active matching version is picked at turn
   start. An agent with no tools is chat-only.
+  - **Dates:** a model doesn't know the date. When the agent reasons about
+    dates ("this month's invoices", "due in 14 days", "was this delivered
+    within the window"), give it a date and time tool. The
+    kindgi-scala-authoring-tools skill has one ("A date and time tool", under `ToolContext`);
+    it answers in the workspace's time zone. `{{ today }}` in the
+    instructions is in UTC.
 - **`guardrail(guardrail)`** or **`guardrail(id)`:** checks the final answer,
   before it is stored. One whose action is `retry` sends the answer back to
   the model for a new one, up to `retry.maxAttempts` answers in all (default
