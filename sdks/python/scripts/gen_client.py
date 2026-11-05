@@ -374,8 +374,11 @@ def docstring(op: Operation, indent: str) -> str:
     first = op.summary or op.id
     lines = [f"{first.rstrip('.')}. `{op.method} {op.path}`"]
     if op.description:
-        paragraph = op.description.split("\n\n")[0].replace('"""', "'''").replace("\\", "\\\\")
-        lines += ["", *paragraph.splitlines()]
+        # A deprecated operation's description opens with its note, so its
+        # own first paragraph follows: a caller still on it keeps both.
+        shown = op.description.split("\n\n")[: 1 if op.deprecated is None else 2]
+        for paragraph in shown:
+            lines += ["", *paragraph.replace('"""', "'''").replace("\\", "\\\\").splitlines()]
     body = "\n".join(f"{indent}{line}" if line else "" for line in lines)
     return f'{indent}"""{body.lstrip()}\n{indent}"""'
 
