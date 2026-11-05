@@ -129,7 +129,8 @@ export interface ProjectBinding {
   delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
   /**
    * Bring a deleted project back as it was: its memberships, team grants
-   * and slugs with it. A live project is `ok` with `changed: false`.
+   * and slugs with it. Its `updatedAt` moves to the restore, as a change's
+   * does. A live project is `ok` with `changed: false`, unchanged.
    * Resolves to `project-not-found` when no project, live or deleted, has
    * `projectId` in the workspace. Optional, with `listDeleted`: without
    * them, the restore and deleted-list routes answer 501

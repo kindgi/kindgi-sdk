@@ -3200,7 +3200,7 @@ export const ERROR_ENTRIES = {
   },
   'deployment-not-found': {
     description:
-      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way.",
+      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way, and so is one whose project is deleted.",
     details: [
       {
         key: 'deploymentId',

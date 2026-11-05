@@ -426,8 +426,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     async restore(tenantId, projectId): Promise<ProjectRestoreOutcome> {
       const row = findAnyInTenant(tenantId, projectId);
       if (row === undefined) return { kind: 'project-not-found' };
-      const changed = deletedAt.delete(projectId);
-      return { kind: 'ok', project: withFormerSlugs(row), changed };
+      if (!deletedAt.delete(projectId)) {
+        return { kind: 'ok', project: withFormerSlugs(row), changed: false };
+      }
+      // A restore changes the project, as a suspend or a resume does.
+      const next: Project = { ...row, updatedAt: nowTimestamp() };
+      projectRows.set(projectId, next);
+      return { kind: 'ok', project: withFormerSlugs(next), changed: true };
     },
 
     async listDeleted(tenantId, filter: Filter): Promise<Page<DeletedProject>> {

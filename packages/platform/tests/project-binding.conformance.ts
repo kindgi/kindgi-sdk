@@ -290,12 +290,17 @@ export function runProjectBindingConformance(
         await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'viewer' });
         const before = await projects.get(T1, id);
         await projects.delete(T1, id);
+        await tick();
         const restored = await restore(T1, id);
         expect(restored.kind).toBe('ok');
         if (restored.kind !== 'ok') return;
         expect(restored.changed).toBe(true);
         expect(restored.project.id).toBe(id);
+        // A restore is a change to the project, as a suspend or a resume is.
+        expect(before?.updatedAt).toBeDefined();
+        expect(restored.project.updatedAt).not.toBe(before?.updatedAt);
         const got = await projects.get(T1, id);
+        expect(got?.updatedAt).toBe(restored.project.updatedAt);
         expect(got?.slug).toBe('store');
         expect(got?.formerSlugs).toEqual(['shop']);
         expect(got?.orgId).toBe(before?.orgId);
@@ -312,9 +317,12 @@ export function runProjectBindingConformance(
         const { projects } = makeBinding();
         const { restore } = lifecycle(projects);
         const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+        const created = await projects.get(T1, id);
+        await tick();
         const live = await restore(T1, id);
         expect(live.kind === 'ok' && live.changed).toBe(false);
         expect(live.kind === 'ok' && live.project.id).toBe(id);
+        expect(live.kind === 'ok' && live.project.updatedAt).toBe(created?.updatedAt);
         expect(await restore(T1, 'never-a-project' as ProjectId)).toEqual({
           kind: 'project-not-found',
         });

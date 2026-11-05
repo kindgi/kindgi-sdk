@@ -8624,7 +8624,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
       ),
       '404': ErrorResponse(
-        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+        "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
       ),
       '409': ErrorResponse(
         "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
@@ -8671,7 +8671,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
       ),
       '404': ErrorResponse(
-        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+        "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
       ),
       '409': ErrorResponse(
         '`promotion-not-next-environment`, `deployment-superseded`, or a suspension of the source or the target, as on the promotion.',
@@ -9608,7 +9608,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.restore',
     summary: 'Restore a deleted project',
     description:
-      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. A live project answers 200, unchanged. Needs `admin` on the workspace: a deleted project's own grants went with it.",
+      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
