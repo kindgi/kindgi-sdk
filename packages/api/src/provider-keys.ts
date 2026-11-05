@@ -199,7 +199,8 @@ async function refuseProviderKeys(
 /**
  * The first secret in `names` that `user` can't name: one under the reserved
  * `kindgi.` prefix, then a model provider's key. Every registration that names
- * secrets checks them here, so none gets one check without the other.
+ * secrets checks them here, so none gets one check without the other, and so
+ * does a reader that checks a name ahead of a cache of its own values.
  */
 export async function refuseSecretNames(
   keys: ProviderKeys | undefined,
