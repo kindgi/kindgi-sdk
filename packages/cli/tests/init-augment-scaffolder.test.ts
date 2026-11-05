@@ -442,8 +442,8 @@ describe('runInitAugment — the sample template', () => {
     expect(result.kind).toBe('ok');
 
     for (const file of [
-      'agents/echo-agent/index.ts',
-      'flows/echo-flow/index.ts',
+      'agents/greeter/index.ts',
+      'flows/greet-person/index.ts',
       'guardrails/response-not-empty/index.ts',
       'tools/echo/index.ts',
       'tools/greet/index.ts',
@@ -454,15 +454,15 @@ describe('runInitAugment — the sample template', () => {
     // The sample's test runs under the vitest config init adds.
     const sampleTest = await fileContents(join(root, 'kindgi', 'tools', 'echo', 'index.test.ts'));
     expect(sampleTest).toContain("describe('my-app.echo'");
-    const agent = await fileContents(join(root, 'kindgi', 'agents', 'echo-agent', 'index.ts'));
-    expect(agent).toContain('my-app.echo-agent');
+    const agent = await fileContents(join(root, 'kindgi', 'agents', 'greeter', 'index.ts'));
+    expect(agent).toContain('my-app.greeter');
     expect(agent).not.toContain('{{PACK_ID}}');
 
     // The sample's schemas are Zod; an app without it gets it.
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
     expect(pkg.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
     if (result.kind === 'ok') {
-      expect(result.rendered.stderr).toContain('--agent=my-app.echo-agent');
+      expect(result.rendered.stderr).toContain('--agent=my-app.greeter');
     }
   });
 

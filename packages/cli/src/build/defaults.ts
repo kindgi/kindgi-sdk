@@ -21,6 +21,7 @@ import { parsePrivateKeyPem, serializePublicKeyPem, signEd25519 } from '@kindgi/
 import { readSse } from '@kindgi/sdk/client';
 
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
+import { idShapeWarnings } from '../dev/id-shape.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
 import type { IndexedCounts } from '../dev/runners.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
@@ -130,11 +131,14 @@ export async function runLocalIndexerReal(opts: RunLocalIndexerOptions): Promise
       message: e.message,
       ...(e.filePath !== undefined && { filePath: e.filePath }),
     })),
-    warnings: (report.warnings ?? []).map((w) => ({
-      code: w.code,
-      message: w.message,
-      ...(w.filePath !== undefined && { filePath: w.filePath }),
-    })),
+    warnings: [
+      ...(report.warnings ?? []).map((w) => ({
+        code: w.code,
+        message: w.message,
+        ...(w.filePath !== undefined && { filePath: w.filePath }),
+      })),
+      ...idShapeWarnings(report.packId, index),
+    ],
     index,
   };
 }

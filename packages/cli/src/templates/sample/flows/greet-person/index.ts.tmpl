@@ -1,5 +1,5 @@
-// {{PACK_ID}}.echo-flow — greets a name with the greet tool, then hands
-// the greeting to the echo agent as an agent step, and returns both.
+// {{PACK_ID}}.greet-person — greets a name with the greet tool, then hands
+// the greeting to the greeter as an agent step, and returns both.
 //
 // It shows the parts most flows use:
 //   - a tool step whose input is mapped from the run input
@@ -11,15 +11,15 @@
 //   - a declared `output`, checked against its schema.
 // The kindgi-authoring-flows skill covers branches, loops and the rest.
 //
-// Run it:  kindgi runs start --flow={{PACK_ID}}.echo-flow --input='{"name":"Ada"}'
+// Run it:  kindgi runs start --flow={{PACK_ID}}.greet-person --input='{"name":"Ada"}'
 
 import { defineFlow } from '@kindgi/sdk/define';
 
 const defined = defineFlow({
-  id: '{{PACK_ID}}.echo-flow',
+  id: '{{PACK_ID}}.greet-person',
   version: '{{PACK_VERSION}}',
-  name: 'Echo Flow',
-  description: 'Greets a name, then has the echo agent respond to the greeting.',
+  name: 'Greet a person',
+  description: 'Greets a name, then has the greeter respond to the greeting.',
   nodes: [
     {
       id: 'greet',
@@ -30,7 +30,7 @@ const defined = defineFlow({
     {
       id: 'respond',
       kind: 'agent',
-      ref: '{{PACK_ID}}.echo-agent',
+      ref: '{{PACK_ID}}.greeter',
       inputMapping: { text: { path: 'nodeOutputs.greet.message' } },
     },
   ],
@@ -53,7 +53,7 @@ const defined = defineFlow({
 });
 
 if (defined.kind === 'err') {
-  throw new Error(`{{PACK_ID}}.echo-flow failed to compile: ${defined.error.message}`);
+  throw new Error(`{{PACK_ID}}.greet-person failed to compile: ${defined.error.message}`);
 }
 
 export default defined.value;

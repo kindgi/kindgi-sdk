@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.9"
+version: "0.1.10"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -78,7 +78,7 @@ public final class BriefWriter {
 
   public static final Agent AGENT = Agent.define("acme.brief-writer")
       .version("0.1.0")
-      .name("Brief Writer")
+      .name("Brief writer")
       .description("Drafts appellate briefs from a case file; cites precedents.")
       .instructions("You are drafting a brief in {{ jurisdiction }}. The user gives the case facts; you write "
           + "a Section IV argument citing at least two precedents. Check every cite with the echo tool "
@@ -109,9 +109,28 @@ public final class BriefWriter {
   mistake with its file.
 - A class may hold several agents, each in its own `static final` field.
 
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
+
 ## Field by field
 
-- **`id`:** `<pack-id>.<agent-name>`, kebab-case, dot-namespaced.
+- **`id`:** `<pack-id>.<name>`; see Naming above.
 - **`version`:** an exact semver. Conversations pin the version they started
   on.
 - **`name`, `description`**, and `set("tags", List.of(…))`: for people and

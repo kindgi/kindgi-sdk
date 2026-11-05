@@ -16,7 +16,7 @@ description: >
   kindgi-scala-authoring-agents.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -144,7 +144,7 @@ object TriageTicket {
 
   val flow: Flow = Flow("acme.triage-ticket")
     .version("0.1.0")
-    .set("name", "Triage a support ticket")
+    .set("name", "Triage a ticket")
     .set("description", "Parses a ticket, classifies it, looks billing up when needed, drafts a reply.")
     .node(Map("id" -> "parse", "kind" -> "tool", "ref" -> Tickets.parse,
       "inputMapping" -> Map("ticket" -> Map("path" -> "runInput.ticket"))))
@@ -195,6 +195,25 @@ object TriageTicket {
   `kindgi dev` reports a mistake as a file error that says what and where,
   while the pack's other primitives keep serving. Whether a step's tool or
   agent exists is checked when a run starts (see "Running a flow").
+
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
 
 ## Nodes
 
@@ -337,7 +356,7 @@ input or the output), not on every save.
 ## Common mistakes
 
 1. **Building a flow without asking what goes in and comes out.** The pack's
-   `EchoFlow` proves the runtime works. It isn't a template for the user's
+   `GreetPerson` proves the runtime works. It isn't a template for the user's
    flow.
 2. **A second comparison for "otherwise".** On a path that may be missing,
    `eq` is false and `ne` is true, and `lt`/`gt` are both false, so a
