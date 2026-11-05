@@ -86,7 +86,7 @@ import {
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
-import { addPointCheckNodes, addStepToolNodes } from './turn-provenance.js';
+import { addPointCheckNodes, addStepToolNodes, noteCallKeys } from './turn-provenance.js';
 
 /**
  * Resolves the effective HITL mode + reviewer role for a specific
@@ -893,7 +893,12 @@ async function planCall(
     ctx,
     (m) => m.role === 'tool' && m.toolCall?.invocationId === call.id,
   );
-  if (stored !== undefined) return { kind: 'stored', call, message: stored };
+  if (stored !== undefined) {
+    // Its file versions' edges find its node by its key, as a call this
+    // process runs does.
+    noteCallKeys(ctx, kctx.runId as unknown as string, kctx.stepScope, [stored]);
+    return { kind: 'stored', call, message: stored };
+  }
   // The resolved binding gives the call's events `toolVersion` +
   // `toolVersionRange` alongside the id. Model-requested tools the
   // agent didn't declare emit a bare `tool.failed` with no version.
@@ -1724,6 +1729,10 @@ function toolContextFor(
     kctx.stepScope === undefined
       ? undefined
       : toolIdempotencyKey({ runId, stepScope: kctx.stepScope, toolId, callId: call.id });
+  if (idempotencyKey !== undefined) {
+    ctx.callKeys ??= new Map();
+    ctx.callKeys.set(idempotencyKey, call.id);
+  }
   const files = callFileStore(ctx.files, tool, idempotencyKey, ctx.turnAbort.signal);
   return {
     tenantId: ctx.input.tenantId,

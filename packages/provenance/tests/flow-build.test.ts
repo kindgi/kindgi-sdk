@@ -22,6 +22,7 @@ import {
   FLOW_PROVENANCE_LIMITS,
   FLOW_PROVENANCE_VERSION,
   exportProvenance,
+  fileVersionOf,
   flowProvenanceBuilder,
   flowProvenanceId,
   importProvenance,
@@ -31,6 +32,7 @@ import {
 import type {
   FlowJournalGap,
   FlowProvenanceChild,
+  FlowProvenanceFile,
   FlowProvenanceRun,
   FlowReusedSource,
   Provenance,
@@ -1436,6 +1438,203 @@ describe('the caps', () => {
     expect(attrs(record, 'step:L')).toMatchObject({ partial: true });
     expect(attrs(record, 'step:b')).not.toHaveProperty('partial');
     expect(edgeSet(record.edges)).toContain('output -produced-> step:b');
+  });
+});
+
+describe('file versions', () => {
+  const H1 = 'a'.repeat(64);
+  const H2 = 'b'.repeat(64);
+  const H3 = 'c'.repeat(64);
+  const fileOf = (
+    file: Partial<FlowProvenanceFile> & Pick<FlowProvenanceFile, 'fileVersion' | 'how'>,
+  ): FlowProvenanceFile => ({ fileId: 'file-1', contentHash: H1, at: at(1), ...file });
+  const s = (nodeId: string): { readonly nodeId: string; readonly scope: string } => ({
+    nodeId,
+    scope: '',
+  });
+  const fileIds = (record: Provenance): string[] =>
+    ids(record).filter((id) => id.startsWith('file:'));
+  const fileEdges = (record: Provenance): string[] =>
+    edgeSet(record.edges.filter((e) => e.from.startsWith('file:') || e.to.startsWith('file:')));
+  /** `$start → s0 → s1 → $end`, both steps completed. */
+  function twoSteps(): Journal {
+    const j = new Journal();
+    j.edge('e0');
+    j.step('s0');
+    j.edge('e1');
+    j.step('s1');
+    j.edge('end');
+    return j;
+  }
+
+  test("each version is one node; its edges say whether the run's input named it, a step made it, or a step was given it", () => {
+    const record = build(
+      runOf(chainFlow(2), {
+        files: [
+          {
+            fileId: 'brief',
+            fileVersion: 4,
+            fileName: 'brief.md',
+            contentHash: H1,
+            how: 'input',
+            at: at(0),
+          },
+          {
+            fileId: 'notes',
+            fileVersion: 1,
+            fileName: 'notes.md',
+            contentHash: H2,
+            how: 'made',
+            step: s('s0'),
+            at: at(2),
+          },
+          {
+            fileId: 'notes',
+            fileVersion: 2,
+            fileName: 'notes.md',
+            contentHash: H3,
+            filePreviousVersion: 1,
+            how: 'made',
+            step: s('s1'),
+            at: at(5),
+          },
+          {
+            fileId: 'brief',
+            fileVersion: 4,
+            fileName: 'brief.md',
+            contentHash: H1,
+            how: 'given',
+            step: s('s1'),
+            at: at(4),
+          },
+        ],
+        outputFile: { fileId: 'notes', fileVersion: 2 },
+      }),
+      twoSteps().entries,
+    );
+
+    expect(nodeOf(record, 'file:notes@v2')).toEqual({
+      id: 'file:notes@v2',
+      kind: 'artifact',
+      timestamp: at(5),
+      contentHash: H3,
+      attributes: { fileId: 'notes', fileVersion: 2, fileName: 'notes.md', filePreviousVersion: 1 },
+    });
+    // The version the input named and a step was given is one node, with both edges.
+    expect(fileVersionOf(nodeOf(record, 'file:brief@v4'))).toEqual({
+      fileId: 'brief',
+      fileVersion: 4,
+      fileName: 'brief.md',
+    });
+    expect(fileEdges(record)).toEqual([
+      'file:notes@v1 -produced-> step:s0',
+      'file:notes@v2 -produced-> step:s1',
+      'input -influenced-by-> file:brief@v4',
+      'step:s1 -influenced-by-> file:brief@v4',
+    ]);
+    // In journal order: an input's at the start, a made one where its step ended.
+    expect(ids(record)).toEqual([
+      'input',
+      'file:brief@v4',
+      'step:s0',
+      'file:notes@v1',
+      'step:s1',
+      'file:notes@v2',
+      'output',
+    ]);
+    // The run's output is notes v2: its node carries that version.
+    expect(nodeOf(record, 'output')).toMatchObject({
+      contentHash: H3,
+      attributes: { fileId: 'notes', fileVersion: 2, fileName: 'notes.md', filePreviousVersion: 1 },
+    });
+    expectConnected(record);
+  });
+
+  test("a version whose step isn't in the record is kept with no edge; an entry not of its shape is left out", () => {
+    const record = build(
+      runOf(chainFlow(2), {
+        files: [
+          fileOf({ fileVersion: 1, how: 'made', step: s('gone') }),
+          fileOf({ fileId: 'file-2', fileVersion: 1, how: 'given' }),
+          fileOf({ fileId: 'file-3', fileVersion: 0, how: 'made', step: s('s0') }),
+          fileOf({ fileId: 'file-4', fileVersion: 1, how: 'made', contentHash: 'not-a-sha256' }),
+          fileOf({ fileId: '', fileVersion: 1, how: 'input' }),
+          fileOf({
+            fileId: 'file-5',
+            fileVersion: 2,
+            filePreviousVersion: 2,
+            how: 'made',
+            step: s('s0'),
+          }),
+        ],
+        outputFile: { fileId: 'file-9', fileVersion: 1 },
+      }),
+      twoSteps().entries,
+    );
+    // One with no known step goes at the end, before the output.
+    expect(fileIds(record)).toEqual(['file:file-5@v2', 'file:file-1@v1', 'file:file-2@v1']);
+    expect(fileEdges(record)).toEqual(['file:file-5@v2 -produced-> step:s0']);
+    // A previous version that isn't below the version is left out.
+    expect(attrs(record, 'file:file-5@v2')).toEqual({ fileId: 'file-5', fileVersion: 2 });
+    // An output naming no version of `files` carries nothing.
+    expect(nodeOf(record, 'output')).toEqual({
+      id: 'output',
+      kind: 'artifact',
+      timestamp: at(1_000_000),
+    });
+  });
+
+  test("a version a folded iteration's step made is drawn to its loop's folded node", () => {
+    const loop = loopOf('L', tool('x'));
+    const f = flowOf([loop], [edge('e1', '$start', 'L'), edge('e2', 'L', '$end')]);
+    const j = new Journal();
+    j.edge('e1');
+    runLoop(j, loop, undefined, [], 60, oneStepBody(j, loop, 'x'));
+    j.edge('e2');
+    const madeIn = (iteration: number): FlowProvenanceFile =>
+      fileOf({
+        fileId: `file-${iteration}`,
+        fileVersion: 1,
+        how: 'made',
+        step: { nodeId: 'x', scope: JSON.stringify([{ loopNodeId: 'L', iteration }]) },
+      });
+    const record = build(runOf(f, { files: [madeIn(0), madeIn(30)] }), j.entries);
+
+    expect(has(record, 'step:x@L#30')).toBe(false);
+    expect(fileEdges(record)).toEqual([
+      'file:file-0@v1 -produced-> step:x@L#0',
+      'file:file-30@v1 -produced-> step:L#folded',
+    ]);
+  });
+
+  test('past 1000 versions the rest are counted in one node, and the ones kept count toward the record’s caps', () => {
+    expect(L.maxFileNodes).toBe(1000);
+    const j = new Journal();
+    j.edge('e0');
+    j.step('s0');
+    j.edge('end');
+    const files = Array.from({ length: L.maxFileNodes + 5 }, (_, i) =>
+      fileOf({ fileId: `f${i}`, fileVersion: 1, how: 'made', step: s('s0'), at: at(10 + i) }),
+    );
+    const record = build(
+      runOf(chainFlow(1), {
+        // A version named again after the cap is the node it already has.
+        files: [...files, ...files.slice(0, 1)],
+        outputFile: { fileId: `f${L.maxFileNodes + 2}`, fileVersion: 1 },
+      }),
+      j.entries,
+    );
+    expect(fileIds(record)).toHaveLength(L.maxFileNodes);
+    expect(has(record, `file:f${L.maxFileNodes - 1}@v1`)).toBe(true);
+    expect(has(record, `file:f${L.maxFileNodes}@v1`)).toBe(false);
+    expect(nodeOf(record, 'truncated:files')).toEqual({
+      id: 'truncated:files',
+      kind: 'event',
+      timestamp: at(10 + L.maxFileNodes),
+      attributes: { truncated: { reason: 'files', filesOmitted: 5 } },
+    });
+    // The output's version wasn't kept: its node carries nothing.
+    expect(nodeOf(record, 'output').attributes).toBeUndefined();
   });
 });
 

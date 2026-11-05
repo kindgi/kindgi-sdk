@@ -12,6 +12,7 @@ import {
   filesForCall,
   isReadable,
 } from '@kindgi/capabilities';
+import type { ProvenanceFileVersion } from '@kindgi/provenance';
 import type {
   FileReadAnswer,
   FileStore,
@@ -167,6 +168,21 @@ export interface FileBinding {
    * later call shows them again. Absent: a call holds nothing.
    */
   hold?(files: readonly MessageFile[], signal: AbortSignal): Promise<FileHold | undefined>;
+  /**
+   * The file versions the run took or made, oldest first, for its
+   * provenance record: one `artifact` node each. Asked once, when the
+   * record is persisted. Absent: the record has no file versions' nodes.
+   */
+  versions?(): Promise<readonly RunFileVersion[]>;
+}
+
+/** A file version a run took or made, as its record is handed it (`FileBinding.versions`). */
+export interface RunFileVersion extends ProvenanceFileVersion {
+  /**
+   * The `idempotencyKey` of the call that made the version or was given
+   * it: the call's node in the record. Absent for an input.
+   */
+  readonly callKey?: string;
 }
 
 /**
