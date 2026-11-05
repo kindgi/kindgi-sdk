@@ -111,7 +111,7 @@ version when:
 
 - it was deleted longer ago than the policy's period; or
 - it isn't Latest, isn't one of the file's 10 most recent versions, isn't
-  pinned, and the version after it was added longer ago than the period.
+  pinned, and it stopped being Latest longer ago than the period.
 
 A purged version leaves its number, sha256, size, who made it and when, so
 the file's versions still list it, as purged, and the runs that held it
@@ -175,8 +175,8 @@ The clients mark their methods deprecated, Python's warn, and the CLI's
 An id that `artifacts.upload` or `kindgi artifacts upload` answered moves to
 `fileId` as it is, with `version` 1. A later version's blob id isn't a file
 id: `files.get` and `kindgi files get` answer `404 file-not-found` for one.
-`artifacts.list` and `kindgi artifacts list` answer each item's `fileId` and
-`version`, and a file value that names a blob carries them beside
-`artifactId`. Those are what to move to; `kindgi artifacts get` is a `HEAD`,
+`artifacts.list` and `kindgi artifacts list`'s JSON answer each item's
+`fileId` and `version`, and a file value that names a blob carries them
+beside `artifactId`. Those are what to move to; `kindgi artifacts get` is a `HEAD`,
 which carries neither. A file value with only `artifactId`, kept from an
 earlier runtime, names version 1 of the file with that id.
