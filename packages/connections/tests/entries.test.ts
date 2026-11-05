@@ -81,6 +81,21 @@ describe('the Google entry', () => {
     });
   });
 
+  it('adds files to Drive with a key that reaches only those it added, and reads all of Drive with a restricted one', () => {
+    expect(google.permissions['drive.file']).toEqual({
+      grants: 'https://www.googleapis.com/auth/drive.file',
+      says: 'Add files to your Drive, and see and change those it added',
+      changes: true,
+      review: 'none',
+    });
+    expect(google.permissions['drive.readonly']).toEqual({
+      grants: 'https://www.googleapis.com/auth/drive.readonly',
+      says: 'See and download all your Drive files',
+      changes: false,
+      review: 'restricted',
+    });
+  });
+
   it('learns the account from the ID token, from either form of the issuer', () => {
     expect(google.account).toEqual({
       kind: 'openid',
@@ -97,9 +112,10 @@ describe('the Google entry', () => {
     });
   });
 
-  it("paces mail in Gmail's quota units, 6,000 a minute per mailbox, and calendar calls at 600", () => {
+  it("paces mail in Gmail's quota units, 6,000 a minute per mailbox, calendar calls at 600, and Drive in its units, 325,000", () => {
     // developers.google.com/workspace/gmail/api/reference/quota (read 2026-10-26),
-    // developers.google.com/workspace/calendar/api/guides/quota (read 2026-10-31).
+    // developers.google.com/workspace/calendar/api/guides/quota (read 2026-10-31),
+    // developers.google.com/workspace/drive/api/guides/limits (read 2026-11-04).
     expect(google.rateLimits).toEqual([
       {
         per: 'connection',
@@ -120,6 +136,12 @@ describe('the Google entry', () => {
           'calendar.events.patch': 0,
           'calendar.freebusy.query': 0,
           'calendar.calendarList.list': 0,
+          'drive.files.list': 0,
+          'drive.files.get': 0,
+          'drive.files.get.media': 0,
+          'drive.files.export': 0,
+          'drive.files.create': 0,
+          'drive.files.create.upload': 0,
         },
       },
       {
@@ -130,10 +152,50 @@ describe('the Google entry', () => {
           'gmail.send': 0,
           'gmail.messages.get': 0,
           'gmail.messages.get.metadata': 0,
+          'gmail.attachments.get': 0,
           'gmail.threads.get': 0,
           'gmail.messages.list': 0,
           'gmail.history.list': 0,
           'gmail.profile.get': 0,
+          'calendar.events.list': 1,
+          'calendar.events.get': 1,
+          'calendar.events.insert': 1,
+          'calendar.events.patch': 1,
+          'calendar.freebusy.query': 1,
+          'calendar.calendarList.list': 1,
+          'drive.files.list': 0,
+          'drive.files.get': 0,
+          'drive.files.get.media': 0,
+          'drive.files.export': 0,
+          'drive.files.create': 0,
+          'drive.files.create.upload': 0,
+        },
+      },
+      {
+        per: 'connection',
+        units: 325_000,
+        perSeconds: 60,
+        costs: {
+          'gmail.send': 0,
+          'gmail.messages.get': 0,
+          'gmail.messages.get.metadata': 0,
+          'gmail.attachments.get': 0,
+          'gmail.threads.get': 0,
+          'gmail.messages.list': 0,
+          'gmail.history.list': 0,
+          'gmail.profile.get': 0,
+          'calendar.events.list': 0,
+          'calendar.events.get': 0,
+          'calendar.events.insert': 0,
+          'calendar.events.patch': 0,
+          'calendar.freebusy.query': 0,
+          'calendar.calendarList.list': 0,
+          'drive.files.list': 100,
+          'drive.files.get': 5,
+          'drive.files.get.media': 200,
+          'drive.files.export': 200,
+          'drive.files.create': 50,
+          'drive.files.create.upload': 50,
         },
       },
     ]);
@@ -219,7 +281,7 @@ describe('the Microsoft entry', () => {
     }
   });
 
-  it('says what mail and calendar permissions allow, and which change anything', () => {
+  it('says what mail, calendar and file permissions allow, and which change anything', () => {
     expect(microsoft.permissions).toEqual({
       'mail.send': { grants: 'Mail.Send', says: 'Send mail as you', changes: true },
       'mail.read': { grants: 'Mail.Read', says: 'Read your mail', changes: false },
@@ -236,6 +298,26 @@ describe('the Microsoft entry', () => {
       'calendars.read.shared': {
         grants: 'Calendars.Read.Shared',
         says: 'See the events on your calendars, with their details, those others share with you too',
+        changes: false,
+      },
+      'files.read': {
+        grants: 'Files.Read',
+        says: 'See the files in your OneDrive',
+        changes: false,
+      },
+      'files.readwrite': {
+        grants: 'Files.ReadWrite',
+        says: 'See, add and change the files in your OneDrive',
+        changes: true,
+      },
+      'files.read.all': {
+        grants: 'Files.Read.All',
+        says: 'See all the files you can open, those others share with you too',
+        changes: false,
+      },
+      'sites.read.all': {
+        grants: 'Sites.Read.All',
+        says: "See the files and lists on your organization's SharePoint sites",
         changes: false,
       },
     });
@@ -255,9 +337,34 @@ describe('the Microsoft entry', () => {
     expect(microsoft.removal).toEqual({});
   });
 
-  it("paces every call by Graph's mailbox limit, and sends alone by Exchange's", () => {
+  it("paces mail and calendar calls by Graph's mailbox limit, sends alone by Exchange's, and file calls by SharePoint's", () => {
     expect(microsoft.rateLimits).toEqual([
-      { per: 'connection', units: 10_000, perSeconds: 600 },
+      {
+        per: 'connection',
+        units: 10_000,
+        perSeconds: 600,
+        // Every mail and calendar call counts; OneDrive's and SharePoint's don't.
+        costs: {
+          'outlook.messages.list': 1,
+          'outlook.messages.get': 1,
+          'outlook.attachments.get': 1,
+          'outlook.messages.delta': 1,
+          'outlook.folders.get': 1,
+          'outlook.calendar.view': 1,
+          'outlook.calendars.list': 1,
+          'outlook.events.get': 1,
+          'outlook.send': 1,
+          'outlook.reply': 1,
+          'outlook.events.create': 1,
+          'outlook.events.update': 1,
+          'onedrive.items.list': 0,
+          'onedrive.items.search': 0,
+          'onedrive.items.get': 0,
+          'onedrive.content.put': 0,
+          'sharepoint.sites.search': 0,
+          'sharepoint.drives.list': 0,
+        },
+      },
       {
         per: 'connection',
         units: 30,
@@ -274,6 +381,42 @@ describe('the Microsoft entry', () => {
           'outlook.calendar.view': 0,
           'outlook.calendars.list': 0,
           'outlook.events.get': 0,
+          'outlook.send': 1,
+          'outlook.reply': 1,
+          'outlook.events.create': 1,
+          'outlook.events.update': 1,
+          'onedrive.items.list': 0,
+          'onedrive.items.search': 0,
+          'onedrive.items.get': 0,
+          'onedrive.content.put': 0,
+          'sharepoint.sites.search': 0,
+          'sharepoint.drives.list': 0,
+        },
+      },
+      {
+        per: 'connection',
+        units: 3_000,
+        perSeconds: 300,
+        // SharePoint's 3,000 a person per 5 minutes, for OneDrive's and SharePoint's calls only.
+        costs: {
+          'outlook.messages.list': 0,
+          'outlook.messages.get': 0,
+          'outlook.attachments.get': 0,
+          'outlook.messages.delta': 0,
+          'outlook.folders.get': 0,
+          'outlook.calendar.view': 0,
+          'outlook.calendars.list': 0,
+          'outlook.events.get': 0,
+          'outlook.send': 0,
+          'outlook.reply': 0,
+          'outlook.events.create': 0,
+          'outlook.events.update': 0,
+          'onedrive.items.list': 1,
+          'onedrive.items.search': 1,
+          'onedrive.items.get': 1,
+          'onedrive.content.put': 1,
+          'sharepoint.sites.search': 1,
+          'sharepoint.drives.list': 1,
         },
       },
     ]);

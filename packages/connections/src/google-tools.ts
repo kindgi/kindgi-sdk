@@ -3,8 +3,9 @@
 
 /**
  * `@kindgi/connections/google/tools` — tools that act with a Google
- * connection: the person's own, or the company's mailbox or calendar
- * (`as`). The calendar tools are `./google-calendar-tools.ts`'s. A pack
+ * connection: the person's own, or the company's mailbox, calendar or
+ * Drive (`as`). The calendar tools are `./google-calendar-tools.ts`'s, and
+ * the Drive tools `./google-drive-tools.ts`'s. A pack
  * includes one by exporting it as a tool under an id the pack names: a
  * tool folder whose `index.ts` is
  * `export default gmailSend({ id: 'acme.gmail.send' })`. The id is the
@@ -97,6 +98,26 @@ export {
   googleCalendarFreeBusy,
   googleCalendarSharedEventsList,
 } from './google-calendar-tools.js';
+export type {
+  FileCreateSource,
+  FileGetNotShownReason,
+  FileGetOutput,
+  FileListed,
+  FileOwner,
+  FileStored,
+  FileToolOptions,
+  FilesListed,
+} from './files.js';
+export {
+  type GoogleDriveFileCreateInput,
+  type GoogleDriveFileGetInput,
+  type GoogleDriveFileGetOutput,
+  type GoogleDriveFilesListInput,
+  type GoogleDriveFilesListOutput,
+  googleDriveFileCreate,
+  googleDriveFileGet,
+  googleDriveFilesList,
+} from './google-drive-tools.js';
 
 const SEND_URL = `${GMAIL}/messages/send`;
 /** Messages read at once for a list. */
