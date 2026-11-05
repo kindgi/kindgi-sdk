@@ -106,6 +106,24 @@ ERR
       exit 1
     fi
     : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
+  "run services list"*)
+    # STUB_SERVICES: one "<name> <account> <kindgi-move label, or ->" per line.
+    # Answers only the two filters upgrade.sh sends: the services that run as
+    # an account, and those whose move isn't done. As value() prints them: the
+    # name, a tab, the labels as key=value;... STUB_LIST_RC refuses the call.
+    if [[ -n ${STUB_LIST_RC:-} ]]; then echo "ERROR: (gcloud.run.services.list) stub refused" >&2; exit "$STUB_LIST_RC"; fi
+    filter=""
+    for a in "$@"; do case "$a" in --filter=*) filter="${a#--filter=}" ;; esac; done
+    while read -r name account move; do
+      [[ -n $name ]] || continue
+      case "$filter" in
+        "spec.template.spec.serviceAccountName="*) [[ $account == "${filter#*=}" ]] || continue ;;
+        "metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done") [[ $move != - && $move != done ]] || continue ;;
+        *) echo "ERROR: (gcloud.run.services.list) the stub doesn't know the filter $filter" >&2; exit 2 ;;
+      esac
+      if [[ $move == - ]]; then printf '%s\t\n' "$name"; else printf '%s\tkindgi-move=%s\n' "$name" "$move"; fi
+    done <<<"${STUB_SERVICES:-}"
+    exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
@@ -264,7 +282,9 @@ mkvars() {
     --arg prefix "${V_PREFIX:-kindgi}" --argjson dbi "${V_DBI:-null}" \
     --arg connector "${V_CONNECTOR:-}" --arg private "${V_DB_PRIVATE:-}" \
     --arg secrets "${V_SECRETS:-postgres}" --arg okv "${V_OKV:-}" --arg hosts "${V_HOSTS:-}" \
-    --argjson senv "${V_SENV:-[]}" --argjson ssenv "${V_SSENV:-[]}" '{
+    --argjson senv "${V_SENV:-[]}" --argjson ssenv "${V_SSENV:-[]}" \
+    --arg pacc "${V_PACK_ACCOUNTS:-shared}" --argjson ptenants "${V_PACK_TENANTS:-[]}" \
+    --argjson pshared "${V_PACK_SHARED:-true}" '{
     project_id:"demo-proj", region:"northamerica-northeast2", name_prefix:$prefix,
     network_mode:$net, vpc_connector:$connector, database_private_network:$private,
     database_host_instance:(if $host == "" then null else $host end),
@@ -273,7 +293,8 @@ mkvars() {
     tenancy:$tenancy, seed_tenant_id:(if $tenancy == "single" then $seed else null end),
     server_image:$img, database_instance:$dbi,
     orchestrator_key_version:(if $okv == "" then null else $okv end),
-    server_env_names:$senv, server_secret_env_names:$ssenv, pack_endpoint_hosts:$hosts}' --arg seed "$SEED_TENANT"
+    server_env_names:$senv, server_secret_env_names:$ssenv, pack_endpoint_hosts:$hosts,
+    pack_accounts:$pacc, pack_tenants:$ptenants, pack_shared_account:$pshared}' --arg seed "$SEED_TENANT"
 }
 
 SERVICE_READY='{"status":{"conditions":[{"type":"Ready","status":"True"}],"latestReadyRevisionName":"kindgi-server-00002","latestCreatedRevisionName":"kindgi-server-00002"}}'
@@ -292,8 +313,9 @@ reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_EXPORT_403 STUB_EXPORT_403_OTHER STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
-        STUB_REMOVED_RC \
-        V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV
+        STUB_REMOVED_RC STUB_SERVICES STUB_LIST_RC \
+        V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV \
+        V_PACK_ACCOUNTS V_PACK_TENANTS V_PACK_SHARED
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
   VAR_FILE="$CASE_DIR/dev.tfvars"
@@ -357,7 +379,7 @@ assert_docker_config_unchanged() {
 # terraform console takes the state lock briefly; the stub doesn't model it.)
 assert_reads_only() {
   local other
-  other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe|sql ssl server-ca-certs list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform -chdir=[^ ]+ console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
+  other="$(grep -vE '^(gcloud (run services describe|run services list|artifacts docker images list|sql instances describe|sql ssl server-ca-certs list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform -chdir=[^ ]+ console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
   if [[ -z $other ]]; then pass; else fail "made a call that isn't a read: $other"; fi
 }
 
@@ -2014,6 +2036,262 @@ run "yes" --var-file "$PACK_ENV_FILE"
 assert_rc 0 "it runs"
 assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
 if grep -q "pack_min_instances was" "$OUT"; then fail "a pack service at 0 got the scale-to-zero note"; else pass; fi
+
+# --- a pack account per tenant (pack_accounts) -------------------------------
+
+# Two tenants and their accounts as the module names them under the
+# name_prefix kindgi; a third, added later. The pack services' names are the
+# orchestrator's (kp-...).
+T_A="8d3e5f1a-2b4c-4d6e-8f01-23456789abcd"
+T_B="1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+T_C="3c9a7e21-4b6d-4f80-9a1c-5e7f9b2d4c6a"
+SA_A="kp-t034d09f98934346b@demo-proj.iam.gserviceaccount.com"
+SA_B="kp-t67b72b07fe9e5e22@demo-proj.iam.gserviceaccount.com"
+PACK_SA="kindgi-pack@demo-proj.iam.gserviceaccount.com"
+# The Job's map of them, as jsonencode() writes it: keys sorted.
+PT_AB="$(jq -cnS --arg a "$T_A" --arg sa "$SA_A" --arg b "$T_B" --arg sb "$SA_B" '{($a): $sa, ($b): $sb}')"
+PT_A="$(jq -cn --arg a "$T_A" --arg sa "$SA_A" '{($a): $sa}')"
+
+# The deployment's outputs from 0.4.0 on: the pack account, and each
+# tenant's ($1, id => account; {} for none).
+pt_outputs() {
+  export STUB_TF_OUTPUTS
+  STUB_TF_OUTPUTS="$(jq -c --arg pack "$PACK_SA" --argjson t "$1" \
+    '.service_accounts.value.pack = $pack | .service_accounts.value.tenants = $t' <<<"$TF_OUTPUTS")"
+}
+
+# A plan's changes past the server's: the orchestrator's Job at the new
+# image, its tenant map $1 before and $2 after ("" for none); then, for each
+# "create <tenant>" or "delete <tenant>", that tenant's account and two
+# grants, and for "pack-gone" the pack account, its grant and the act-as.
+pt_plan() {
+  local before="$1" after="$2"; shift 2
+  jq -cn --arg old "$RUNNING_IMAGE" --arg new "$NEW_IMAGE" --arg b "$before" --arg a "$after" --arg pack "$PACK_SA" --args '
+    def rc($type; $name; $i; $act):
+      {address: ($type + "." + $name + "[\($i | tojson)]"), mode: "managed", type: $type, name: $name, index: $i,
+       change: {actions: [$act], before: (if $act == "create" then null else {} end),
+                after: (if $act == "delete" then null else {} end), after_unknown: {}}};
+    def env($v): [{name: "KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT", value: $pack, value_source: []}]
+      + (if $v == "" then [] else [{name: "KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS", value: $v, value_source: []}] end);
+    def job($img; $v): {name: "kindgi-pack-orchestrator", template: [{template: [{containers: [{image: $img, env: env($v)}]}]}]};
+    [{address: "google_cloud_run_v2_job.orchestrator[0]", mode: "managed", type: "google_cloud_run_v2_job", name: "orchestrator", index: 0,
+      change: {actions: ["update"], before: job($old; $b), after: job($new; $a), after_unknown: {}}}]
+    + [$ARGS.positional[] | split(" ") as [$act, $t]
+       | if $act == "pack-gone" then
+           rc("google_service_account"; "pack"; 0; "delete"),
+           rc("google_service_account_iam_member"; "orchestrator_acts_as_pack"; 0; "delete"),
+           rc("google_project_iam_member"; "pack_reads_pack_secrets"; 0; "delete")
+         else
+           rc("google_service_account"; "tenant"; $t; $act),
+           rc("google_project_iam_member"; "tenant_reads_own_secrets"; $t; $act),
+           rc("google_service_account_iam_member"; "orchestrator_acts_as_tenant"; $t; $act)
+         end]' "$@"
+}
+PT_ON="$(pt_plan "" "$PT_AB" "create $T_A" "create $T_B")"
+PT_B_OUT="$(pt_plan "$PT_AB" "$PT_A" "delete $T_B")"
+PT_PACK_GONE="$(pt_plan "$PT_AB" "$PT_AB" "pack-gone")"
+PT_IMAGE_ONLY="$(pt_plan "" "")"
+
+# The two lines README "A pack account per tenant" gives, as the gcloud stub
+# logs them.
+LIST_AS_PACK="gcloud run services list --project=demo-proj --region=northamerica-northeast2 --filter=spec.template.spec.serviceAccountName=$PACK_SA --format=value(metadata.name,metadata.labels)"
+LIST_MOVES="gcloud run services list --project=demo-proj --region=northamerica-northeast2 --filter=metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done --format=value(metadata.name,metadata.labels)"
+
+# 84. A pack account per tenant needs runtime 0.7.0: with a target before it,
+# the orchestrator would go on placing every pack service as the pack
+# account. Refused before anything is mirrored, backed up or changed.
+case_start "per-tenant with a target before 0.7.0 is refused"
+reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs '{}'
+run "yes" --to 0.5.0
+assert_rc 1 "a per-tenant run to 0.5.0 refused"
+assert_file_has "$OUT" "pack_accounts = \"per-tenant\" needs runtime 0.7.0 or later, and this run's target is 0.5.0" "the release named"
+assert_out "a precondition failed"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 85. The same script with 0.6.0, 0.7.0 and 0.8.0, which it doesn't list yet,
+# for the runs that cross 0.7.0 or start past it.
+PT_SCRIPT="$TMP/upgrade-pt.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0" "0.8.0")/' "$SCRIPT" >"$PT_SCRIPT"
+chmod +x "$PT_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0" "0.8.0")' "$PT_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$PT_SCRIPT"
+
+# 86. One tenant, the pack account as before: 0.6.0 -> 0.7.0 changes nothing
+# about the pack accounts, prints none of their steps and lists no service.
+case_start "0.6.0 -> 0.7.0 with one tenant: no pack account steps"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 0 "it runs"
+assert_out "0.6.0 -> 0.7.0 applied"
+if grep -qi -e "pack account per tenant" -e "one-way" "$OUT"; then fail "a run with one tenant printed the pack account steps"; else pass; fi
+if grep -q "^gcloud run services list" "$STUB_CALLS_LOG"; then fail "a run with no pack account change listed services"; else pass; fi
+
+# 87. With tenancy = "multi", a run that crosses 0.7.0 offers the move, every
+# step: the one-way line first, the version, the tenants' list with a system
+# key, the two counts, then pack_shared_account = false. It changes nothing
+# itself and lists no service.
+case_start "multi crossing 0.7.0: the per-tenant steps are offered"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 0 "it runs"
+assert_out "A pack account per tenant, if you want one, by hand"
+assert_file_has "$OUT" " 0. It needs runtime 0.7.0 or later. This deployment now runs 0.7.0." "the version step"
+assert_file_has "$OUT" "curl -fsS -H \"Authorization: Bearer <system key>\" \"$SERVER_URL/v1/system/tenants?limit=100\" | jq -r '.data[].id'" "the tenants' list"
+assert_file_has "$OUT" "--filter='spec.template.spec.serviceAccountName=$PACK_SA'" "the shared account's count"
+assert_file_has "$OUT" "--filter='metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done'" "the moves' count"
+assert_file_has "$OUT" " 3. Set pack_shared_account = false in the var files" "step 3"
+o="$(grep -n "Turning it on is one-way: going back to shared isn't supported." "$OUT" | head -1 | cut -d: -f1)"
+l="$(grep -n " 1. List the tenants" "$OUT" | head -1 | cut -d: -f1)"
+if [[ -n $o && -n $l && $o -lt $l ]]; then pass; else fail "the one-way line isn't before the tenants' list (at ${o:-none}, list at ${l:-none})"; fi
+if grep -q "^gcloud run services list" "$STUB_CALLS_LOG"; then fail "the offer listed services"; else pass; fi
+
+# 88. Past 0.7.0 the offer isn't made again.
+case_start "multi from 0.7.0: no offer"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+if grep -qi "pack account per tenant" "$OUT"; then fail "a run from 0.7.0 offered the move again"; else pass; fi
+
+# 89. Turned on with the upgrade: the one-way line comes before the plan, the
+# plan's check takes the tenants' accounts, grants and the Job's map, and the
+# steps that finish the move follow the apply.
+case_start "per-tenant turned on with 0.6.0 -> 0.7.0"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_ON"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 0 "it runs"
+o="$(grep -n "Turning it on is one-way: going back to shared isn't supported." "$OUT" | head -1 | cut -d: -f1)"
+p="$(grep -n "^== 5. Terraform plan ==" "$OUT" | head -1 | cut -d: -f1)"
+if [[ -n $o && -n $p && $o -lt $p ]]; then pass; else fail "the one-way line isn't before the plan (at ${o:-none}, plan at ${p:-none})"; fi
+assert_out "gives each of the 2 tenants in pack_tenants a pack account of its own"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "Steps that finish the move to a pack account per tenant, by hand"
+if grep -q "if you want one" "$OUT"; then fail "a run that turned it on offered it"; else pass; fi
+d="$(grep -n "^== Done ==" "$OUT" | head -1 | cut -d: -f1)"
+s="$(grep -n "Steps that finish the move to a pack account per tenant" "$OUT" | head -1 | cut -d: -f1)"
+if [[ -n $d && -n $s && $d -lt $s ]]; then pass; else fail "the finishing steps aren't after the apply (at ${s:-none}, Done at ${d:-none})"; fi
+
+# 90. The same plan without pack_accounts = "per-tenant": the check refuses
+# the tenants' accounts and the Job's map.
+case_start "the tenants' changes without per-tenant are refused"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_ON"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "google_service_account.tenant[\"$T_A\"]: created" "the account named"
+assert_file_has "$OUT" "google_cloud_run_v2_job.orchestrator[0]: changes template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS" "the Job's map named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 91. Going back to shared would delete each tenant's account: refused.
+case_start "going back to shared is refused"
+reset_env; export STUB_TAGS="0.7.0"; V_OKV="1"; V_TENANCY="multi"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "back to shared refused"
+assert_out "going back to shared isn't supported"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 92. A tenant taken out of pack_tenants loses its account: stopped while a
+# pack service runs as it, by name.
+case_start "a tenant's removal is stopped while its account runs a service"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_B_OUT"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\"]"; pt_outputs "$PT_AB"
+export STUB_SERVICES="kp-shop-4a1c $SA_A done
+kp-mail-9e2b $SA_B done"
+run "yes" --to 0.8.0
+assert_rc 1 "the removal stopped"
+assert_file_has "$OUT" "tenant $T_B is out of pack_tenants, but 1 pack service(s) still run as its account $SA_B: kp-mail-9e2b. Retire its deployments first, then run this again." "the service named"
+assert_file_has "$STUB_CALLS_LOG" "--filter=spec.template.spec.serviceAccountName=$SA_B " "the list by the tenant's account"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 93. And let through when its account runs none: the plan's check takes its
+# account's delete and the Job's smaller map.
+case_start "a tenant's removal with no service on its account"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_B_OUT"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\"]"; pt_outputs "$PT_AB"
+export STUB_SERVICES="kp-shop-4a1c $SA_A done"
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+assert_file_has "$OUT" "tenant $T_B leaves pack_tenants: no pack service runs as $SA_B (ok)" "the empty list said"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+if grep -qi "pack account per tenant" "$OUT"; then fail "a tenant's removal printed the move's steps"; else pass; fi
+
+# 94. Before pack_shared_account = false deletes the pack account, both lines
+# must list nothing: a service still on it, one whose move is at a step
+# (kindgi-move <n>) or rolled back, and one refused (back on it), each stop
+# the run with both counts and the services' labels.
+for svc in "kp-shop-4a1c $PACK_SA -" "kp-shop-4a1c $SA_A 2" "kp-shop-4a1c $SA_A rollback" "kp-shop-4a1c $PACK_SA refused"; do
+  read -r _ account move <<<"$svc"
+  case_start "pack_shared_account = false stopped by a service on $account, move $move"
+  reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_SERVICES="$svc"; V_OKV="1"; V_TENANCY="multi"
+  V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
+  run "yes" --to 0.8.0
+  assert_rc 1 "stopped"
+  if [[ $account == "$PACK_SA" ]]; then left=1; else left=0; fi
+  if [[ $move == - ]]; then moving=0; labels=""; else moving=1; labels="kindgi-move=$move"; fi
+  assert_file_has "$OUT" "pack services left on the shared account: $left" "the first count"
+  assert_file_has "$OUT" "pack services with a move not finished: $moving" "the second count"
+  assert_file_has "$OUT" "    kp-shop-4a1c"$'\t'"$labels" "the service and its labels"
+  assert_file_has "$OUT" "pack_shared_account = false deletes $PACK_SA, and the services above haven't moved off it yet." "the reason"
+  assert_absent "$STUB_MARKER_MIRROR" "mirror"
+  assert_varfile_unchanged
+done
+
+# 95. With every move done, the pack account goes: the plan's check takes its
+# deletes, and the two lines were the README's.
+case_start "pack_shared_account = false with every move done"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_SERVICES="kp-shop-4a1c $SA_A done
+kp-mail-9e2b $SA_B done"
+V_OKV="1"; V_TENANCY="multi"; V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+assert_out "pack services left on the shared account: 0"
+assert_out "pack services with a move not finished: 0"
+assert_file_has "$STUB_CALLS_LOG" "$LIST_AS_PACK" "the shared account's line"
+assert_file_has "$STUB_CALLS_LOG" "$LIST_MOVES" "the moves' line"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 96. The pack account's deletes without pack_shared_account = false are
+# refused by the plan's check.
+case_start "the pack account's deletes with pack_shared_account true are refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "google_service_account.pack[0]: deleted" "the delete named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 97. A list gcloud refuses stops the run, its error said.
+case_start "a services list that fails stops the run"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_LIST_RC=1; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "stopped"
+assert_file_has "$OUT" "couldn't list the pack services that run as $PACK_SA. ERROR: (gcloud.run.services.list) stub refused" "the error said"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+# 98. A dry run says each pack account change with the rest, and only reads:
+# a tenant added, one taken out (its account listed, empty).
+case_start "dry run: a tenant added and one taken out"
+reset_env; export STUB_TAGS="0.7.0" STUB_SERVICES="kp-shop-4a1c $SA_A done"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_C\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0 --dry-run
+assert_rc 0 "a dry run exits 0"
+assert_out "with it, the pack accounts' changes in the var files:"
+assert_file_has "$OUT" "make tenant ${T_C}'s account and its grants" "the added tenant"
+assert_file_has "$OUT" "delete tenant ${T_B}'s account $SA_B and its grants" "the removed tenant"
+assert_reads_only
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
