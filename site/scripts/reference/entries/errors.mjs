@@ -1262,20 +1262,28 @@ export const ERROR_ENTRIES = {
   },
   'upload-limit-reached': {
     description:
-      'An upload for a run of your own, made with `run` on the project and no `write`, is past what one person may upload that way in the workspace in 24 hours: by default 1 GiB and 1,000 files (`KINDGI_ARTIFACT_RUNNER_DAILY_BYTES`, `KINDGI_ARTIFACT_RUNNER_DAILY_FILES`). Nothing is stored. Files you uploaded earlier still start runs. Try again after the `Retry-After` header, when the oldest uploads have left the window, or ask someone with `write` on the project to upload it.',
+      "An upload for a run of your own, made with `run` on the project and no `write`, is past what one person may upload that way in the workspace in 24 hours: by default 1 GiB and 1,000 files (`KINDGI_ARTIFACT_RUNNER_DAILY_BYTES`, `KINDGI_ARTIFACT_RUNNER_DAILY_FILES`). Your uploads to projects where you have `write` count toward it too, though they're never refused. Nothing is stored. Files you uploaded earlier still start runs. Try again after the `Retry-After` header, when the oldest uploads have left the window, or ask someone with `write` on the project to upload it.",
     details: [
       {
         key: 'maxBytes',
         meaning:
-          'the bytes one person may upload this way in the window; absent when bytes are not limited',
+          'the most bytes your uploads that name no run may add up to in the window before one on `run` alone is refused; absent when bytes are not limited',
       },
       {
         key: 'maxFiles',
         meaning:
-          'the files one person may upload this way in the window; absent when files are not limited',
+          'the most files your uploads that name no run may add up to in the window before one on `run` alone is refused; absent when files are not limited',
       },
-      { key: 'usedBytes', meaning: 'the bytes you uploaded this way in the window' },
-      { key: 'usedFiles', meaning: 'the files you uploaded this way in the window' },
+      {
+        key: 'usedBytes',
+        meaning:
+          'the bytes of your uploads in the workspace in the window that name no run and are still stored, with `write` or without',
+      },
+      {
+        key: 'usedFiles',
+        meaning:
+          'the files of your uploads in the workspace in the window that name no run and are still stored, with `write` or without',
+      },
       { key: 'windowSeconds', meaning: 'the window, in seconds: 86400' },
       { key: 'retryAt', meaning: 'when this upload fits, as an ISO 8601 time' },
     ],
