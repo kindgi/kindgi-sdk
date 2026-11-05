@@ -131,8 +131,8 @@ describe('defineTool: apps only built-in tools use', () => {
     (app) => {
       const r = withConnection(app);
       expect(r.kind).toBe('err');
-      if (r.kind === 'err') {
-        expect(r.error.code).toBe('invalid-tool-definition');
+      if (r.kind === 'err') expect(r.error.code).toBe('invalid-tool-definition');
+      if (r.kind === 'err' && r.error.code === 'invalid-tool-definition') {
         expect(r.error.message).toBe(
           `Tool "test.echo": needsSpec.connections.number is of the ${app} app, which is used only by tools built into Kindgi (kindgi_reply_to_text, kindgi_hand_to_person): a pack tool can't hold the number's account key.`,
         );
