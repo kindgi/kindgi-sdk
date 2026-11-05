@@ -187,6 +187,7 @@ export interface KindgiClient {
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
+  /** @deprecated Use `client.files`; removed in 0.8.0. */
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
   readonly connectionEntries: ConnectionEntriesClient;
