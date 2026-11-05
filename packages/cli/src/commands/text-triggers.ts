@@ -284,7 +284,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Start a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as its input. The number is the company's, so it takes `admin` on the project. Its runs act as you (or, with --run-as, a service account or the project's own), with your connections; in them, every call that changes something waits for a person's yes, and sending a text always does.",
+    "Start a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as its input. The number is the company's, so it takes `admin` on the project. Its runs act as you (or, with --run-as, a service account or the project's own), with your connections; in them, every call that changes something waits for a person's yes, and a text that isn't a reply always does.",
   usage:
     'kindgi text-triggers create (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) --connection=<connection> [--runs-per-hour=<n>] [--per-sender-per-hour=<n>] [--label=<text>] [--project=<project-id>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]...',
   optionSpec: {

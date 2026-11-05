@@ -204,7 +204,10 @@ export interface TextsToolBinding {
   reply(input: {
     readonly tenantId: TenantId;
     readonly runId: RunId;
-    /** The call's `idempotencyKey`: a send with one already sent sends nothing. */
+    /**
+     * The call's `idempotencyKey`: a send with one already sent sends
+     * nothing and answers `{ kind: 'sent' }`.
+     */
     readonly idempotencyKey?: string;
     readonly thread: RunTextThread;
     readonly body: string;
@@ -215,6 +218,11 @@ export interface TextsToolBinding {
   handOver(input: {
     readonly tenantId: TenantId;
     readonly runId: RunId;
+    /**
+     * The call's `idempotencyKey`: a hand-over with one already done
+     * does nothing again and answers `{ kind: 'handed-over' }`.
+     */
+    readonly idempotencyKey?: string;
     readonly thread: RunTextThread;
     readonly note: string;
   }): Promise<{ readonly kind: 'handed-over' }>;

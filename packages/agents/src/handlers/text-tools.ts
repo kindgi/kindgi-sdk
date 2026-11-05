@@ -167,6 +167,8 @@ function handOverTool(ctx: TurnContext, thread: RunTextThread): Tool {
         await texts.handOver({
           tenantId: ctx.input.tenantId,
           runId: toolCtx.runId as RunId,
+          // As for the reply: a resumed or retried step hands over once.
+          ...(toolCtx.idempotencyKey !== undefined && { idempotencyKey: toolCtx.idempotencyKey }),
           thread,
           note,
         });

@@ -469,6 +469,32 @@ describe('kindgi_hand_to_person', () => {
     expect(turn.asked).toEqual([]);
     expect(turn.waits).toEqual([]);
   });
+
+  test("in a run's step it passes its call's idempotency key, the same when the step runs again", async () => {
+    const key = toolIdempotencyKey({
+      runId: 'run-42',
+      stepScope: 'loop:1',
+      toolId: HAND_TO_PERSON_TOOL_ID,
+      callId: 'call-1',
+    });
+    const handOver = { tool: HAND_TO_PERSON_TOOL_ID, args: { note: 'Wants a person.' } };
+    const first = await textTurn({ calls: [handOver], thread, stepScope: 'loop:1' });
+    const again = await textTurn({ calls: [handOver], thread, stepScope: 'loop:1' });
+    for (const turn of [first, again]) {
+      expect(turn.calls).toEqual([
+        {
+          op: 'handOver',
+          input: {
+            tenantId,
+            runId: 'run-42',
+            idempotencyKey: key,
+            thread,
+            note: 'Wants a person.',
+          },
+        },
+      ]);
+    }
+  });
 });
 
 describe('an agent naming a texts tool', () => {
