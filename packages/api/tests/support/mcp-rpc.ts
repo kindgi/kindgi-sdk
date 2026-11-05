@@ -6,6 +6,8 @@
  * revisions' shape, or 2026-07-28's with its method and name headers and
  * the `_meta` envelope's required keys (the protocol version and the
  * client's capabilities). Reads a JSON answer or the first SSE event.
+ * `change` sends one request a chat app wouldn't: a header replaced or
+ * dropped (`null`), or another revision in `_meta`.
  * `mcpListen` sends 2026-07-28's `subscriptions/listen` and reads its stream
  * for a short while, so a stream held open fails a test instead of hanging it.
  */
@@ -16,6 +18,14 @@ import {
 } from '@modelcontextprotocol/server';
 
 export type McpRevision = '2025-11-25' | '2026-07-28';
+
+/** What a request changes from a chat app's. */
+export interface McpRequestChange {
+  /** Each header replaced, or dropped when `null`. */
+  readonly headers?: Readonly<Record<string, string | null>>;
+  /** The revision `_meta` names, when not the request's own. */
+  readonly metaVersion?: string;
+}
 
 interface Requests {
   request(path: string, init: RequestInit): Response | Promise<Response>;
@@ -28,18 +38,24 @@ export function mcpRpc(app: Requests) {
     method: string,
     params: Record<string, unknown> = {},
     version: McpRevision = '2025-11-25',
+    change: McpRequestChange = {},
   ) => {
     const modern = version === '2026-07-28';
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      'mcp-protocol-version': version,
+      ...(modern && { 'mcp-method': method }),
+      ...(modern && typeof params.name === 'string' && { 'mcp-name': params.name }),
+      ...(token !== undefined && { authorization: `Bearer ${token}` }),
+    };
+    for (const [name, value] of Object.entries(change.headers ?? {})) {
+      if (value === null) delete headers[name];
+      else headers[name] = value;
+    }
     const res = await app.request('/mcp', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json, text/event-stream',
-        'mcp-protocol-version': version,
-        ...(modern && { 'mcp-method': method }),
-        ...(modern && typeof params.name === 'string' && { 'mcp-name': params.name }),
-        ...(token !== undefined && { authorization: `Bearer ${token}` }),
-      },
+      headers,
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: ++id,
@@ -47,7 +63,10 @@ export function mcpRpc(app: Requests) {
         params: modern
           ? {
               ...params,
-              _meta: { [PROTOCOL_VERSION_META_KEY]: version, [CLIENT_CAPABILITIES_META_KEY]: {} },
+              _meta: {
+                [PROTOCOL_VERSION_META_KEY]: change.metaVersion ?? version,
+                [CLIENT_CAPABILITIES_META_KEY]: {},
+              },
             }
           : params,
       }),
