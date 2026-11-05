@@ -447,6 +447,8 @@ describe('a tool that reads files', () => {
 
 describe('a tool that updates files', () => {
   const UPDATES = { store: false, read: false, update: true } as const;
+  /** The tool files a runtime of protocol 2.13.0 sends a call that may update (`url` is set once the link listens). */
+  const updating = () => ({ url, token, updates: true }) as const;
   const notes: FileToUpdate = {
     fileId: 'file-1',
     expectedVersion: 2,
@@ -464,6 +466,7 @@ describe('a tool that updates files', () => {
         answer: await updateOf(c)(notes),
       }),
       { storesFiles: false, updatesFiles: true },
+      ctx(updating()),
     );
     expect(outcome).toEqual({ kind: 'ok', value: { has: ['update'], answer: { file: version } } });
     expect(received).toEqual([
@@ -523,10 +526,11 @@ describe('a tool that updates files', () => {
       status: 409,
       body: { error: { code: 'tool-file-token-closed', message: 'closed' } },
     };
-    const outcome = await run(async (_input, c) => updateOf(c)(notes), {
-      storesFiles: false,
-      updatesFiles: true,
-    });
+    const outcome = await run(
+      async (_input, c) => updateOf(c)(notes),
+      { storesFiles: false, updatesFiles: true },
+      ctx(updating()),
+    );
     expect(outcome.kind === 'err' && outcome.error.message).toContain(
       'files.update: the runtime answered 409 (tool-file-token-closed)',
     );
@@ -559,9 +563,25 @@ describe('a tool that updates files', () => {
     const outcome = await run(
       async (_input, c) => ({ has: Object.keys(c.files ?? {}) }),
       { storesFiles: false, readsFiles: true, updatesFiles: true },
-      ctx({ url, token }, ''),
+      ctx(updating(), ''),
     );
     expect(outcome).toEqual({ kind: 'ok', value: { has: ['read'] } });
+  });
+
+  test("tool files that don't say updates give no update: a runtime from before 2.13.0 has no route for one", async () => {
+    const reads = await run(
+      async (_input, c) => ({ has: Object.keys(c.files ?? {}) }),
+      { storesFiles: false, readsFiles: true, updatesFiles: true },
+      ctx({ url, token }),
+    );
+    expect(reads).toEqual({ kind: 'ok', value: { has: ['read'] } });
+    const only = await run(
+      async (_input, c) => ({ files: 'files' in c }),
+      { storesFiles: false, updatesFiles: true },
+      ctx({ url, token, updates: 'yes' }),
+    );
+    expect(only).toEqual({ kind: 'ok', value: { files: false } });
+    expect(received).toEqual([]);
   });
 });
 
@@ -579,8 +599,10 @@ describe('toolFilesOf', () => {
     expect(toolFilesOf(value)).toBeUndefined();
   });
 
-  test('keeps the link and the token, and nothing else', () => {
+  test('keeps the link, the token and updates, and nothing else', () => {
     expect(toolFilesOf({ url, token, extra: 1 })).toEqual({ url, token });
+    expect(toolFilesOf({ url, token, updates: true })).toEqual({ url, token, updates: true });
+    expect(toolFilesOf({ url, token, updates: 'true' })).toEqual({ url, token });
   });
 });
 

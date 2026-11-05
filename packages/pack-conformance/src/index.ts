@@ -1694,11 +1694,9 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         if (link === undefined) throw new Error('the tool files link is not running');
         return link;
       };
-      const withFiles = () => ({
-        ...CTX,
-        idempotencyKey: key,
-        toolFiles: { url: served().url, token },
-      });
+      // A runtime of protocol 2.13.0 says a call may update (`updates`).
+      const updating = () => ({ url: served().url, token, updates: true });
+      const withFiles = () => ({ ...CTX, idempotencyKey: key, toolFiles: updating() });
       const updateCall = (ctx: object = withFiles(), input: object = named) =>
         toolCall(FIXTURE_UPDATE_TOOL_ID, input, { ctx });
 
@@ -1776,8 +1774,16 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       test('a call with no idempotency key: no update', async () => {
         const from = served().received.length;
         const answer = response(
-          await invoke(service, updateCall({ ...CTX, toolFiles: { url: served().url, token } })),
+          await invoke(service, updateCall({ ...CTX, toolFiles: updating() })),
         );
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { updated: false } });
+        expect(served().received.length).toBe(from);
+      });
+
+      test("tool files that don't say updates, as a runtime before 2.13.0 sends them: no update", async () => {
+        const from = served().received.length;
+        const ctx = { ...CTX, idempotencyKey: key, toolFiles: { url: served().url, token } };
+        const answer = response(await invoke(service, updateCall(ctx)));
         expect(answer).toEqual({ v: 2, kind: 'result', output: { updated: false } });
         expect(served().received.length).toBe(from);
       });

@@ -92,7 +92,7 @@
           "type": "object",
           "required": ["url", "token"],
           "additionalProperties": false,
-          "description": "Where a tool that declares `storesFiles` or `readsFiles` stores and reads files (protocol 2.10.0), and one that declares `updatesFiles` adds versions to them (protocol 2.13.0). The pack service keeps it from the handler, which gets `files` instead, with what the tool declares: `files.store` on a call with an `idempotencyKey`, which sends a file's bytes to `url`; `files.read`, which gets a file's bytes from under `url`; and `files.update` on a call with an `idempotencyKey`, which sends a file's new bytes to `<url>/<fileId>/versions`. Each answers what the runtime answered. Sent only for a tool whose index entry says `storesFiles`, `readsFiles` or `updatesFiles`, when the runtime has a file store, and for one that only stores or updates, when the call has an `idempotencyKey`. Like `secrets`, never logged. Absent from an older runtime: the handler then gets no `files`.",
+          "description": "Where a tool that declares `storesFiles` or `readsFiles` stores and reads files (protocol 2.10.0), and one that declares `updatesFiles` adds versions to them (protocol 2.13.0). The pack service keeps it from the handler, which gets `files` instead, with what the tool declares: `files.store` on a call with an `idempotencyKey`, which sends a file's bytes to `url`; `files.read`, which gets a file's bytes from under `url`; and `files.update` on a call with an `idempotencyKey` whose tool files say `updates`, which sends a file's new bytes to `<url>/<fileId>/versions`. Each answers what the runtime answered. Sent only for a tool whose index entry says `storesFiles`, `readsFiles` or `updatesFiles`, when the runtime has a file store, and for one that only stores or updates, when the call has an `idempotencyKey`. Like `secrets`, never logged. Absent from an older runtime: the handler then gets no `files`.",
           "properties": {
             "url": {
               "type": "string",
@@ -103,6 +103,10 @@
               "type": "string",
               "minLength": 1,
               "description": "The call's token: for this call only, until its deadline or its answer, and only for what the tool declares. Send it only to `url` and the reads and updates under it, and only in the `Authorization` header."
+            },
+            "updates": {
+              "const": true,
+              "description": "The call may add versions to files (protocol 2.13.0): sent, as `true`, only for a tool whose index entry says `updatesFiles`, when the runtime lets the call update. Only then does the handler get `files.update`. A runtime from before 2.13.0 sends none and has no route for an update, so a tool that also stores or reads gets no `files.update` there."
             }
           }
         }

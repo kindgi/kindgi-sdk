@@ -582,13 +582,17 @@ function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerCont
     Object.entries(own).filter(([key]) => !CALL_KEYS.has(key)),
   );
   const out = Object.defineProperties({}, descriptors) as HandlerContext;
+  const declares =
+    tool.storesFiles === true || tool.readsFiles === true || tool.updatesFiles === true;
+  const link = declares ? toolFilesOf(ctx.toolFiles) : undefined;
   const may = {
     store: tool.storesFiles === true && ctx.idempotencyKey !== undefined,
     read: tool.readsFiles === true,
-    update: tool.updatesFiles === true && ctx.idempotencyKey !== undefined,
+    // Only when the runtime says the call may (protocol 2.13.0): one from before has no route for it.
+    update:
+      tool.updatesFiles === true && ctx.idempotencyKey !== undefined && link?.updates === true,
   };
-  const link = may.store || may.read || may.update ? toolFilesOf(ctx.toolFiles) : undefined;
-  if (link !== undefined) {
+  if (link !== undefined && (may.store || may.read || may.update)) {
     Object.defineProperty(out, 'files', {
       value: fileStoreOf(link, may, ctx.abortSignal),
       enumerable: true,

@@ -410,7 +410,10 @@ LATEST = {**VERSION, "artifactId": "art-2", "version": 2}
 
 def _updates(link: Link) -> FileStore:
     files = file_store_from_wire(
-        {"toolFiles": {"url": link.url, "token": TOKEN}}, stores=False, reads=False, updates=True
+        {"toolFiles": {"url": link.url, "token": TOKEN, "updates": True}},
+        stores=False,
+        reads=False,
+        updates=True,
     )
     assert files is not None
     return files
@@ -543,7 +546,7 @@ def test_a_call_updates_only_when_its_tool_declares_it_and_the_call_has_a_key(li
             "tenantId": "t",
             "runId": "r",
             **({"idempotencyKey": "call-key"} if key else {}),
-            "toolFiles": {"url": link.url, "token": TOKEN},
+            "toolFiles": {"url": link.url, "token": TOKEN, "updates": True},
         }
         return ToolContext.from_wire(wire, Cancellation(), **flags).files
 
@@ -555,6 +558,28 @@ def test_a_call_updates_only_when_its_tool_declares_it_and_the_call_has_a_key(li
     assert keyless is not None and (keyless.reads, keyless.updates) == (True, False)
     with pytest.raises(FileStoreError, match=r"files\.update: this call updates no files"):
         keyless.update(
+            file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+        )
+    assert link.received == []
+
+
+def test_tool_files_that_dont_say_updates_give_no_update(link: Link) -> None:
+    # A runtime from before pack protocol 2.13.0 sends no `updates`, and has no route for one.
+    def files(updates: object, **flags: bool) -> FileStore | None:
+        sent = {
+            "url": link.url,
+            "token": TOKEN,
+            **({} if updates is None else {"updates": updates}),
+        }
+        wire = {"tenantId": "t", "runId": "r", "idempotencyKey": "call-key", "toolFiles": sent}
+        return ToolContext.from_wire(wire, Cancellation(), **flags).files
+
+    reads = files(None, reads_files=True, updates_files=True)
+    assert reads is not None and (reads.reads, reads.updates) == (True, False)
+    assert files(None, updates_files=True) is None
+    assert files("true", updates_files=True) is None
+    with pytest.raises(FileStoreError, match=r"the runtime didn't say it may"):
+        reads.update(
             file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
         )
     assert link.received == []

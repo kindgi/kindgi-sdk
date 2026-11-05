@@ -14,7 +14,8 @@
     "idempotencyKey": "7a2d4f6b-1c3e-5a7b-9d0f-2e4a6c8e0b1d",
     "toolFiles": {
       "url": "https://kindgi.example.com/v1/tool-files",
-      "token": "kgi_tf_example"
+      "token": "kgi_tf_example",
+      "updates": true
     }
   }
 }

@@ -232,8 +232,10 @@ export interface ToolContext {
    *
    * Absent for any other tool, when the runtime has no file store, and from
    * a runtime before pack protocol 2.10.0: a tool then says a file can't
-   * be stored (`notShown: 'store'`) without fetching it. `update` is absent
-   * from a runtime before pack protocol 2.13.0. A unit test passes its own.
+   * be stored (`notShown: 'store'`) without fetching it. From a pack
+   * service, `update` is there only when the runtime says the call may add
+   * versions (`toolFiles.updates`, pack protocol 2.13.0), which a runtime
+   * before 2.13.0 never does. A unit test passes its own.
    */
   readonly files?: FileStore;
 }

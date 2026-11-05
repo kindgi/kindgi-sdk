@@ -281,9 +281,10 @@ class ToolContext:
     (`ctx.files.reads`). `ctx.files.update(file_id=…, expected_version=…, content_type=…,
     data=…)` (`update_async`) adds a version to a file the call's run has, and answers the new
     version's value, Latest (`same`, `conflict`), or why none was added; a call has it when its
-    tool updates files and it has an idempotency key (`ctx.files.updates`), from a runtime of
-    pack protocol 2.13.0 on. `None` for a tool that declares none of them, and from a runtime
-    before pack protocol 2.10.0: return a file's `notShown` as `store` then."""
+    tool updates files and it has an idempotency key (`ctx.files.updates`), when the runtime
+    says the call may (`toolFiles.updates`, pack protocol 2.13.0 on). `None` for a tool that
+    declares none of them, and from a runtime before pack protocol 2.10.0: return a file's
+    `notShown` as `store` then."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property

@@ -140,8 +140,8 @@ class FileStore:
     reads: bool = False
     """Whether the call reads files: its tool declares `reads_files=True`."""
     updates: bool = False
-    """Whether the call adds versions to files: its tool declares `updates_files=True` and the
-    call has an idempotency key."""
+    """Whether the call adds versions to files: its tool declares `updates_files=True`, the
+    call has an idempotency key, and the runtime says it may (`toolFiles.updates`)."""
 
     def store(self, *, name: str, content_type: str, data: bytes) -> FileStoreAnswer:
         """Store one file, from a sync handler. `name` is its name as its source gives it (an
@@ -291,7 +291,8 @@ class FileStore:
         if not self.updates:
             raise FileStoreError(
                 "files.update: this call updates no files: its tool doesn't declare"
-                " updates_files=True, or the call has no idempotency key"
+                " updates_files=True, the call has no idempotency key, or the runtime didn't"
+                " say it may (toolFiles.updates, pack protocol 2.13.0)"
             )
         usage = (
             "files.update takes file_id: str, expected_version: an int from 1,"
@@ -325,9 +326,9 @@ def file_store_from_wire(
     ctx: Mapping[str, Any], *, stores: bool, reads: bool, updates: bool = False
 ) -> FileStore | None:
     """A protocol v2 `ctx`'s `toolFiles` (protocol 2.10.0) as a call's files, with `store` as
-    `stores` says, `read` as `reads` says and `update` as `updates` says (2.13.0), if it
-    carries usable ones: an http(s) link and a token a header can carry. None when it may do
-    none of them."""
+    `stores` says, `read` as `reads` says and `update` as `updates` says (2.13.0) when the
+    link says `updates` too, if it carries usable ones: an http(s) link and a token a header
+    can carry. None when it may do none of them."""
     if not stores and not reads and not updates:
         return None
     value = ctx.get("toolFiles")
@@ -338,6 +339,10 @@ def file_store_from_wire(
     if not isinstance(url, str) or not _is_http_url(url):
         return None
     if not isinstance(token, str) or token == "" or not _is_header_safe(token):
+        return None
+    # Only when the runtime says the call may (2.13.0): one from before has no route for it.
+    updates = updates and link.get("updates") is True
+    if not stores and not reads and not updates:
         return None
     return FileStore(_url=url, _token=token, stores=stores, reads=reads, updates=updates)
 

@@ -55,12 +55,16 @@ const NOT_UPDATED_REASONS: ReadonlySet<unknown> = new Set<FileNotUpdatedReason>(
  */
 export function toolFilesOf(value: unknown): ToolFilesRef | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { url, token } = value as { readonly url?: unknown; readonly token?: unknown };
+  const { url, token, updates } = value as {
+    readonly url?: unknown;
+    readonly token?: unknown;
+    readonly updates?: unknown;
+  };
   if (typeof url !== 'string' || !isHttpUrl(url)) return undefined;
   if (typeof token !== 'string' || token.length === 0 || bearerValueProblem(token) !== undefined) {
     return undefined;
   }
-  return { url, token };
+  return { url, token, ...(updates === true && { updates: true }) };
 }
 
 function isHttpUrl(url: string): boolean {

@@ -103,7 +103,9 @@ export interface FileToUpdate {
  * bytes than a call may send, then a re-run's first version, `conflict`,
  * `same`, and last `type`, `size` for the type's own limit, and `storage`.
  * So a re-run, or a tool that read an older version, gets the answer it
- * can use first, even when the workspace's storage is full.
+ * can use first, even when the workspace's storage is full. A pack
+ * service's client answers `size` for more than `MAX_STORED_FILE_BYTES`
+ * before it sends anything, so from a pack that comes first.
  */
 export type FileUpdateAnswer =
   | { readonly file: FileValue }

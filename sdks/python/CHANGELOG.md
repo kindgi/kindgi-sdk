@@ -23,7 +23,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
   its publish body, and `updates_files` on a tool.
 - `kindgi`: **a tool that updates files gets `ctx.files.update`.** On a call
-  with an idempotency key, a tool that declares `updates_files=True` gets
+  with an idempotency key whose tool files say `updates` (pack protocol
+  2.13.0), a tool that declares `updates_files=True` gets
   `ctx.files.update(file_id=..., expected_version=..., content_type=...,
   data=..., name=None)`, and `update_async`. It answers a `FileUpdateAnswer`:
   `file`, the new version; `same` or `conflict`, Latest; or `not_updated`,
