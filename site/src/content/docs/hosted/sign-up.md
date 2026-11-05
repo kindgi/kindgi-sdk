@@ -6,8 +6,8 @@ sidebar:
 ---
 
 Signing up creates a Kindgi Cloud workspace for your organization. Whoever
-signs up is its first admin. In the console and the API, a workspace is
-called a tenant.
+signs up is its first admin. The API calls a workspace a tenant, as in
+`tenantId`.
 
 ## Before you start
 
@@ -76,7 +76,4 @@ sent, is deleted 7 days after its link expired.
 
 ## Next
 
-- [Start on Kindgi Cloud](../start-on-kindgi-cloud/): from your new
-  workspace to a first agent live, written in your browser with nothing to
-  install, or on your own machine.
 - [Your plan and billing](../plans-and-billing/)

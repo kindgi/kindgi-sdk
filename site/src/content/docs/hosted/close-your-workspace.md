@@ -44,19 +44,19 @@ use its own API keys, and export what's stored in it.
 
 ## Once the 30 days are over
 
-Within 7 days we delete the workspace, as section 9 of our data processing
-addendum says: its records, its secrets, and its packs' services and
-images. Every admin and the billing contact get an email once it's deleted:
-we keep their addresses only to send it, and delete them once it's sent.
+Within 7 days we delete the workspace, as section 9 of our
+[data processing addendum](https://www.kindgi.com/legal/dpa) says: its
+records, its secrets, and its packs' services and images. Every admin and
+the billing contact get an email once it's deleted.
 
 Backups age out 30 days after the deletion. If we restore a backup before
 then, we delete the workspace from it again.
 
 ## What's kept
 
-We keep your account and billing records, as our privacy page says, and
-nothing of your workspace's content: the organization's legal name, address
-and tax ID, its invoices at Stripe, and the terms it accepted.
+We keep your account and billing records, and nothing of your workspace's
+content. Our [privacy page](https://www.kindgi.com/privacy) says which
+records, and for how long.
 
 ## Next
 

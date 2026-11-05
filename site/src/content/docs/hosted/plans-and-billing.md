@@ -35,8 +35,8 @@ Besides the invoices, the billing contact gets:
 
 - **The email if the workspace is suspended,** for invoices that weren't
   paid or a subscription that was cancelled.
-- **The emails if the workspace is closed:** when it's closed, and when
-  it's deleted, 30 days on
+- **The emails if the workspace is closed:** when it's closed, and once
+  it's deleted, after the 30 days to export it
   ([Close your workspace](../close-your-workspace/#what-closing-does)).
 
 The billing contact can also
