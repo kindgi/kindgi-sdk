@@ -840,7 +840,7 @@
     "version": "1.1.0",
     "definition": {
       "id": "acme.linkedinpost",
-      "description": "Post on LinkedIn as the person (the LinkedIn account they connected), to their own feed: seen by anyone, or with `visibility: 'connections'` by their connections only. The text is posted as written, up to 3,000 characters: a # that starts a word is a hashtag, and LinkedIn's markup is escaped, so the text mentions no one. `images` adds 1 to 20 of the run's files (JPEG, GIF or PNG), each with its `altText`. `link` adds a card, with the `title` it shows (LinkedIn makes none itself) and one image at most as its thumbnail. A link in the text alone is clickable, with no card. In a run no person started, each post waits for that person's yes.",
+      "description": "Post on LinkedIn as the person (the LinkedIn account they connected), to their own feed: seen by anyone, or with `visibility: 'connections'` by their connections only. The text is posted as written, up to 3,000 characters: a # that starts a word is a hashtag, and LinkedIn's markup is escaped, so the text mentions no one. `images` adds 1 to 20 of the run's files (JPEG, GIF or PNG), each with its `altText`. `link` adds a card, with the `title` it shows (LinkedIn makes none itself) and one image at most as its thumbnail. A link in the text alone is clickable, with no card. In a run no person started, each post waits for that person's yes, unless the trigger that started it lists this tool in its `toolsAllowedUnattended`.",
       "version": "1.1.0",
       "input": {
         "type": "object",
@@ -6001,7 +6001,7 @@
     "version": "1.0.0",
     "definition": {
       "id": "acme.linkedindeletepost",
-      "description": "Delete a post the person (the LinkedIn account they connected) made on LinkedIn, by the `postId` that posting it gave. A post already deleted counts as deleted. In a run no person started, each delete waits for that person's yes.",
+      "description": "Delete a post the person (the LinkedIn account they connected) made on LinkedIn, by the `postId` that posting it gave. A post already deleted counts as deleted. In a run no person started, each delete waits for that person's yes, unless the trigger that started it lists this tool in its `toolsAllowedUnattended`.",
       "version": "1.0.0",
       "input": {
         "type": "object",

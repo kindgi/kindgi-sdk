@@ -95,7 +95,7 @@ export interface LinkedinPostOutput {
 
 const LINKEDIN_POST: Omit<Tool<LinkedinPostInput, LinkedinPostOutput>, 'id'> = {
   description:
-    "Post on LinkedIn as the person (the LinkedIn account they connected), to their own feed: seen by anyone, or with `visibility: 'connections'` by their connections only. The text is posted as written, up to 3,000 characters: a # that starts a word is a hashtag, and LinkedIn's markup is escaped, so the text mentions no one. `images` adds 1 to 20 of the run's files (JPEG, GIF or PNG), each with its `altText`. `link` adds a card, with the `title` it shows (LinkedIn makes none itself) and one image at most as its thumbnail. A link in the text alone is clickable, with no card. In a run no person started, each post waits for that person's yes.",
+    "Post on LinkedIn as the person (the LinkedIn account they connected), to their own feed: seen by anyone, or with `visibility: 'connections'` by their connections only. The text is posted as written, up to 3,000 characters: a # that starts a word is a hashtag, and LinkedIn's markup is escaped, so the text mentions no one. `images` adds 1 to 20 of the run's files (JPEG, GIF or PNG), each with its `altText`. `link` adds a card, with the `title` it shows (LinkedIn makes none itself) and one image at most as its thumbnail. A link in the text alone is clickable, with no card. In a run no person started, each post waits for that person's yes, unless the trigger that started it lists this tool in its `toolsAllowedUnattended`.",
   version: '1.1.0',
   input: {
     type: 'object',
@@ -138,7 +138,9 @@ const LINKEDIN_POST: Omit<Tool<LinkedinPostInput, LinkedinPostOutput>, 'id'> = {
   ],
   mutating: true,
   // A post as a person never goes out unasked in a run a schedule, a webhook
-  // or a service account's key started: the person says yes to each one.
+  // or a service account's key started: the person says yes to each one,
+  // unless a project admin lists this tool in the trigger's
+  // `toolsAllowedUnattended`.
   needsApprovalWhenUnattended: true,
   network: { kind: 'allowlist', hosts: ['api.linkedin.com', UPLOAD_HOST] },
   needsSpec: {
@@ -205,7 +207,7 @@ export interface LinkedinDeletePostOutput {
 
 const LINKEDIN_DELETE_POST: Omit<Tool<LinkedinDeletePostInput, LinkedinDeletePostOutput>, 'id'> = {
   description:
-    "Delete a post the person (the LinkedIn account they connected) made on LinkedIn, by the `postId` that posting it gave. A post already deleted counts as deleted. In a run no person started, each delete waits for that person's yes.",
+    "Delete a post the person (the LinkedIn account they connected) made on LinkedIn, by the `postId` that posting it gave. A post already deleted counts as deleted. In a run no person started, each delete waits for that person's yes, unless the trigger that started it lists this tool in its `toolsAllowedUnattended`.",
   version: '1.0.0',
   input: {
     type: 'object',
@@ -227,7 +229,9 @@ const LINKEDIN_DELETE_POST: Omit<Tool<LinkedinDeletePostInput, LinkedinDeletePos
     },
   ],
   mutating: true,
-  // As a post: a delete as a person never goes out unasked in a run no person started.
+  // As a post: a delete as a person never goes out unasked in a run no person
+  // started, unless a project admin lists this tool in the trigger's
+  // `toolsAllowedUnattended`.
   needsApprovalWhenUnattended: true,
   network: { kind: 'allowlist', hosts: ['api.linkedin.com'] },
   needsSpec: {
