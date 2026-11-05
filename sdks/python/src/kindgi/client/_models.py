@@ -7938,7 +7938,7 @@ class OidcIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it: each person is still added first, as with `invite`, and no one from `domains` gets in without that.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8003,7 +8003,7 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it: each person is still added first, as with `invite`, and no one from `domains` gets in without that.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
