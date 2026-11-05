@@ -697,6 +697,31 @@ link opens the same list.
 
 ![Refunds' Runs page, reached from Runs → on its 1.1.0 row: the status, start time and Include filters, the chip Flow version: 1.1.0, and its one run of 1.1.0, a completed flow run.](../../../../assets/runs/runs-flow-version.png)
 
+### Results
+
+A project's **Results** page, first under **Run** in its sections, shows
+what each run gave back, newest first. Each agent run or flow run is a card:
+the agent or the flow and the run's status, whom it ran for and when it
+started, and the start of its answer, up to 280 characters. A run without
+an answer says why, such as that it was cancelled before it answered. The
+whole card opens the run. Results and Runs read the same runs: Runs is the
+table for whoever builds the agents, with ids, versions, cost and steps,
+and Results shows what came back.
+
+Results leaves out a flow's agent turns and test run replays, and tags a
+dry run as one. Its filters are the Runs page's status, start time, agent
+and flow, kept in the page's address, without **Version** or **Include**.
+**Show more** adds the next 20 runs. The page refreshes every 5 seconds
+while a run on it is going, otherwise every 30 seconds. With no runs yet,
+it says "No results yet.", and offers **Run an agent →** to someone who
+may start runs.
+
+Someone who runs the project only because
+[everyone can run it](../../../deploy/authorization/#everyone-can-run-a-project)
+sees their own runs here. The console opens on the workspace's default
+project, or the first project you can see: on its **Dashboard** if you may
+change the project, and on its **Results** if you may only view or run it.
+
 ### What failed
 
 **What failed**, from the Runs page, groups the project's failed runs by
