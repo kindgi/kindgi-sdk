@@ -5,6 +5,7 @@ import type { Scope } from '@kindgi/platform';
 import type {
   ArtifactId,
   Cursor,
+  FileId,
   ProjectId,
   Result,
   RunId,
@@ -323,6 +324,14 @@ export interface BlobMeta {
    */
   readonly bucket?: string;
   readonly key?: string;
+  /**
+   * The file these bytes are a version of, and which version, on a
+   * deployment that keeps file versions (`FileVersionsBinding`). A blob
+   * stored before it kept them is version 1 of a file with its own id.
+   * Bytes two versions share name the lowest: the one that stored them.
+   */
+  readonly fileId?: FileId;
+  readonly version?: number;
 }
 
 export interface BlobRead {
@@ -400,6 +409,17 @@ export type BlobError =
     }
   | { readonly code: 'blob-storage-error'; readonly message: string; readonly cause?: unknown }
   | {
+      /**
+       * `delete` of a blob that a file's versions still need: a pinned
+       * version's, or one more than one version shares. Delete the
+       * version or the file instead (`FileVersionsBinding`).
+       */
+      readonly code: 'artifact-in-file';
+      readonly message: string;
+      readonly blobId: string;
+      readonly fileId: string;
+    }
+  | {
       /** The tenant's storage limit has no room for the put. Nothing was stored. */
       readonly code: 'storage-limit-reached';
       readonly message: string;
@@ -411,3 +431,5 @@ export type BlobError =
       /** What this put needs: its declared size, else the most an upload may be. */
       readonly neededBytes: number;
     };
+
+export type * from './file-versions.js';

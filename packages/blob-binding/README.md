@@ -14,6 +14,7 @@ Contract rules adapters follow:
 
 ## Exports
 
+- **`FileVersionsBinding`** — files with versions, beside `BlobStorageBinding`: a file is a name and its versions 1, 2, 3, each one stored blob. `create`, `get`, `list`, `delete`; `listVersions`, `getVersion`, `readVersion`, `addVersion`, `restoreVersion`, `deleteVersion`; `pinVersion`, `unpinVersion`, `pinHistory`. Its types: `StoredFile`, `FileVersion` (`version`, `blobId`, `name`, `contentType`, `size`, `hash`, `tags`, `parentVersion?`, `restoredFrom?`, `madeVia`, `createdBy?`, `runId?`, `pin?`, `deletedAt?`, `purgedAt?`, and more), `FilePin`, `FilePinChange`, `FileVersionSelector` (a number or `latest`), `FileCreateInput`, `FileVersionAddInput` (`expectedVersion?`, `name?`), `FileRestoreInput`, `FilePinInput`, `FileVersionWrite` (`version`, `created`), `FileVersionRead`, `FileFilter`, the pages, `FileDeleteOutcome`, and `FileError` (`file-not-found`, `file-version-not-found`, `file-version-conflict`, `file-version-pinned`, `file-last-version`, and the storage errors).
 - **`BlobStorageBinding`** — the adapter interface, in three groups:
   - **By `blobId`** — `put(tenantId, input)`, `get(tenantId, blobId)` (body as a `ReadableStream`), `head(tenantId, blobId)` (`null` when unknown), `list(tenantId, filter, cursor?, limit?)`, `delete(tenantId, blobId)`, and, optional, `storageUsed(tenantId)` (`BlobStorageUsed`: `usedBytes`, what the tenant's files take, with the uploads under way).
   - **By `(bucket, key)`** — `putByKey`, `getByKey`, `headByKey`, `deleteByKey`, and `listByPrefix(tenantId, bucket, prefix, continuationToken?, maxKeys?)` (`maxKeys` 1 to 1000, default 1000).
@@ -22,8 +23,8 @@ Contract rules adapters follow:
   - **`BlobPutInput`** — `name`, `contentType`, `bytes` (`ReadableStream<Uint8Array>` or `Uint8Array`), `size?`, `tags?`, `ownerRunId?`, `expectedHash?`, `forRun?` (an upload for a run that hasn't started, deleted if no run that names it starts in time).
   - **`MultipartInitiateInput`** — `contentType`, `tags?`, `ownerRunId?`.
   - **`BlobFilter`** — `ownerRunId`, `contentType`, `tags` (all must match), `scope` (a `Scope` from [`@kindgi/platform`](../platform/)), and `inherit` (no effect here: blobs always live at project level).
-- **Results** — **`BlobMeta`** (`blobId`, `tenantId`, `name`, `contentType`, `size`, `hash`, `tags`, `ownerRunId?`, `createdAt`, `expiresAt?` (when a `forRun` upload is deleted unless such a run has started), `bucket?`, `key?`), **`BlobRead`** (`meta` + `stream`), **`BlobListPage`** (`data`, `nextCursor?`), **`BlobDeleteOutcome`** (`deleted`), **`S3ListPage`** (`contents`, `isTruncated`, `nextContinuationToken?`), **`MultipartListPartsPage`** (`parts` with `partNumber`, `etag`, `size`, `lastModified`).
-- **`BlobError`** — union discriminated by `code`: `blob-not-found` (`blobId`), `blob-hash-mismatch` (`expected`, `actual`), `blob-size-mismatch` (`declared`, `actual`), `blob-storage-error` (`cause?`), `storage-limit-reached` (`limit: 'storage'`, `storageMiB`, `usedBytes`, `neededBytes`: the tenant's storage limit has no room for the put, and nothing was stored).
+- **Results** — **`BlobMeta`** (`blobId`, `tenantId`, `name`, `contentType`, `size`, `hash`, `tags`, `ownerRunId?`, `createdAt`, `expiresAt?` (when a `forRun` upload is deleted unless such a run has started), `bucket?`, `key?`, `fileId?` and `version?` for a blob that is a file's version), **`BlobRead`** (`meta` + `stream`), **`BlobListPage`** (`data`, `nextCursor?`), **`BlobDeleteOutcome`** (`deleted`), **`S3ListPage`** (`contents`, `isTruncated`, `nextContinuationToken?`), **`MultipartListPartsPage`** (`parts` with `partNumber`, `etag`, `size`, `lastModified`).
+- **`BlobError`** — union discriminated by `code`: `blob-not-found` (`blobId`), `blob-hash-mismatch` (`expected`, `actual`), `blob-size-mismatch` (`declared`, `actual`), `blob-storage-error` (`cause?`), `artifact-in-file` (`blobId`, `fileId`: deleting bytes a file still needs), `storage-limit-reached` (`limit: 'storage'`, `storageMiB`, `usedBytes`, `neededBytes`: the tenant's storage limit has no room for the put, and nothing was stored).
 
 ## Example
 
@@ -78,4 +79,4 @@ async function storeReport(
 
 - [`@kindgi/api`](../api/) — mounts `/v1/artifacts/*` over a `BlobStorageBinding`, and `/s3/*` when an S3 credential binding is also supplied.
 - [`@kindgi/platform`](../platform/) — `Scope`.
-- [`@kindgi/types`](../types/) — `ArtifactId`, `Cursor`, `RunId`, `TenantId`, `Timestamp`, `Result`.
+- [`@kindgi/types`](../types/) — `ArtifactId`, `Cursor`, `FileId`, `ProjectId`, `RunId`, `TenantId`, `Timestamp`, `Result`.

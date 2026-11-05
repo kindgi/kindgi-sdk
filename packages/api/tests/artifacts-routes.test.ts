@@ -17,7 +17,15 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { BlobMeta, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ArtifactId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  ArtifactId,
+  FileId,
+  ProjectId,
+  RunId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
@@ -294,6 +302,17 @@ describe("an artifact answer carries only BlobMeta's properties", () => {
     expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
     const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
     expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test("a blob that is a file's version is listed with its file and version", async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    const fileId = randomUUID() as FileId;
+    const row = h.blobs.rows.get(up.body.blobId)!;
+    h.blobs.rows.set(up.body.blobId, { ...row, fileId, version: 2 });
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([{ ...up.body, fileId, version: 2 }]);
     expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
   });
 });
@@ -702,5 +721,29 @@ describe('the upload cap', () => {
     const r = await h.upload('bob', { projectId: P2 });
     expect(r.status).toBe(201);
     expect((await h.call('bob', 'GET', `/v1/artifacts/${r.body.blobId}`)).text).toBe('hello');
+  });
+});
+
+describe('the artifacts routes go in 0.8.0', () => {
+  test('every answer links to what replaces them, an error too; other routes have no link', async () => {
+    const h = harness();
+    const link =
+      '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+    const blobId = (await h.upload('alice')).body.blobId as string;
+    const answers = [
+      ['alice', 'GET', '/v1/artifacts', 200],
+      ['alice', 'GET', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'HEAD', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'GET', `/v1/artifacts/${randomUUID()}`, 404],
+      ['nobody', 'GET', '/v1/artifacts', 401],
+      ['alice', 'DELETE', `/v1/artifacts/${blobId}`, 200],
+    ] as const;
+    for (const [as, method, path, status] of answers) {
+      const r = await h.call(as, method, path);
+      expect([method, path, r.status, r.headers.link]).toEqual([method, path, status, link]);
+    }
+    // `/v1/files` isn't served here: its 404 is no artifacts answer.
+    const other = await h.call('alice', 'GET', '/v1/files');
+    expect([other.status, other.headers.link]).toEqual([404, undefined]);
   });
 });

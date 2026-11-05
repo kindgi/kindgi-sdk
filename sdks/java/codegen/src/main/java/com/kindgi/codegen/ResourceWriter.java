@@ -199,19 +199,33 @@ final class ResourceWriter {
     tb.addMethod(ctor.build());
     for (OperationPlanner.Op op : r.ops) {
       for (MethodSpec m : methods(op, async)) {
-        tb.addMethod(m);
+        tb.addMethod(deprecated(op, m));
       }
       if (FOLLOWS.containsKey(op.id)) {
-        tb.addMethod(follow(op, async, FOLLOWS.get(op.id)));
+        tb.addMethod(deprecated(op, follow(op, async, FOLLOWS.get(op.id))));
       }
       if (op.pageItem != null && !async) {
-        tb.addMethod(autoPaging(op, true));
+        tb.addMethod(deprecated(op, autoPaging(op, true)));
         if (op.paramsOptional) {
-          tb.addMethod(autoPaging(op, false));
+          tb.addMethod(deprecated(op, autoPaging(op, false)));
         }
       }
     }
     return tb.build();
+  }
+
+  /**
+   * A deprecated operation's method: {@code @Deprecated}, with the operation's note (what to use
+   * instead) as its {@code @deprecated} tag. Any other method as it is.
+   */
+  private static MethodSpec deprecated(OperationPlanner.Op op, MethodSpec m) {
+    if (op.deprecated == null) {
+      return m;
+    }
+    return m.toBuilder()
+        .addAnnotation(Deprecated.class)
+        .addJavadoc("@deprecated $L\n", Docs.javadoc(op.deprecated))
+        .build();
   }
 
   private static String accessorChain(List<String> path) {

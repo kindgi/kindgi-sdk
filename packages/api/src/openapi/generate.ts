@@ -63,6 +63,8 @@ const DEFAULT_SERVERS: readonly OpenApiServer[] = [
 const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   system: 'Health + spec discovery.',
   runs: 'Run lifecycle (start, list, get, cancel, resume, journal, stream).',
+  files:
+    'Files the runtime keeps, with every edit kept as a version: create, read, restore, pin and delete them, by a number or Latest. Served on a runtime that keeps files.',
   'export-signing-keys':
     'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':
@@ -393,6 +395,7 @@ function buildOperation(op: OperationSpec): Record<string, unknown> {
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
   if (op.streamed === true) doc['x-kindgi-streamed'] = true;
+  if (op.deprecated === true) doc.deprecated = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }

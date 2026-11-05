@@ -19,9 +19,34 @@ import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { isOwnRun, readableOrRun } from './runner-reach.js';
 import { savedFileHeaders } from './stored-bytes.js';
+import { type ValidationResult, uploadProject, validateUploadForm } from './upload-form.js';
 
 /** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
+
+/**
+ * The page that says what replaces the artifacts routes, and that 0.8.0
+ * removes them, as a `deprecation` link (RFC 9745).
+ */
+export const ARTIFACTS_DEPRECATION_LINK =
+  '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+
+/**
+ * {@link ARTIFACTS_DEPRECATION_LINK} on every `/v1/artifacts` answer, an
+ * error's too: set after the route answers, beside any `Link` it sets.
+ */
+export function artifactsDeprecationLink(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    await next();
+    try {
+      c.res.headers.append('Link', ARTIFACTS_DEPRECATION_LINK);
+    } catch {
+      // A response whose headers can't change (one passed through as fetched): a copy can.
+      c.res = new Response(c.res.body, c.res);
+      c.res.headers.append('Link', ARTIFACTS_DEPRECATION_LINK);
+    }
+  };
+}
 
 export interface ArtifactsRouterDeps {
   /**
@@ -225,10 +250,15 @@ export function artifactsRouter(
       );
     }
 
-    const validated = validateMultipart(form);
+    const validated = validateUploadForm(form);
     if (validated.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: validated.message }, requestId));
+    }
+    const forRun = forRunOf(form.get('forRun'), validated.value.ownerRunId);
+    if (forRun.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: forRun.message }, requestId));
     }
     const project = await uploadProject(c, deps, validated.value);
     if (project.kind === 'err') {
@@ -284,7 +314,7 @@ export function artifactsRouter(
       ...validated.value,
       ...(project.projectId !== undefined && { projectId: project.projectId }),
       ...(createdBy !== undefined && { createdBy }),
-      ...(!writes && { forRun: true }),
+      ...((forRun.value || !writes) && { forRun: true }),
     };
 
     const outcome = await binding.put(tenantId, input);
@@ -365,49 +395,6 @@ function notFound(c: Context<AppEnv>, blobId: string) {
   );
 }
 
-type UploadProject =
-  | { readonly kind: 'ok'; readonly projectId?: ProjectId }
-  | { readonly kind: 'err'; readonly code: string; readonly message: string };
-
-/**
- * The project an upload belongs to: its owner run's (the upload's
- * `projectId`, if any, must agree), else the upload's `projectId`, else
- * the project the caller's API key is limited to, else the tenant's
- * default project.
- */
-async function uploadProject(
-  c: Context<AppEnv>,
-  deps: ArtifactsRouterDeps,
-  input: BlobPutInput,
-): Promise<UploadProject> {
-  const tenantId = c.get('tenantId') as TenantId;
-  const named = input.projectId;
-  if (input.ownerRunId !== undefined && deps.runBinding !== undefined) {
-    const run = await deps.runBinding.getRun(tenantId, input.ownerRunId);
-    if (run === null) {
-      return {
-        kind: 'err',
-        code: 'run-not-found',
-        message: `No run "${input.ownerRunId as unknown as string}"`,
-      };
-    }
-    const runProject = run.projectId as unknown as ProjectId;
-    if (named !== undefined && named !== runProject) {
-      return {
-        kind: 'err',
-        code: 'bad-input',
-        message: `\`projectId\` must be the owner run's project ("${runProject as unknown as string}"), or absent`,
-      };
-    }
-    return { kind: 'ok', projectId: runProject };
-  }
-  if (named !== undefined) return { kind: 'ok', projectId: named };
-  const keyProject = c.get('tokenProjectId');
-  if (keyProject !== undefined) return { kind: 'ok', projectId: keyProject as ProjectId };
-  const fallback = (await deps.projectBinding?.getDefault(tenantId))?.id;
-  return { kind: 'ok', ...(fallback !== undefined && { projectId: fallback }) };
-}
-
 // -------------------- serialization --------------------
 
 function serializeMeta(m: BlobMeta): Record<string, unknown> {
@@ -426,6 +413,8 @@ function serializeMeta(m: BlobMeta): Record<string, unknown> {
     ...(m.expiresAt !== undefined && { expiresAt: m.expiresAt as unknown as string }),
     ...(m.bucket !== undefined && { bucket: m.bucket }),
     ...(m.key !== undefined && { key: m.key }),
+    ...(m.fileId !== undefined && { fileId: m.fileId as unknown as string }),
+    ...(m.version !== undefined && { version: m.version }),
   };
 }
 
@@ -440,107 +429,6 @@ function downloadHeaders(meta: BlobMeta, requestId: string): Record<string, stri
 }
 
 // -------------------- request parsing --------------------
-
-type ValidationResult<T> =
-  | { readonly kind: 'ok'; readonly value: T }
-  | { readonly kind: 'err'; readonly message: string };
-
-/**
- * Parse the multipart form into a `BlobPutInput`. `file` is required —
- * every other field is optional metadata. `tags` is a JSON-encoded
- * object; `ownerRunId` is a plain string; `expectedHash` is
- * `sha256`-hex; `contentType` overrides the file part's own MIME;
- * `forRun` is `true` or `false`, and `true` with `ownerRunId` is refused.
- * `name` defaults to the file part's filename.
- */
-function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
-  const file = form.get('file');
-  if (file === null) {
-    return { kind: 'err', message: 'Multipart form must include a `file` part' };
-  }
-  if (typeof file === 'string') {
-    return { kind: 'err', message: '`file` part must be a file, not a string field' };
-  }
-
-  const nameField = form.get('name');
-  const name =
-    typeof nameField === 'string' && nameField.length > 0
-      ? nameField
-      : file.name !== undefined && file.name.length > 0
-        ? file.name
-        : 'unnamed';
-
-  const contentTypeField = form.get('contentType');
-  const contentType =
-    typeof contentTypeField === 'string' && contentTypeField.length > 0
-      ? contentTypeField
-      : file.type.length > 0
-        ? file.type
-        : 'application/octet-stream';
-
-  let tags: Record<string, string> | undefined;
-  const tagsField = form.get('tags');
-  if (typeof tagsField === 'string' && tagsField.length > 0) {
-    try {
-      const parsed = JSON.parse(tagsField) as unknown;
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return { kind: 'err', message: 'Field `tags` must be a JSON object' };
-      }
-      const flat: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof v !== 'string') {
-          return { kind: 'err', message: `Field \`tags["${k}"]\` must be a string` };
-        }
-        flat[k] = v;
-      }
-      tags = flat;
-    } catch {
-      return { kind: 'err', message: 'Field `tags` must be valid JSON' };
-    }
-  }
-
-  let ownerRunId: RunId | undefined;
-  const ownerField = form.get('ownerRunId');
-  if (typeof ownerField === 'string' && ownerField.length > 0) {
-    ownerRunId = ownerField as RunId;
-  }
-
-  let projectId: ProjectId | undefined;
-  const projectField = form.get('projectId');
-  if (typeof projectField === 'string' && projectField.length > 0) {
-    projectId = projectField as ProjectId;
-  }
-
-  let expectedHash: string | undefined;
-  const hashField = form.get('expectedHash');
-  if (typeof hashField === 'string' && hashField.length > 0) {
-    if (!/^[0-9a-f]{64}$/.test(hashField)) {
-      return {
-        kind: 'err',
-        message: 'Field `expectedHash` must be sha256, hex-encoded, lowercase (64 chars)',
-      };
-    }
-    expectedHash = hashField;
-  }
-
-  const forRun = forRunOf(form.get('forRun'), ownerRunId);
-  if (forRun.kind === 'err') return forRun;
-
-  return {
-    kind: 'ok',
-    value: {
-      name,
-      contentType,
-      bytes: file.stream(),
-      size: file.size,
-      ...(tags !== undefined && { tags }),
-      ...(ownerRunId !== undefined && { ownerRunId }),
-      ...(projectId !== undefined && { projectId }),
-      ...(expectedHash !== undefined && { expectedHash }),
-      ...(forRun.value && { forRun: true }),
-    },
-  };
-}
 
 /** The form's `forRun`: absent or empty is `false`; `true` names no run. */
 function forRunOf(
