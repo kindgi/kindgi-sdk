@@ -13,7 +13,7 @@ connects the company's number once, through the business's own Telnyx
 account. Kindgi bills nothing for texts: Telnyx and Meta charge the
 business for them.
 
-In this release (runtime 0.7.0 or later), the number answers WhatsApp,
+With runtime 0.7.0 or later, the number answers WhatsApp,
 whether it's a new number or the one the business already uses in the
 WhatsApp Business app. On SMS, the number keeps opt-outs (STOP and START,
 [Opt-outs](#opt-outs)), but no run answers an SMS yet.
@@ -140,7 +140,7 @@ back.
 
 Connect refuses in two cases:
 
-- **The number's texts go somewhere else today** (`inbound-in-use`): it's
+- **The number's texts already go somewhere else** (`inbound-in-use`): it's
   on another messaging profile of yours. The refusal names that profile's
   webhook host, or the profile when it has no webhook. Run the command
   again with `--replace-inbound` to move it anyway. Disconnecting later
@@ -300,7 +300,7 @@ with:
 - `textsThisMonth`: `received`, `sent` and `unanswered`, the texts with
   nothing to answer them. Those are texts that came in while the number
   had no trigger or a paused one or needed reconnecting, over a limit, or
-  from someone who opted out, and SMS in this release.
+  from someone who opted out, and every SMS.
 
 ## Pause it, change it
 
