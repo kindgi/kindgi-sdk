@@ -62,7 +62,8 @@ type JsonObject = Readonly<Record<string, unknown>>;
 /**
  * The answer, split into blocks by its shape alone, within `limit`
  * characters:
- * - null, absent, `[]` or `{}`: no blocks.
+ * - null, absent, `[]`, `{}`, or a string that's empty or only white space:
+ *   no blocks.
  * - A string on one line, at most 280 characters, is a `value`; else `text`.
  *   A number or a boolean is a `value`, as its JSON.
  * - An array of objects with only scalar values, and at most 12 different
@@ -117,6 +118,7 @@ class Budget {
 function draftsOf(answer: unknown): Draft[] {
   if (answer === undefined || answer === null) return [];
   if (typeof answer === 'string') {
+    if (answer.trim() === '') return [];
     return [
       isValueString(answer) ? { kind: 'value', value: answer } : { kind: 'text', text: answer },
     ];

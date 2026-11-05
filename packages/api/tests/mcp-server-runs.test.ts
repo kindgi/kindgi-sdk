@@ -406,7 +406,7 @@ describe('/mcp: running an agent', () => {
     expect(body.result.structuredContent.answer).toHaveLength(8_000);
     expect(body.result.structuredContent.truncated).toBe(true);
     expect(body.result._meta['kindgi/blocks']).toEqual({
-      blocks: [{ kind: 'value', value: 'x'.repeat(8_000) }],
+      blocks: [{ kind: 'text', text: 'x'.repeat(8_000), long: true }],
       truncated: true,
     });
   });

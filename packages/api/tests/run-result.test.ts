@@ -33,6 +33,22 @@ describe('answerBlocks: the kinds', () => {
     }
   });
 
+  test('an empty answer, or one of only white space, gives no blocks; an empty field stays', () => {
+    for (const answer of ['', '   ', ' \n\t\n ']) {
+      expect(answerBlocks(answer, LIMIT)).toEqual({ blocks: [], truncated: false });
+    }
+    expect(answerBlocks({ note: '', clause: 4 }, LIMIT).blocks).toEqual([
+      {
+        kind: 'fields',
+        fields: [
+          { name: 'note', value: '' },
+          { name: 'clause', value: '4' },
+        ],
+        long: false,
+      },
+    ]);
+  });
+
   test('a string on one line, at most 280 characters, is a value; else text', () => {
     expect(answerBlocks('Clause 4 differs.', LIMIT).blocks).toEqual([
       { kind: 'value', value: 'Clause 4 differs.' },

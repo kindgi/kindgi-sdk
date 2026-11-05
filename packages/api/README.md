@@ -235,7 +235,7 @@ const { blocks, truncated } = answerBlocks(answerValue(run), RESULT_LIMIT);
 
   | The answer | Its blocks |
   | --- | --- |
-  | null, absent, `[]` or `{}` | none |
+  | null, absent, `[]`, `{}`, or a string that's empty or only white space | none |
   | A string on one line, at most 280 characters; a number; a boolean | one `value` |
   | Any other string | one `text` |
   | An array of objects with only scalar values, and at most 12 different keys between them | one `records`: the keys in the order they first appear are its columns, and a missing key or null is an empty cell |
@@ -260,8 +260,8 @@ const { blocks, truncated } = answerBlocks(answerValue(run), RESULT_LIMIT);
   character. The console draws up to `RESULT_LIMIT` (100,000), and a chat
   up to 8,000.
 - A block's text is the answer's words as they are: markdown isn't turned
-  into headings, lists or tables. Draw it as text (`textContent`), never as
-  markup.
+  into headings, lists or tables. Draw it as text (`textContent`), or with a
+  markdown renderer that never passes HTML through; never as HTML.
 - `RUN_STATUS_WORDS` is a run's status in words:
 
   | Status | Words |

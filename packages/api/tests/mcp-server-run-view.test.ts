@@ -102,11 +102,12 @@ function openView() {
   class ResizeObserver {
     observe(): void {}
   }
+  const timers: (() => void)[] = [];
   new Function('window', 'document', 'ResizeObserver', 'setTimeout', 'clearTimeout', script)(
     window,
     document,
     ResizeObserver,
-    () => 0,
+    (run: () => void) => timers.push(run),
     () => undefined,
   );
   const deliver = (data: Message) =>
@@ -115,9 +116,13 @@ function openView() {
   return {
     el,
     sent,
+    timers,
     /** The host sends the tool's result, as MCP Apps' `ui/notifications/tool-result`. */
     result: (params: Record<string, unknown>) =>
       deliver({ method: 'ui/notifications/tool-result', params }),
+    /** The host answers the view's request. */
+    answer: (request: Message | undefined, result: Record<string, unknown>) =>
+      deliver({ id: request?.id, result }),
     /** The answer's blocks as drawn: one box each. */
     boxes: () => el('answer').children.map((wrap) => wrap.children[0] as Element),
   };
@@ -244,7 +249,56 @@ describe('the run view draws the answer', () => {
     expect(view.el('answer').hidden).toBe(true);
     expect(view.boxes()).toEqual([]);
   });
+
+  test('an answer of only white space draws none, with _meta or without', () => {
+    const answer = ' \n ';
+    for (const meta of [{ _meta: { 'kindgi/blocks': answerBlocks(answer, 8_000) } }, {}]) {
+      const view = openView();
+      view.result({ structuredContent: { ...DONE, answer }, ...meta });
+      expect(view.el('answer').hidden).toBe(true);
+      expect(view.boxes()).toEqual([]);
+    }
+  });
+
+  test("the view's own poll draws the blocks from its result's _meta", async () => {
+    const view = openView();
+    view.result({ structuredContent: { ...DONE, status: 'running', completedAt: undefined } });
+    const initialize = view.sent.find((m) => m.method === 'ui/initialize');
+    view.answer(initialize, {});
+    await settled();
+    view.timers.shift()?.();
+    const poll = view.sent.at(-1);
+    expect(poll).toMatchObject({
+      method: 'tools/call',
+      params: { name: 'kindgi.run_state', arguments: { runId: RUN_ID } },
+    });
+    const answer = { clause: 4, differs: true };
+    view.answer(poll, {
+      structuredContent: { ...DONE, answer: JSON.stringify(answer, null, 2) },
+      _meta: { 'kindgi/blocks': answerBlocks(answer, 8_000) },
+    });
+    await settled();
+    const [fields] = view.boxes();
+    expect(
+      fields
+        ?.all()
+        .filter((e) => e.tagName === 'th')
+        .map((e) => e.textContent),
+    ).toEqual(['clause', 'differs']);
+    expect(
+      fields
+        ?.all()
+        .filter((e) => e.tagName === 'td')
+        .map((e) => e.textContent),
+    ).toEqual(['4', 'true']);
+    expect(view.el('status').textContent).toBe('Done, 0:20');
+  });
 });
+
+/** Lets the view's promises run. */
+function settled(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 describe("the run view's status line", () => {
   test("says the console's words, with the time taken", () => {

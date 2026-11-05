@@ -194,7 +194,7 @@ export const RUN_VIEW_HTML = `<!doctype html>
   function answerOf(next, meta) {
     var given = meta && meta[BLOCKS];
     if (given && Array.isArray(given.blocks)) return given;
-    if (!next.answer) return { blocks: [], truncated: false };
+    if (!next.answer || !next.answer.trim()) return { blocks: [], truncated: false };
     return { blocks: [{ kind: "text", text: next.answer, long: next.answer.length > LONG }], truncated: !!next.truncated };
   }
 
