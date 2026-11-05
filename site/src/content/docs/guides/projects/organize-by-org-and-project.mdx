@@ -579,6 +579,8 @@ Deleting a project:
   changing one's slug, onto one of them answers `409 slug-conflict` with
   `details.deletedProject: true`. Restore that project, or choose another
   slug.
+- **It's recorded** in the audit log as `project-deleted`, with who deleted
+  it. Deleting it again records nothing.
 
 Two projects can't be deleted: the workspace's default project
 (`409 project-is-default`), and a project in an environment order
@@ -586,12 +588,13 @@ Two projects can't be deleted: the workspace's default project
 
 **Restoring it** (`POST /v1/projects/{projectId}/restore`) brings it back as
 it was, with its slugs, members, grants, keys and own account, and answers
-the project. Its cancelled runs stay cancelled, and fires that came due while
+the project. It's recorded in the audit log as `project-restored`, with who
+restored it. Its cancelled runs stay cancelled, and fires that came due while
 it was deleted aren't made up: the next ones run. Restoring a project that
-isn't deleted changes nothing. A deleted project doesn't count against the
-workspace's limit on projects in production, so restoring one that's in
-production counts it again: at the limit, the restore is refused
-(`403 production-limit-reached`) until one is taken out of production.
+isn't deleted changes nothing and records nothing. A deleted project doesn't
+count against the workspace's limit on projects in production, so restoring
+one that's in production counts it again: at the limit, the restore is
+refused (`403 production-limit-reached`) until one is taken out of production.
 
 **The deleted projects:** `GET /v1/projects/deleted` lists the workspace's
 deleted projects, newest first, a page at a time. Each one has its `id`,
