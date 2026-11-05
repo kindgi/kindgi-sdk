@@ -309,6 +309,21 @@ const ABOVE: readonly Row[] = [
   ),
 ];
 
+/**
+ * Writes by a record's id whose hold also refuses above the project: a
+ * session, on a workspace's approval or artifact (a store asks `read` or
+ * `write` there), and a key too, on a workspace's deployment's secrets or
+ * a suggested change's workspace- or org-wide pin. Their rows are with
+ * the record's, in route-key-project-no-store.test.ts.
+ */
+const BY_RECORD: readonly string[] = [
+  'POST /v1/approvals/{approvalId}/complete',
+  'POST /v1/approvals/{approvalId}/audit-bundle',
+  'DELETE /v1/artifacts/{blobId}',
+  'POST /v1/deployments/{deploymentId}/secrets',
+  'POST /v1/suggested-changes/{suggestedChangeId}/pin',
+];
+
 /** The same writes in the key's own project. */
 const OWN: readonly Row[] = [
   row('MCP endpoint', 'POST /v1/mcp/endpoints', '/v1/mcp/endpoints', {
@@ -356,7 +371,9 @@ describe('a key limited to a project, with no authorization store', () => {
         }
       }
     }
-    expect([...new Set(ABOVE.map((r) => r.op))].sort()).toEqual([...documented].sort());
+    expect([...new Set([...ABOVE.map((r) => r.op), ...BY_RECORD])].sort()).toEqual(
+      [...documented].sort(),
+    );
   });
 
   test.each(ABOVE)('$label: 403 key-project-mismatch, nothing written', async (r) => {

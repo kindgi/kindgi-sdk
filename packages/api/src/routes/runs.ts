@@ -44,6 +44,7 @@ import type { HitlBinding } from '../hitl-binding.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -269,6 +270,28 @@ export function runsRouter(
     // As cancel: changing a run is `write` on its project (a project has
     // no `execute`; asking for it refused everyone, T243 A).
     r.use('/:runId/resume', onRunProject('write'));
+  } else {
+    // Without a store, a key or session limited to a project changes no
+    // run beyond it, as the store asks `write` on the run's project, its
+    // own runs too (`limitedCallerRefusal`). A run that isn't there, or an
+    // id that isn't a run's, is the route's own answer.
+    const heldRun = async (c: Context<AppEnv>, next: import('hono').Next) => {
+      const runId = c.req.param('runId') ?? '';
+      if (c.get('tokenProjectId') === undefined || !UUID_RE.test(runId)) return next();
+      const run = await runBinding.getRun(c.get('tenantId') as TenantId, runId as RunId);
+      const held =
+        run === null
+          ? undefined
+          : limitedCallerRefusal(
+              c,
+              'write',
+              ref('project', run.projectId as unknown as string),
+              'the run',
+            );
+      return held ?? next();
+    };
+    r.use('/:runId/cancel', heldRun);
+    r.use('/:runId/resume', heldRun);
   }
 
   // ---------- POST / (start a run — agent | flow) ----------

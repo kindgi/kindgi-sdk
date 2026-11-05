@@ -1667,6 +1667,14 @@ const LIMITED_PIN_403 = ErrorResponse(
  */
 export const LIMITED_RECORD_PROJECT =
   "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this acts in another one, the record's or its agent's or test set's (with a store, that is `permission-denied`, or the record isn't found).";
+const withLimitedRecord = (text: string): string => `${text} ${LIMITED_RECORD_PROJECT}`;
+const LIMITED_RECORD_403 = ErrorResponse(
+  withLimitedRecord('`permission-denied`: the caller may not make this change.'),
+);
+/** A suggested change's pin: held above the caller's project, and beyond the record's. */
+const LIMITED_RECORD_PIN_403 = ErrorResponse(
+  withLimitedRecord(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
+);
 
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
@@ -2274,6 +2282,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated run row.', schema: ref('Run') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No run with that id under this workspace.'),
     },
   },
@@ -2296,6 +2305,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('Run'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '400': ErrorResponse(
         "`bad-input`: no `waitpointId`, or a field the body doesn't take. `wait-token-output-invalid` (`details.issues`): the value doesn't fit the tool's output schema, and the wait stays open.",
       ),
@@ -3875,7 +3885,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('CompleteApprovalResult'),
       },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Reviewer role too low, or no reviewer row for this user.'),
+      '403': ErrorResponse(
+        withLimitedRecord(
+          withLimitedAbove('Reviewer role too low, or no reviewer row for this user.'),
+        ),
+      ),
       '404': ErrorResponse('No approval visible to the caller with that id.'),
     },
   },
@@ -3974,7 +3988,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed audit bundle.', schema: ref('ExportAuditBundleResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("The caller isn't a reviewer."),
+      '403': ErrorResponse(withLimitedRecord(withLimitedAbove("The caller isn't a reviewer."))),
       '404': ErrorResponse(
         'Approval not found, signing key id unknown, or signing not configured on this deployment.',
       ),
@@ -5118,7 +5132,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '403': ErrorResponse(
-        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
+        withLimitedRecord(
+          "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
+        ),
       ),
       '404': ErrorResponse(
         "No conversation with that id under this workspace, or one the caller may not close and can't read: the same answer, byte for byte.",
@@ -5144,7 +5160,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '403': ErrorResponse(
-        'The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).',
+        withLimitedRecord(
+          'The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).',
+        ),
       ),
       '404': ErrorResponse(
         "No conversation with that id under this workspace, or it is unregistered already, or the caller may not unregister it and can't read it: the same answer, byte for byte.",
@@ -5679,6 +5697,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChangePinAnswer'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_PIN_403,
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
@@ -5709,6 +5728,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse(
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
@@ -5732,6 +5752,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The suggested change, `withdrawn`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse("The suggested change's status doesn't allow it."),
     },
@@ -5794,6 +5815,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The Improve run, cancelled.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No such Improve run.'),
       '409': ErrorResponse('`improve-run-finished`: it has ended already.'),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
@@ -5931,6 +5953,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed bundle.', schema: ref('ExportProvenanceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse(
         'Provenance not found, signing key id unknown, or signing not configured on this deployment.',
       ),
@@ -6095,7 +6118,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteArtifactResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '403': ErrorResponse(
+        withLimitedRecord(withLimitedAbove('No `write` on its project (`permission-denied`).')),
+      ),
       '404': ErrorResponse(
         "An artifact in a project the caller can't read that isn't a file of their own (`blob-not-found`).",
       ),
@@ -6317,7 +6342,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
       ),
       '403': ErrorResponse(
-        '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
+        withLimitedRecord(
+          '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
+        ),
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
@@ -6418,7 +6445,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Removed.', schema: ref('RemoveCorrectionResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedRecord('`permission-denied`.')),
       '404': ErrorResponse('No live correction with that id under this workspace.'),
     },
   },
@@ -6441,7 +6468,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+        withLimitedRecord(
+          "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+        ),
       ),
       '404': ErrorResponse('No live correction with that id under this workspace.'),
       '409': ErrorResponse(
@@ -7558,6 +7587,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Cancel accepted.', schema: ref('TestRun') },
       ...CommonAuthErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No test run with that id under this workspace.'),
       '409': ErrorResponse('Run already terminal.'),
     },
@@ -7577,6 +7607,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'The rescore started.', schema: ref('StartTestRunResult') },
       ...CommonAuthErrors,
+      '403': LIMITED_RECORD_403,
       '400': ErrorResponse(
         "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their corrections again).",
       ),
@@ -8598,7 +8629,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse(
-        "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
+        withLimitedRecord(
+          withLimitedAbove(
+            "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
+          ),
+        ),
       ),
       '404': ErrorResponse(
         "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
@@ -12935,7 +12970,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete outcome.', schema: ref('ConnectionChoiceDeleteResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('`choiceId` is not a UUID (`bad-input`).'),
-      '403': ErrorResponse("Reads its project, but isn't an admin of it (`permission-denied`)."),
+      '403': ErrorResponse(
+        withLimitedRecord("Reads its project, but isn't an admin of it (`permission-denied`)."),
+      ),
       '404': ErrorResponse(
         "No live choice with that id in this environment: unknown, already removed, in a project the caller can't read, or another person's (`connection-choice-not-found`).",
       ),

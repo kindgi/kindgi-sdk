@@ -168,6 +168,7 @@ const CARDS = {
   home: { id: id(), agentId: HOME, scope: project(P1) },
   shared: { id: id(), agentId: SHARED, scope: project(P1) },
   sharedAtP2: { id: id(), agentId: SHARED, scope: project(P2) },
+  homeAtP2: { id: id(), agentId: HOME, scope: project(P2) },
   tenant: { id: id(), agentId: HOME, scope: { kind: 'tenant' as const } },
   org: { id: id(), agentId: HOME, scope: { kind: 'org' as const, orgId: id() } },
 };
@@ -702,6 +703,25 @@ describe.each([
     },
   );
 
+  // Stricter than a store, which asks only the agent here: held on the
+  // card's scope, as an agent pin's scope is held.
+  test.each(['pin', 'add-as-latest'])(
+    "a suggested change at another project, for the key project's agent: %s refused for its scope",
+    async (verb) => {
+      const res = await h.send(
+        LIMITED,
+        'POST',
+        `/v1/suggested-changes/${CARDS.homeAtP2.id}/${verb}`,
+        {},
+      );
+      refusedWith(
+        res,
+        `This API key is limited to project ${P1}; the suggested change is in project ${P2}`,
+        P2,
+      );
+    },
+  );
+
   test.each(HELD)('$label: a record that is not there is not refused', async (r) => {
     const { path, body } = r.to('away');
     const res = await h.send(
@@ -721,7 +741,7 @@ describe('an agent more than one project serves, with no store: what a store ask
     );
   });
 
-  test('a pin at another of its projects is refused for that project', async () => {
+  test("a pin at another of its projects is refused for the card's scope, that project", async () => {
     const res = await served.send(
       LIMITED,
       'POST',
@@ -730,7 +750,7 @@ describe('an agent more than one project serves, with no store: what a store ask
     );
     refusedWith(
       res,
-      `This API key is limited to project ${P1}; the agent runs in project ${P2} too`,
+      `This API key is limited to project ${P1}; the suggested change is in project ${P2}`,
       P2,
     );
   });

@@ -1382,6 +1382,59 @@ export function itemHold(how: {
   };
 }
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change that makes new versions of an item beyond it, as a
+ * store refuses it (`limitedCallerRefusal`): an Improve run, a suggested
+ * change. For an item one project serves, that's `publish` on the item,
+ * so its own project; for one more than one serves, `write` where its new
+ * versions are made (`madeIn`, as `writeWhereMade` asks it): the first
+ * environment of its own project's order, else its own project.
+ *
+ * It never fails closed. A read passes, as does a caller with no limit,
+ * an item that isn't there (the route answers its 404), and one that
+ * records no project. A lookup that fails throws, for the error mapper.
+ */
+export async function limitedMadeInRefusal(
+  c: Ctx,
+  how: {
+    readonly kind: OrderItemKind;
+    readonly id: string;
+    readonly held: HeldProjects;
+    readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined;
+  },
+): Promise<Response | undefined> {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
+  const projects = await how.held.projects(c, how.id);
+  const home = projects?.[0];
+  if (projects === undefined || home === undefined) return undefined;
+  const item = `the ${KIND_NAME[how.kind]}`;
+  if (projects.length === 1) {
+    return limitedCallerRefusal(c, 'publish', ref('project', home as unknown as string), item);
+  }
+  const where = (await firstEnvironmentOf(how.orders, tenantOf(c), home)) ?? home;
+  return limitedCallerRefusal(
+    c,
+    'write',
+    ref('project', where as unknown as string),
+    item,
+    where === home ? undefined : 'made-in',
+  );
+}
+
+/**
+ * Where the routes of a runtime without a store read the projects of the
+ * items their records belong to and their starts run (`HeldProjects`,
+ * each kind's), and the orders their new versions follow.
+ */
+export interface HeldItems {
+  readonly agents: HeldProjects;
+  readonly flows: HeldProjects;
+  readonly testSets: HeldProjects;
+  readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined;
+}
+
 /** What `shownLatest` answers. */
 export type ShownLatest<T> =
   | { readonly kind: 'ok'; readonly row: T }

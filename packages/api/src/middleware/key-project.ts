@@ -102,14 +102,15 @@ export function holdLimitedCaller(
  * item's project: the refusal then says the item is in that project,
  * not that the request names it. `relation` says how the item stands to
  * that project: absent, it's the item's own ("is in"); `'served'`, the
- * item runs there besides its own ("runs in … too").
+ * item runs there besides its own ("runs in … too"); `'made-in'`, the
+ * item's new versions are made there ("new versions of … are made in").
  */
 export function limitedCallerRefusal(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
   item?: string,
-  relation?: 'served',
+  relation?: 'served' | 'made-in',
 ): Response | undefined {
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
@@ -120,7 +121,9 @@ export function limitedCallerRefusal(
       ? `the request names project ${resource.id}`
       : relation === 'served'
         ? `${item} runs in project ${resource.id} too`
-        : `${item} is in project ${resource.id}`;
+        : relation === 'made-in'
+          ? `new versions of ${item} are made in project ${resource.id}`
+          : `${item} is in project ${resource.id}`;
   return refused(c, undefined, {
     action,
     resource,

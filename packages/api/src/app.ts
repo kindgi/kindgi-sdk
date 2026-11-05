@@ -52,7 +52,7 @@ import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
-import { itemRightsOf, itemServingOf } from './item-rights.js';
+import { type HeldItems, itemRightsOf, itemServingOf } from './item-rights.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import { type McpServerInput, mountMcpServer } from './mcp-server/endpoint.js';
 import { MCP_TOOL_SETS } from './mcp-server/tool-sets.js';
@@ -124,7 +124,7 @@ import {
 } from './rotation-status-store.js';
 import { adaptersRouter } from './routes/adapters.js';
 import { agentTestSetRouter } from './routes/agent-test-set.js';
-import { agentOwnProject, agentsRouter } from './routes/agents.js';
+import { agentOwnProject, agentsRouter, heldAgentProjects } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import {
   DEFAULT_ARTIFACT_MAX_BYTES,
@@ -220,7 +220,7 @@ import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-
 import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { testRunsRouters } from './routes/test-runs.js';
-import { testSetsRouter } from './routes/test-sets.js';
+import { heldTestSetProjects, testSetsRouter } from './routes/test-sets.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolFilesRouter } from './routes/tool-files.js';
@@ -1690,6 +1690,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // `?projectId=` answers on its single read.
   const itemServing =
     input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
+  // With no authorizer, where a project-limited key's act on a record of an
+  // item beyond its project is held: each kind's projects, and the orders
+  // its new versions follow.
+  const held: HeldItems | undefined =
+    authorizer === undefined
+      ? {
+          agents: heldAgentProjects(input.agentRegistry, itemServing),
+          flows: heldFlowProjects(input.flowRegistry, itemServing),
+          testSets: heldTestSetProjects(input.testSetRegistry, itemServing),
+          orders: input.environmentOrders,
+        }
+      : undefined;
   // Which projects a tenant or org pin's test runs check: those that serve
   // the agent, and where the agent registry takes Improve's candidates
   // with no binding to say (kindgi dev), the project it places the agent
@@ -1786,6 +1798,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.referenceScope,
       input.agentRegistry,
       itemRights,
+      held,
     ),
   );
   if (publicRunTokenLimits !== undefined) {
@@ -2050,12 +2063,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         },
         authorizer,
         itemRights,
+        held,
       ),
     );
     // The cards a deploy makes, for the deployments router below.
     const cards = createSuggestedChangeService({ ...cardDeps, store: input.supervisor });
     deployCards = (cardsInput) => cards.fromDeploy(cardsInput);
-    v1.route('/improve-runs', improveRunsRouter(improveDeps, authorizer, itemRights));
+    v1.route('/improve-runs', improveRunsRouter(improveDeps, authorizer, itemRights, held));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
@@ -2465,6 +2479,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
         input.auditEvents,
         input.projectBinding,
+        held,
       ),
     );
     v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
@@ -2793,6 +2808,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       itemRights,
       input.testSetFreeze,
       input.correctionRegistry,
+      held,
     );
     v1.route('/test-sets', testRuns.start);
     v1.route('/test-runs', testRuns.readback);

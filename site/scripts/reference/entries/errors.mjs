@@ -2221,7 +2221,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger, or to an agent, flow, tool, block, guardrail, test set, corrector group or MCP endpoint that is in or runs in another project.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger, or to an agent, flow, tool, block, guardrail, test set, corrector group or MCP endpoint that is in or runs in another project, and any act on another project's run, test run, approval, correction, conversation, artifact, deployment, suggested change, Improve run or connection choice, or on a record whose agent or test set is in another project.",
     details: [
       {
         key: 'keyProjectId',
@@ -2230,7 +2230,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'projectId',
         meaning:
-          'the project the request names, when it names one, or the project of the trigger or item it changes',
+          'the project the request names, when it names one, or the project of the trigger, item or record it changes',
       },
       {
         key: 'action',
