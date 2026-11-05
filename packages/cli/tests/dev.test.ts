@@ -141,6 +141,8 @@ interface Fixtures {
   /** `[staged, index]` pairs published, in order. */
   readonly published: (readonly [string, string])[];
   readonly packStops: () => number;
+  /** How often the builder (the bundler's esbuild context) was disposed. */
+  readonly builderDisposes: () => number;
   /** How often the pack service was told it's closing (`beginClose`). */
   readonly packBeginCloses: () => number;
   /** What the stop took down, in order: `runtime: stopping` / `runtime: gone`, `watcher`, `pack service`. */
@@ -229,6 +231,7 @@ function makeFixtures(
   const published: (readonly [string, string])[] = [];
   let packStops = 0;
   let packBeginCloses = 0;
+  let builderDisposes = 0;
   const unavailable = {
     kind: 'err',
     error: { code: 'pack-service-unavailable', message: 'fake' },
@@ -293,6 +296,7 @@ function makeFixtures(
         },
         syncEntries: async () => false,
         dispose: async () => {
+          builderDisposes += 1;
           if (opts.disposeFails === true) throw new Error('dispose failed');
         },
       };
@@ -347,6 +351,7 @@ function makeFixtures(
     packStarts,
     published,
     packStops: () => packStops,
+    builderDisposes: () => builderDisposes,
     packBeginCloses: () => packBeginCloses,
     stopOrder,
     pythonChecks,
@@ -1632,6 +1637,17 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain("couldn't start the Kindgi runtime");
     expect(out.stderr).toContain('mock start failure');
+  });
+
+  test('a failed start disposes the bundler and closes the pack service', async () => {
+    const fixtures = makeFixtures({ startFails: true });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(fixtures.builderDisposes()).toBe(1);
+    expect(fixtures.packStops()).toBe(1);
   });
 
   // Removed: 'tool POST returning 409 counts as already-registered success'.
