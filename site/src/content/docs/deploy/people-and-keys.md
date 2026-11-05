@@ -518,8 +518,8 @@ its role, its project and its capabilities.
   agent's pin check, `POST /v1/agents/{agentId}/pinned/check`, which writes
   nothing.
 - It mints and revokes no keys, its own included, and it doesn't open a
-  console session: a sign-in with it is refused with
-  `403 token-sign-in-not-allowed`.
+  console session: a sign-in with it is refused with `403 read-only-key`,
+  as any other post is.
 - Its record carries `readOnly: true`. Called with it,
   `GET /v1/identity/whoami` answers `readOnly: true`, and
   [What you may do](#what-you-may-do) has `key.readOnly` and shows each of

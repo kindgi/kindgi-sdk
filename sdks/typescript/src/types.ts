@@ -2397,8 +2397,9 @@ export interface ApiTokenSpec {
   readonly projectId?: import('@kindgi/types').ProjectId;
   /**
    * `true`: the key only reads. Its every request but a `GET` or a `HEAD`
-   * is refused (`read-only-key`), apart from a few reads that are posts,
-   * and it mints and revokes no keys. A server whose key store can't keep
+   * is refused (`read-only-key`), apart from an agent's pin check
+   * (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It
+   * mints and revokes no keys. A server whose key store can't keep
    * the limit makes no key (`read-only-unsupported`).
    */
   readonly readOnly?: boolean;

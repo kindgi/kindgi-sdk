@@ -85,7 +85,8 @@ export interface TokenResolution {
   /**
    * True for an API key that only reads (`readOnly` at mint): its
    * requests but `GET` and `HEAD` are refused, `read-only-key`, apart from
-   * a few reads that are posts (`key-read-only.ts`). Read for keys only.
+   * an agent's pin check, which writes nothing (`key-read-only.ts`). Read
+   * for keys only.
    */
   readonly tokenReadOnly?: boolean;
   /**

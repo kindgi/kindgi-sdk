@@ -15217,7 +15217,7 @@ class MintTokenBody(BaseModel):
     """
     read_only: Annotated[bool | None, Field(alias="readOnly")] = None
     """
-    `true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from a few reads that are posts, and it mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`.
+    `true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`.
     """
 
 

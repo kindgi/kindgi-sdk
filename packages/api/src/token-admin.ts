@@ -63,8 +63,8 @@ export interface TokenMintInput {
   readonly projectId?: ProjectId;
   /**
    * The key only reads: every request it makes but a `GET` or a `HEAD` is
-   * refused (`read-only-key`), apart from a few reads that are posts. Set
-   * only at mint. A store that can't keep it leaves it off the record, and
+   * refused (`read-only-key`), apart from an agent's pin check, which
+   * writes nothing. Set only at mint. A store that can't keep it leaves it off the record, and
    * the route then revokes the key and refuses the mint.
    */
   readonly readOnly?: boolean;

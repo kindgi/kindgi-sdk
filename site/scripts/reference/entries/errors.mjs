@@ -218,11 +218,11 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'action',
-        meaning: 'the action that was refused',
+        meaning: '`write`: what a key that only reads may not do',
       },
       {
         key: 'resource',
-        meaning: 'the resource it was refused on, as type:id',
+        meaning: "the key's workspace, as `tenant:<id>`",
       },
       {
         key: 'reason',
