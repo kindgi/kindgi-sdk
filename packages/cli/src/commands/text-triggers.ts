@@ -202,7 +202,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a text started, every call that changes something waits for one otherwise. Never \`texts.send\`: sending a text always waits. Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or --connection must name it again (or `none`).' : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a text started, every call that changes something waits for one otherwise. Never \`kindgi_send_text\`: a text that isn't a reply always waits. Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or --connection must name it again (or `none`).' : ''}`,
     },
   };
 }
