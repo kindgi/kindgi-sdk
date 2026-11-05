@@ -9453,7 +9453,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter.'),
-      '403': ErrorResponse(withLimitedAbove('No `admin` on the workspace (`permission-denied`).')),
+      '403': ErrorResponse(
+        "No `admin` on the workspace (`permission-denied`). A key or session limited to a project is refused before that, `key-project-mismatch` (`details.keyProjectId`), as on any path under `/v1/projects/` that is not its own project's.",
+      ),
       '501': ErrorResponse(
         "`project-restore-unsupported`: this runtime's project binding keeps no deleted projects to list.",
       ),

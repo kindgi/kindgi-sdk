@@ -64,7 +64,7 @@ const ROUTE_BINDINGS = [
 ] as const;
 
 const WRITE_CALL =
-  /^(add|append|create|delete|erase|move|pin|publish|put|register|reinstate|remove|replay|resume|revoke|rotate|set|sweep|unpin|unregister|update|upsert|write)/;
+  /^(add|append|create|delete|erase|move|pin|publish|put|register|reinstate|remove|replay|restore|resume|revoke|rotate|set|sweep|unpin|unregister|update|upsert|write)/;
 
 /** Every write-named call a request makes on a route binding. */
 const writes: string[] = [];
@@ -181,6 +181,7 @@ const ABOVE: readonly Row[] = [
   row('org create', 'POST /v1/orgs', '/v1/orgs', { name: 'acme' }),
   row('team create', 'POST /v1/teams', '/v1/teams', { name: 'acme' }),
   row('project create', 'POST /v1/projects', '/v1/projects', { name: 'acme' }),
+  row('project restore', 'POST /v1/projects/{projectId}/restore', `/v1/projects/${P1}/restore`),
   row('project move to an org', 'PATCH /v1/projects/{projectId}', `/v1/projects/${P1}`, {
     orgId: ORG,
   }),
@@ -413,6 +414,15 @@ describe('a key limited to a project, with no authorization store', () => {
       const res = await send(noStore, LIMITED, { method: 'GET', path });
       expect(res.body.error?.code, path).not.toBe('key-project-mismatch');
     }
+  });
+
+  test("the deleted projects' list, a workspace admin's: refused, as its path names no project of the key's", async () => {
+    const res = await send(noStore, LIMITED, { method: 'GET', path: '/v1/projects/deleted' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatchObject({
+      code: 'key-project-mismatch',
+      details: { keyProjectId: P1 },
+    });
   });
 
   test('a write to an item by its id, other than a memory fact, is not refused', async () => {

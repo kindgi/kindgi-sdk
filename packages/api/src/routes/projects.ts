@@ -337,8 +337,10 @@ export function projectsRouter(
   /**
    * Admin on the workspace, for the deleted list and the restore. With an
    * authorizer, its check; without one, the `tenant-admin` scope
-   * (`isTenantAdmin`), and a key or session limited to a project is refused
-   * as such, reads too: it reaches nothing above its project.
+   * (`isTenantAdmin`). A key or session limited to a project has neither,
+   * and is refused `key-project-mismatch`: the list by `refuseOtherProjectForKey`
+   * (its path names no project of its own), the restore here, as a change
+   * to the workspace.
    */
   async function tenantAdminOnly(c: Context<AppEnv>, next: () => Promise<void>) {
     const tenant = ref('tenant', c.get('tenantId') as unknown as string);

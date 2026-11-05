@@ -63296,7 +63296,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the workspace (`permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "No `admin` on the workspace (`permission-denied`). A key or session limited to a project is refused before that, `key-project-mismatch` (`details.keyProjectId`), as on any path under `/v1/projects/` that is not its own project's.",
             "content": {
               "application/json": {
                 "schema": {
