@@ -17,23 +17,26 @@ locals {
   # (kp-t<16 hex>-), 20 characters for any name_prefix. With the install's
   # name in the hash, two installations in one project never share a
   # tenant's account. Keyed by the id in lower case: the runtime matches ids
-  # in any case, so an edit to an id's case replaces nothing.
+  # in any case, so an edit to an id's case replaces nothing. Distinct, so an
+  # id repeated in another case is refused by pack_tenants' own check alone.
   tenant_keys = local.per_tenant ? {
-    for id in var.pack_tenants : lower(id) => "kp-t${substr(sha256("${var.name_prefix}/${lower(id)}"), 0, 16)}"
+    for id in distinct([for i in var.pack_tenants : lower(i)]) : id => "kp-t${substr(sha256("${var.name_prefix}/${id}"), 0, 16)}"
   } : {}
 
   # Built as strings, as the pack account's is in the Job's env: each grant's
   # member is known at plan. So each grant names the accounts in depends_on.
   tenant_accounts = { for id, key in local.tenant_keys : id => "${key}@${var.project_id}.iam.gserviceaccount.com" }
 
-  # The pack_secret_readers secrets each tenant reads, "<secret>|<tenant>".
+  # The pack_secret_readers secrets each tenant reads, "<secret>|<tenant>",
+  # once for a tenant an entry lists twice. A tenant not in pack_tenants gets
+  # none: the orchestrator's check refuses it.
   tenant_cloud_secrets = local.per_tenant ? {
     for pair in flatten([
       for s in var.pack_secret_readers : [
-        for id in coalesce(s.tenants, []) : {
+        for id in distinct([for i in coalesce(s.tenants, []) : lower(i)]) : {
           secret = "projects/${coalesce(s.project, var.project_id)}/secrets/${s.secret}"
-          tenant = lower(id)
-        }
+          tenant = id
+        } if contains(keys(local.tenant_keys), id)
       ]
     ]) : "${pair.secret}|${pair.tenant}" => pair
   } : {}

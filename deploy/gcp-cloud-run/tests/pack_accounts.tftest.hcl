@@ -210,6 +210,23 @@ run "a_listed_secret_binds_only_its_tenants" {
   }
 }
 
+run "a_tenant_an_entry_lists_twice_reads_it_once" {
+  command = plan
+
+  variables {
+    pack_secret_readers = [
+      { secret = "acme-orders-key", tenants = ["8d3e5f1a-2b4c-4d6e-8f01-23456789abcd", "8D3E5F1A-2B4C-4D6E-8F01-23456789ABCD"] },
+    ]
+  }
+
+  assert {
+    condition = toset(keys(google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets)) == toset([
+      "projects/acme-app-dev/secrets/acme-orders-key|8d3e5f1a-2b4c-4d6e-8f01-23456789abcd",
+    ])
+    error_message = "A tenant an entry lists twice, in any case, reads the secret through one grant."
+  }
+}
+
 run "the_tenants_share_one_cloud_sql_condition" {
   command = plan
 
@@ -412,6 +429,7 @@ run "a_mode_that_isnt_known_is_refused" {
 
   variables {
     pack_accounts = "per-project"
+    pack_tenants  = []
   }
   expect_failures = [var.pack_accounts]
 }
