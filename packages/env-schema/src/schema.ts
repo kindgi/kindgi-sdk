@@ -291,7 +291,8 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   },
   {
     name: 'KINDGI_TENANT_ID',
-    description: 'Tenant UUID to seed / reuse. Default: fresh UUID printed at boot.',
+    description:
+      "The tenant the runtime serves, a uuid in lower case (`uuidgen | tr 'A-Z' 'a-z'`). The first start seeds it, and every later start with the same id serves that tenant again. Left unset, a runtime serving one tenant seeds a new one at every start, without the last one's data, and prints its id, so set it on any runtime you keep. Give each runtime its own id. A runtime serving many (`KINDGI_TENANCY=multi`) refuses it.",
     example: '00000000-0000-4000-8000-000000000001',
     required: false,
     appliesTo: appliesToServer,

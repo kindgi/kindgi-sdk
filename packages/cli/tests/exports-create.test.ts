@@ -159,6 +159,7 @@ async function manifest(): Promise<{
     }
   >;
   finishedAt?: string;
+  runtime?: { version: string };
   tenant: { id: string; state?: string };
   server: string;
   consistency: string;
@@ -832,6 +833,66 @@ describe('kindgi exports create', () => {
     expect(reads).toBeGreaterThan(2);
     expect(thawed.tenant.state).toBe('active');
     expect(thawed.consistency).toMatch(/^Records can change while the export reads them/);
+  });
+
+  test("the manifest names the runtime's version only when every read found the same one", async () => {
+    let version = '0.3.0';
+    let flowsDown = false;
+    const runtime = () => json(200, { version, tenancy: 'single', development: false });
+    const answers: Record<string, Answer> = {
+      '/v1/runtime': runtime,
+      '/v1/flows': () =>
+        flowsDown
+          ? json(500, { error: { code: 'internal', message: 'Oops' } })
+          : json(200, { data: [], hasMore: false }),
+    };
+    expect((await cli(server(answers))).exitCode).toBe(0);
+    // Its version only: the runtime's tenancy isn't the workspace's to keep.
+    expect((await manifest()).runtime).toEqual({ version: '0.3.0' });
+
+    // A runtime that doesn't serve it.
+    await rm(out, { recursive: true, force: true });
+    expect((await cli(server())).exitCode).toBe(0);
+    expect(await manifest()).not.toHaveProperty('runtime');
+
+    // Stopped, then finished on the same runtime.
+    await rm(out, { recursive: true, force: true });
+    flowsDown = true;
+    expect((await cli(server(answers))).exitCode).toBe(1);
+    expect((await manifest()).runtime).toEqual({ version: '0.3.0' });
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    expect((await manifest()).runtime).toEqual({ version: '0.3.0' });
+
+    // Upgraded between a run and its --resume.
+    await rm(out, { recursive: true, force: true });
+    flowsDown = true;
+    expect((await cli(server(answers))).exitCode).toBe(1);
+    version = '0.3.1';
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    expect(await manifest()).not.toHaveProperty('runtime');
+
+    // Stopped where no version was read, then finished where one is.
+    await rm(out, { recursive: true, force: true });
+    flowsDown = true;
+    expect((await cli(server({ '/v1/flows': answers['/v1/flows'] as Answer }))).exitCode).toBe(1);
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    expect(await manifest()).not.toHaveProperty('runtime');
+
+    // Upgraded while one run read the workspace.
+    let reads = 0;
+    answers['/v1/runtime'] = () =>
+      json(200, {
+        version: reads++ === 0 ? '0.3.1' : '0.3.2',
+        tenancy: 'single',
+        development: false,
+      });
+    await rm(out, { recursive: true, force: true });
+    expect((await cli(server(answers))).exitCode).toBe(0);
+    expect(reads).toBe(2);
+    expect(await manifest()).not.toHaveProperty('runtime');
   });
 
   test('a kind skipped on a later run leaves none of what a run that stopped part way wrote of it', async () => {
