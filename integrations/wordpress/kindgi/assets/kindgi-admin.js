@@ -33,6 +33,8 @@
     muted,
     empty,
     stepWords,
+    answerText,
+    callsSoFar,
     askUrl,
     approvalUrl,
     runUrl,
@@ -1170,10 +1172,12 @@
 
   /**
    * A tool call's step (`stepWords`): what the agent did with the tool, and
-   * why a call that ran nothing didn't. A call that ran has its answer
-   * folded under it, for whoever wants to see what the agent saw.
+   * why a call that ran nothing didn't. In the conversation, a call that
+   * ran has its answer folded under it, for whoever wants to see what the
+   * agent saw; a running turn's list (`folded` false) leaves that to the
+   * conversation, once the turn ends.
    */
-  function stepOf(tool, callId, answer) {
+  function stepOf(tool, callId, answer, { folded = true } = {}) {
     const words = stepWords(tool, answer);
     return el(
       'li',
@@ -1184,17 +1188,35 @@
       },
       el('span', {}, words.line),
       words.why === null ? null : el('span', { className: 'kindgi-step-why' }, words.why),
-      words.ran ? answerOf(answer) : null,
+      words.ran && folded ? answerOf(answer) : null,
     );
   }
 
-  /** What a tool answered, folded: its raw result. */
+  /**
+   * A running turn's line for a call (`stepOf`, its answer not folded in),
+   * kept by the call's id (`lines`): the same line until the call's answer
+   * comes, then a new one in its place; a new call's line, not yet listed.
+   * Lines change only when their call does, so the live region reads each
+   * change once.
+   */
+  function lineOf(lines, call, index) {
+    const key = call.callId ?? `#${index}`;
+    const answered = call.answer !== undefined;
+    const had = lines.get(key);
+    if (had !== undefined && (had.answered || !answered)) return had.li;
+    const li = stepOf(call.toolId, call.callId, call.answer, { folded: false });
+    had?.li.replaceWith(li);
+    lines.set(key, { li, answered });
+    return li;
+  }
+
+  /** What a tool answered, folded: words as they are, anything else as JSON (`answerText`). */
   const answerOf = (m) =>
     el(
       'details',
       { className: 'kindgi-answer' },
       el('summary', {}, __('What it answered', 'kindgi')),
-      el('pre', {}, JSON.stringify(m.result, null, 2)),
+      el('pre', {}, answerText(m.result)),
     );
 
   /** The tools a message calls, a step each: the answer to its call takes its place when it comes. */
@@ -1328,6 +1350,8 @@
   async function follow(runId, progress, view) {
     let since = 0;
     let delay = pollMs;
+    let calls = [];
+    const lines = new Map();
     const steps = el('ul', { className: 'kindgi-steps' });
     const waits = el('div');
     const shown = new Map();
@@ -1351,11 +1375,12 @@
       const run = await api(`/runs/${encodeURIComponent(runId)}?since=${since}`);
       if (view !== state.view) return null;
       since = run.since;
+      calls = callsSoFar(calls, run.steps, run.answers);
       steps.append(
-        ...run.steps.map((step) =>
-          // Its answer isn't in the journal's steps: the conversation shows it once the turn ends.
-          el('li', {}, stepWords(step.toolId).line),
-        ),
+        // New calls' lines only: an answer replaces its own call's line in place (`lineOf`).
+        ...calls
+          .map((call, index) => lineOf(lines, call, index))
+          .filter((li) => li.parentNode !== steps),
       );
       showWaits(waits, shown, run.waitingFor);
       // Waiting for a person: the approval's box says so, not the dots.
