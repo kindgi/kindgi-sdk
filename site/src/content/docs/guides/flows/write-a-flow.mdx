@@ -605,7 +605,10 @@ object ProcessOrder {
   [Pass data between steps](../pass-data-between-steps/).
 
 The shape is checked when the file loads: ids, edges between steps that
-exist, `$start` and `$end`, no cycles. That the tools and the agent exist is
+exist, `$start` and `$end`, no cycles, and no tool step whose `ref` is a
+tool built into Kindgi (its id starts `kindgi_`, such as `kindgi_remember`):
+an agent gets those from its declaration or its run, so a flow uses one
+through an agent step. That the tools and the agent exist is
 checked when a run starts: a run of a flow that names a tool your workspace
 doesn't have is refused before anything runs.
 

@@ -32,7 +32,8 @@ WhatsApp Business app. On SMS, the number keeps opt-outs (STOP and START,
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)). The
   CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
-  ([Install](../../../start/install/)).
+  ([Install](../../../start/install/)); the trigger commands run in your
+  pack's directory, as `pnpm exec kindgi`.
 
 ## 1. Put the WhatsApp number on Telnyx
 
@@ -200,7 +201,8 @@ another agent, the next text starts a new one.
 
 **A flow** gets `{ text, thread }`. `text` is
 `{ from, channel, body, receivedAt }`, with `channel` `whatsapp` or `sms`,
-and `thread` is `{ connectionId, channel, sender }`.
+and `thread` is `{ connectionId, channel, sender }`. Its agent steps
+answer: each gets the two tools below, which a tool step can't name.
 
 ## Answering
 
@@ -331,13 +333,16 @@ The conversations and the opt-outs stay after a disconnect.
 If Telnyx refuses the key, such as after it's deleted in the Portal, the
 connection needs reconnecting, with the reason `credential-refused`.
 Until it's reconnected, its texts start no run and count as unanswered,
-and opt-outs are still kept. Store a working key in the same secret, as a new version of it, then
-connect again:
+and opt-outs are still kept. Store a working key in the same secret, as a
+new version of it, then connect again:
 
 ```sh
 npx --yes @kindgi/cli@0.4 secrets set ACME_TELNYX_API_KEY --env=production --scope=tenant --write-mode=add-version
 npx --yes @kindgi/cli@0.4 connections connect texts --for-company --reconnect=+15551234567 --number=+15551234567 --permissions=texts.reply
 ```
+
+`--reconnect` names the connection by its id or its name: the number,
+unless you gave `--label` when you connected.
 
 To change the key without a gap, create the new key in the Portal, store
 it in the secret right away, and only then delete the old one.
