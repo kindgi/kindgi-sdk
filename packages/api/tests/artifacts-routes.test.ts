@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
@@ -733,8 +734,12 @@ describe('the upload cap', () => {
 describe('the artifacts routes go in 0.8.0', () => {
   test('every answer links to what replaces them, an error too; other routes have no link', async () => {
     const h = harness();
-    const link =
-      '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+    // On the release line's docs, @kindgi/sdk's version's, which a version change moves.
+    const sdk = new URL('../../sdk/package.json', import.meta.url);
+    const [major, minor] = (
+      JSON.parse(readFileSync(sdk, 'utf8')) as { version: string }
+    ).version.split('.');
+    const link = `<https://docs.kindgi.com/v${major}.${minor}/concepts/files-and-versions/#what-080-removes>; rel="deprecation"`;
     const made = await h.upload('alice');
     expect([made.status, made.headers.link]).toEqual([201, link]);
     const blobId = made.body.blobId as string;
