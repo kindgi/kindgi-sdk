@@ -13,6 +13,7 @@ import type {
   EnvBinding,
   EnvCloudSecretBinding,
   EnvCloudSecretRecord,
+  EnvDeleteOutcome,
   EnvRecord,
   EnvSetOutcome,
 } from '../env-binding.js';
@@ -409,12 +410,28 @@ export function envRouter(
       );
     }
 
-    const outcome = await envBinding.delete({
-      scope: scopeResult.scope,
-      envName: envNameResult.envName,
-      name,
-    });
-    // Only a delete that removed something is recorded.
+    let outcome: EnvDeleteOutcome;
+    try {
+      outcome = await envBinding.delete({
+        scope: scopeResult.scope,
+        envName: envNameResult.envName,
+        name,
+      });
+    } catch (err) {
+      // A delete that throws (its storage failed) is recorded as failed,
+      // with what the error handler answers it, and the throw goes on to it:
+      // the answer stays the 500, and the record never holds the error.
+      await auditWrite(c, auditEvents, {
+        kind: 'env-deleted',
+        scope: scopeResult.scope,
+        envName: envNameResult.envName,
+        name,
+        outcome: 'failed',
+        errorCode: 'internal-server-error',
+      });
+      throw err;
+    }
+    // Of the deletes that answer, only one that removed something is recorded.
     if (outcome.deleted) {
       await auditWrite(c, auditEvents, {
         kind: 'env-deleted',
