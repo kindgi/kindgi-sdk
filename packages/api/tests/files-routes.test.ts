@@ -840,8 +840,11 @@ describe('someone who may only run the project reaches their own files', () => {
     });
     if (mine.kind === 'err' || runs.kind === 'err' || daves.kind === 'err') throw new Error('seed');
     for (const made of [mine.value, runs.value]) {
-      const path = `/v1/files/${made.version.fileId}/versions/latest/content`;
-      expect((await h.call('carol', 'GET', path)).status).toBe(200);
+      // Latest, and the version by its number, as a download of one names it.
+      for (const selector of ['latest', made.version.version]) {
+        const path = `/v1/files/${made.version.fileId}/versions/${selector}/content`;
+        expect((await h.call('carol', 'GET', path)).status, path).toBe(200);
+      }
     }
     const other = await h.call('carol', 'GET', `/v1/files/${daves.value.version.fileId}`);
     expect([other.status, other.json().error.code]).toEqual([404, 'file-not-found']);
