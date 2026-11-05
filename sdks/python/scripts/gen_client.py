@@ -20,7 +20,10 @@ repository). Two files are written, both generated — never edit them:
   operation id `approvals.reviewers.list` becomes
   `client.approvals.reviewers.list(...)`: path parameters positional, query
   and header parameters keyword-only, a JSON body as a model or a mapping (or
-  its fields as keywords), the success response parsed into its model.
+  its fields as keywords), the success response parsed into its model. A
+  deprecated operation's method warns (`DeprecationWarning`) with its
+  description's first paragraph, which says what to use instead; generation
+  fails for one without a description.
 
 `scripts/model_names.json`, written beside them, holds where each model sits:
 a component's own model at the component, any other at the fields that lead
@@ -114,6 +117,9 @@ class Operation:
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
     responses: dict[int, str] = field(default_factory=dict)
     follow: bool = False  # a FOLLOWS method: `_follow`, not `_stream`
+    # A deprecated operation's note: its description's first paragraph, which
+    # says what to use instead. The method warns with it. None otherwise.
+    deprecated: str | None = None
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -300,6 +306,17 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 if responses:
                     assert response is not None
                     responses = {status: response, **responses}
+            deprecated = None
+            if op.get("deprecated"):
+                # Its description opens with what to use instead, which the
+                # Java client's `@deprecated` says too.
+                note = op.get("description", "").strip().split("\n\n")[0]
+                if not note:
+                    raise SystemExit(
+                        f"gen_client: {op_id} is deprecated, and its description doesn't open"
+                        " with what to use instead"
+                    )
+                deprecated = " ".join(note.split())
             ops.append(
                 Operation(
                     id=op_id,
@@ -314,6 +331,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     response_kind=response_kind,
                     status=status,
                     responses=responses,
+                    deprecated=deprecated,
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
@@ -453,8 +471,17 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
             f"{'Async' if asynchronous else ''}{child.class_name}(client)"
         )
     for op in node.operations:
-        out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
+        out += ["", signature(op, asynchronous), docstring(op, "        ")]
+        if op.deprecated is not None:
+            out.append(warning(op))
+        out.append(call(op, asynchronous))
     return out
+
+
+def warning(op: Operation) -> str:
+    """A deprecated operation's warning, at the caller's line (`stacklevel=2`)."""
+    message = f"client.{snake_path(op.id)} is deprecated. {op.deprecated}"
+    return f"        warnings.warn({message!r}, DeprecationWarning, stacklevel=2)"
 
 
 def idempotent(op: Operation) -> str:
@@ -466,6 +493,7 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         HEADER,
         "from __future__ import annotations",
         "",
+        *(["import warnings"] if any(op.deprecated is not None for op in ops) else []),
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
         "from typing import Any, Literal, cast",
         "from uuid import UUID",

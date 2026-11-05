@@ -1,19 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""`scripts/gen_client.py`'s model names, on a small OpenAPI document of its own."""
+"""`scripts/gen_client.py`'s model names, and its deprecated methods, on a small OpenAPI
+document of its own."""
 
 from __future__ import annotations
 
 import ast
+import asyncio
 import copy
 import importlib.util
 import json
 import re
 import shutil
 import sys
+import warnings
 from functools import reduce
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -694,3 +698,109 @@ def test_a_union_held_apart_by_two_fields_fails_generation(
     with pytest.raises(SystemExit, match="held apart by more than one field") as failed:
         generate(tmp_path, PLANS, **options)
     assert line in str(failed.value).splitlines()
+
+
+def widgets(
+    description: str | None = "Use `gadgets.list`. Removed in 2.0.0.\n\nLists widgets.",
+) -> dict[str, Any]:
+    """An API whose `widgets.list` is deprecated (with `description`, or none), beside
+    `gadgets.list`, which isn't."""
+    listed = {"204": {"description": "Listed."}}
+    deprecated: dict[str, Any] = {
+        "operationId": "widgets.list",
+        "deprecated": True,
+        "responses": listed,
+    }
+    if description is not None:
+        deprecated["description"] = description
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "acme", "version": "1.0.0"},
+        "paths": {
+            "/v1/widgets": {"get": deprecated},
+            "/v1/gadgets": {"get": {"operationId": "gadgets.list", "responses": listed}},
+        },
+        "components": {"schemas": {}},
+    }
+
+
+def resources(doc: dict[str, Any]) -> str:
+    _, ops = gen.operations(doc)
+    return gen.render_resources(gen.tree(ops), ops)
+
+
+def method(source: str, resource: str, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    module = ast.parse(source)
+    owner = next(n for n in module.body if isinstance(n, ast.ClassDef) and n.name == resource)
+    return next(
+        n
+        for n in owner.body
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == name
+    )
+
+
+def defined(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
+    """The generated method on its own, its globals the module's that it uses."""
+    module = ast.Module(
+        body=[*ast.parse("from __future__ import annotations").body, fn], type_ignores=[]
+    )
+    scope: dict[str, Any] = {"warnings": warnings, "_OPERATIONS": {"widgets.list": "widgets.list"}}
+    exec(compile(ast.fix_missing_locations(module), "<generated>", "exec"), scope)
+    return scope[fn.name]
+
+
+def test_a_deprecated_method_warns_at_its_caller_with_its_descriptions_note() -> None:
+    source = resources(widgets())
+    sent: list[str] = []
+
+    def request(op: str, **_: Any) -> None:
+        sent.append(op)
+
+    async def sent_async(op: str, **_: Any) -> None:
+        sent.append(op)
+
+    sync = defined(method(source, "WidgetsResource", "list"))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        sync(SimpleNamespace(_client=SimpleNamespace(_request=request)))
+    asynchronous = defined(method(source, "AsyncWidgetsResource", "list"))
+
+    async def caller() -> None:
+        await asynchronous(SimpleNamespace(_client=SimpleNamespace(_request=sent_async)))
+
+    with warnings.catch_warnings(record=True) as caught_async:
+        warnings.simplefilter("always")
+        asyncio.run(caller())
+    for got in (caught, caught_async):
+        assert [(w.category, str(w.message), w.filename) for w in got] == [
+            (
+                DeprecationWarning,
+                "client.widgets.list is deprecated. Use `gadgets.list`. Removed in 2.0.0.",
+                __file__,
+            )
+        ]
+    # It still makes the call.
+    assert sent == ["widgets.list", "widgets.list"]
+
+
+def test_a_method_not_deprecated_doesnt_warn_and_without_one_nothing_imports_warnings() -> None:
+    source = resources(widgets())
+    for resource in ("GadgetsResource", "AsyncGadgetsResource"):
+        assert "warnings" not in ast.unparse(method(source, resource, "list"))
+    assert "import warnings" in source.splitlines()
+    alone = widgets()
+    del alone["paths"]["/v1/widgets"]
+    assert "warnings" not in resources(alone)
+
+
+def test_a_deprecated_notes_lines_join_into_one_sentence() -> None:
+    source = resources(widgets("Use `gadgets.list`.\nRemoved in 2.0.0.\n\nLists widgets."))
+    assert "'client.widgets.list is deprecated. Use `gadgets.list`. Removed in 2.0.0.'" in (
+        ast.unparse(method(source, "WidgetsResource", "list"))
+    )
+
+
+@pytest.mark.parametrize("description", [None, "", " \n "])
+def test_a_deprecated_operation_with_no_note_fails_generation(description: str | None) -> None:
+    with pytest.raises(SystemExit, match=r"widgets\.list is deprecated, and its description"):
+        resources(widgets(description))
