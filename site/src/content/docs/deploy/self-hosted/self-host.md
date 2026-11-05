@@ -73,9 +73,9 @@ the registry on your machine's port 5050:
 ```sh
 docker network create kindgi
 
-export DB_PASSWORD="$(openssl rand -hex 24)"
-docker run -d --name kindgi-db --network kindgi \
-  -e POSTGRES_USER=kindgi -e POSTGRES_PASSWORD="$DB_PASSWORD" -e POSTGRES_DB=kindgi \
+(umask 077 && echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > db.env)
+docker run -d --name kindgi-db --network kindgi --env-file db.env \
+  -e POSTGRES_USER=kindgi -e POSTGRES_DB=kindgi \
   -v kindgi-db:/var/lib/postgresql/data \
   pgvector/pgvector:pg16
 
@@ -84,12 +84,14 @@ docker run -d --name kindgi-registry -p 127.0.0.1:5050:5000 registry:2
 
 - **`docker network create kindgi`** makes the network the containers
   share. It prints the network's id.
-- **`DB_PASSWORD`** is a random password for Postgres, kept in your shell
-  for step 5.
+- **`db.env`** holds a random password for Postgres. `umask 077` makes the
+  file yours alone from the moment it's written. `--env-file db.env` gives
+  the container the password, so it's never on a command line. Step 5 uses
+  it.
 - **`-d`** runs a container in the background, **`--name`** names it, and
   **`--network kindgi`** puts it on the network. Each `docker run -d`
   prints the new container's id.
-- **`-e`** sets the database's user, password and name.
+- **`-e`** sets the database's user and name.
   **`-v kindgi-db:/var/lib/postgresql/data`** keeps the data in a volume,
   `kindgi-db`.
 - **`-p 127.0.0.1:5050:5000`** publishes the registry on your machine's port
@@ -212,8 +214,7 @@ With `--push`, as here, the image is for `linux/amd64`, and on Apple silicon it 
 Your tools' code runs in the pack's own container. The runtime calls it with a token both sides share:
 
 ```sh
-echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -hex 32)" > pack.env
-chmod 600 pack.env
+(umask 077 && echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -hex 32)" > pack.env)
 
 docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
   registry.localhost:5050/acme-pack@sha256:<the digest kindgi build printed>
@@ -270,8 +271,7 @@ KINDGI_LOG_FORMAT=pretty
 KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 ```
 
-- **`<DB_PASSWORD>`** is the password from step 2: `echo "$DB_PASSWORD"`
-  prints it.
+- **`<DB_PASSWORD>`** is `db.env`'s `POSTGRES_PASSWORD`.
 - **`<your tenant id>`** is the id `uuidgen` printed. The runtime takes it
   in lower case. If an earlier runtime ran with it in upper case, the start
   says what to do: [A tenant id given in upper case](../serve-many-tenants/#a-tenant-id-given-in-upper-case).
