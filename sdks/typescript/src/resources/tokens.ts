@@ -107,6 +107,7 @@ function fromWire(wire: ApiTokenWire): ApiToken {
     ...(wire.projectId !== undefined && {
       projectId: wire.projectId as unknown as import('@kindgi/types').ProjectId,
     }),
+    ...(wire.readOnly === true && { readOnly: true as const }),
     ...(wire.createdBy !== undefined && { createdBy: wire.createdBy }),
     createdAt: wire.createdAt as unknown as Timestamp,
     ...(wire.lastUsedAt !== undefined && { lastUsedAt: wire.lastUsedAt as unknown as Timestamp }),
@@ -125,6 +126,7 @@ export function makeTokensClient(transport: Transport): TokensClient {
       if (spec?.label !== undefined) body.label = spec.label;
       if (spec?.expiresAt !== undefined) body.expiresAt = spec.expiresAt as unknown as string;
       if (spec?.projectId !== undefined) body.projectId = spec.projectId as unknown as string;
+      if (spec?.readOnly !== undefined) body.readOnly = spec.readOnly;
       const wire = await transport.request<MintTokenResult>({
         method: 'POST',
         path: '/v1/tokens',

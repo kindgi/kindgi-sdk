@@ -2440,10 +2440,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`for` names a project's own service account, which has no keys (`service-account-project-owned`). Or Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '403': ErrorResponse(
-        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
+        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); a key that only reads, which mints no keys (`read-only-key`).",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+      ),
+      '501': ErrorResponse(
+        "`readOnly` asked of a runtime whose key store can't keep it (`read-only-unsupported`): no key was made.",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
@@ -2511,7 +2514,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revoked.', schema: ref('RevokeTokenResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        'A caller with no keys of its own that is not a tenant admin, or a key that only reads, which revokes no keys (`read-only-key`).',
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
@@ -7543,7 +7548,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.tokenSignIn',
     summary: 'Sign in to the console with an API token',
     description:
-      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, one project, or reads only), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
     tags: ['auth'],
     security: 'bearer',
     responses: {

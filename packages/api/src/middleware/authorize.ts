@@ -429,12 +429,18 @@ function limitedOne(c: Context<AppEnv>): string {
  *   an org or a team, reading included: its person's tenant membership
  *   reads the tenant's settings, which such a session must not reach.
  *   A key keeps today's rule, since its holder is its principal.
+ * - A key that only reads takes no action but `read`, on anything. Its
+ *   requests but reads are refused before any route
+ *   (`refuseWritesForReadOnlyKey`); this holds it wherever a route asks.
  */
 function keyCeilingDeny(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
+  if (c.get('tokenReadOnly') === true && action !== 'read') {
+    return keyDecision(action, resource, 'the API key can only read');
+  }
   if (action === 'admin' && resource.type === 'tenant' && c.get('tokenRole') === 'member') {
     return keyDecision(
       action,

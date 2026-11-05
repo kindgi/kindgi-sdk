@@ -2362,6 +2362,8 @@ export interface ApiToken {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /** `true`: the key only reads (`ApiTokenSpec.readOnly`). Absent on any other key. */
+  readonly readOnly?: true;
   /** Who minted it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
@@ -2391,6 +2393,13 @@ export interface ApiTokenSpec {
    * refused (`key-project-mismatch`).
    */
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /**
+   * `true`: the key only reads. Its every request but a `GET` or a `HEAD`
+   * is refused (`read-only-key`), apart from a few reads that are posts,
+   * and it mints and revokes no keys. A server whose key store can't keep
+   * the limit makes no key (`read-only-unsupported`).
+   */
+  readonly readOnly?: boolean;
 }
 
 /**

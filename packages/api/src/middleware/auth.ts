@@ -83,6 +83,12 @@ export interface TokenResolution {
    */
   readonly tokenProjectId?: string;
   /**
+   * True for an API key that only reads (`readOnly` at mint): its
+   * requests but `GET` and `HEAD` are refused, `read-only-key`, apart from
+   * a few reads that are posts (`key-read-only.ts`). Read for keys only.
+   */
+  readonly tokenReadOnly?: boolean;
+  /**
    * Set when the token is the deployment's operator's, acting in no tenant:
    * a system key (`kgi_sy_…`), or the deployment's own token on a runtime
    * serving many tenants. Its scopes are its `capabilities`. The middleware
@@ -441,6 +447,9 @@ export function bearerAuthMiddleware(
     }
     if (resolution.tokenProjectId !== undefined) {
       c.set('tokenProjectId', resolution.tokenProjectId);
+    }
+    if (resolution.tokenReadOnly === true && !isSessionToken) {
+      c.set('tokenReadOnly', true);
     }
     if (resolution.expiresAt !== undefined && !isSessionToken) {
       c.set('tokenExpiresAt', resolution.expiresAt);

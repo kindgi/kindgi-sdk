@@ -56,6 +56,8 @@ export interface AppEnv {
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */
     tokenProjectId?: string;
+    /** True for an API key that only reads (`key-read-only.ts`). */
+    tokenReadOnly?: boolean;
     /** A write's body as it came, read once by `readBodyOnce`. */
     requestBody?: Uint8Array;
     /** When the API token the request came with expires, if it does. */

@@ -330,14 +330,14 @@ describe('GET /v1/identity/me/permissions', () => {
     const r = await harness(store)(ALICE_MEMBER_KEY);
     expect(r.status).toBe(200);
     expect(r.body.tenant).toEqual({ admin: false });
-    expect(r.body.key).toEqual({ tokenId: 'k-am', role: 'member' });
+    expect(r.body.key).toEqual({ tokenId: 'k-am', role: 'member', readOnly: false });
     // Below the tenant, the principal's roles hold.
     expect((r.body.projects as { role: string }[])[0]?.role).toBe('admin');
   });
 
   test('a key limited to a project sees it alone, and administers no org or team', async () => {
     const r = await harness(store)(BOB_PROJECT_KEY);
-    expect(r.body.key).toEqual({ tokenId: 'k-bp', role: 'admin', projectId: P1 });
+    expect(r.body.key).toEqual({ tokenId: 'k-bp', role: 'admin', projectId: P1, readOnly: false });
     expect((r.body.projects as { projectId: string }[]).map((p) => p.projectId)).toEqual([P1]);
     expect(r.body.orgs).toEqual([{ orgId: 'o1', name: 'Acme', role: 'member' }]);
     expect(r.body.teams).toEqual([{ teamId: 't1', name: 'Support', role: 'member' }]);
