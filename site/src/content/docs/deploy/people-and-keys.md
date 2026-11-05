@@ -465,7 +465,9 @@ Make longer-lived keys with one of those, such as the 90-day key in
   only for a tenant admin. For anyone else, it's refused with
   `403 role-exceeds-principal`.
 - **`--project=<project-id>`** limits the key to one project. A request that
-  names another project is refused with `403 key-project-mismatch`. A
+  names another project is refused with `403 key-project-mismatch`. The key
+  reads the default project (`GET /v1/projects/default`) only when it's that
+  project; otherwise it's refused the same way, naming `default`. A
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
