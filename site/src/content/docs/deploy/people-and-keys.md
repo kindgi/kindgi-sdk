@@ -425,8 +425,8 @@ workspace, so it's no workspace's admin. A workspace's first admin is the
 `firstAdmin` it was created with, or one that `kindgi-runtime tenants
 make-admin` makes ([Create a tenant](../self-hosted/serve-many-tenants/#create-a-tenant)).
 They make the others, as above. Those others hold no capability:
-`kindgi-runtime tenants give-capabilities`, run with the tenant's id, gives
-one the first admin's
+`kindgi-runtime tenants give-capabilities`, run with the workspace's id,
+gives one what a workspace's first admin holds
 ([What only the runtime's token does](#what-only-the-runtimes-token-does)).
 
 ### What only the runtime's token does
