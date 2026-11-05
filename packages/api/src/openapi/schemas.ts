@@ -11225,15 +11225,18 @@ export const SignInEventSchema: JsonSchema = {
         'second-factor-set-up',
         'second-factor-removed',
         'recovery-codes-replaced',
+        'chat-app-connected',
+        'chat-app-refresh-refused',
+        'chat-app-disconnected',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`; `chat-app-connected`, `chat-app-refresh-refused` (with `reason`) and `chat-app-disconnected` (a chat app this person connected, whose renewal was refused, or that they disconnected; `clientId` is the chat app). Never a key or a code.',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
       type: 'string',
       description:
-        'The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.',
+        'The person the event is about: who signed in or out, whose sessions ended, whom a link was for, or whose chat app it was. Absent on a refusal that names no one.',
     },
     method: {
       type: 'string',
@@ -11244,11 +11247,18 @@ export const SignInEventSchema: JsonSchema = {
       type: 'string',
       description: "The client's address, as the runtime trusts it.",
     },
-    reason: { type: 'string', description: 'Why a sign-in was refused, or which limit held.' },
+    reason: {
+      type: 'string',
+      description: "Why a sign-in or a chat app's renewal was refused, or which limit held.",
+    },
     sessionId: { type: 'string' },
     byUserId: {
       type: 'string',
       description: "Who acted, when it isn't `userId`: the admin who ended this person's sessions.",
+    },
+    clientId: {
+      type: 'string',
+      description: 'The chat app, on a `chat-app-*` kind: its client id.',
     },
   },
 };
