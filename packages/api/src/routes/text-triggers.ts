@@ -7,6 +7,7 @@ import type { Context } from 'hono';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
+import { SEND_TEXT_TOOL_ID } from '@kindgi/runtime';
 import type { Cursor, EnvName, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerIdentity, callerRef, isTenantAdmin } from '../caller.js';
@@ -132,7 +133,7 @@ export interface TextTriggersRouterOptions {
  * change to a person's trigger is audited, and its owner told
  * (`ownerNotices`), as for schedules and webhooks.
  * `toolsAllowedUnattended` (`trigger-tools.ts`) is an admin's to set, it
- * never lists `texts.send`, and a new target or connection while it lists
+ * never lists `kindgi_send_text`, and a new target or connection while it lists
  * any must name it again.
  */
 export function textTriggersRouter(
@@ -316,7 +317,7 @@ export function textTriggersRouter(
     const connectionId = config.value.connectionId as string;
     const tools = parseToolsAllowedUnattended(body);
     if (tools.kind === 'err') return bad(c, requestId, tools.message);
-    if (tools.kind === 'ok' && tools.value.includes(SEND_TOOL)) {
+    if (tools.kind === 'ok' && tools.value.includes(SEND_TEXT_TOOL_ID)) {
       return bad(c, requestId, SEND_NEVER_UNATTENDED);
     }
     const projectId = body.projectId;
@@ -353,6 +354,7 @@ export function textTriggersRouter(
         triggerScope(tenantId, project),
         target.value,
         tools.value,
+        'text',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -500,7 +502,7 @@ export function textTriggersRouter(
     if (config.kind === 'err') return bad(c, requestId, config.message);
     const tools = parseToolsAllowedUnattended(body);
     if (tools.kind === 'err') return bad(c, requestId, tools.message);
-    if (tools.kind === 'ok' && tools.value.includes(SEND_TOOL)) {
+    if (tools.kind === 'ok' && tools.value.includes(SEND_TEXT_TOOL_ID)) {
       return bad(c, requestId, SEND_NEVER_UNATTENDED);
     }
 
@@ -551,6 +553,7 @@ export function textTriggersRouter(
         triggerScope(tenantId, project),
         nextTarget,
         tools.value,
+        'text',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -791,11 +794,8 @@ const OWNER_MOVES_BY_TAKE_OVER =
 /** The app of the company connection a text trigger answers: one connection per number. */
 const TEXTS_APP = 'texts';
 
-/** The tool that sends a text: its calls always wait for a person's yes in a text trigger's runs. */
-const SEND_TOOL = 'texts.send';
-
 const SEND_NEVER_UNATTENDED =
-  "`toolsAllowedUnattended` can't list `texts.send`: sending a text is never allowed unattended, so each one waits for a person's yes";
+  "`toolsAllowedUnattended` can't list `kindgi_send_text`: a text that isn't a reply always waits for a person's yes";
 
 /** Where a text trigger names its connection, as a refusal's `details.field` says. */
 const CONNECTION_FIELD = 'config.connectionId';

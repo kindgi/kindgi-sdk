@@ -142,7 +142,8 @@ export interface LeafNode {
   readonly kind: 'tool' | 'agent';
   /**
    * Reference to the concrete implementation. Interpretation depends on
-   * `kind` and is opaque to the flow package.
+   * `kind`. A tool node's `ref` can't name a tool built into Kindgi
+   * (`kindgi_<verb>`): `loadFlow` refuses it (`reserved-id`).
    */
   readonly ref: string;
   readonly config?: Readonly<Record<string, unknown>>;

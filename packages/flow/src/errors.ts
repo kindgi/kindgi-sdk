@@ -63,6 +63,10 @@ export interface UnknownNodeReferenceError {
   readonly referencedId: string;
 }
 
+/**
+ * A node id is a flow sentinel (`$start`, `$end`, `$loop-start`, `$loop-end`),
+ * or a tool node's `ref` names a tool built into Kindgi (`kindgi_<verb>`).
+ */
 export interface ReservedIdError {
   readonly code: 'reserved-id';
   readonly message: string;
