@@ -43,13 +43,15 @@ MAX_STORED_FILES_PER_CALL: Final = 10
 """The most files one call may store: the call's later stores answer `limit`."""
 
 MAX_STORED_FILE_BYTES: Final = 10_000_000
-"""The most bytes a stored file may have: the largest any type allows (a PDF's 10 MB). A store
-of more answers `size` without sending its bytes."""
+"""The most bytes a file a tool stores or updates may have, whatever its type: 10 MB, the most any
+type a model is shown allows (a PDF's). A store or update of more answers `size` without sending
+its bytes."""
 
 NotStoredReason = Literal["type", "size", "limit", "storage"]
-"""Why a store kept nothing: `type` (the bytes aren't a type a model is shown, or not the type
-they claim), `size` (over the type's limit), `limit` (the call has stored
-`MAX_STORED_FILES_PER_CALL` files), `storage` (the workspace's storage is full)."""
+"""Why a store kept nothing: `type` (the bytes aren't the type they claim, or they're a type no
+model is shown and the run's agent has no tool that reads files), `size` (over the type's limit),
+`limit` (the call has stored `MAX_STORED_FILES_PER_CALL` files), `storage` (the workspace's
+storage is full)."""
 
 NotReadReason = Literal["rule", "gone", "changed", "size"]
 """Why a read answered no bytes: `rule` (the call's run may not be shown a file of that id),
@@ -58,8 +60,10 @@ checked), `size` (over its type's limit)."""
 
 NotUpdatedReason = Literal["rule", "denied", "gone", "type", "size", "storage"]
 """Why an update added no version: `rule` (the call's run may not be shown a file of that id),
-`denied` (the run may not write where the file is), `gone` (the file is deleted), `type`,
-`size` or `storage`, as a store says them."""
+`denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the
+bytes aren't the type they claim, or they're a type no model is shown and the run's agent has no
+tool that reads files), `size` (over the type's limit, or past what a call may send) or `storage`
+(the workspace's storage is full)."""
 
 _NOT_STORED_REASONS: Final = frozenset(("type", "size", "limit", "storage"))
 _NOT_READ_REASONS: Final = frozenset(("rule", "gone", "changed", "size"))

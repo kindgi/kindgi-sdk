@@ -36,9 +36,9 @@ import type {
 export const MAX_STORED_FILES_PER_CALL = 10;
 
 /**
- * The most bytes a stored file may have: the largest any type allows (a
- * PDF's 10 MB). A pack's store of more answers `size` without sending its
- * bytes.
+ * The most bytes a file a tool stores or updates may have, whatever its
+ * type: 10 MB, the most any type a model is shown allows (a PDF's). A
+ * pack's store or update of more answers `size` without sending its bytes.
  */
 export const MAX_STORED_FILE_BYTES = 10_000_000;
 
@@ -52,10 +52,11 @@ export interface FileToStore {
 }
 
 /**
- * Why a store kept nothing: `type` (the bytes aren't a type a model is
- * shown), `size` (over the type's limit), `limit` (the call has stored
- * `MAX_STORED_FILES_PER_CALL` files), or `storage` (the workspace's storage
- * is full).
+ * Why a store kept nothing: `type` (the bytes aren't the type they claim,
+ * or they're a type no model is shown and the run's agent has no tool that
+ * reads files), `size` (over the type's limit), `limit` (the call has
+ * stored `MAX_STORED_FILES_PER_CALL` files), or `storage` (the workspace's
+ * storage is full).
  */
 export type FileNotStoredReason = Extract<
   FileNotShownReason,

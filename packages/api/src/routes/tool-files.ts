@@ -20,8 +20,9 @@
  *   - `200 { file }`: the stored file, a file value the tool returns in its
  *     result's top-level `files`. The same bytes again in the same call
  *     answer the first file;
- *   - `200 { notStored }`: nothing stored, and why: `type` (not a type a
- *     model is shown, or the bytes aren't the type they claim), `size`
+ *   - `200 { notStored }`: nothing stored, and why: `type` (the bytes
+ *     aren't the type they claim, or they're a type no model is shown and
+ *     the run's agent has no tool that reads files), `size`
  *     (over its type's limit; a body past {@link TOOL_FILE_MAX_BYTES} is
  *     not read to its end), `limit` (the call has stored its most),
  *     `storage` (the tenant's storage is full);

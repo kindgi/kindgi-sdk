@@ -54,8 +54,12 @@ export interface FileBinding {
    * A value that names a `fileId` and `version` (on a runtime that keeps
    * file versions) is admitted only when the record says they're its
    * `artifactId`'s bytes, and the file carries them, from the record; when
-   * it doesn't, the answer is `undefined`. A value that names neither
-   * carries neither, as a value from before file versions.
+   * it doesn't, or the value names only one of them, the answer is
+   * `undefined`. A deleted version, or a version of a deleted file, is
+   * `notShown: 'gone'`, as a deleted file is, while the runtime has a
+   * record of it; with none left (a file from before file versions, once
+   * its record is purged), `undefined`. A value that names neither carries
+   * neither, as a value from before file versions.
    *
    * Without `call`, that's all: the answer is kept, as the turn's input, a
    * tool's result or a message's files. With `call`, it's one model call's

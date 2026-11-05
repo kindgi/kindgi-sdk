@@ -30,9 +30,10 @@ export type FileNotReadReason = (typeof FILE_NOT_READ_REASONS)[number];
 /**
  * Why an update of a file added no version: `rule` (the file isn't one
  * of the run's), `denied` (the run may not write where the file is),
- * `gone` (the file is deleted), `type` (the bytes aren't a type the
- * runtime keeps), `size` (over the type's limit, or past what a call may
- * send), or `storage` (the workspace's storage is full).
+ * `gone` (the file is deleted), `type` (the bytes aren't the type they
+ * claim, or they're a type no model is shown and the run's agent has no
+ * tool that reads files), `size` (over the type's limit, or past what a
+ * call may send), or `storage` (the workspace's storage is full).
  */
 export const FILE_NOT_UPDATED_REASONS = [
   'rule',

@@ -935,6 +935,27 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     ).toBeUndefined();
   });
 
+  test("an agent's files declaration is kept and read back; the file tools' ids are reserved", async () => {
+    const app = appWithMemory(true);
+    const declared = { update: true, create: true };
+    expect(
+      (await publish(app, { ...agentSpec({ id: 'acme.files-kept' }), files: declared })).status,
+    ).toBe(201);
+    const res = await app.request('/v1/agents/acme.files-kept/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { files?: unknown }).files).toEqual(declared);
+    for (const id of ['kindgi_update_file', 'kindgi_create_file']) {
+      const reserved = await publish(app, {
+        ...agentSpec({ id: `acme.reserved-${id.slice(7, 13)}` }),
+        tools: [{ id, version: '1.0.0' }],
+        files: declared,
+      });
+      expect(reserved.status).toBe(400);
+      expect(JSON.stringify(reserved.body)).toContain('a tool built into Kindgi');
+    }
+  });
+
   test("an agent's remember declaration is kept and read back; the built-in id is reserved", async () => {
     const app = appWithMemory(true);
     const declared = { types: ['acme.preference'], scope: 'same-user', keepDays: 14 };
