@@ -8109,7 +8109,8 @@ export const BlobMetaSchema: JsonSchema = {
     version: {
       type: 'integer',
       minimum: 1,
-      description: 'Which version of `fileId` these bytes are. Set with `fileId`.',
+      description:
+        'Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.',
     },
   },
 };

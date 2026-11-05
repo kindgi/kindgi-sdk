@@ -5855,7 +5855,7 @@ class BlobMeta(BaseModel):
     """
     version: Annotated[int | None, Field(ge=1)] = None
     """
-    Which version of `fileId` these bytes are. Set with `fileId`.
+    Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.
     """
 
 
@@ -5916,7 +5916,7 @@ class Datum5(BaseModel):
     """
     version: Annotated[int | None, Field(ge=1)] = None
     """
-    Which version of `fileId` these bytes are. Set with `fileId`.
+    Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.
     """
 
 
