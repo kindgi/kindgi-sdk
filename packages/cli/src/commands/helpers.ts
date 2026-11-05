@@ -362,7 +362,6 @@ export function runAsFields(runAs: string | undefined): {
   return runAs === 'project' ? { runAsProject: true } : { runAsServiceAccountId: runAs };
 }
 
-/** Extract an optional integer flag; throws on non-integer values. */
 /** `--tag=key=value`, repeatable (`kindgi files upload`, `kindgi artifacts upload`). */
 export function tagsFlag(ctx: CommandContext): Record<string, string> | undefined {
   const raw = listFlag(ctx, 'tag');
@@ -376,6 +375,7 @@ export function tagsFlag(ctx: CommandContext): Record<string, string> | undefine
   return tags;
 }
 
+/** Extract an optional integer flag; throws on non-integer values. */
 export function integerFlag(ctx: CommandContext, name: string): number | undefined {
   const raw = ctx.options[name];
   if (typeof raw !== 'string' || raw === '') return undefined;

@@ -33,8 +33,8 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
 
 /**
  * `kindgi files`: files kept in the runtime, with every version. A file's
- * id is its version 1's blob id, so an id `kindgi artifacts` printed is a
- * file id. Every command speaks only `files.*`.
+ * id is its version 1's blob id; a later version's blob id is no file's
+ * id. Every command speaks only `files.*`.
  *
  * Reading needs `read` on the file's project; creating one needs `write`
  * (or `run`, for a file of your own that names no run), and every change
@@ -183,7 +183,7 @@ const list: LeafCommand = {
   optionSpec: {
     run: { type: 'string', description: 'Only the files whose version 1 this run made.' },
     project: { type: 'string', description: "Only one project's files." },
-    'content-type': { type: 'string', description: "Only files whose Latest has this MIME type." },
+    'content-type': { type: 'string', description: 'Only files whose Latest has this MIME type.' },
     ...PAGE_OPTIONS,
   },
   run: (ctx) =>
@@ -245,13 +245,19 @@ const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
   description:
-    "Every version of a file, newest first, deleted and purged ones too, each with its state.",
+    'Every version of a file, newest first, deleted and purged ones too, each with its state.',
   usage: 'kindgi files versions <file-id> [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: PAGE_OPTIONS,
   run: (ctx) => {
     let latestVersion: number | undefined;
     return inStore(
-      (fn) => runSdk(ctx, 'files versions', fn, versionsTable(() => latestVersion)),
+      (fn) =>
+        runSdk(
+          ctx,
+          'files versions',
+          fn,
+          versionsTable(() => latestVersion),
+        ),
       async () => {
         const fileId = requiredPositional(ctx, 0, 'file-id');
         const files = ctx.client().files;
@@ -311,15 +317,14 @@ const upload: LeafCommand = {
   kind: 'leaf',
   name: 'upload',
   description:
-    "Upload a file: version 1 of a new file, in its run's project, else --project's, else the workspace's default. With --to, a new version of that file. The runtime caps an upload (100 MiB unless set otherwise).",
+    "Upload a file: version 1 of a new file, in its run's project, else --project's, else the project your API key is limited to, else the workspace's default. With --to, a new version of that file. The runtime caps an upload (100 MiB unless set otherwise).",
   usage:
     'kindgi files upload <path> [--to=<file-id> [--expected-version=<n>]] [--name=<name>] [--content-type=<mime>] [--run=<run-id>] [--project=<project-id>] [--tag=<key>=<value>]…',
   optionSpec: {
     to: { type: 'string', description: 'Add a version to this file, which becomes its Latest.' },
     'expected-version': {
       type: 'string',
-      description:
-        "With --to: the version you built on. If Latest isn't it, nothing is written.",
+      description: "With --to: the version you built on. If Latest isn't it, nothing is written.",
     },
     name: {
       type: 'string',
@@ -487,9 +492,10 @@ async function liveVersions(ctx: CommandContext, fileId: string): Promise<number
   let live = 0;
   let cursor: string | undefined;
   do {
-    const page = await ctx
-      .client()
-      .files.versions.list(fileId, { limit: 100, ...(cursor !== undefined && { cursor: cursor as never }) });
+    const page = await ctx.client().files.versions.list(fileId, {
+      limit: 100,
+      ...(cursor !== undefined && { cursor: cursor as never }),
+    });
     live += page.data.filter((v) => v.deletedAt === undefined && v.purgedAt === undefined).length;
     cursor = page.hasMore ? (page.nextCursor as string | undefined) : undefined;
   } while (cursor !== undefined);

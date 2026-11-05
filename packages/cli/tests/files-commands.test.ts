@@ -120,7 +120,10 @@ async function run(argv: readonly string[], fakes: Fakes = {}) {
         files: {
           list: rec('files.list', () => ({ data: [FILE], hasMore: true, nextCursor: 'c-2' })),
           get: rec('files.get', () => FILE),
-          create: rec('files.create', () => ({ version: { ...VERSION, version: 1 }, created: true })),
+          create: rec('files.create', () => ({
+            version: { ...VERSION, version: 1 },
+            created: true,
+          })),
           delete: rec('files.delete', () => ({ fileId: 'f-1', deleted: true })),
           pinHistory: rec('files.pinHistory', () => ({
             data: [
@@ -141,7 +144,11 @@ async function run(argv: readonly string[], fakes: Fakes = {}) {
             get: rec('files.versions.get', () => VERSION),
             add: rec('files.versions.add', write),
             restore: rec('files.versions.restore', write),
-            delete: rec('files.versions.delete', () => ({ fileId: 'f-1', version: 3, deleted: true })),
+            delete: rec('files.versions.delete', () => ({
+              fileId: 'f-1',
+              version: 3,
+              deleted: true,
+            })),
             pin: rec('files.versions.pin', () => VERSIONS[2]),
             unpin: rec('files.versions.unpin', () => VERSION),
             download: rec('files.versions.download', () => ({
@@ -208,7 +215,9 @@ describe('kindgi files list, get, versions, pin-history', () => {
     for (const bad of ['0', 'v2', '1.5']) {
       const { out, calls } = await run(['files', 'get', 'f-1', bad]);
       expect(out.exitCode, bad).toBe(2);
-      expect(out.stderr).toContain(`<version> must be a whole number from 1, or latest, got "${bad}"`);
+      expect(out.stderr).toContain(
+        `<version> must be a whole number from 1, or latest, got "${bad}"`,
+      );
       expect(calls).toEqual([]);
     }
   });
@@ -282,7 +291,7 @@ describe('kindgi files download', () => {
 });
 
 describe('kindgi files upload and restore', () => {
-  test("without --to, version 1 of a new file, typed from its extension", async () => {
+  test('without --to, version 1 of a new file, typed from its extension', async () => {
     await writeFile(join(cwd, 'report.pdf'), 'hello');
     const { out, calls } = await run([
       'files',
@@ -343,11 +352,14 @@ describe('kindgi files upload and restore', () => {
 
   test('a Latest that moved writes nothing: both numbers, exit 1', async () => {
     await writeFile(join(cwd, 'report.md'), 'hello');
-    const { out } = await run(['files', 'upload', 'report.md', '--to=f-1', '--expected-version=4'], {
-      write: () => {
-        throw conflict(4, 5);
+    const { out } = await run(
+      ['files', 'upload', 'report.md', '--to=f-1', '--expected-version=4'],
+      {
+        write: () => {
+          throw conflict(4, 5);
+        },
       },
-    });
+    );
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
     expect(out.stderr).toBe('Latest is version 5, not 4, so nothing was written.\n');
@@ -435,7 +447,10 @@ describe('kindgi files delete', () => {
       'Delete report.md and its 2 versions? [y/N] ',
       'Delete version 2 of report.md? [y/N] ',
     ]);
-    expect([no.out.exitCode, no.out.stderr]).toEqual([1, 'kindgi files delete: nothing changed.\n']);
+    expect([no.out.exitCode, no.out.stderr]).toEqual([
+      1,
+      'kindgi files delete: nothing changed.\n',
+    ]);
     expect(no.calls.map(([name]) => name)).toEqual(['files.get']);
   });
 });
@@ -462,7 +477,8 @@ describe('kindgi artifacts, deprecated', () => {
     for (const [path, { use }] of DEPRECATED_COMMANDS) {
       const words = path.split(' ');
       expect(findCommand(words)?.consumed, path).toBe(words.length);
-      const replacement = use.split(' ').filter((w) => !w.startsWith('--'));
+      const replacement = use.split(' ');
+      expect(findCommand(replacement)?.consumed, use).toBe(replacement.length);
       expect(findCommand(replacement)?.command.kind, use).toBe('leaf');
     }
   });
@@ -476,10 +492,10 @@ describe('kindgi artifacts, deprecated', () => {
     expect(JSON.parse(out.stdout)).toEqual({ data: [], hasMore: false });
   });
 
-  test("it says so when the call fails, too, and delete's names --yes", async () => {
+  test("it says so when the call fails, too, and delete's names one version", async () => {
     const { out } = await run(['artifacts', 'delete', 'b-1']);
     expect(out.stderr).toMatch(
-      /^kindgi artifacts delete is deprecated: use kindgi files delete --yes\. Removed in 0\.8\.0\.\n/,
+      /^kindgi artifacts delete is deprecated: use kindgi files delete <file-id> <version>, which asks first unless --yes\. Removed in 0\.8\.0\.\n/,
     );
   });
 

@@ -24,9 +24,10 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
  * tenant's default): reading needs `read` there, uploading and deleting
  * `write`.
  *
- * Deprecated: `kindgi files` takes its place, with the same ids. Until
- * 0.8.0 removes it, each command does what it did and says on stderr
- * which one to use instead (`DEPRECATED_COMMANDS`).
+ * Deprecated: `kindgi files` takes its place. An artifact is one version
+ * of a file, named there by the `fileId` and `version` that `list` and
+ * `upload` answer. Until 0.8.0 removes it, each command does what it did
+ * and says on stderr which one to use instead (`DEPRECATED_COMMANDS`).
  */
 
 const TABLE: TableSpec<ListPage<BlobMeta>, BlobMeta> = {
@@ -98,7 +99,7 @@ const upload: LeafCommand = {
   kind: 'leaf',
   name: 'upload',
   description:
-    "Upload a file as an artifact: it belongs to its run's project, else --project's, else the workspace's default. The runtime caps an upload (100 MiB unless set otherwise).",
+    "Upload a file as an artifact: it belongs to its run's project, else --project's, else the project your API key is limited to, else the workspace's default. The runtime caps an upload (100 MiB unless set otherwise).",
   usage:
     'kindgi artifacts upload <file> [--name=<name>] [--content-type=<mime>] [--run=<run-id>] [--project=<project-id>] [--tag=<key>=<value>]…',
   optionSpec: {

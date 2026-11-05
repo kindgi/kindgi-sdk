@@ -568,7 +568,8 @@ export const CLI_DEFAULTS = {
     'content-type': "from the file's extension, else `application/octet-stream`",
     'expected-version': 'none: the last write wins',
     name: "the file's name; with `--to`, Latest's",
-    project: "with `--run`, the run's project; else the workspace's default project",
+    project:
+      "with `--run`, the run's project; else the project your API key is limited to; else the workspace's default project",
     run: 'none',
     tag: 'none',
     to: 'none: version 1 of a file',
@@ -596,7 +597,8 @@ export const CLI_DEFAULTS = {
   'artifacts upload': {
     'content-type': '`application/octet-stream`',
     name: "the file's name",
-    project: "with `--run`, the run's project; else the workspace's default project",
+    project:
+      "with `--run`, the run's project; else the project your API key is limited to; else the workspace's default project",
     run: 'none',
     tag: 'none',
   },
@@ -1787,7 +1789,8 @@ export const CLI_EXAMPLES = {
   ],
   'files get': [
     {
-      purpose: "Show a file and its Latest version; add a version number for that version's details.",
+      purpose:
+        "Show a file and its Latest version; add a version number for that version's details.",
       line: 'kindgi files get <file-id>',
     },
   ],
@@ -1815,7 +1818,8 @@ export const CLI_EXAMPLES = {
   ],
   'files versions': [
     {
-      purpose: "List a file's versions as a table, with which one is Latest, and which are deleted or pinned.",
+      purpose:
+        "List a file's versions as a table, with which one is Latest, and which are deleted or pinned.",
       line: 'kindgi files versions <file-id> --table',
     },
   ],
