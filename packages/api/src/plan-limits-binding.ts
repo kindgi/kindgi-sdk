@@ -97,8 +97,9 @@ export interface PlanOver {
   readonly scope?: PlanScope;
   /**
    * The count's numbers, before the write. Absent when this tenant may not
-   * see them: they count other tenants too. A tenant's own limits are
-   * always its to see.
+   * see them: they count other tenants too. A `tenant` entry always has
+   * them, since a tenant's own limits are always its to see; the refusal's
+   * words take them as given.
    */
   readonly numbers?: PlanCount;
 }

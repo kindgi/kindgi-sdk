@@ -57,7 +57,7 @@ export const SYSTEM_SCOPES = [
   'system:tenants:image-prefix',
   /** A tenant's "production allowed" switch. */
   'system:tenants:production',
-  /** A tenant's limits. */
+  /** A tenant's limits, and the id of the plan it's on. */
   'system:tenants:limits',
   /** A tenant's admins' contact addresses, for service notices. */
   'system:tenants:contacts',

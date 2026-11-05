@@ -137,11 +137,11 @@ describe("planRefusedMessage, on a workspace's own limits", () => {
   test('with where a larger plan is', () => {
     expect(
       planRefusedMessage(
-        [{ limit: 'flows', adding: 1, scope: 'tenant', numbers: { plan: 1, most: 2, inUse: 1 } }],
+        [{ limit: 'flows', adding: 2, scope: 'tenant', numbers: { plan: 1, most: 2, inUse: 1 } }],
         { next: 'https://example.com/plans', goingLive: true },
       ),
     ).toBe(
-      'Putting this project in production adds 1 flow, and this workspace runs at most 2: its limit of 1, and a margin. 1 runs in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or move to a larger plan: https://example.com/plans.',
+      'Putting this project in production adds 2 flows, and this workspace runs at most 2: its limit of 1, and a margin. 1 runs in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or move to a larger plan: https://example.com/plans.',
     );
   });
 
@@ -154,11 +154,11 @@ describe("planRefusedMessage, on a workspace's own limits", () => {
     } as const;
     expect(
       planRefusedMessage(
-        [tenantFlows, { limit: 'agents', adding: 1, numbers: { plan: 10, most: 12, inUse: 1 } }],
+        [tenantFlows, { limit: 'agents', adding: 1, numbers: { plan: 10, most: 12, inUse: 12 } }],
         {},
       ),
     ).toBe(
-      "This adds 1 flow and 1 agent to production. This workspace runs at most 4 flows: its limit of 3, and a margin. 4 flows run in production now. This runtime's license key runs at most 12 agents: its plan's 10, and a margin. 1 agent runs in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or renew the key on a larger plan, and ask whoever runs this Kindgi for a larger limit.",
+      "This adds 1 flow and 1 agent to production. This workspace runs at most 4 flows: its limit of 3, and a margin. 4 flows run in production now. This runtime's license key runs at most 12 agents: its plan's 10, and a margin. 12 agents run in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or renew the key on a larger plan, and ask whoever runs this Kindgi for a larger limit.",
     );
     // The key's numbers count other tenants too: the workspace's are still given.
     expect(

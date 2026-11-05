@@ -11141,7 +11141,7 @@ class TenantPlan(BaseModel):
         populate_by_name=True,
     )
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    plan: str | None
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
     """
     The tenant's plan id now; null when none is set.
     """

@@ -14572,6 +14572,7 @@ export const TenantPlanSchema: JsonSchema = {
     tenantId: { type: 'string', format: 'uuid' },
     plan: {
       type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
       description: "The tenant's plan id now; null when none is set.",
     },
   },

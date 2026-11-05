@@ -3500,7 +3500,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "the first count over, `flows` or `agents`; it and `adding`, `plan`, `most` and `inUse` are `over`'s first entry",
+          "the first count over, `flows` or `agents`; it and `adding`, `scope`, `plan`, `most` and `inUse` are `over`'s first entry",
       },
       { key: 'adding', meaning: 'how many of that count the write adds to production' },
       {
