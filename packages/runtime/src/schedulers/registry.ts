@@ -531,7 +531,8 @@ export interface RegisterMailTriggerInput {
 /**
  * A text trigger: each text that comes in to its connection's number
  * starts a run of its target, with the text as the run's input. In a
- * text-started run, every call that changes something waits for a person's
+ * text-started run, every call that changes something, except handing the
+ * conversation to a person (`kindgi_hand_to_person`), waits for a person's
  * yes, unless `toolsAllowedUnattended` lists its tool.
  */
 export interface RegisterTextTriggerInput {

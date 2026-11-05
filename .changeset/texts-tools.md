@@ -16,5 +16,5 @@
 - The hand-over gives the conversation to a person, with a note for them, and no run answers that thread's texts after it. It doesn't wait for a person's yes the way other changes in such a run do; a workspace or agent rule that always asks still asks.
 - `toolsAllowedUnattended` can list the reply and the hand-over.
 - A run that waits keeps its thread: `InvokeAgentInput.textThread` is recorded with the run, and a resumed run replies on the thread it started from.
-- A step that runs again, resumed or retried, replies and hands over once: the host's `TextsToolBinding` gets each call's `idempotencyKey`, and a repeat answers as the first call did.
+- A step that runs again, resumed or retried, replies and hands over once: the host's `TextsToolBinding` gets each call's `idempotencyKey`, and a repeat of a call that went through answers as it did.
 - A pack tool can't use the `texts` app: `defineTool` refuses it (`BUILT_IN_ONLY_APPS`). A flow's tool node can't name a tool built into Kindgi (the `kindgi_` prefix, `BUILT_IN_TOOL_PREFIX`, now exported by `@kindgi/types` too).
