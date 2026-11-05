@@ -986,8 +986,8 @@ function authHeaderInConfig(
 
 /**
  * One of MCP's own headers in `config.headers` (`isMcpHeaderName`), refused:
- * the MCP client sets each itself on every request, and a server checks them
- * against the request. Asked before the credential names, which
+ * the MCP client sets each itself where the protocol calls for it, and a
+ * server checks them against the request. Asked before the credential names, which
  * `Mcp-Session-Id` would otherwise match. The message names the header.
  */
 function mcpHeaderInHeaders(
@@ -1123,8 +1123,9 @@ const AUTH_HEADER_FIELDS = new Set(['name', 'secretRef', 'prefix']);
 /** An HTTP field name: an RFC 9110 token. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 /**
- * MCP's own headers, which the MCP client sets on every request: the session,
- * the protocol version, the method and the name of what's called. Neither
+ * MCP's own headers, which the MCP client sets itself where the protocol calls
+ * for them: the session, the protocol version, the method and the name of
+ * what's called. Neither
  * `auth` nor `config.headers` sets them.
  */
 const MCP_HEADERS = new Set(['mcp-session-id', 'mcp-protocol-version', 'mcp-method', 'mcp-name']);

@@ -701,12 +701,6 @@ secret too.
 For `Authorization: Bearer <token>`, use `secretRef`. For any other header,
 use `auth` with `scheme: "header"`.
 
-MCP's own headers aren't plain headers either: `Mcp-Session-Id`,
-`Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and any `Mcp-Param-…`,
-whatever their case, are refused in `config.headers` (reason
-`transport-header-in-config`), because the MCP client sets them itself on
-every request, the `Mcp-Param-` ones from a tool's arguments.
-
 #### An endpoint registered with one by an earlier runtime
 
 It keeps working, and:
@@ -736,6 +730,19 @@ To move one: store each header's value as a secret
 (`kindgi secrets set INVENTORY_KEY --env=local --scope=tenant`),
 [unregister the endpoint](#when-the-server-changes), and register it again
 with `auth` in place of the header.
+
+#### MCP's own headers
+
+`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and any
+`Mcp-Param-…`, whatever their case, aren't plain headers: the MCP client
+sets them itself where the protocol calls for them, the `Mcp-Param-` ones
+from a tool's arguments, and a server checks them against the request. In
+`config.headers`, each is refused (reason `transport-header-in-config`),
+the header named:
+
+```json
+{"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-plain\" config.headers \"Mcp-Protocol-Version\" is a header the MCP transport sets itself. Drop it from config.headers.","details":{"reason":"transport-header-in-config"},…}}
+```
 
 ## Give a stdio server a secret
 
