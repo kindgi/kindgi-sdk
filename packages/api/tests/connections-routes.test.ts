@@ -2702,7 +2702,7 @@ describe("a texts connection: a number, with the provider account's key", () => 
     expect(calls.createApp).toHaveLength(1);
   });
 
-  test("an OAuth registration naming the client secret sign-in uses: 400 identity-provider-key-refused, and nothing is stored", async () => {
+  test('an OAuth registration naming the client secret sign-in uses: 400 identity-provider-key-refused, and nothing is stored', async () => {
     const { app, calls } = makeApp({ entries: ENTRIES, signIn: true });
     const oauth = await call(app, 'admin', 'POST', '/v1/connection-apps', {
       app: 'google',

@@ -810,13 +810,18 @@ describe("an identity provider's secret: sign-in's only", () => {
     expect(lists).toEqual([tenantId, other]);
   });
 
-  test('without sign-in, no secret is an identity provider\'s', async () => {
+  test("without sign-in, no secret is an identity provider's", async () => {
     expect(await identityProviderKeysOf(undefined).of(tenantId)).toEqual(new Map());
   });
 
   test('refuseIdentityProviderKeyNames: the first name held is refused in the words for its user; sign-in itself, or no keys, is never refused', async () => {
     expect(
-      await refuseIdentityProviderKeyNames(held, tenantId, ['SEARCH_KEY', 'ACME_OKTA_SECRET'], 'a tool'),
+      await refuseIdentityProviderKeyNames(
+        held,
+        tenantId,
+        ['SEARCH_KEY', 'ACME_OKTA_SECRET'],
+        'a tool',
+      ),
     ).toEqual({
       code: 'identity-provider-key-refused',
       message: SIGN_IN_REFUSED('a tool'),
@@ -824,7 +829,12 @@ describe("an identity provider's secret: sign-in's only", () => {
       identityProviderId: 'acme-okta',
     });
     expect(
-      await refuseIdentityProviderKeyNames(held, tenantId, ['ACME_OKTA_SECRET'], 'an identity provider'),
+      await refuseIdentityProviderKeyNames(
+        held,
+        tenantId,
+        ['ACME_OKTA_SECRET'],
+        'an identity provider',
+      ),
     ).toBeUndefined();
     expect(
       await refuseIdentityProviderKeyNames(undefined, tenantId, ['ACME_OKTA_SECRET'], 'a tool'),
@@ -862,25 +872,30 @@ describe("an identity provider's secret: sign-in's only", () => {
     'a connection app',
     'a model provider',
     "a pack's env",
-  ] as const)("guardSecretKeys, %s: refused at call time, naming it and its provider, and the store isn't asked", async (user) => {
-    const { binding, asked } = store();
-    const guarded = guardSecretKeys(binding, { identityProviderKeys: signIn().keys }, user);
-    expect(
-      await guarded.resolve({ scope, envName, name: 'ACME_SP_SIGNING_KEY', resolveContext }),
-    ).toEqual({
-      kind: 'err',
-      error: {
-        code: 'identity-provider-key-refused',
-        message: SIGN_IN_REFUSED(user, 'ACME_SP_SIGNING_KEY', 'acme-adfs'),
-        name: 'ACME_SP_SIGNING_KEY',
-        identityProviderId: 'acme-adfs',
-      },
-    });
-    await expect(
-      guarded.getVersion({ scope, envName, name: 'ACME_OKTA_SECRET', versionId: 1 }),
-    ).rejects.toThrow(/^identity-provider-key-refused: `ACME_OKTA_SECRET` is the secret of identity provider "acme-okta"/);
-    expect(asked).toEqual([]);
-  });
+  ] as const)(
+    "guardSecretKeys, %s: refused at call time, naming it and its provider, and the store isn't asked",
+    async (user) => {
+      const { binding, asked } = store();
+      const guarded = guardSecretKeys(binding, { identityProviderKeys: signIn().keys }, user);
+      expect(
+        await guarded.resolve({ scope, envName, name: 'ACME_SP_SIGNING_KEY', resolveContext }),
+      ).toEqual({
+        kind: 'err',
+        error: {
+          code: 'identity-provider-key-refused',
+          message: SIGN_IN_REFUSED(user, 'ACME_SP_SIGNING_KEY', 'acme-adfs'),
+          name: 'ACME_SP_SIGNING_KEY',
+          identityProviderId: 'acme-adfs',
+        },
+      });
+      await expect(
+        guarded.getVersion({ scope, envName, name: 'ACME_OKTA_SECRET', versionId: 1 }),
+      ).rejects.toThrow(
+        /^identity-provider-key-refused: `ACME_OKTA_SECRET` is the secret of identity provider "acme-okta"/,
+      );
+      expect(asked).toEqual([]);
+    },
+  );
 
   test("guardSecretKeys: sign-in reads its providers' secrets, and is still refused a model provider's key and a texts key", async () => {
     const { binding, asked } = store();
@@ -888,7 +903,9 @@ describe("an identity provider's secret: sign-in's only", () => {
       binding,
       {
         providerKeys: keys,
-        connectionKeys: { holders: async (_t, name) => (name === 'ACME_TELNYX_KEY' ? ['app-texts'] : []) },
+        connectionKeys: {
+          holders: async (_t, name) => (name === 'ACME_TELNYX_KEY' ? ['app-texts'] : []),
+        },
         identityProviderKeys: signIn().keys,
       },
       'an identity provider',
