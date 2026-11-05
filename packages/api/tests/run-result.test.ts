@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/src/run-result/** packages/api/package.json
 
 /**
  * `@kindgi/api/run-result`: the status words, the answer a run gave, and

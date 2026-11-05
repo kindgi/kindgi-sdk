@@ -120,9 +120,11 @@ function openView() {
     /** The host sends the tool's result, as MCP Apps' `ui/notifications/tool-result`. */
     result: (params: Record<string, unknown>) =>
       deliver({ method: 'ui/notifications/tool-result', params }),
-    /** The host answers the view's request. */
-    answer: (request: Message | undefined, result: Record<string, unknown>) =>
-      deliver({ id: request?.id, result }),
+    /** The host answers the view's request, which the view must have sent. */
+    answer: (request: Message | undefined, result: Record<string, unknown>) => {
+      if (request?.id === undefined) throw new Error('the view sent no such request');
+      deliver({ id: request.id, result });
+    },
     /** The answer's blocks as drawn: one box each. */
     boxes: () => el('answer').children.map((wrap) => wrap.children[0] as Element),
   };
