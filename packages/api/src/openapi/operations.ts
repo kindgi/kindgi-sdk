@@ -9421,13 +9421,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.getDefault',
     summary: "Fetch the workspace's default project",
     description:
-      'Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.',
+      "Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none. An API key or session limited to a project gets the default project only when it's that project; otherwise, and when the workspace has none, it gets 403 `key-project-mismatch`, naming `default`.",
     tags: ['projects'],
     security: 'bearer',
     responses: {
       '200': { description: 'Default project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller can't read the default project."),
+      '403': ErrorResponse(
+        "The caller can't read the default project. An API key or session limited to a project gets `key-project-mismatch` when the default project isn't that one, or the workspace has none.",
+      ),
       '404': ErrorResponse('Workspace has no default project.'),
     },
   },
