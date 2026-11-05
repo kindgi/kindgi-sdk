@@ -4,8 +4,9 @@
 /**
  * `/v1/artifacts` over an in-memory blob store: every artifact belongs to
  * a project (its owner run's, else the upload's `projectId`, else the
- * default project), reads need `read` there and writes `write`, and an
- * upload over the cap is `413 artifact-too-large`.
+ * default project), reads need `read` there and writes `write`, an
+ * upload over the cap is `413 artifact-too-large`, and one on `run` alone
+ * is counted against the deployment's limit.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -21,7 +22,13 @@ import type { ArtifactId, ProjectId, RunId, TenantId, Timestamp, UserId } from '
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  RunHandlerBinding,
+  RunUploadCheck,
+  RunUploadCheckInput,
+  RunUploadLimiter,
+  TokenResolver,
+} from '../src/index.js';
 import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
@@ -134,6 +141,7 @@ function harness(
     maxBytes?: number;
     defaultProject?: string;
     s3Address?: boolean;
+    limiter?: RunUploadLimiter;
   } = {},
 ) {
   const stubs = createStubAppBindings();
@@ -155,6 +163,7 @@ function harness(
     runHandler: {} as RunHandlerBinding,
     blobStorage: blobs,
     ...(options.maxBytes !== undefined && { artifactMaxBytes: options.maxBytes }),
+    ...(options.limiter !== undefined && { runUploadLimiter: options.limiter }),
     ...(options.authz !== false && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -175,7 +184,11 @@ function harness(
       headers: { authorization: `Bearer ${as}` },
       body: form,
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: (await res.json()) as Record<string, any>,
+    };
   };
   const call = async (
     as: string,
@@ -428,6 +441,103 @@ describe('someone who may only run the project reaches their own files', () => {
       expect([del.status, del.json().error.code]).toEqual([403, 'permission-denied']);
     }
     expect(h.blobs.rows.size).toBe(5);
+  });
+});
+
+describe("the deployment's limit on what one person uploads on `run` alone", () => {
+  /** A limiter that answers `answer` and keeps what it was asked. */
+  function limiter(answer: RunUploadCheck = { kind: 'ok' }) {
+    const asked: RunUploadCheckInput[] = [];
+    const check = async (input: RunUploadCheckInput) => {
+      asked.push(input);
+      return answer;
+    };
+    return { asked, check } satisfies RunUploadLimiter & { asked: RunUploadCheckInput[] };
+  }
+
+  const OVER = {
+    kind: 'over',
+    maxBytes: 1073741824,
+    maxFiles: 1000,
+    usedBytes: 1073741000,
+    usedFiles: 12,
+    windowMs: 24 * 60 * 60 * 1000,
+    retryAfterMs: 90_500,
+  } as const satisfies RunUploadCheck;
+
+  test('an input Carol uploads on `run` alone is checked, with her workspace, her and its size', async () => {
+    const l = limiter();
+    const h = harness({ limiter: l });
+    const r = await h.upload('carol', { projectId: P3 }, 'hello');
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(l.asked).toEqual([{ tenantId, createdBy: 'user:carol', size: 5 }]);
+  });
+
+  test("past it, 429 upload-limit-reached names the limit, what's used and when it fits, and nothing is stored", async () => {
+    const h = harness({ limiter: limiter(OVER) });
+    const before = Date.now();
+    const r = await h.upload('carol', { projectId: P3 });
+    const after = Date.now();
+    expect([r.status, r.body.error.code, r.headers['retry-after']]).toEqual([
+      429,
+      'upload-limit-reached',
+      '91',
+    ]);
+    const { retryAt } = r.body.error.details;
+    expect(r.body.error.details).toEqual({
+      maxBytes: 1073741824,
+      maxFiles: 1000,
+      usedBytes: 1073741000,
+      usedFiles: 12,
+      windowSeconds: 86400,
+      retryAt,
+    });
+    expect(Date.parse(retryAt)).toBeGreaterThanOrEqual(before + 90_500);
+    expect(Date.parse(retryAt)).toBeLessThanOrEqual(after + 90_500);
+    expect(r.body.error.message).toBe(
+      `Uploads for your own runs, without \`write\` on the project, are limited to 1073741824 bytes and 1000 files per person in 24 hours in this workspace; you've uploaded 1073741000 bytes in 12 files, and this one fits from ${retryAt}`,
+    );
+    expect(h.blobs.rows.size).toBe(0);
+  });
+
+  test('a limit on files alone names only files, and one on bytes alone only bytes', async () => {
+    const { maxBytes: _b, ...filesOnly } = OVER;
+    const files = await harness({ limiter: limiter(filesOnly) }).upload('carol', { projectId: P3 });
+    expect(files.body.error.details).not.toHaveProperty('maxBytes');
+    expect(files.body.error.message).toMatch(/ are limited to 1000 files per person in 24 hours /);
+    const { maxFiles: _f, ...bytesOnly } = { ...OVER, usedFiles: 1 };
+    const bytes = await harness({ limiter: limiter(bytesOnly) }).upload('carol', { projectId: P3 });
+    expect(bytes.body.error.details).not.toHaveProperty('maxFiles');
+    expect(bytes.body.error.message).toMatch(
+      / are limited to 1073741824 bytes per person in 24 hours .* in 1 file, /,
+    );
+  });
+
+  test("another deployment's window is named in hours, or else in seconds, one or more", async () => {
+    for (const [windowMs, words] of [
+      [60 * 60 * 1000, 'in 1 hour'],
+      [2 * 60 * 60 * 1000, 'in 2 hours'],
+      [1000, 'in 1 second'],
+      [90_500, 'in 91 seconds'],
+    ] as const) {
+      const r = await harness({ limiter: limiter({ ...OVER, windowMs }) }).upload('carol', {
+        projectId: P3,
+      });
+      expect(r.body.error.message).toContain(` per person ${words} in this workspace;`);
+    }
+  });
+
+  test('an upload that passes on `write`, one refused first, and one with no authorization are never checked', async () => {
+    const l = limiter(OVER);
+    const h = harness({ limiter: l });
+    expect((await h.upload('alice', { projectId: P1 })).status).toBe(201);
+    // Naming a run takes `write`; the default project is one she may not run.
+    expect((await h.upload('carol', { ownerRunId: CAROLS_RUN })).status).toBe(403);
+    expect((await h.upload('carol')).status).toBe(403);
+    expect((await h.upload('bob', { projectId: P3 })).status).toBe(403);
+    const open = harness({ authz: false, limiter: l });
+    expect((await open.upload('carol', { projectId: P3 })).status).toBe(201);
+    expect(l.asked).toEqual([]);
   });
 });
 

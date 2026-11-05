@@ -155,6 +155,11 @@ export type {
   TenantRateLimitName,
 } from './middleware/tenant-limits.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
+export type {
+  RunUploadCheck,
+  RunUploadCheckInput,
+  RunUploadLimiter,
+} from './run-upload-limiter.js';
 export {
   imagePrefixesOverlap,
   imageRefWithin,

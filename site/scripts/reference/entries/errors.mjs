@@ -1260,6 +1260,34 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'upload-limit-reached': {
+    description:
+      "An upload for a run of your own, made with `run` on the project and no `write`, is past what one person may upload that way in the workspace in 24 hours: by default 1 GiB and 1,000 files (`KINDGI_RUN_UPLOAD_DAILY_BYTES`, `KINDGI_RUN_UPLOAD_DAILY_FILES`). Your uploads to projects where you have `write` count toward it too, though they're never refused. Nothing is stored. Files you uploaded earlier still start runs. Try again after the `Retry-After` header, when the oldest uploads have left the window, or ask someone with `write` on the project to upload it.",
+    details: [
+      {
+        key: 'maxBytes',
+        meaning:
+          'the most bytes your uploads that name no run may add up to in the window before one on `run` alone is refused; absent when bytes are not limited',
+      },
+      {
+        key: 'maxFiles',
+        meaning:
+          'the most files your uploads that name no run may add up to in the window before one on `run` alone is refused; absent when files are not limited',
+      },
+      {
+        key: 'usedBytes',
+        meaning:
+          'the bytes of your uploads in the workspace in the window that name no run and are still stored, with `write` or without',
+      },
+      {
+        key: 'usedFiles',
+        meaning:
+          'the files of your uploads in the workspace in the window that name no run and are still stored, with `write` or without',
+      },
+      { key: 'windowSeconds', meaning: 'the window, in seconds: 86400' },
+      { key: 'retryAt', meaning: 'when this upload fits, as an ISO 8601 time' },
+    ],
+  },
   'turn-memory-limit-reached': {
     description:
       "The runtime's agent turns hold more memory than its limit leaves this turn: the workspace's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
