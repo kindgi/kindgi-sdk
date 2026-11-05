@@ -109,7 +109,10 @@ class DeprecatedTest {
           .as(name)
           .containsOnlyOnce("@Deprecated")
           .containsPattern(
-              "\\* @deprecated Use <code>gadgets\\.list</code>\\. Removed in 2\\.0\\.0\\.\\n\\s*\\*/\\n\\s*@Deprecated\\n\\s*public ");
+              "\\* @deprecated Use <code>gadgets\\.list</code>\\. Removed in 2\\.0\\.0\\.\\n\\s*\\*/\\n\\s*@Deprecated\\n\\s*public ")
+          // Its own paragraph stays, and the note is said once, as the tag.
+          .contains("<p>Lists widgets.")
+          .doesNotContain("<p>Use <code>gadgets.list</code>");
     }
   }
 

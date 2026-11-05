@@ -800,6 +800,17 @@ def test_a_deprecated_notes_lines_join_into_one_sentence() -> None:
     )
 
 
+def test_a_deprecated_methods_docstring_says_its_note_then_its_own_paragraph() -> None:
+    source = resources(widgets())
+    for resource in ("WidgetsResource", "AsyncWidgetsResource"):
+        doc = ast.get_docstring(method(source, resource, "list"))
+        assert doc is not None
+        assert doc.split("\n\n")[1:] == [
+            "Use `gadgets.list`. Removed in 2.0.0.",
+            "Lists widgets.",
+        ]
+
+
 @pytest.mark.parametrize("description", [None, "", " \n "])
 def test_a_deprecated_operation_with_no_note_fails_generation(description: str | None) -> None:
     with pytest.raises(SystemExit, match=r"widgets\.list is deprecated, and its description"):

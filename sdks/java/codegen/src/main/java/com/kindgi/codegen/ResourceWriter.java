@@ -311,7 +311,11 @@ final class ResourceWriter {
     CodeBlock.Builder doc = CodeBlock.builder();
     String summary = op.summary == null || op.summary.isBlank() ? op.id : op.summary.strip();
     doc.add("$L\n\n<p><code>$L $L</code> ({@code $L})", Docs.javadoc(summary.endsWith(".") ? summary : summary + "."), op.method, Docs.javadoc(op.path), op.id);
-    String para = Docs.javadoc(Docs.firstParagraph(op.description));
+    // A deprecated operation's note opens its description and is its
+    // @deprecated tag, so the paragraph after it is the method's own.
+    String described =
+        op.deprecated == null ? op.description : Docs.afterFirstParagraph(op.description);
+    String para = Docs.javadoc(Docs.firstParagraph(described));
     if (!para.isEmpty()) {
       doc.add("\n\n<p>$L", para);
     }
