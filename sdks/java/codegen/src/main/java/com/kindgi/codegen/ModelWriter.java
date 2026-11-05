@@ -263,6 +263,8 @@ final class ModelWriter {
                 .addStatement("this.$N = $T.of($N)", f.java, OPTIONAL_NULLABLE, f.java)
                 .addStatement("return this")
                 .build());
+      } else if (f.commaList) {
+        b.addMethod(commaSetter(bn, f, fdoc));
       } else {
         b.addMethod(
             setter(bn, f.java, ft, fdoc).addStatement("this.$N = $N", f.java, f.java).addStatement("return this").build());
@@ -322,6 +324,29 @@ final class ModelWriter {
             .returns(bn)
             .addStatement("return new $T(this)", bn)
             .build());
+  }
+
+  /**
+   * A comma list's setter: its values as varargs, so a call with one value, or with a {@code null}
+   * one, reads as it did when the parameter took one value. The array and its items are both
+   * {@code @Nullable}: a literal {@code null} is a {@code null} array.
+   */
+  private static MethodSpec commaSetter(ClassName builder, Ir.Field f, String doc) {
+    TypeName item = ((ParameterizedTypeName) f.type).typeArguments().get(0);
+    TypeName values = ArrayTypeName.of(nullable(item)).annotated(AnnotationSpec.builder(NULLABLE).build());
+    String note = "One or more values, sent as one comma-separated parameter. A {@code null} value is skipped; with none left, the parameter is left out.";
+    return MethodSpec.methodBuilder(f.java)
+        .addModifiers(Modifier.PUBLIC)
+        .returns(builder)
+        .addParameter(values, f.java)
+        .varargs()
+        .addJavadoc("$L\n", doc.isEmpty() ? note : doc + "\n<p>" + note)
+        .addStatement(
+            "$T<$T> given = $N == null ? $T.of() : $T.stream($N).filter($T::nonNull).toList()",
+            List.class, item, f.java, List.class, java.util.Arrays.class, f.java, Objects.class)
+        .addStatement("this.$N = given.isEmpty() ? null : given", f.java)
+        .addStatement("return this")
+        .build();
   }
 
   private static MethodSpec.Builder setter(ClassName builder, String name, TypeName type, String doc) {

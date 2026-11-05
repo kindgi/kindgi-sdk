@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.runs.list(include="waitingFor")` says what each
+  suspended run waits for** (its `waiting_for`, as `client.runs.get` gives
+  it). A page with it holds at most 25 runs. A runtime before Kindgi 0.7.0
+  refuses it with `400 bad-input`.
+- `kindgi`: **an `include` takes a value or a list:
+  `client.runs.list(include=["output", "waitingFor"])`.** The runs list, an
+  agent's test cases, the cost records and the people list send a list as
+  one comma-separated parameter. One value works as before.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,

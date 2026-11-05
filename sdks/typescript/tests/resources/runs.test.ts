@@ -244,6 +244,22 @@ describe('runs.list — filters', () => {
     expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('topLevel')).toBe('true');
   });
 
+  it('sends include=waitingFor, alone or with output', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.runs.list({ includeWaitingFor: true });
+    await client.runs.list({ includeOutput: true, includeWaitingFor: true });
+    const include = stub.calls.map((call) => new URL(call.url).searchParams.get('include'));
+    expect(include).toEqual(['waitingFor', 'output,waitingFor']);
+  });
+
   it("sends agentId: one agent's turns", async () => {
     const stub = recordingFetch([
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },

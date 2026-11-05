@@ -37,6 +37,14 @@ export interface ParameterSpec {
    * `{key, value}` steps and writes the values itself.
    */
   readonly segmentPath?: boolean;
+  /**
+   * OpenAPI's serialization keys, for a query array that isn't repeated
+   * keys. `style: 'form'` with `explode: false` is one key, the values
+   * comma-separated (`include=output,waitingFor`). Left out, an array is
+   * repeated keys (form, explode true).
+   */
+  readonly style?: 'form';
+  readonly explode?: boolean;
 }
 
 export interface ResponseSpec {
@@ -356,8 +364,11 @@ const TestCaseIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
   required: false,
-  description: '`retired`: retired cases too. Left out, active ones only.',
-  schema: { type: 'string', enum: ['retired'] },
+  description:
+    'Extras, one or more, comma-separated: `include=retired`. `retired`: retired cases too. Left out, active ones only.',
+  schema: { type: 'array', items: { type: 'string', enum: ['retired'] } },
+  style: 'form',
+  explode: false,
 };
 
 const TestCaseKindQueryParam: ParameterSpec = {
@@ -421,8 +432,19 @@ const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
   required: false,
-  description: "Comma-separated extras per run. `output` adds each run's output.",
-  schema: { type: 'string', enum: ['output'] },
+  description:
+    "Extras per run, one or more, comma-separated: `include=output,waitingFor`. `output` adds each run's output. `waitingFor` adds what each suspended run waits for, as `GET /v1/runs/{runId}` gives it; with it, a page holds at most 25 runs.",
+  schema: { type: 'array', items: { type: 'string', enum: ['output', 'waitingFor'] } },
+  style: 'form',
+  explode: false,
+};
+
+const RunListLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description: '1..100; with `include=waitingFor`, 1..25 (a larger value gives 25). Default 25.',
+  schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
 };
 
 const IncludeTombstonedQueryParam: ParameterSpec = {
@@ -1067,8 +1089,21 @@ const CostIncludeQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
-  schema: { type: 'string', enum: ['rawUsage'] },
+    "Extra fields, one or more, comma-separated: `include=rawUsage`. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+  schema: { type: 'array', items: { type: 'string', enum: ['rawUsage'] } },
+  style: 'form',
+  explode: false,
+};
+
+const UserIncludeQueryParam: ParameterSpec = {
+  name: 'include',
+  in: 'query',
+  required: false,
+  description:
+    "Extra fields, one or more, comma-separated: `include=grants`. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
+  schema: { type: 'array', items: { type: 'string', enum: ['grants'] } },
+  style: 'form',
+  explode: false,
 };
 
 const ProviderIdPathParam: ParameterSpec = {
@@ -2097,7 +2132,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     tags: ['runs'],
     security: 'bearer',
     parameters: [
-      LimitQueryParam,
+      RunListLimitQueryParam,
       CursorQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
@@ -7878,14 +7913,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
           "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.9).",
         schema: { type: 'boolean' },
       },
-      {
-        name: 'include',
-        in: 'query',
-        required: false,
-        description:
-          "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
-        schema: { type: 'string', enum: ['grants'] },
-      },
+      UserIncludeQueryParam,
     ],
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },

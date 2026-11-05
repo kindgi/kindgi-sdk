@@ -371,6 +371,8 @@ final class ResourceWriter {
         req.add(
             "\n.query($S, params.$N() == null ? null : params.$N().stream().map(step -> step.key() + $S + step.value()).toList())",
             p.wire(), p.java(), p.java(), ":");
+      } else if (p.comma()) {
+        req.add("\n.queryJoined($S, params.$N())", p.wire(), p.java());
       } else {
         req.add("\n.$L($S, params.$N())", method, p.wire(), p.java());
       }

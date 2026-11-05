@@ -143,6 +143,28 @@ class TransportTest {
   }
 
   @Test
+  void anIncludeListIsOneKeyItsValuesCommaSeparated() {
+    handler = (ex, n) -> answer(ex, 200, "{\"data\":[],\"hasMore\":false}");
+    RunsListParams.Include none = null;
+    client.runs().list(RunsListParams.builder().include(RunsListParams.Include.OUTPUT, RunsListParams.Include.WAITING_FOR).build());
+    client.runs().list(RunsListParams.builder().include(RunsListParams.Include.OUTPUT).build());
+    client.runs().list(RunsListParams.builder().include(none).build());
+    client.runs().list(RunsListParams.builder().include().build());
+    client.runs().list(RunsListParams.builder().include((RunsListParams.Include[]) null).build());
+    client.runs().list(RunsListParams.builder().include(none, RunsListParams.Include.WAITING_FOR).build());
+    assertThat(seen.stream().map(s -> s.uri()).toList())
+        .containsExactly(
+            "/v1/runs?include=output%2CwaitingFor",
+            "/v1/runs?include=output",
+            "/v1/runs",
+            "/v1/runs",
+            "/v1/runs",
+            "/v1/runs?include=waitingFor");
+    assertThat(RunsListParams.builder().include(RunsListParams.Include.OUTPUT).build().include())
+        .containsExactly(RunsListParams.Include.OUTPUT);
+  }
+
+  @Test
   void aSegmentPathIsRepeatedKeyValueSteps() {
     handler = (ex, n) -> answer(ex, 200, "{}");
     try {
