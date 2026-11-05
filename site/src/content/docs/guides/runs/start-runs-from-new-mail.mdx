@@ -113,6 +113,13 @@ Attachments: 1. receipt.pdf (application/pdf, 84 KB)
   Mail the mailbox sent shows as "(this mailbox)". Other mail from the
   mailbox's address shows as "(this mailbox's address, not its sent
   mail)", since anyone can put that address on a mail.
+- **A mail's line that would read as one of the turn's own is set in** by
+  one space: one that starts with `---`, `[the rest of this mail is cut]`,
+  `(no text)` or `[earlier mail left out]`, or with `To:`, `Cc:`,
+  `Reply-To:` or `Attachments:` in any case, after any characters that
+  don't show. So the agent can't take a mail's text for the start of
+  another mail, its recipients, its attachments, or a note that it's cut,
+  empty or left mail out.
 - **Quoted earlier mail is left out,** since the thread already has it.
   On Gmail, it's marked `[earlier mail left out]`. What's left out is a
   run of `>` lines to the end of the mail, and an English `On … wrote:`
@@ -144,9 +151,10 @@ Attachments: 1. receipt.pdf (application/pdf, 84 KB)
 **A flow** gets the mail as its input: `{ mail, thread, leftOut }`.
 `mail` is the new mail as the agent's turn has it, a `MailMessage`
 (`@kindgi/connections/mail`): its own text, with quoted earlier mail left
-out and links shortened as above, and cut to fit the turn (`bodyCut` says
-so). `thread` is its thread's earlier mail, oldest first, within the
-same limits, and `leftOut` counts the mails that didn't fit.
+out (a line of its own that starts as `[earlier mail left out]` is set in
+by a space) and links shortened as above, and cut to fit the turn
+(`bodyCut` says so). `thread` is its thread's earlier mail, oldest first,
+within the same limits, and `leftOut` counts the mails that didn't fit.
 
 ### One conversation for each thread
 

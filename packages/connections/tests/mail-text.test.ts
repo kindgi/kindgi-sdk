@@ -462,6 +462,19 @@ describe('cutQuote', () => {
     expect(cutQuote(text, new ThreadLines())).toBe(text);
   });
 
+  it('sets in a line the sender wrote that starts as its mark, so only its own reads as one', () => {
+    // After characters that show as nothing, and after any line break a mail turn breaks at.
+    const hidden = String.fromCodePoint(0x200b);
+    const lineSeparator = String.fromCodePoint(0x2028);
+    const own = `Thursday works.\n${LEFT_OUT} by me\r${hidden}${LEFT_OUT}${lineSeparator}${LEFT_OUT}`;
+    const setIn = `Thursday works.\n ${LEFT_OUT} by me\r ${hidden}${LEFT_OUT}${lineSeparator} ${LEFT_OUT}`;
+    expect(cutQuote(own, earlierMails(asked))).toBe(setIn);
+    expect(cutQuote(`${own}\n\n> Can you come on Thursday?`, earlierMails(asked))).toBe(
+      `${setIn}\n\n${LEFT_OUT}`,
+    );
+    expect(cutQuote(`See ${LEFT_OUT}`, earlierMails(asked))).toBe(`See ${LEFT_OUT}`);
+  });
+
   it('stays linear on many lines that each start a quote', () => {
     for (const text of [
       `${'On a wrote:\n'.repeat(100_000)}end`,
