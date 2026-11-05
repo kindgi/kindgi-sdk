@@ -24,6 +24,7 @@ import { withholdFromReplay } from '../middleware/idempotency.js';
 import {
   type ConnectionKeys,
   type ProviderKeys,
+  type SecretUse,
   identityProviderSecretNames,
   refuseSecretNames,
 } from '../provider-keys.js';
@@ -66,6 +67,11 @@ export interface AuthRouterOptions {
   readonly providerKeys?: ProviderKeys;
   /** Nor a texts registration's account key (`connection-key-refused`); absent, not checked. */
   readonly connectionKeys?: ConnectionKeys;
+  /**
+   * What in the tenant uses a secret: a provider's secret can't be one of
+   * them (`409 identity-provider-key-in-use`). Absent: not checked.
+   */
+  readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
   /** `signed-out` events, best effort. */
   readonly auditEvents?: AuditEventBinding;
 }
@@ -90,7 +96,8 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
 
   const authed = new Hono<AppEnv>();
 
-  // A reserved `kindgi.` name or a model provider's key is never an identity provider's.
+  // A reserved `kindgi.` name, a model provider's key or a texts
+  // registration's account key is never an identity provider's.
   const refusedSecret = async (c: Context<AppEnv>, config: ProviderConfig) => {
     const refusal = await refuseSecretNames(
       options.providerKeys,
@@ -99,9 +106,37 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       'an identity provider',
       { keys: options.connectionKeys },
     );
-    if (refusal === undefined) return undefined;
-    c.status(statusFor(refusal.code) as never);
-    return c.json(toWireError(refusal, c.get('requestId')));
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, c.get('requestId')));
+    }
+    return secretInUse(c, config);
+  };
+
+  // An identity provider's secret is sign-in's only: a secret a tool, an
+  // endpoint, a webhook trigger or a connection app already uses would be
+  // refused to it from then on, so say so now.
+  const secretInUse = async (c: Context<AppEnv>, config: ProviderConfig) => {
+    const secretUsers = options.secretUsers;
+    if (secretUsers === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    for (const name of identityProviderSecretNames(config)) {
+      const usedBy = await secretUsers(tenantId, name);
+      if (usedBy.length === 0) continue;
+      c.status(statusFor('identity-provider-key-in-use') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'identity-provider-key-in-use',
+            message: `\`${name}\` is used by ${usedBy.map((u) => `${u.kind} "${u.id}"`).join(', ')}: an identity provider's secret is sign-in's only, so none of them could read it from then on. Store the identity provider's own secret under a name of its own and name that. If one app registration serves both, give it a second client secret`,
+            secret: name,
+            usedBy,
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+    return undefined;
   };
 
   // The provider catalog is tenant-wide: any GET (the list, one provider,

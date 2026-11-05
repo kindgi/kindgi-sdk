@@ -10937,7 +10937,7 @@ const CLIENT_SECRET_REF = {
   type: 'string',
   minLength: 1,
   description:
-    "Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`). If one app registration serves both sign-in and a connection, give each a client secret of its own.",
+    "Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own.",
 } as const;
 
 export const IdentityProviderSignInSchema: JsonSchema = {
@@ -11013,13 +11013,13 @@ export const SamlIdentityProviderConfigSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`).",
+        "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).",
     },
     spDecryptionKeyRef: {
       type: 'string',
       minLength: 1,
       description:
-        "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`).",
+        "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).",
     },
     wantAssertionsSigned: {
       type: 'boolean',

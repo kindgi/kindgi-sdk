@@ -3627,7 +3627,26 @@ export const ERROR_ENTRIES = {
         meaning: 'id of the identity provider that references that secret',
       },
     ],
-    seeAlso: ['POST /v1/auth/providers'],
+    seeAlso: ['#identity-provider-key-in-use', 'POST /v1/auth/providers'],
+  },
+  'identity-provider-key-in-use': {
+    description:
+      "A secret the identity provider being registered or changed references (its OIDC client secret, or its SAML signing or decryption key) is already used by a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration. An identity provider's secret is sign-in's only, so each of them would be refused it from then on. Store the identity provider's own secret under its own name and reference that. If one app registration serves both sign-in and a connection, give it a second client secret. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: [
+      '#identity-provider-key-refused',
+      'POST /v1/auth/providers',
+      'PATCH /v1/auth/providers/{providerId}',
+    ],
   },
   'provider-key-in-use': {
     description:

@@ -642,8 +642,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // another connection app registration (400).
   'connection-key-refused': 400,
   // An identity provider's secret signs the tenant's people in: named by
-  // anything but sign-in (400).
+  // anything but sign-in (400), or named by an identity provider while
+  // something else uses it (409).
   'identity-provider-key-refused': 400,
+  'identity-provider-key-in-use': 409,
   // A slug another org, team or project in the tenant already has; a
   // second default project.
   'slug-conflict': 409,

@@ -143,6 +143,7 @@ import { type BlockRunsInDeps, blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
+  connectionAppsNaming,
   connectionAppsRouter,
   connectionChoicesRouter,
   connectionEntriesRouter,
@@ -2863,6 +2864,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // under `/v1/auth/*`, behind the same bearer chain (a static bearer or a
   // session token reaches it).
   if (input.sessionStore !== undefined && input.identityProvider !== undefined) {
+    const connectionApps = input.connections;
     v1.route(
       '/auth',
       authRouter({
@@ -2874,6 +2876,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
         providerKeys,
         connectionKeys,
+        // What a model provider's key is checked against, and each
+        // connection app registration: one set up with the same app's
+        // secret before sign-in is the case the SSO guides warn about.
+        secretUsers: async (tenantId, name) => [
+          ...(await secretUsers(tenantId, name)),
+          ...(connectionApps === undefined
+            ? []
+            : await connectionAppsNaming(connectionApps, tenantId, name)),
+        ],
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );

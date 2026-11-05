@@ -161,7 +161,7 @@ _CONFLICT = {
     "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
     "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
     "release-gate-needs-pin", "release-gate-descendant-unpinned", "fact-changed", "legal-hold",
-    "erasure-in-progress", "provider-key-in-use",
+    "erasure-in-progress", "provider-key-in-use", "identity-provider-key-in-use",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

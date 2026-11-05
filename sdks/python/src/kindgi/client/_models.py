@@ -7978,7 +7978,7 @@ class OidcIdentityProviderConfig(BaseModel):
     client_id: Annotated[str, Field(alias="clientId", min_length=1)]
     client_secret_ref: Annotated[str, Field(alias="clientSecretRef", min_length=1)]
     """
-    Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`). If one app registration serves both sign-in and a connection, give each a client secret of its own.
+    Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own.
     """
     scopes: list[str] | None = None
     """
@@ -8051,13 +8051,13 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     sp_signing_key_ref: Annotated[str | None, Field(alias="spSigningKeyRef", min_length=1)] = None
     """
-    Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`).
+    Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).
     """
     sp_decryption_key_ref: Annotated[
         str | None, Field(alias="spDecryptionKeyRef", min_length=1)
     ] = None
     """
-    Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`).
+    Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).
     """
     want_assertions_signed: Annotated[bool | None, Field(alias="wantAssertionsSigned")] = None
     """
@@ -8319,7 +8319,7 @@ class UpdateIdentityProviderBody(BaseModel):
     client_id: Annotated[str | None, Field(alias="clientId", min_length=1)] = None
     client_secret_ref: Annotated[str | None, Field(alias="clientSecretRef", min_length=1)] = None
     """
-    Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`). If one app registration serves both sign-in and a connection, give each a client secret of its own.
+    Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own.
     """
     scopes: list[str] | None = None
     authorization_endpoint: Annotated[AnyUrl | None, Field(alias="authorizationEndpoint")] = None

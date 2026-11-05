@@ -7,7 +7,9 @@
  * name under the reserved `kindgi.` prefix, nor a texts registration's
  * account key where the runtime has connections. `POST /v1/auth/providers`
  * and `PATCH /v1/auth/providers/:providerId` answer 400 with the shared
- * codes and words, and nothing is registered or changed.
+ * codes and words, and nothing is registered or changed. A secret that
+ * something else already uses, a connection app registration among them,
+ * answers 409 `identity-provider-key-in-use`, naming what uses it.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -49,6 +51,9 @@ const TEXTS_APP = randomUUID();
 const TEXTS_REFUSED = `\`${TEXTS_KEY}\` is the account key of connection app registration "${TEXTS_APP}": an identity provider never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`;
 const HELD = 'kindgi.connection-token';
 const RESERVED = `\`${HELD}\` uses the reserved "kindgi." prefix: an identity provider never names one. Those names are Kindgi's own; store the secret under a name of its own and use that`;
+const SHARED = 'ACME_GOOGLE_SECRET';
+const GOOGLE_APP = randomUUID();
+const IN_USE = `\`${SHARED}\` is used by webhook-endpoint "whe-1", connection-app "${GOOGLE_APP}": an identity provider's secret is sign-in's only, so none of them could read it from then on. Store the identity provider's own secret under a name of its own and name that. If one app registration serves both, give it a second client secret`;
 
 const OKTA = {
   providerId: 'acme-okta',
@@ -71,8 +76,12 @@ const ADFS = {
   domains: ['acme.com'],
 };
 
-/** `texts`: the runtime has connections, with a live texts registration whose key is `TEXTS_KEY`. */
-function makeApp(opts: { readonly texts?: boolean } = {}) {
+/**
+ * `texts`: the runtime has connections, with a live texts registration whose
+ * key is `TEXTS_KEY`. `inUse`: a webhook endpoint and a Google connection app
+ * registration already use `SHARED`.
+ */
+function makeApp(opts: { readonly texts?: boolean; readonly inUse?: boolean } = {}) {
   const stored = new Map<string, ProviderConfig>();
   const registered: ProviderConfig[] = [];
   const updated: ProviderConfig[] = [];
@@ -111,21 +120,54 @@ function makeApp(opts: { readonly texts?: boolean } = {}) {
       list: async () => ({ data: [] }),
       get: async () => null,
     } as never,
-    ...(opts.texts === true && {
+    ...((opts.texts === true || opts.inUse === true) && {
       envName: 'local' as EnvName,
       connections: {
         entries: () => [],
         listApps: async () => ({
           data: [
+            ...(opts.texts === true
+              ? [
+                  {
+                    appId: TEXTS_APP,
+                    tenantId,
+                    app: 'texts',
+                    token: {
+                      provider: 'telnyx',
+                      apiKey: { envName: 'local', name: TEXTS_KEY },
+                      publicKey: `${'A'.repeat(43)}=`,
+                    },
+                  },
+                ]
+              : []),
+            ...(opts.inUse === true
+              ? [
+                  {
+                    appId: GOOGLE_APP,
+                    tenantId,
+                    app: 'google',
+                    oauth2: {
+                      clientId: 'client-1',
+                      clientSecret: { envName: 'local', name: SHARED },
+                    },
+                  },
+                ]
+              : []),
+          ],
+        }),
+      } as never,
+    }),
+    ...(opts.inUse === true && {
+      webhookEndpoints: {
+        list: async () => ({
+          data: [
             {
-              appId: TEXTS_APP,
-              tenantId,
-              app: 'texts',
-              token: {
-                provider: 'telnyx',
-                apiKey: { envName: 'local', name: TEXTS_KEY },
-                publicKey: `${'A'.repeat(43)}=`,
-              },
+              endpointId: 'whe-1',
+              url: 'https://app.acme.example/hooks',
+              events: ['run.finished'],
+              filter: {},
+              description: null,
+              secretRef: { envName: 'local', name: SHARED },
             },
           ],
         }),
@@ -200,6 +242,26 @@ describe('POST /v1/auth/providers', () => {
     expect(h.registered).toEqual([]);
   });
 
+  test('a client secret a webhook endpoint and a connection app already use: 409, naming each, and nothing is registered', async () => {
+    const h = makeApp({ inUse: true });
+    const res = await register(h.app, { ...OKTA, clientSecretRef: `production/${SHARED}` });
+    expect(await answerOf(res)).toEqual([
+      409,
+      expect.objectContaining({
+        code: 'identity-provider-key-in-use',
+        message: IN_USE,
+        details: {
+          secret: SHARED,
+          usedBy: [
+            { kind: 'webhook-endpoint', id: 'whe-1' },
+            { kind: 'connection-app', id: GOOGLE_APP },
+          ],
+        },
+      }),
+    ]);
+    expect(h.registered).toEqual([]);
+  });
+
   test("a secret another identity provider references is sign-in's too: registered", async () => {
     const h = makeApp();
     expect((await register(h.app, OKTA)).status).toBe(201);
@@ -249,6 +311,18 @@ describe('PATCH /v1/auth/providers/:providerId', () => {
     expect(h.updated.map((p) => (p.kind === 'oidc' ? p.clientSecretRef : undefined))).toEqual([
       'ACME_OKTA_SECRET',
     ]);
+  });
+
+  test('a SAML key moved to a secret that something else uses: 409, and the provider is unchanged', async () => {
+    const h = makeApp({ inUse: true });
+    expect((await register(h.app, ADFS)).status).toBe(201);
+    const res = await patch(h.app, 'acme-adfs', { spDecryptionKeyRef: SHARED });
+    expect(await answerOf(res)).toEqual([
+      409,
+      expect.objectContaining({ code: 'identity-provider-key-in-use', message: IN_USE }),
+    ]);
+    expect(h.updated).toEqual([]);
+    expect(h.stored.get('acme-adfs')).toEqual(ADFS);
   });
 
   test('a SAML key moved under the reserved prefix: 400 `reserved-name-prefix`', async () => {

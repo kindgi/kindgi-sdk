@@ -1797,10 +1797,13 @@ export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
   );
 }
 
-/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+/**
+ * Adding or changing a provider: the usual conflicts, a secret something
+ * else uses, or a deployment without a secrets store.
+ */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
-    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
   );
 }
 
@@ -7658,7 +7661,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.register',
     summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`) or a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
+      "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`), a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`) or a secret a tool, an endpoint, a webhook trigger or a connection app registration already uses (`409 identity-provider-key-in-use`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7748,7 +7751,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.update',
     summary: 'Change an identity provider, keeping its sign-in URLs',
     description:
-      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused`, `connection-key-refused` or `reserved-name-prefix`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused`, `connection-key-refused` or `reserved-name-prefix`, or `409 identity-provider-key-in-use`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
     tags: ['auth'],
     security: 'bearer',
     parameters: [

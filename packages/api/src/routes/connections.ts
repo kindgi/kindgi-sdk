@@ -181,13 +181,7 @@ export function connectionAppsRouter(
   ): Promise<SecretUse[]> => {
     const out: SecretUse[] =
       options.secretUsers === undefined ? [] : [...(await options.secretUsers(tenantId, name))];
-    for await (const app of pages((cursor) =>
-      binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
-    )) {
-      if (app.appId !== ownAppId && secretNamesOf(app).includes(name)) {
-        out.push({ kind: 'connection-app', id: app.appId });
-      }
-    }
+    out.push(...(await connectionAppsNaming(binding, tenantId, name, ownAppId)));
     return out;
   };
 
@@ -1558,6 +1552,27 @@ function secretsOf(
 /** The name of each secret a stored registration names. */
 function secretNamesOf(record: ConnectionAppRecord): readonly string[] {
   return secretsOf(record).map(([, secretRef]) => secretRef.name);
+}
+
+/**
+ * Each live connection app registration of the tenant that names the secret
+ * `name`, in any of its secrets, but `ownAppId`.
+ */
+export async function connectionAppsNaming(
+  binding: ConnectionBinding,
+  tenantId: TenantId,
+  name: string,
+  ownAppId?: string,
+): Promise<SecretUse[]> {
+  const out: SecretUse[] = [];
+  for await (const app of pages((cursor) =>
+    binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+  )) {
+    if (app.appId !== ownAppId && secretNamesOf(app).includes(name)) {
+      out.push({ kind: 'connection-app', id: app.appId });
+    }
+  }
+  return out;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

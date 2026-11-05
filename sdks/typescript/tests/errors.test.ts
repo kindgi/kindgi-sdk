@@ -112,6 +112,7 @@ describe('fromWire — conflicts', () => {
     'identity-user-email-taken',
     'identity-user-not-invited',
     'provider-key-in-use',
+    'identity-provider-key-in-use',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',
@@ -199,7 +200,7 @@ describe('fromWire — pinned versions', () => {
     });
   });
 
-  it("an identity-provider-key-refused is an invalid request, naming the secret and its identity provider", () => {
+  it('an identity-provider-key-refused is an invalid request, naming the secret and its identity provider', () => {
     expect(
       fromWire(
         {
