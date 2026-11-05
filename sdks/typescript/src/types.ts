@@ -2820,6 +2820,16 @@ export interface BlobMeta {
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   /**
+   * The file these bytes are a version of (`client.files`), with `version`:
+   * both or neither. Absent from older servers.
+   */
+  readonly fileId?: import('@kindgi/types').FileId;
+  /**
+   * Which version of `fileId` these bytes are: the lowest, when versions
+   * share them.
+   */
+  readonly version?: number;
+  /**
    * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
    * neither: present when the server's storage gives the blob one.
    */

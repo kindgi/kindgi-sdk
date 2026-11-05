@@ -13,6 +13,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **files with versions: `client.files`.** `client.files` has `list`, `create`, `get`, `delete` and `pin_history`, and `client.files.versions` has `list`, `add`, `get`, `download`, `restore`, `delete`, `pin` and `unpin`, one for each `files.*` operation, in the async client too. `create` and `add` send a multipart upload, as `client.artifacts.upload` does. A version is named by its number or by `"latest"`. `BlobMeta` gains `file_id` and `version`, for a blob that is a file's version. `client.artifacts`' methods are deprecated: each warns with `DeprecationWarning`, naming the `files` method to use, until 0.8.0 removes them. `file-not-found` and `file-version-not-found` raise `NotFoundError`; `file-version-conflict`, `file-version-pinned`, `file-last-version` and `artifact-in-file` raise `ConflictError`; and `file-too-large` raises `InvalidRequestError`.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,
