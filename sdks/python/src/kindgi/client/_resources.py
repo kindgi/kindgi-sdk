@@ -8089,7 +8089,7 @@ class DeploymentsResource:
     ) -> _models.DeployCheckResult:
         """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
 
-        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.
         """
         return self._client._request(
             _OPERATIONS["deployments.check"],
@@ -8188,7 +8188,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentPromotionCheck:
         """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
 
-        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.
         """
         return self._client._request(
             _OPERATIONS["deployments.promoteCheck"],
@@ -18437,7 +18437,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeployCheckResult:
         """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
 
-        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["deployments.check"],
@@ -18536,7 +18536,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentPromotionCheck:
         """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
 
-        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.
         """
         return await self._client._request(
             _OPERATIONS["deployments.promoteCheck"],
