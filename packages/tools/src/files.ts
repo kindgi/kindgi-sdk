@@ -53,8 +53,8 @@ export interface FileToStore {
 
 /**
  * Why a store kept nothing: `type` (the bytes aren't the type they claim,
- * or they're a type no model is shown and the run's agent has no tool that
- * reads files), `size` (over the type's limit), `limit` (the call has
+ * or they're a type no model is shown and no tool the run can call reads
+ * files), `size` (over the type's limit), `limit` (the call has
  * stored `MAX_STORED_FILES_PER_CALL` files), or `storage` (the workspace's
  * storage is full).
  */

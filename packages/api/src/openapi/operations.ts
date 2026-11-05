@@ -12466,7 +12466,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': {
         description:
-          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (the bytes aren't the type they claim, or they're a type no model is shown and the run's agent has no tool that reads files), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
+          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
         schema: ref('ToolFileStoreAnswer'),
       },
       '400': ErrorResponse('`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.'),

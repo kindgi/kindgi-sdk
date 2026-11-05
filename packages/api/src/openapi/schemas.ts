@@ -16331,7 +16331,7 @@ export const ToolFileStoreAnswerSchema: JsonSchema = {
           type: 'string',
           enum: ['type', 'size', 'limit', 'storage'],
           description:
-            "Why nothing was stored: `type` (the bytes aren't the type they claim, or they're a type no model is shown and the run's agent has no tool that reads files), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.",
+            "Why nothing was stored: `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.",
         },
       },
     },
@@ -16369,7 +16369,7 @@ export const ToolFileUpdateAnswerSchema: JsonSchema = {
           type: 'string',
           enum: ['rule', 'denied', 'gone', 'type', 'size', 'storage'],
           description:
-            "Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the bytes aren't the type they claim, or they're a type no model is shown and the run's agent has no tool that reads files), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full).",
+            "Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full).",
         },
       },
     },

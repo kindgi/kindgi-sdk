@@ -49,7 +49,7 @@ its bytes."""
 
 NotStoredReason = Literal["type", "size", "limit", "storage"]
 """Why a store kept nothing: `type` (the bytes aren't the type they claim, or they're a type no
-model is shown and the run's agent has no tool that reads files), `size` (over the type's limit),
+model is shown and no tool the run can call reads files), `size` (over the type's limit),
 `limit` (the call has stored `MAX_STORED_FILES_PER_CALL` files), `storage` (the workspace's
 storage is full)."""
 
@@ -61,8 +61,8 @@ checked), `size` (over its type's limit)."""
 NotUpdatedReason = Literal["rule", "denied", "gone", "type", "size", "storage"]
 """Why an update added no version: `rule` (the call's run may not be shown a file of that id),
 `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the
-bytes aren't the type they claim, or they're a type no model is shown and the run's agent has no
-tool that reads files), `size` (over the type's limit, or past what a call may send) or `storage`
+bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call
+reads files), `size` (over the type's limit, or past what a call may send) or `storage`
 (the workspace's storage is full)."""
 
 _NOT_STORED_REASONS: Final = frozenset(("type", "size", "limit", "storage"))
