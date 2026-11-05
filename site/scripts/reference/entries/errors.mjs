@@ -2221,7 +2221,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project: to the workspace, an org or a team.",
     details: [
       {
         key: 'keyProjectId',
@@ -2229,7 +2229,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'projectId',
-        meaning: 'the project the request names',
+        meaning: 'the project the request names, when it names one',
       },
       {
         key: 'action',
@@ -3587,7 +3587,7 @@ export const ERROR_ENTRIES = {
   },
   'provider-key-refused': {
     description:
-      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
+      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name.",
     details: [
       {
         key: 'secret',
@@ -3790,7 +3790,7 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app.",
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a connection app or an identity provider.",
     details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },

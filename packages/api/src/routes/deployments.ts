@@ -101,6 +101,7 @@ import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
@@ -154,7 +155,7 @@ import {
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
-import { scopeResourceRef } from './scope-params.js';
+import { bodyProjectResourceRef, scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
@@ -432,6 +433,11 @@ export async function makeDeployCards(
 
 const SECRETS_PATH = /\/deployments\/[^/]+\/secrets\/?$/;
 
+/** A deploy, or its check against what runs: `POST /deployments[/check]`. */
+function isDeploy(c: Context<AppEnv>): boolean {
+  return c.req.method === 'POST' && /\/deployments(?:\/check)?\/?$/.test(c.req.path);
+}
+
 export function deploymentsRouter(
   bindings: DeploymentsRouterBindings,
   authorizer?: Authorizer,
@@ -452,11 +458,15 @@ export function deploymentsRouter(
     environmentOrders: bindings.environmentOrders !== undefined,
   };
   r.use('*', async (c, next) => {
-    // Without an authorizer, nothing here is checked: deploying is project
-    // work, which a runtime without an authorization store leaves to every
-    // caller. `tenantResourceAccess` would make every change the tenant
-    // admin's, as it does for the tenant's settings.
-    if (authorizer === undefined) return next();
+    // Without an authorizer, nothing here is checked but a caller limited
+    // to a project: deploying is project work, which a runtime without an
+    // authorization store leaves to every caller. `tenantResourceAccess`
+    // would make every change the tenant admin's, as it does for the
+    // tenant's settings. A key or session limited to a project still
+    // deploys nothing tenant-wide (`holdLimitedCaller`).
+    if (authorizer === undefined) {
+      return isDeploy(c) ? holdLimitedCaller('admin', bodyProjectResourceRef)(c, next) : next();
+    }
     // A promotion checks rights on the projects themselves: read on the
     // deployment's environment, admin on the target.
     if (isPromotionRoute(c.req.method, c.req.path)) return next();
@@ -464,22 +474,8 @@ export function deploymentsRouter(
     if (c.req.method === 'POST' && SECRETS_PATH.test(c.req.path)) return next();
     // A deploy, and its check against what runs, need admin where it
     // deploys: the body's project, else the tenant.
-    if (c.req.method !== 'POST' || !/\/deployments(?:\/check)?\/?$/.test(c.req.path)) {
-      return tenantAccess(c, next);
-    }
-    return authorizer.authorize('admin', async (ctx) => {
-      try {
-        const body = await ctx.req.json();
-        const pid =
-          body !== null && typeof body === 'object'
-            ? (body as Record<string, unknown>).projectId
-            : undefined;
-        if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
-      } catch {
-        // The handler answers 400 for a body that isn't JSON.
-      }
-      return ref('tenant', ctx.get('tenantId') as unknown as string);
-    })(c, next);
+    if (!isDeploy(c)) return tenantAccess(c, next);
+    return authorizer.authorize('admin', bodyProjectResourceRef)(c, next);
   });
 
   // ---------- POST /:deploymentId/promotions (and /check) ----------

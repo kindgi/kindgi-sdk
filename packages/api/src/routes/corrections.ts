@@ -63,6 +63,7 @@ import type { ExpectedCall } from '../expected-decisions.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type ItemRights, forbidden } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import { exportActor } from '../signed-export.js';
@@ -643,10 +644,12 @@ export function correctorGroupsRouter(
     const parsed = parseGroupBody(await c.req.json().catch(() => null));
     if (parsed.kind === 'err') return fail('bad-input', parsed.message);
     const { scope, name, weight, description, assertableBy } = parsed.body;
-    if (
-      authorizer !== undefined &&
-      !(await authorizer.can(c, 'admin', scopeRef(tenantId, scope)))
-    ) {
+    if (authorizer === undefined) {
+      // Without a store, a key or session limited to a project still makes
+      // no tenant-wide group.
+      const held = limitedCallerRefusal(c, 'admin', scopeRef(tenantId, scope));
+      if (held !== undefined) return held;
+    } else if (!(await authorizer.can(c, 'admin', scopeRef(tenantId, scope)))) {
       return fail('permission-denied', 'Not allowed to manage corrector groups in this scope.');
     }
     const outcome = await binding.createGroup({

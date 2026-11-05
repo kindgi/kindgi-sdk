@@ -1926,7 +1926,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   // A model provider's key is used by its provider only: the routes that
-  // write a tool, an endpoint or a provider check names against it.
+  // write a tool, an endpoint, an identity provider or a model provider
+  // check names against it.
   const providerKeys = providerKeysOf(input.providerRegistry);
   // A texts registration's account key is used by its registration only:
   // the same routes, and a model provider's, check names against it.
@@ -2856,6 +2857,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.identityProviderChanges !== undefined && {
           providerChanges: input.identityProviderChanges,
         }),
+        providerKeys,
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );

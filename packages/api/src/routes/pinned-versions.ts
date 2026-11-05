@@ -18,6 +18,7 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, pinChangeRefusal, pinWidthRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import type {
   PinnedVersion,
   PinnedVersionBinding,
@@ -34,6 +35,7 @@ import { actorOf } from './agent-pins.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { parsePinScopeBody, pinScopeToWire } from './pin-scope-wire.js';
+import { pinScopeResourceRef } from './scope-params.js';
 
 type Ctx = Context<AppEnv>;
 
@@ -84,7 +86,9 @@ export interface PinnedRouteDeps {
 /**
  * The rights a pin write asks, before its handler reads the body
  * (`pinChangeRefusal`). Install it ahead of the item's own middleware,
- * which leaves pin writes to it (`isPinWrite`).
+ * which leaves pin writes to it (`isPinWrite`). Without a store, a key or
+ * session limited to a project pins nothing tenant- or org-wide
+ * (`holdLimitedCaller`).
  */
 export function pinRightsMiddleware(
   kind: PinnedItemKind,
@@ -92,7 +96,13 @@ export function pinRightsMiddleware(
   deps: PinnedRouteDeps,
 ): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (deps.authorizer === undefined || !isPinWrite(c.req.method, c.req.path)) return next();
+    if (!isPinWrite(c.req.method, c.req.path)) return next();
+    if (deps.authorizer === undefined) {
+      const scope = await bodyPinScope(c);
+      if (scope === undefined) return next();
+      const tenantId = c.get('tenantId') as TenantId;
+      return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
+    }
     const refused = await pinChangeRefusal(c, {
       authorizer: deps.authorizer,
       rights: deps.itemRights,

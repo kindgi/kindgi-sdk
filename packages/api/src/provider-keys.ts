@@ -92,7 +92,8 @@ export type SecretUser =
   | 'a webhook trigger'
   | 'a connection app'
   | 'a model provider'
-  | "a pack's env";
+  | "a pack's env"
+  | 'an identity provider';
 
 /** Why `name` can't be used by `user`: it's model provider `providerId`'s key. */
 export function providerKeyRefusal(
@@ -105,9 +106,14 @@ export function providerKeyRefusal(
   readonly secret: string;
   readonly providerId: string;
 } {
+  // An identity provider never calls a model: its own secret has a name of its own.
+  const instead =
+    user === 'an identity provider'
+      ? "Store the identity provider's own secret under its own name and use that name"
+      : 'If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name';
   return {
     code: 'provider-key-refused',
-    message: `\`${name}\` is the key of model provider "${providerId}": ${user} never gets a model provider's key. If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name`,
+    message: `\`${name}\` is the key of model provider "${providerId}": ${user} never gets a model provider's key. ${instead}`,
     secret: name,
     providerId,
   };
@@ -311,7 +317,8 @@ export function refuseConnectionKeyNames(
  * `kindgi.` prefix, then a model provider's key, then a texts registration's
  * account key (`connections.keys`) that a registration other than
  * `connections.ownAppId` holds. Every registration that names secrets checks
- * them here, so none gets one check without the others.
+ * them here, so none gets one check without the others, and so does a reader
+ * that checks a name ahead of a cache of its own values.
  */
 export async function refuseSecretNames(
   keys: ProviderKeys | undefined,
