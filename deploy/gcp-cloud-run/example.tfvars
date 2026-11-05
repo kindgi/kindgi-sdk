@@ -42,3 +42,9 @@ server_env = {
 
 pack_cloud_sql_instances = ["acme-kindgi-dev:northamerica-northeast2:acme-app"]
 pack_bucket_readers      = ["acme-app-corpus"]
+
+# Renew the license key on a schedule (README, "8. Renew the license key").
+# Unset: by hand only, and nothing calls Kindgi. With the usage key's secret
+# too, renewing carries counts and hands a renewed key to the server.
+# license_renewal_schedule = "17 6 * * *"
+# license_usage_key_secret = "kindgi-license-usage-key"

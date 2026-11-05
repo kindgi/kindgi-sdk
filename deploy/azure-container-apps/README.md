@@ -279,7 +279,7 @@ server_secret_env = {
 
 ## Renewing the license key
 
-The license key expires, and the server warns from 30 days before (the startup banner, the console and `kindgi doctor`, each with the exact command). The server never calls Kindgi; renewing is something you run, here or from your own scheduler.
+The license key expires, and the server warns before it does: from 30 days before, or fewer if the key sets its own warning (the startup banner, the console and `kindgi doctor`, each with the exact command). The server never calls Kindgi; renewing is something you run, here or from your own scheduler.
 
 **Once, to enroll the deployment:** where you're signed in to Azure with access to the vault (`key_vault_admins`):
 
@@ -294,8 +294,10 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
-  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
-- **Counts of the deployment's use,** for a non-production key (the docs' Renew the license key page says what they are, under "What renewing sends"): mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+  - **Two alerts come with it:** a failed run, and a key inside its warning window (the run's own line, `⚠ It expires in N days`). That alert follows the key's own warning, so it fires from 30 days before the key expires, or fewer if the key sets them. With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+- **The server, and counts of the deployment's use:** mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+  - For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
+  - From runtime 0.7.0, a renewed key goes to the running server as well, and every instance uses it within about a minute, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
 
   ```sh
   # Off in this shell: az's log file, if it's on, records each request's body.
@@ -328,7 +330,7 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   ```
 
   `counts: sent (…)` is what you want. With `server_ip_allowlist` set, this check matters most: the job calls the server's URL, and the module doesn't check whether the list lets it in.
-- **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
+- **When a new key is used:** with `license_usage_key_secret` and runtime 0.7.0 or later, at once (above). Otherwise, the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
 - **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
 
 ## Taking it down

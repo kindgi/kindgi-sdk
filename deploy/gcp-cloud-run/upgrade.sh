@@ -1541,6 +1541,8 @@ plan_allowed_changes() {
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
   # From 0.4.0 the orchestrator's Job runs the server's image too.
   printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.image"
+  # So does the license renewal's Job, with license_renewal_schedule set.
+  printf '%s\n' "google_cloud_run_v2_job.license_renewal template.template.containers.image"
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)

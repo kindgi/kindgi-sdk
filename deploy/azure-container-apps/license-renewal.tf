@@ -14,8 +14,10 @@
 #
 # With `license_usage_key_secret` too, the request carries counts of the
 # deployment's use, which the job reads from the server with the system key
-# in that secret (it holds `system:license` alone). You mint the key and put
-# it in the vault; Terraform names the secret and lets the job read it.
+# in that secret (it holds `system:license` alone). From runtime 0.7.0 the
+# job also hands a renewed key to the running server with that key, and the
+# server uses it at once, with no restart. You mint the key and put it in
+# the vault; Terraform names the secret and lets the job read it.
 
 locals {
   license_renewal        = var.license_renewal_schedule != ""
@@ -27,7 +29,7 @@ locals {
   license_renewer_ref = "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${local.license_renewer_secret}"
 
   # `kindgi license renew`'s arguments: with the usage key, the server and
-  # where the key is, for the counts.
+  # where the key is, for the counts and the key's hand-over.
   license_renew_args = concat(
     ["license", "renew", "--key", local.license_key_ref, "--renewer", local.license_renewer_ref],
     local.license_usage_counts ? [
@@ -112,7 +114,7 @@ resource "azurerm_container_app_job" "license_renewal" {
   container_app_environment_id = azurerm_container_app_environment.kindgi.id
   workload_profile_name        = "Consumption"
   # One try, retried once: a renewal that fails today has the next day,
-  # and 30 days before the key expires (plus 14 of grace).
+  # and the rest of the key's warning window (plus 14 days of grace).
   replica_timeout_in_seconds = 300
   replica_retry_limit        = 1
   tags                       = local.tags
@@ -155,8 +157,9 @@ resource "azurerm_container_app_job" "license_renewal" {
 
 # ---- alerts, with the job on ------------------------------------------------------
 # Sent to `alert_action_groups` (none: they fire in Azure Monitor only): a
-# renewal that failed, and a key that expires within a week, which `kindgi
-# license renew` says on every run ("⚠ It expires in N days"). With the
+# renewal that failed, and a key inside its warning window, which `kindgi
+# license renew` says on every run ("⚠ It expires in N days"): from 30 days
+# before it expires, or fewer when the key sets its own. With the
 # usage key, a third: a run that sent no counts, which renew says on its
 # counts line ("counts: not sent (<why>)"). The CLI's tests run renew
 # against both queries (packages/cli/tests/license-commands.test.ts).
@@ -200,7 +203,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring"
   resource_group_name  = data.azurerm_resource_group.kindgi.name
   location             = local.location
   scopes               = [azurerm_log_analytics_workspace.kindgi.id]
-  description          = "The license key expires within 7 days, and renewing hasn't brought a new one: see the renewal job's last run."
+  description          = "The license key is inside its warning window, and renewing hasn't brought one that lasts longer: see the renewal job's last run, whose line \"It expires in N days\" says what to do next."
   severity             = 2
   evaluation_frequency = "P1D"
   window_duration      = "P1D"
@@ -212,7 +215,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring"
     query                   = <<-KQL
       ContainerAppConsoleLogs_CL
       | where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"
-      | where Log_s matches regex @"It expires in (-[0-9]+|[0-6]) days"
+      | where Log_s matches regex @"It expires in -?[0-9]+ days"
     KQL
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
