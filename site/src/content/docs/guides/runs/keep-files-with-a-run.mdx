@@ -48,9 +48,41 @@ It prints the artifact's record, with its `blobId`.
 - **Its size:** the runtime refuses a bigger upload than its cap, 100 MiB by
   default. It answers `413 artifact-too-large`, with the cap in
   `details.maxBytes`.
+- **The workspace's storage limit:** on a runtime that sets one, an upload
+  the limit has no room for is refused with `403 storage-limit-reached`, and
+  nothing is stored. `details` has the limit (`storageMiB`), what the
+  workspace's files take (`usedBytes`) and what the upload needs
+  (`neededBytes`). Deleting files makes room.
 
 From your app, in TypeScript, `artifacts.upload` sends the file. `download`
 streams it back, and `head` reads what's kept without the bytes.
+
+## Upload one for a run that hasn't started
+
+A file your app sends in as a run's input is uploaded before the run starts,
+so it can't name the run. Mark it `forRun`, and the runtime deletes it if no
+run that names it in its input starts in time:
+
+```ts
+const file = await kindgi.artifacts.upload({
+  body: await readFile('contract.docx'),
+  name: 'contract.docx',
+  contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  forRun: true,
+});
+```
+
+`readFile` is Node's, from `node:fs/promises`. The run's input names the
+file as a `kindgi.file` value whose `artifactId` is its `blobId`.
+
+- Its record has `expiresAt`, when it's deleted unless such a run has
+  started by then: 24 hours after the upload by default.
+- Once a run that names it starts, `expiresAt` is gone, and the file stays
+  until it's deleted.
+- `forRun` with `ownerRunId` is refused with `400 bad-input`: an upload that
+  names its run already belongs to it.
+- With the Python client, pass `data={"forRun": "true"}` to
+  `artifacts.upload`. Over HTTP, it's the form field `forRun=true`.
 
 ## Find and download them
 
@@ -96,8 +128,10 @@ and what was read. The log line never holds the file's content.
 
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting
-need `write`. An artifact you can't read answers `404`, as if it weren't
-there, and lists leave it out.
+need `write`. Someone with `run` on the project and no `write` may upload a
+file that names no run, as an input for a run they start, and such an upload
+is always `forRun`. An artifact you can't read answers `404`, as if it
+weren't there, and lists leave it out.
 
 ## Delete one
 
@@ -125,7 +159,9 @@ go:
 
 Without it, the runtime serves no artifacts. `kindgi dev` keeps them in the
 pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
-cap. The startup output says where artifacts go, or that they're off.
+cap, and `KINDGI_UNUSED_UPLOAD_TTL_MS` how long a `forRun` upload is kept
+when no run that names it starts, in milliseconds (24 hours by default). The
+startup output says where artifacts go, or that they're off.
 [Choose where the runtime keeps files](../../../deploy/self-hosted/store-files/)
 has each one's settings and permissions, and what the runtime checks at
 startup.

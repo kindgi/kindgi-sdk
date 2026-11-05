@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
@@ -17,7 +18,15 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { BlobMeta, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ArtifactId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  ArtifactId,
+  FileId,
+  ProjectId,
+  RunId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
@@ -58,9 +67,13 @@ const resolveToken: TokenResolver = async (token) =>
 
 /**
  * With `s3Address`, each upload gets an S3-compatible address, as a store
- * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key.
+ * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key. A
+ * `forRun` upload expires a day after it's made. With `storageMiB`, every
+ * put is refused as past a full storage limit.
  */
-function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding & {
+function memoryBlobs(
+  options: { s3Address?: boolean; storageMiB?: number } = {},
+): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
   /** Each blob `get` opened, by id. */
@@ -75,6 +88,20 @@ function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding 
     async put(_t, input) {
       const blobId = randomUUID() as ArtifactId;
       const body = await read(input.bytes);
+      if (options.storageMiB !== undefined) {
+        const usedBytes = options.storageMiB * 1024 * 1024;
+        return {
+          kind: 'err',
+          error: {
+            code: 'storage-limit-reached',
+            message: 'full',
+            limit: 'storage',
+            storageMiB: options.storageMiB,
+            usedBytes,
+            neededBytes: body.byteLength,
+          },
+        };
+      }
       const meta: BlobMeta = {
         blobId,
         tenantId,
@@ -87,6 +114,7 @@ function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding 
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: '2026-10-07T00:00:00.000Z' as Timestamp,
+        ...(input.forRun === true && { expiresAt: '2026-10-08T00:00:00.000Z' as Timestamp }),
         ...(options.s3Address === true && { bucket: 'artifacts', key: blobId }),
       };
       rows.set(blobId, meta);
@@ -134,10 +162,14 @@ function harness(
     maxBytes?: number;
     defaultProject?: string;
     s3Address?: boolean;
+    storageMiB?: number;
   } = {},
 ) {
   const stubs = createStubAppBindings();
-  const blobs = memoryBlobs({ s3Address: options.s3Address === true });
+  const blobs = memoryBlobs({
+    s3Address: options.s3Address === true,
+    ...(options.storageMiB !== undefined && { storageMiB: options.storageMiB }),
+  });
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) => {
@@ -175,17 +207,23 @@ function harness(
       headers: { authorization: `Bearer ${as}` },
       body: form,
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: (await res.json()) as Record<string, any>,
+    };
   };
   const call = async (
     as: string,
     method: string,
     path: string,
     headers: Record<string, string> = {},
+    body?: string,
   ) => {
     const res = await app.request(path, {
       method,
       headers: { authorization: `Bearer ${as}`, ...headers },
+      ...(body !== undefined && { body }),
     });
     const text = await res.text();
     return {
@@ -271,6 +309,17 @@ describe("an artifact answer carries only BlobMeta's properties", () => {
     expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
     const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
     expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test("a blob that is a file's version is listed with its file and version", async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    const fileId = randomUUID() as FileId;
+    const row = h.blobs.rows.get(up.body.blobId)!;
+    h.blobs.rows.set(up.body.blobId, { ...row, fileId, version: 2 });
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([{ ...up.body, fileId, version: 2 }]);
     expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
   });
 });
@@ -428,6 +477,56 @@ describe('someone who may only run the project reaches their own files', () => {
       expect([del.status, del.json().error.code]).toEqual([403, 'permission-denied']);
     }
     expect(h.blobs.rows.size).toBe(5);
+  });
+
+  test("their upload is always for a run, even one whose form says it isn't", async () => {
+    const h = harness();
+    for (const fields of [{}, { forRun: 'false' }, { forRun: 'true' }]) {
+      const input = await h.upload('carol', { projectId: P3, ...fields });
+      expect(input.status, JSON.stringify(input.body)).toBe(201);
+      expect(input.body.expiresAt).toBe('2026-10-08T00:00:00.000Z');
+    }
+  });
+});
+
+describe('an upload for a run that has not started', () => {
+  test('`forRun=true` gives it an expiry; without it, or `false`, there is none', async () => {
+    const h = harness();
+    const forRun = await h.upload('alice', { forRun: 'true' });
+    expect(forRun.status, JSON.stringify(forRun.body)).toBe(201);
+    expect(forRun.body.expiresAt).toBe('2026-10-08T00:00:00.000Z');
+    expect(validateAgainst('BlobMeta', forRun.body)).toEqual([]);
+    for (const fields of [{}, { forRun: 'false' }, { forRun: '' }]) {
+      const kept = await h.upload('alice', fields);
+      expect(kept.status, JSON.stringify(kept.body)).toBe(201);
+      expect(kept.body).not.toHaveProperty('expiresAt');
+    }
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data.filter((m: BlobMeta) => m.expiresAt !== undefined)).toEqual([forRun.body]);
+  });
+
+  test('a `forRun` other than `true` or `false`, or with `ownerRunId`, is bad input, and nothing is stored', async () => {
+    const h = harness();
+    const other = await h.upload('alice', { forRun: 'yes' });
+    expect([other.status, other.body.error.code]).toEqual([400, 'bad-input']);
+    expect(other.body.error.message).toBe('Field `forRun` must be `true` or `false`');
+    const withRun = await h.upload('alice', { forRun: 'true', ownerRunId: RUN_IN_P2 });
+    expect([withRun.status, withRun.body.error.code]).toEqual([400, 'bad-input']);
+    expect(withRun.body.error.message).toMatch(/^Field `forRun` is for a run that hasn't started/);
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
+describe('the storage limit', () => {
+  test("a put it has no room for is 403 storage-limit-reached, with the store's numbers", async () => {
+    const h = harness({ storageMiB: 1 });
+    const up = await h.upload('alice', {}, 'ten bytes!');
+    expect(up.status).toBe(403);
+    expect(up.body.error).toMatchObject({
+      code: 'storage-limit-reached',
+      details: { limit: 'storage', storageMiB: 1, usedBytes: 1024 * 1024, neededBytes: 10 },
+    });
+    expect(h.blobs.rows.size).toBe(0);
   });
 });
 
@@ -629,5 +728,58 @@ describe('the upload cap', () => {
     const r = await h.upload('bob', { projectId: P2 });
     expect(r.status).toBe(201);
     expect((await h.call('bob', 'GET', `/v1/artifacts/${r.body.blobId}`)).text).toBe('hello');
+  });
+});
+
+describe('the artifacts routes go in 0.8.0', () => {
+  test('every answer links to what replaces them, an error too; other routes have no link', async () => {
+    const h = harness();
+    // On the release line's docs, @kindgi/sdk's version's, which a version change moves.
+    const sdk = new URL('../../sdk/package.json', import.meta.url);
+    const [major, minor] = (
+      JSON.parse(readFileSync(sdk, 'utf8')) as { version: string }
+    ).version.split('.');
+    const link = `<https://docs.kindgi.com/v${major}.${minor}/concepts/files-and-versions/#what-080-removes>; rel="deprecation"`;
+    const made = await h.upload('alice');
+    expect([made.status, made.headers.link]).toEqual([201, link]);
+    const blobId = made.body.blobId as string;
+    const answers = [
+      ['alice', 'GET', '/v1/artifacts', 200],
+      ['alice', 'GET', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'HEAD', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'GET', `/v1/artifacts/${randomUUID()}`, 404],
+      ['nobody', 'GET', '/v1/artifacts', 401],
+      ['alice', 'DELETE', `/v1/artifacts/${blobId}`, 200],
+    ] as const;
+    for (const [as, method, path, status] of answers) {
+      const r = await h.call(as, method, path);
+      expect([method, path, r.status, r.headers.link]).toEqual([method, path, status, link]);
+    }
+    // Refused by the upload cap, before the route reads the body.
+    const tooBig = await harness({ maxBytes: 1024 }).upload('alice', {}, 'x'.repeat(2000));
+    expect([tooBig.status, tooBig.headers.link]).toEqual([413, link]);
+    // Refused by the API's own body limit, before any route: a body on a
+    // delete, over hosted's 2 MiB.
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const over = ' '.repeat(2 * 1024 * 1024 + 1);
+      const r = await harness().call(
+        'alice',
+        'DELETE',
+        `/v1/artifacts/${randomUUID()}`,
+        { 'content-length': String(over.length) },
+        over,
+      );
+      expect([r.status, r.json().error.code, r.headers.link]).toEqual([
+        413,
+        'request-too-large',
+        link,
+      ]);
+    } finally {
+      restore();
+    }
+    // `/v1/files` isn't served here: its 404 is no artifacts answer.
+    const other = await h.call('alice', 'GET', '/v1/files');
+    expect([other.status, other.headers.link]).toEqual([404, undefined]);
   });
 });

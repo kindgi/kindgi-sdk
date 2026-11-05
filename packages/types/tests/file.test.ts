@@ -23,6 +23,10 @@ describe('isFileValue', () => {
     expect(isFileValue({ ...value, name: undefined, pages: 3, notShown: 'gone' })).toBe(true);
   });
 
+  test('with the file and version its bytes are', () => {
+    expect(isFileValue({ ...value, fileId: 'report', version: 3 })).toBe(true);
+  });
+
   test.each([
     ['another type', { type: 'file' }],
     ['an empty artifactId', { artifactId: '' }],
@@ -34,6 +38,12 @@ describe('isFileValue', () => {
     ['no pages', { pages: 0 }],
     ['pages as text', { pages: '3' }],
     ['an unknown reason', { notShown: 'hidden' }],
+    ['a fileId with no version', { fileId: 'report' }],
+    ['a version with no fileId', { version: 2 }],
+    ['an empty fileId', { fileId: '', version: 1 }],
+    ['version 0', { fileId: 'report', version: 0 }],
+    ['a version that is not whole', { fileId: 'report', version: 1.5 }],
+    ['a version as text', { fileId: 'report', version: '2' }],
   ])('not with %s', (_, change) => {
     expect(isFileValue({ ...value, ...change })).toBe(false);
   });

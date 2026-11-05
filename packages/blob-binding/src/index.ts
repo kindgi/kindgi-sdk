@@ -5,12 +5,19 @@ import type { Scope } from '@kindgi/platform';
 import type {
   ArtifactId,
   Cursor,
+  FileId,
   ProjectId,
   Result,
   RunId,
   TenantId,
   Timestamp,
 } from '@kindgi/types';
+
+/** What a tenant's files take (`BlobStorageBinding.storageUsed`). */
+export interface BlobStorageUsed {
+  /** Bytes, with the uploads under way. It may be past the limit. */
+  readonly usedBytes: number;
+}
 
 /**
  * Caller-plugged surface for artifact (blob) storage. Same pattern as
@@ -99,6 +106,12 @@ export interface BlobStorageBinding {
    * non-`200`.
    */
   delete(tenantId: TenantId, blobId: ArtifactId): Promise<Result<BlobDeleteOutcome, BlobError>>;
+  /**
+   * Optional. What the tenant's files take now, with the uploads under
+   * way: the number its storage limit is checked against. `GET /v1/tenant`
+   * answers it as `storage`. A store that doesn't count leaves it out.
+   */
+  storageUsed?(tenantId: TenantId): Promise<BlobStorageUsed>;
 
   // -------------- S3-compat (bucket/key-addressed) surface --------------
 
@@ -270,6 +283,15 @@ export interface BlobPutInput {
    * the hash in `BlobMeta.hash`.
    */
   readonly expectedHash?: string;
+  /**
+   * Uploaded for a run that hasn't started yet. The blob is deleted once
+   * the deployment's unused-upload time has passed (24 hours by default),
+   * unless a run that names it in its input has started by then. From
+   * that start on, it stays until it's deleted, as any other blob.
+   * Bindings store its `expiresAt` and return it on `BlobMeta`. The API
+   * sets it on every upload by someone who may run but not write.
+   */
+  readonly forRun?: boolean;
 }
 
 export interface BlobMeta {
@@ -288,6 +310,12 @@ export interface BlobMeta {
   readonly createdBy?: string;
   readonly createdAt: Timestamp;
   /**
+   * When an upload made for a run (`BlobPutInput.forRun`) is deleted if
+   * no run that names it has started. Absent once such a run has started,
+   * and on every other blob.
+   */
+  readonly expiresAt?: Timestamp;
+  /**
    * S3-compat address. Every persisted blob carries a `(bucket, key)`
    * pair — bespoke uploads default to `bucket: 'artifacts', key:
    * <blobId>` so they're visible via the S3-compat surface too. When
@@ -296,6 +324,14 @@ export interface BlobMeta {
    */
   readonly bucket?: string;
   readonly key?: string;
+  /**
+   * The file these bytes are a version of, and which version, on a
+   * deployment that keeps file versions (`FileVersionsBinding`). A blob
+   * stored before it kept them is version 1 of a file with its own id.
+   * Bytes two versions share name the lowest: the one that stored them.
+   */
+  readonly fileId?: FileId;
+  readonly version?: number;
 }
 
 export interface BlobRead {
@@ -366,7 +402,34 @@ export type BlobError =
   | {
       readonly code: 'blob-size-mismatch';
       readonly message: string;
+      /** The size the put declared, or, for bytes sent with no size, the most an upload may be. */
       readonly declared: number;
+      /** The size of the bytes received, or, past that most, how many came in before the upload stopped. */
       readonly actual: number;
     }
-  | { readonly code: 'blob-storage-error'; readonly message: string; readonly cause?: unknown };
+  | { readonly code: 'blob-storage-error'; readonly message: string; readonly cause?: unknown }
+  | {
+      /**
+       * `delete` of a blob that a file's versions still need: a pinned
+       * version's, or one more than one version shares. Delete the
+       * version or the file instead (`FileVersionsBinding`).
+       */
+      readonly code: 'artifact-in-file';
+      readonly message: string;
+      readonly blobId: string;
+      readonly fileId: string;
+    }
+  | {
+      /** The tenant's storage limit has no room for the put. Nothing was stored. */
+      readonly code: 'storage-limit-reached';
+      readonly message: string;
+      readonly limit: 'storage';
+      /** The tenant's limit, in MiB. */
+      readonly storageMiB: number;
+      /** What the tenant's files take, with the uploads under way, before this put. It may be past the limit already. */
+      readonly usedBytes: number;
+      /** What this put needs: its declared size, else the most an upload may be. */
+      readonly neededBytes: number;
+    };
+
+export type * from './file-versions.js';

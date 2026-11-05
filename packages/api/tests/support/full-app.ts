@@ -36,6 +36,7 @@ import type {
   EnvBinding,
   EnvironmentOrderBinding,
   ExpertQueueBinding,
+  FileVersionsBinding,
   FlowRegistryBinding,
   FrozenCaseStoreBinding,
   GuardrailRegistryBinding,
@@ -195,6 +196,26 @@ const noopMemory: MemoryBinding = {
   verifyFact: async () => ({ kind: 'not-found' }),
   listRevisions: async () => null,
   retrieve: async () => ({ kind: 'ok', results: [] }),
+};
+const noFile = async () =>
+  ({
+    kind: 'err',
+    error: { code: 'file-not-found', message: 'noop', fileId: 'noop' },
+  }) as const;
+const noopFileVersions: FileVersionsBinding = {
+  create: async () => ({ kind: 'err', error: { code: 'blob-storage-error', message: 'noop' } }),
+  get: async () => null,
+  list: async () => ({ kind: 'ok', value: { data: [] } }),
+  delete: async () => ({ kind: 'ok', value: { deleted: false } }),
+  listVersions: noFile,
+  getVersion: noFile,
+  readVersion: noFile,
+  addVersion: noFile,
+  restoreVersion: noFile,
+  deleteVersion: noFile,
+  pinVersion: noFile,
+  unpinVersion: noFile,
+  pinHistory: noFile,
 };
 const noopBlobStorage: BlobStorageBinding = {
   put: async () => ({
@@ -713,6 +734,7 @@ export function fullAppInput(): CreateAppInput {
     memoryErasures: noopMemoryErasures,
     supervisor: noopSupervisor,
     blobStorage: noopBlobStorage,
+    fileVersions: noopFileVersions,
     capabilityRegistry: noopCapabilityRegistry,
     providerRegistry: noopProviderRegistry,
     mcpEndpointRegistry: noopMCPEndpointRegistry,

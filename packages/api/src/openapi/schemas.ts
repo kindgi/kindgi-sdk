@@ -4968,6 +4968,17 @@ export const FileValueSchema: JsonSchema = {
       minLength: 1,
       description: 'The stored file (`POST /v1/artifacts`): its `blobId`.',
     },
+    fileId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The file these bytes are a version of, on a runtime that keeps file versions. Set with `version`: a value is admitted only when the two name `artifactId`'s bytes.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Which version of `fileId` these bytes are. Set with `fileId`.',
+    },
     name: { type: 'string', description: "The file's name." },
     contentType: { type: 'string', description: 'Its type, as checked from its bytes.' },
     size: { type: 'integer', minimum: 0, description: 'Its size in bytes.' },
@@ -8080,6 +8091,12 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.",
+    },
     bucket: {
       type: 'string',
       description:
@@ -8089,6 +8106,17 @@ export const BlobMetaSchema: JsonSchema = {
       type: 'string',
       description:
         "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
+    fileId: {
+      type: 'string',
+      description:
+        'The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id.',
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.',
     },
   },
 };
@@ -8107,7 +8135,7 @@ export const ArtifactCollectionPageSchema: JsonSchema = {
 export const UploadArtifactBodySchema: JsonSchema = {
   type: 'object',
   description:
-    'Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).',
+    "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).",
   required: ['file'],
   properties: {
     file: { type: 'string', format: 'binary' },
@@ -8129,6 +8157,12 @@ export const UploadArtifactBodySchema: JsonSchema = {
       description:
         'Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400).',
     },
+    forRun: {
+      type: 'string',
+      enum: ['true', 'false'],
+      description:
+        "`true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted.",
+    },
   },
 };
 
@@ -8142,6 +8176,314 @@ export const DeleteArtifactResultSchema: JsonSchema = {
       type: 'boolean',
       description:
         '`true` on the first delete; `false` on subsequent calls (already gone). 404 only when the id was never known.',
+    },
+  },
+};
+
+// ---------------- files and their versions ----------------
+
+const FILE_ID_DESCRIPTION =
+  "The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.";
+
+export const FilePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['by', 'at'],
+  description: "A version's keep mark: it can't be deleted, and retention never purges it.",
+  properties: {
+    by: { type: 'string', description: 'Who pinned it: `user:<id>` or `service_account:<id>`.' },
+    at: { type: 'string', format: 'date-time' },
+    reason: { type: 'string' },
+  },
+};
+
+export const FileVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'fileId',
+    'version',
+    'blobId',
+    'name',
+    'contentType',
+    'size',
+    'hash',
+    'tags',
+    'madeVia',
+    'createdAt',
+  ],
+  description:
+    'One version of a file. Numbers start at 1, only grow, and are never reused. A deleted or purged version keeps its record, so the runs that used it still name it.',
+  properties: {
+    fileId: { type: 'string', description: FILE_ID_DESCRIPTION },
+    version: { type: 'integer', minimum: 1 },
+    blobId: {
+      type: 'string',
+      description: 'The stored bytes. Two versions of one file can share them.',
+    },
+    name: { type: 'string', description: "The file's name when this version was made." },
+    contentType: { type: 'string', description: 'MIME type, as the writer declared it.' },
+    size: { type: 'integer', minimum: 0 },
+    hash: {
+      type: 'string',
+      pattern: '^[0-9a-f]{64}$',
+      description: 'sha256 of the bytes, hex-encoded, lowercase.',
+    },
+    tags: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description: 'Labels the writer gave this version.',
+    },
+    parentVersion: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Latest when this version was made. Absent on version 1.',
+    },
+    restoredFrom: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The version a restore copied the bytes of.',
+    },
+    madeVia: {
+      type: 'string',
+      enum: ['upload', 'restore', 'tool', 'model'],
+      description:
+        "How it was made: a person's or a key's upload, a restore, a run's tool, or a run's model.",
+    },
+    createdBy: {
+      type: 'string',
+      description:
+        "Who made it: `user:<id>` or `service_account:<id>`, or `run:<id>` for a run's tool or model.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run that made it, when one did.' },
+    callKey: { type: 'string', description: "The run's tool call that made it." },
+    toolId: { type: 'string', description: 'The tool that made it.' },
+    createdAt: { type: 'string', format: 'date-time' },
+    supersededAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When a newer version replaced it as Latest. Absent on Latest: when Latest is deleted, the version that's Latest again has none.",
+    },
+    pin: { $ref: '#/components/schemas/FilePin' },
+    deletedAt: { type: 'string', format: 'date-time' },
+    purgedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When retention dropped its bytes (the `file_version` domain). Its number, hash, size and maker stay.',
+    },
+  },
+};
+
+export const StoredFileSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'fileId',
+    'tenantId',
+    'name',
+    'latestVersion',
+    'highestVersion',
+    'pinnedVersions',
+    'latest',
+    'createdAt',
+    'updatedAt',
+  ],
+  description:
+    "A file the runtime keeps, with every edit as a version, and its Latest: the highest version that isn't deleted.",
+  properties: {
+    fileId: { type: 'string', description: FILE_ID_DESCRIPTION },
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project it belongs to. Reading it needs `read` there, or `run` for a file of the caller's own; changing it needs `write`.",
+    },
+    name: { type: 'string', description: "Its name: Latest's." },
+    createdBy: {
+      type: 'string',
+      description: 'Who made version 1: `user:<id>` or `service_account:<id>`.',
+    },
+    ownerRunId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The run that made version 1, when one did.',
+    },
+    latestVersion: { type: 'integer', minimum: 1 },
+    highestVersion: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The highest number it has had, deleted versions included.',
+    },
+    pinnedVersions: {
+      type: 'array',
+      items: { type: 'integer', minimum: 1 },
+      description: 'Its pinned versions, lowest first.',
+    },
+    latest: { $ref: '#/components/schemas/FileVersion' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When its newest version was made, or its Latest last moved.',
+    },
+  },
+};
+
+export const StoredFileCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/StoredFile' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const FileVersionCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/FileVersion' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const FilePinChangeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['changeId', 'fileId', 'version', 'change', 'by', 'at'],
+  description: 'One pin or unpin of a version. Entries are only ever added.',
+  properties: {
+    changeId: { type: 'string' },
+    fileId: { type: 'string', description: FILE_ID_DESCRIPTION },
+    version: { type: 'integer', minimum: 1 },
+    change: { type: 'string', enum: ['pin', 'unpin'] },
+    by: { type: 'string', description: '`user:<id>` or `service_account:<id>`.' },
+    at: { type: 'string', format: 'date-time' },
+    reason: { type: 'string' },
+  },
+};
+
+export const FilePinChangeCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/FilePinChange' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const FileVersionWriteSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'created'],
+  properties: {
+    version: { $ref: '#/components/schemas/FileVersion' },
+    created: {
+      type: 'boolean',
+      description:
+        "`false` when the bytes were already Latest's: no version was added, and `version` is Latest.",
+    },
+  },
+};
+
+const FILE_UPLOAD_FIELDS: Readonly<Record<string, JsonSchema>> = {
+  file: { type: 'string', format: 'binary' },
+  contentType: {
+    type: 'string',
+    description: "Its MIME type. Default: the file part's.",
+  },
+  tags: {
+    type: 'string',
+    description: 'JSON-encoded `Record<string, string>`: labels for this version.',
+  },
+  expectedHash: {
+    type: 'string',
+    pattern: '^[0-9a-f]{64}$',
+    description:
+      'Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`.',
+  },
+};
+
+export const CreateFileBodySchema: JsonSchema = {
+  type: 'object',
+  description:
+    'Multipart form. `file` is the byte stream (required); the other fields are optional.',
+  required: ['file'],
+  properties: {
+    ...FILE_UPLOAD_FIELDS,
+    name: { type: 'string', description: "Its name. Default: the file part's filename." },
+    ownerRunId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The run that produced it: the file joins that run's project.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the workspace's default project.",
+    },
+  },
+};
+
+export const AddFileVersionBodySchema: JsonSchema = {
+  type: 'object',
+  description:
+    "Multipart form. `file` is the byte stream (required); the other fields are optional. The version stays in its file's project.",
+  required: ['file'],
+  properties: {
+    ...FILE_UPLOAD_FIELDS,
+    name: { type: 'string', description: "A new name for the file. Default: Latest's." },
+    expectedVersion: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The version the writer read. When Latest isn't it, the answer is `409 file-version-conflict` and nothing is written. Without it, the last write wins: it becomes Latest whatever came in between, which stays in the history.",
+    },
+  },
+};
+
+export const RestoreFileVersionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    expectedVersion: {
+      type: 'integer',
+      minimum: 1,
+      description: "As on adding a version: when Latest isn't it, nothing is written.",
+    },
+  },
+};
+
+export const PinFileVersionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    reason: { type: 'string', maxLength: 500, description: 'Why, kept in the pin history.' },
+  },
+};
+
+export const DeleteFileResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['fileId', 'deleted'],
+  properties: {
+    fileId: { type: 'string' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The version deleted, when one version was.',
+    },
+    deleted: {
+      type: 'boolean',
+      description: '`true` on the first delete; `false` on later ones (already gone).',
     },
   },
 };
@@ -9537,7 +9879,7 @@ export const RetentionDomainSchema: JsonSchema = {
   type: 'string',
   enum: [...RETENTION_DOMAINS],
   description:
-    "The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.",
+    "The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.",
 };
 
 /**
@@ -14307,7 +14649,24 @@ export const TenantSchema: JsonSchema = {
         'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
     },
     limits: ref('TenantLimits'),
+    storage: ref('TenantStorage'),
     egress: ref('EgressAddresses'),
+  },
+};
+
+export const TenantStorageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['usedBytes'],
+  description:
+    "What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.",
+  properties: {
+    usedBytes: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it.",
+    },
   },
 };
 
@@ -14398,6 +14757,12 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
     },
+    storageMiB: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file.",
+    },
   },
 };
 
@@ -14412,6 +14777,12 @@ export const TenantLimitsInUseSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description: "The tenant's projects in production.",
+    },
+    storageUsedBytes: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files.",
     },
   },
 };
@@ -18426,6 +18797,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ArtifactCollectionPage', ArtifactCollectionPageSchema],
   ['UploadArtifactBody', UploadArtifactBodySchema],
   ['DeleteArtifactResult', DeleteArtifactResultSchema],
+  ['FilePin', FilePinSchema],
+  ['FileVersion', FileVersionSchema],
+  ['StoredFile', StoredFileSchema],
+  ['StoredFileCollectionPage', StoredFileCollectionPageSchema],
+  ['FileVersionCollectionPage', FileVersionCollectionPageSchema],
+  ['FilePinChange', FilePinChangeSchema],
+  ['FilePinChangeCollectionPage', FilePinChangeCollectionPageSchema],
+  ['FileVersionWrite', FileVersionWriteSchema],
+  ['CreateFileBody', CreateFileBodySchema],
+  ['AddFileVersionBody', AddFileVersionBodySchema],
+  ['RestoreFileVersionBody', RestoreFileVersionBodySchema],
+  ['PinFileVersionBody', PinFileVersionBodySchema],
+  ['DeleteFileResult', DeleteFileResultSchema],
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
   ['CapabilityProvider', CapabilityProviderSchema],
@@ -18715,6 +19099,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
   ['TenantLimitsInUse', TenantLimitsInUseSchema],
+  ['TenantStorage', TenantStorageSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],
