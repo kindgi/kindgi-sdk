@@ -42,7 +42,8 @@ import type { BlobError, BlobPutInput } from './index.js';
  * - with `expectedVersion`, a Latest that isn't it is
  *   `file-version-conflict`, and nothing is written;
  * - bytes whose sha256 is Latest's add no version: the answer is
- *   Latest, with `created: false`;
+ *   Latest, with `created: false`, and the bytes just stored are
+ *   discarded;
  * - bytes whose sha256 is an earlier version's of the same file reuse
  *   that version's blob, and the bytes just stored are discarded;
  * - otherwise the new version is the highest + 1, with Latest as its
@@ -50,6 +51,10 @@ import type { BlobError, BlobPutInput } from './index.js';
  *
  * Without `expectedVersion`, the last write wins: it becomes Latest
  * whatever came in between, which stays in the history.
+ *
+ * A write checks in this order: the file and the version it names
+ * exist (`file-not-found`, `file-version-not-found`), then
+ * `expectedVersion` (`file-version-conflict`), then the bytes.
  *
  * ## Delete
  *
@@ -61,11 +66,16 @@ import type { BlobError, BlobPutInput } from './index.js';
 export interface FileVersionsBinding {
   /** Version 1 of a new file. The file's id is the new blob's id. */
   create(tenantId: TenantId, input: FileCreateInput): Promise<Result<FileVersionWrite, FileError>>;
-  /** The file with its Latest. `null` when unknown or deleted. */
+  /**
+   * The file with its Latest. `null` when unknown or deleted, and for a
+   * later version's blob id: only version 1's names the file.
+   */
   get(tenantId: TenantId, fileId: FileId): Promise<StoredFile | null>;
   /**
    * Cursor-paginated files, newest change first (`updatedAt desc,
    * fileId desc`). Deleted files aren't listed. Filters compose as AND.
+   * A blob with no file record is listed as a one-version file (see
+   * "Identity").
    */
   list(
     tenantId: TenantId,
@@ -110,7 +120,8 @@ export interface FileVersionsBinding {
   /**
    * A new version from an earlier version's bytes, with `restoredFrom`
    * set (see "Writes"). It keeps Latest's name; its type and tags are the
-   * source version's. Nothing is removed.
+   * source version's. Nothing is removed. A deleted or purged source is
+   * `file-version-not-found`, as for `readVersion`.
    */
   restoreVersion(
     tenantId: TenantId,
@@ -118,7 +129,10 @@ export interface FileVersionsBinding {
     version: number,
     input: FileRestoreInput,
   ): Promise<Result<FileVersionWrite, FileError>>;
-  /** Deletes one version. `{ deleted: false }` when it's already gone. */
+  /**
+   * Deletes one version. `{ deleted: false }` when it's already gone:
+   * deleted, or purged by retention.
+   */
   deleteVersion(
     tenantId: TenantId,
     fileId: FileId,
@@ -127,7 +141,8 @@ export interface FileVersionsBinding {
   /**
    * A keep mark on one version: it can't be deleted, and retention never
    * picks it. Pinning a pinned version changes nothing. Each pin and
-   * unpin is kept in the file's pin history.
+   * unpin is kept in the file's pin history. A deleted or purged version
+   * is `file-version-not-found`.
    */
   pinVersion(
     tenantId: TenantId,
