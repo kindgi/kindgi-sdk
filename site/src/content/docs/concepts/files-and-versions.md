@@ -19,7 +19,7 @@ Version 1 is the file as it was first stored, then come 2, 3 and so on. A
 number is never used twice, even after its version is deleted. Each version
 keeps:
 
-- its bytes, name, type, size and sha256;
+- its bytes, name, type, size, sha256 and tags;
 - how it was made: an upload, a restore, a tool or the model;
 - who made it: a person, a service account or a run;
 - when a run made it, the run and the tool.
@@ -66,7 +66,8 @@ id, the version and its sha256.
 ## Pins
 
 A **pin** is a keep mark on one version, with who set it, when and why. A
-version can have any number of pins.
+file can have any number of pins, one per version: pinning a version that's
+already pinned changes nothing.
 
 - A pinned version can't be deleted: it answers `409 file-version-pinned`.
 - Retention never purges a pinned version.
@@ -157,14 +158,19 @@ The clients mark their methods deprecated, Python's warn, and the CLI's
 | `GET /v1/artifacts` (`artifacts.list`) | `GET /v1/files` (`files.list`), with the same `contentType` filter |
 | `POST /v1/artifacts` (`artifacts.upload`) | `POST /v1/files` (`files.create`), with the same `tags` |
 | `GET /v1/artifacts/{blobId}` (`artifacts.download`) | `GET /v1/files/{fileId}/versions/{version}/content` (`files.versions.download`) |
-| `HEAD /v1/artifacts/{blobId}` (`artifacts.head`) | `GET /v1/files/{fileId}/versions/{version}` (`files.versions.get`) |
+| `HEAD /v1/artifacts/{blobId}` (`artifacts.head`) | `GET /v1/files/{fileId}/versions/{version}` (`files.versions.get`) for the record, or `HEAD /v1/files/{fileId}/versions/{version}/content` for the headers alone |
 | `DELETE /v1/artifacts/{blobId}` (`artifacts.delete`) | `DELETE /v1/files/{fileId}/versions/{version}` (`files.versions.delete`), or `DELETE /v1/files/{fileId}` (`files.delete`) for the whole file |
 | `413 artifact-too-large` | `413 file-too-large`, which the files routes answer |
 | TypeScript and Python `client.artifacts`, Java `client.artifacts()` | `client.files`, `client.files()`, with the method each deprecation names |
+| `kindgi artifacts` | `kindgi files`, whose commands take the same ids |
 | `KINDGI_ARTIFACTS` and `KINDGI_ARTIFACT_MAX_BYTES` | `KINDGI_FILES` and `KINDGI_FILE_MAX_BYTES`. A runtime that finds an old name set refuses to start, and says the name to use. |
 | A file value's `artifactId` | Its `fileId` and `version`. A caller that sends `artifactId` is refused with `400 bad-input`. |
-| The `artifacts` section of `kindgi exports` | Its `files` section |
+| The `artifacts` section of `kindgi exports`, and its `artifacts/` folder | Its `files` section, with the bytes under `files/` |
+| A provenance node's kind `artifact` | The kind `file`, for the same node |
 
-A version's blob id names the file only for version 1. For a later version,
-read `fileId` and `version` from its blob's metadata (`BlobMeta`), and move
-to those.
+An id that `artifacts.upload` answered moves to `fileId` as it is. A later
+version's blob id isn't a file id: a file value that names one carries the
+file's `fileId` and `version` beside `artifactId`, and `artifacts.list`
+answers them too. Those are what to move to. A file value with only
+`artifactId`, kept from an earlier runtime, names version 1 of the file with
+that id.
