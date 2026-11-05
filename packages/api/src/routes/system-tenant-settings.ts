@@ -12,9 +12,9 @@ import { type SystemTenantDirectory, withSystemTenantContext } from '../middlewa
 import type { AppEnv } from '../types.js';
 
 /**
- * Where a runtime keeps the two settings the control plane sets on a
- * tenant: whether it may put projects in production, and its limits.
- * Each write answers what's stored now.
+ * Where a runtime keeps the settings the control plane sets on a tenant:
+ * whether it may put projects in production, its limits, and the plan it's
+ * on. Each write answers what's stored now.
  */
 export interface SystemTenantSettingsBinding {
   /** Allow the tenant production (`true`), or stop it (`false`). */
@@ -31,6 +31,18 @@ export interface SystemTenantSettingsBinding {
    * when its limits are: `GET …/limits` answers it as `inUse`.
    */
   inUse?(tenantId: TenantId): Promise<TenantLimitsInUse>;
+  /**
+   * Optional. The id of the plan the control plane put the tenant on, or
+   * null while it hasn't: `GET …/limits` answers it as `plan`, and leaves
+   * `plan` out without this.
+   */
+  plan?(tenantId: TenantId): Promise<string | null>;
+  /**
+   * Optional. Set the tenant's plan id, or clear it with null; a limit is
+   * left as it is. Without it, `PUT …/plan` answers `501
+   * tenant-plan-unsupported`.
+   */
+  setPlan?(tenantId: TenantId, plan: string | null): Promise<string | null>;
 }
 
 /**
@@ -41,7 +53,17 @@ export interface SystemTenantSettingsBinding {
 export interface TenantLimitsInUse {
   /** The tenant's projects in production. */
   readonly projectsInProduction: number;
+  /** The tenant's flows in production, each counted once. From a runtime that counts it. */
+  readonly flowsInProduction?: number;
+  /** The tenant's agents in production, each counted once. From a runtime that counts it. */
+  readonly agentsInProduction?: number;
 }
+
+/**
+ * A plan's id, as `PUT …/plan` takes it: a lowercase letter, then up to 31
+ * lowercase letters, digits and hyphens.
+ */
+export const TENANT_PLAN_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** The limits `PUT …/limits` takes: each a whole number from 1 to this. */
 export const TENANT_LIMIT_MAX = 1_000_000;
@@ -55,6 +77,8 @@ export const TENANT_LIMIT_NAMES = [
   'toolCallsInFlight',
   'approvalsPending',
   'projectsInProduction',
+  'flowsInProduction',
+  'agentsInProduction',
 ] as const satisfies readonly (keyof TenantLimits)[];
 
 /**
@@ -68,11 +92,18 @@ export const TENANT_LIMIT_NAMES = [
  *   limits as stored, `{ tenantId, limits }`, the shape `PUT` takes, so a
  *   change of one is read, changed and put back. A limit not set is
  *   absent. With a runtime that counts it, `inUse` says how much of each
- *   counted limit the tenant uses now (`projectsInProduction`).
+ *   counted limit the tenant uses now (`projectsInProduction`, and
+ *   `flowsInProduction` and `agentsInProduction`). With a runtime that
+ *   keeps it, `plan` is the tenant's plan id, or null while none is set.
  * - **`PUT /:tenantId/limits`** `{ apiRequestsPerMinute?, … }`
  *   (`system:tenants:limits`): replaces the tenant's limits with exactly
- *   these. A limit left out isn't set, and isn't enforced. Answers
- *   `{ tenantId, limits }`.
+ *   these. A limit left out isn't set, and isn't enforced; the plan id is
+ *   left as it is. Answers `{ tenantId, limits }`.
+ * - **`PUT /:tenantId/plan`** `{ plan }` (`system:tenants:limits`): sets
+ *   the tenant's plan id (`TENANT_PLAN_PATTERN`), or clears it with null.
+ *   It's only shown: the limits are what's enforced. Answers
+ *   `{ tenantId, plan }`, or `501 tenant-plan-unsupported` from a runtime
+ *   that doesn't keep it.
  *
  * Each acts through `withSystemTenantContext`: an unknown or purged tenant
  * is `404 tenant-not-found`. A closing tenant is frozen, so the writes
@@ -119,14 +150,16 @@ export function systemTenantSettingsRouter(options: {
       c.req.param('tenantId'),
       { scope: 'system:tenants:limits', ...(authorizer !== undefined && { authorizer }) },
       async (tenant) => {
-        const [limits, inUse] = await Promise.all([
+        const [limits, inUse, plan] = await Promise.all([
           settings.limits(tenant.id),
           settings.inUse?.(tenant.id),
+          settings.plan?.(tenant.id),
         ]);
         return c.json({
           tenantId: tenant.id as unknown as string,
           limits,
           ...(inUse !== undefined && { inUse }),
+          ...(plan !== undefined && { plan }),
         });
       },
     ),
@@ -149,6 +182,45 @@ export function systemTenantSettingsRouter(options: {
         if (typeof limits === 'string') return badInput(c, limits);
         const stored = await settings.setLimits(tenant.id, limits);
         return c.json({ tenantId: tenant.id as unknown as string, limits: stored });
+      },
+    ),
+  );
+
+  r.put('/:tenantId/plan', async (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      {
+        scope: 'system:tenants:limits',
+        refuse: ['closing'],
+        ...(authorizer !== undefined && { authorizer }),
+      },
+      async (tenant) => {
+        if (settings.setPlan === undefined) {
+          c.status(statusFor('tenant-plan-unsupported') as never);
+          return c.json(
+            toWireError(
+              {
+                code: 'tenant-plan-unsupported',
+                message: "This runtime doesn't keep a tenant's plan.",
+              },
+              c.get('requestId'),
+            ),
+          );
+        }
+        const body = await readJsonObject(c);
+        if (typeof body === 'string') return badInput(c, body);
+        const plan = body.plan;
+        const valid = plan === null || (typeof plan === 'string' && TENANT_PLAN_PATTERN.test(plan));
+        if (!valid || Object.keys(body).length !== 1) {
+          return badInput(
+            c,
+            'The body is `{ "plan": "<id>" }`, an id of a lowercase letter then up to 31 lowercase letters, digits and hyphens, or `{ "plan": null }` to clear it',
+          );
+        }
+        const stored = await settings.setPlan(tenant.id, plan);
+        return c.json({ tenantId: tenant.id as unknown as string, plan: stored });
       },
     ),
   );

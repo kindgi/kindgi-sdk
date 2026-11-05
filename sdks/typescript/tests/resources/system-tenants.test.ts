@@ -60,6 +60,21 @@ describe('systemTenants — wire round-trip', () => {
     expect(`${call.method} ${call.url}`).toBe(`PUT ${API}/v1/system/tenants/${TENANT}/limits`);
     expect(JSON.parse(call.body ?? '{}')).toEqual(limits);
   });
+
+  it('setPlan: PUT …/plan with { plan }, null to clear', async () => {
+    for (const plan of ['starter', null]) {
+      const stub = jsonFetch({ tenantId: TENANT, plan });
+      const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+      expect(await client.systemTenants.setPlan(TENANT, plan, { idempotencyKey: 'k-3' })).toEqual({
+        tenantId: TENANT,
+        plan,
+      });
+      const call = stub.calls[0]!;
+      expect(`${call.method} ${call.url}`).toBe(`PUT ${API}/v1/system/tenants/${TENANT}/plan`);
+      expect(JSON.parse(call.body ?? '{}')).toEqual({ plan });
+      expect(call.headers['idempotency-key']).toBe('k-3');
+    }
+  });
 });
 
 describe('systemTenants — P1 routes, wire round-trip', () => {
