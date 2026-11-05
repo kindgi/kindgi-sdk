@@ -67,9 +67,9 @@ later, for [erasing a person's data](../../../guides/agents/erase-a-persons-data
 ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
 `mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `memory.embeddings`
-(whether the embeddings endpoint answers) and `memory.embedder` (embedding
-the facts kept without a vector), both runtime 0.6.0 or later,
-`providers.keys`,
+(whether the embeddings endpoint answers, runtime 0.6.0 or later),
+`memory.embedder` (embedding the facts kept without a vector, runtime 0.6.0
+or later), `providers.keys`,
 `providers.prune`, `secrets.scopes` and `tenants.purge` (runtime 0.1.10 or
 later).
 
