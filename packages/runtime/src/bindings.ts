@@ -180,9 +180,9 @@ export interface SchedulerBinding {
    * @deprecated A deployment fires its schedules itself, and nothing
    * calls this. To schedule runs, register a `cron` trigger with
    * `TriggerRegistryBinding.register` (`KernelBinding.triggers`, what
-   * the schedules routes use); `initialNextFireAt` works out its first
-   * fire. Removed in the next minor release, with
-   * `CronSchedulerOptions` and `CronSchedulerHandle`.
+   * the schedules routes use), which works out its first fire.
+   * `CronSchedulerOptions` and `CronSchedulerHandle` are deprecated
+   * with it.
    */
   startCronScheduler(options: CronSchedulerOptions): CronSchedulerHandle;
 
