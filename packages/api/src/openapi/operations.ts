@@ -10401,7 +10401,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.config.upsert',
     summary: 'Upsert a workspace config entry',
     description:
-      'Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
+      'Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10413,6 +10413,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
+      '403': ErrorResponse(
+        'Bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.',
+      ),
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
     },
   },
