@@ -15,6 +15,9 @@
  * code it runs can't change the one in use, but bubblewrap can't stop it
  * adding another by a name looked up first, which the next start would
  * load outside the sandbox.
+ *
+ * On, with no home folder (`HOME` set but empty), it refuses: the home is
+ * what it keeps closed.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
