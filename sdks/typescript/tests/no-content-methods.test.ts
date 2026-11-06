@@ -7,9 +7,19 @@
  * The transport hands back `undefined` for a 204, so a method typed as
  * returning a record would give its caller `undefined` under that record's
  * type, and a read of a field off it would fail at run time, not compile
- * time. Each resource method's `@wire METHOD /path` tag names its route; for
- * every route whose only success answer in the spec is 204, the method's
- * declared return must be `Promise<void>`.
+ * time.
+ *
+ * Each resource method's `@wire` tag names its route, in either of the two
+ * forms the resources use: `@wire PATCH /v1/orgs/:orgId` or
+ * `` @wire `PATCH /v1/orgs/{orgId}` ``. Every route whose only success answer
+ * in the spec is 204 must have a tagged method, and the method's declared
+ * return must be `Promise<void>`.
+ *
+ * - A tag reads the first declaration after its doc comment, so a later
+ *   overload isn't checked.
+ * - A tag whose path has a placeholder for a whole resource, such as
+ *   pinned-versions.ts's `/v1/:kind/:id/pinned`, meets no spec route. A 204
+ *   route tagged only that way counts as untagged, and fails the check.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -26,6 +36,11 @@ const OPENAPI = createRequire(import.meta.url).resolve('@kindgi/api/openapi.json
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 
+// The 204-only routes no resource method wraps, each with its reason. None
+// today: a new 204-only route fails the check until a method's tag names it,
+// or it's named here.
+const NOT_WRAPPED: Readonly<Record<string, string>> = {};
+
 interface Spec {
   readonly paths: Record<string, Partial<Record<string, { readonly responses?: object }>>>;
 }
@@ -33,7 +48,7 @@ interface Spec {
 interface Tagged {
   readonly where: string;
   readonly route: string;
-  /** The declared return, or undefined when no method declaration follows the tag. */
+  /** The declared return, or undefined when no declaration it can read follows the tag. */
   readonly returns: string | undefined;
 }
 
@@ -74,16 +89,21 @@ function declaredReturn(rest: string): string | undefined {
   return undefined;
 }
 
-/** Each `@wire` tag in `source`'s doc comments, with the declaration's return after it. */
+/**
+ * Each `@wire` tag in `source`'s doc comments, plain or in backticks, with
+ * the declaration's return after it. A path's trailing `:`, `,` or `.` is
+ * the sentence's, not the route's.
+ */
 function wireTags(source: string, file: string): Tagged[] {
   const tagged: Tagged[] = [];
   for (const comment of source.matchAll(/\/\*\*([\s\S]*?)\*\//gu)) {
     const line = source.slice(0, comment.index).split('\n').length;
     const returns = declaredReturn(source.slice((comment.index ?? 0) + comment[0].length));
     for (const tag of (comment[1] ?? '').matchAll(
-      /@wire\s+(GET|POST|PUT|PATCH|DELETE)\s+(\S+)/gu,
+      /@wire\s+`?(GET|POST|PUT|PATCH|DELETE)\s+([^\s`]+)/gu,
     )) {
-      tagged.push({ where: `${file}:${line}`, route: routeKey(tag[1]!, tag[2]!), returns });
+      const path = tag[2]!.replace(/[:,.]+$/u, '');
+      tagged.push({ where: `${file}:${line}`, route: routeKey(tag[1]!, path), returns });
     }
   }
   return tagged;
@@ -94,7 +114,7 @@ const offenders = (tags: readonly Tagged[], noContent: ReadonlySet<string>): str
     .filter((t) => noContent.has(t.route) && t.returns !== 'Promise<void>')
     .map(
       (t) =>
-        `${t.where}: ${t.route} answers only 204, but returns ${t.returns ?? 'no method declaration'}`,
+        `${t.where}: ${t.route} answers only 204, but returns ${t.returns ?? 'no declaration it could read'}`,
     );
 
 describe('a method on a 204-only route resolves to nothing', () => {
@@ -102,6 +122,19 @@ describe('a method on a 204-only route resolves to nothing', () => {
   const tags = readdirSync(RESOURCES_DIR)
     .filter((f) => f.endsWith('.ts'))
     .flatMap((f) => wireTags(readFileSync(join(RESOURCES_DIR, f), 'utf8'), f));
+
+  it('every 204-only route in the spec has a tagged method', () => {
+    const tagged = new Set(tags.map((t) => t.route));
+    expect(
+      [...noContent].filter((route) => !tagged.has(route) && !(route in NOT_WRAPPED)),
+      'A route that answers only 204 has no resource method whose @wire tag names it. Tag\n' +
+        'its method, or name the route in NOT_WRAPPED with the reason the client has none.',
+    ).toEqual([]);
+    expect(
+      Object.keys(NOT_WRAPPED).filter((route) => !noContent.has(route) || tagged.has(route)),
+      'A NOT_WRAPPED route that no longer answers only 204, or that a method now names.',
+    ).toEqual([]);
+  });
 
   it('every such method returns Promise<void>', () => {
     expect(
@@ -112,7 +145,7 @@ describe('a method on a 204-only route resolves to nothing', () => {
     ).toEqual([]);
   });
 
-  it('reads the routes and tags it checks, the updates among them', () => {
+  it('reads the routes and tags it checks, in both tag forms', () => {
     const checked = tags.filter((t) => noContent.has(t.route)).map((t) => t.route);
     expect(checked).toEqual(
       expect.arrayContaining([
@@ -121,11 +154,13 @@ describe('a method on a 204-only route resolves to nothing', () => {
         'PATCH /v1/teams/*',
         'PATCH /v1/tenant',
         'DELETE /v1/projects/*',
+        'PATCH /v1/system/tenants/*',
+        'POST /v1/system/deployments/round/end',
       ]),
     );
   });
 
-  it('flags a 204 route typed as a record, its parameters across lines', () => {
+  it('flags a 204 route typed as a record, in either tag form', () => {
     const source = [
       'export interface ThingsClient {',
       '  /** @wire PATCH /v1/things/:thingId */',
@@ -135,14 +170,26 @@ describe('a method on a 204-only route resolves to nothing', () => {
       '  ): Promise<Thing>;',
       '  /** @wire DELETE /v1/things/:thingId */',
       '  delete(thingId: string): Promise<void>;',
-      '  /** @wire GET /v1/things/:thingId/parts */',
+      '  /**',
+      '   * Archives it.',
+      '   *',
+      '   * @wire `POST /v1/things/{thingId}/archive`',
+      '   */',
+      '  archive(thingId: string): Promise<Thing>;',
+      '  /** @wire GET /v1/things/:thingId/parts: its parts */',
       '  readonly parts: PartsClient;',
       '}',
     ].join('\n');
-    const routes = new Set(['PATCH /v1/things/*', 'DELETE /v1/things/*', 'GET /v1/things/*/parts']);
+    const routes = new Set([
+      'PATCH /v1/things/*',
+      'DELETE /v1/things/*',
+      'POST /v1/things/*/archive',
+      'GET /v1/things/*/parts',
+    ]);
     expect(offenders(wireTags(source, 'things.ts'), routes)).toEqual([
       'things.ts:2: PATCH /v1/things/* answers only 204, but returns Promise<Thing>',
-      'things.ts:9: GET /v1/things/*/parts answers only 204, but returns no method declaration',
+      'things.ts:9: POST /v1/things/*/archive answers only 204, but returns Promise<Thing>',
+      'things.ts:15: GET /v1/things/*/parts answers only 204, but returns no declaration it could read',
     ]);
   });
 
