@@ -388,6 +388,22 @@ describe('/mcp: running an agent', () => {
     expect(paths.filter((p) => p.startsWith('/v1/artifacts'))).toEqual([]);
   });
 
+  test("on a server that doesn't keep files, its done run's files come from /v1/artifacts", async () => {
+    const { rpc, seen } = harness({
+      runs: [agentRun(), completed({ response: { content: 'Clause 4 differs.' } })],
+      noFileStore: true,
+      artifacts: [DIFFERENCES_ARTIFACT],
+    });
+    const { body } = await rpc('chat-run', 'tools/call', callClauses);
+    expect(body.result.isError).toBeUndefined();
+    expect(body.result.structuredContent.files).toEqual([
+      { name: 'differences.pdf', contentType: 'application/pdf', size: 1024 },
+    ]);
+    const paths = seen.map((s) => s.path);
+    expect(paths).toContain(`/v1/files?ownerRunId=${RUN_ID}&limit=25`);
+    expect(paths).toContain(`/v1/artifacts?ownerRunId=${RUN_ID}&limit=25`);
+  });
+
   test('a run that goes on past the wait answers its state; the view follows it', async () => {
     const { rpc, checks } = harness({ runs: [agentRun()] });
     const { body } = await rpc('chat-run', 'tools/call', callClauses);
@@ -558,7 +574,7 @@ describe('/mcp: run_state and the run view', () => {
     ]);
   });
 
-  test("on a server that doesn't keep files, a done run's files come from /v1/artifacts, as before", async () => {
+  test("on a server that doesn't keep files, a done run's files come from /v1/artifacts", async () => {
     const { rpc, seen } = harness({ noFileStore: true, artifacts: [DIFFERENCES_ARTIFACT] });
     const { body } = await rpc('chat-read', 'tools/call', {
       name: 'kindgi.run_state',

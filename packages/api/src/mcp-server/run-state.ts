@@ -173,8 +173,8 @@ async function runFiles(call: V1Call, runId: string): Promise<readonly RunFile[]
   }
   // A list has no "not found" of its own, so a 404 is a server that doesn't
   // serve `/v1/files`: an app with blob storage but no `fileVersions`, or a
-  // runtime that keeps artifacts but not yet files. It lists them from
-  // `/v1/artifacts`, as before. This and the tools' `GET /v1/artifacts` go
+  // runtime that keeps artifacts but no file versions. It lists them from
+  // `/v1/artifacts` instead. This and the tools' `GET /v1/artifacts` go
   // when 0.8.0 removes that route.
   if (page.status !== 404) return [];
   const artifacts = await call('GET', '/v1/artifacts', { query });
