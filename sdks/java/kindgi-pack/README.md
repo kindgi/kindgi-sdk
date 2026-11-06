@@ -250,6 +250,24 @@ Work the handler starts elsewhere (an HTTP request, a job) stops with
 `ctx.cancellation().onCancel(action)`. The action runs once: when the call is
 cancelled, or at once if it already was.
 
+### Failing a call on purpose
+
+When the tool ran and knows why the call can't give an answer, it throws a
+`ToolFailureException` with its own code for why, words for a person and,
+if any, facts:
+
+```java
+throw new ToolFailureException("order-not-found", "No order " + orderId, Map.of("orderId", orderId));
+```
+
+The call answers `tool-failed`, with the code as `reason`, the message as
+written and the details (pack protocol 2.12.0). The code is kebab case, at
+most 64 characters, and a fixed word: runs are grouped by it. The message is
+cut at 1,000 characters, and the details are a JSON object of at most 4 KiB,
+which reach the run's failure and the model, so never a secret. Any of them
+the class refuses throws `IllegalArgumentException`, and the call is then a
+crash (`handler-throw`) that says why.
+
 ### Answering later
 
 A handler built on futures returns a `CompletionStage` through

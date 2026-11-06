@@ -141,6 +141,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    */
   'block-unresolvable': 422,
   'tool-invocation-failed': 422,
+  /** A tool the agent called failed the call on purpose (`ToolFailure`), with its own code. */
+  'tool-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
   // A run the runtime can't start or resume yet: a flow with a node no

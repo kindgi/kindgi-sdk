@@ -20,12 +20,14 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 // ---------- Sub-path: /define ----------
 import {
   ConnectionRejectedError,
+  ToolFailure,
   defineAgent,
   defineCheck,
   defineFlow,
   defineTool,
   defineToolAsync,
   isConnectionRejectedError,
+  isToolFailure,
   isZodSchema,
   toJSONSchema,
 } from '@kindgi/sdk/define';
@@ -146,8 +148,10 @@ import {
 } from '@kindgi/schema';
 import {
   ConnectionRejectedError as ConnectionRejectedErrorFromTools,
+  ToolFailure as ToolFailureFromTools,
   defineTool as defineToolFromTools,
   isConnectionRejectedError as isConnectionRejectedErrorFromTools,
+  isToolFailure as isToolFailureFromTools,
 } from '@kindgi/tools';
 
 describe('@kindgi/sdk/define — pack authoring re-exports', () => {
@@ -168,6 +172,11 @@ describe('@kindgi/sdk/define — pack authoring re-exports', () => {
     expectTypeOf<ToolConnection>().toEqualTypeOf<import('@kindgi/tools').ToolConnection>();
     expectTypeOf<ConnectionNeed>().toEqualTypeOf<import('@kindgi/tools').ConnectionNeed>();
     expectTypeOf<ConnectionAccount>().toEqualTypeOf<import('@kindgi/tools').ConnectionAccount>();
+  });
+
+  it("re-exports a tool's failure on purpose identically (===) from @kindgi/tools", () => {
+    expect(ToolFailure).toBe(ToolFailureFromTools);
+    expect(isToolFailure).toBe(isToolFailureFromTools);
   });
 
   it('re-exports defineFlow identically (===) from @kindgi/flow', () => {

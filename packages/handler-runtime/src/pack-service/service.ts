@@ -554,6 +554,8 @@ function fromHandlerError(
     ...(error.cause !== undefined && { cause: error.cause }),
     ...(error.issues !== undefined && { issues: error.issues }),
     ...(error.connection !== undefined && { connection: error.connection }),
+    ...(error.reason !== undefined && { reason: error.reason }),
+    ...(error.details !== undefined && { details: error.details }),
   });
 }
 

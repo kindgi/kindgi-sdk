@@ -1111,6 +1111,33 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/tools/write-a-tool', 'guides/runs/see-why-runs-failed'],
   },
+  'tool-failed': {
+    description:
+      "A tool the agent called failed the call on purpose: it ran, and says why it can't give an answer (`ToolFailure` in TypeScript and Python, `ToolFailureException` in Java and Scala). The message is the tool's own words. By default it ends the turn; with `tool-failed` in the agent's `toolErrors.retryOn`, it goes back to the model first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool that failed the call',
+      },
+      {
+        key: 'reason',
+        meaning: "the tool's own code for why, such as `order-not-found`",
+      },
+      {
+        key: 'details',
+        meaning: 'the facts the tool gave, a JSON object; absent when it gave none',
+      },
+      {
+        key: 'toolRetries',
+        meaning: 'failed calls already sent back to the model, when retries ran out',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/tools/write-a-tool', 'guides/runs/see-why-runs-failed'],
+  },
   'capability-routing-failed': {
     description:
       "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the workspace can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",

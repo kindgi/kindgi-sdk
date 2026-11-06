@@ -50,6 +50,7 @@ import {
 } from './connection-gate.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import {
+  type ToolFailedTurnError,
   type ToolInvocationError,
   type UnresolvedToolError,
   approvalsPendingLimitOf,
@@ -82,6 +83,7 @@ import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
   toolErrorResult,
+  toolFailureOf,
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
@@ -637,12 +639,33 @@ async function retryOrFail(
   const policy =
     ctx.toolErrorPolicy ?? effectiveToolErrorPolicy(ctx.input.agent.toolErrors, undefined);
   const kind = toolErrorKindOf(error);
+  const failure = toolFailureOf(error);
+  // A tool's own failure ends the turn as itself, not wrapped in the call's.
+  const failing: UnresolvedToolError | ToolInvocationError | ToolFailedTurnError =
+    failure === undefined
+      ? error
+      : {
+          code: 'tool-failed',
+          message: failure.message,
+          toolId: error.toolId,
+          reason: failure.reason,
+          ...(failure.details !== undefined && { details: failure.details }),
+        };
   const used = toolRetriesSoFar(ctx, target.nextMessages);
-  if (!policy.retryOn.has(kind)) throwAgentTurnFailure(error);
-  if (used >= policy.maxRetries) throwAgentTurnFailure({ ...error, toolRetries: used });
-  const withheld = await screen?.({ error: { code: error.code, message: error.message } });
+  if (!policy.retryOn.has(kind)) throwAgentTurnFailure(failing);
+  if (used >= policy.maxRetries) throwAgentTurnFailure({ ...failing, toolRetries: used });
+  const withheld = await screen?.({
+    error: {
+      code: failure === undefined ? error.code : 'tool-failed',
+      // The check reads all the model would: a tool's facts as well as its words.
+      message:
+        failure?.details === undefined
+          ? error.message
+          : `${error.message} ${JSON.stringify(failure.details)}`,
+    },
+  });
   if (withheld !== undefined) return appendNote(ctx, call, withheld, 'withheld', target);
-  return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues), target);
+  return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues, failure), target);
 }
 
 /**
@@ -1349,12 +1372,17 @@ async function finishRun(
         )
       : invoked;
   if (result.kind === 'err') {
+    const failure = toolFailureOf(result.error);
     await emitTurnEvent(ctx.bindings.onEvent, {
       kind: 'tool.failed',
       step: step.step,
       toolId: call.name,
       invocationId: call.id,
-      error: { code: result.error.code, message: result.error.message },
+      // A tool's own failure says so, with its code; its details stay out of the stream.
+      error:
+        failure === undefined
+          ? { code: result.error.code, message: result.error.message }
+          : { code: 'tool-failed', message: failure.message, reason: failure.reason },
     });
     // A result that couldn't be stored was screened already.
     return retryOrFail(

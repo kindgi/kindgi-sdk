@@ -84,7 +84,12 @@ HTTP `GET /v1/runs/{runId}`. Here a guardrail halted an agent's turn:
 - **`message`:** what happened.
 - **`reason`:** the error's own reason, when it gives one. A turn whose
   approval was cancelled, `hitl-cancelled`, has `timeout` when nobody decided
-  in time.
+  in time. A tool that failed the call on purpose, `tool-failed`, has its own
+  code for why, such as `order-not-found`
+  ([Fail a call on purpose](../../tools/write-a-tool/#fail-a-call-on-purpose)).
+- **`details`:** the error's own facts, for a code that has them. A
+  `tool-failed` failure's are the facts its tool gave, if any, and its
+  `cause` names the tool: `{ "toolId": "acme.get-order" }`.
 - **`cause`:** what the error came from, when it says. A turn that no model
   could serve, because the agent needs a feature no registered model has:
 
@@ -101,8 +106,8 @@ HTTP `GET /v1/runs/{runId}`. Here a guardrail halted an agent's turn:
   ```
 
 Read `failure`, not `failureMessage`. `failureMessage` is the failure as the
-runtime recorded it, in its own format: for an agent's turn, that's JSON
-meant for the runtime.
+runtime recorded it, in its own format: for an agent's turn, and for a flow's
+step a tool failed on purpose, that's JSON meant for the runtime.
 
 ## A project's failed runs, by cause and version
 
@@ -323,8 +328,9 @@ gives it:
 ```
 
 - **`groups`:** failed runs with the same cause (`code`), subject and version,
-  the most first. The subject is an agent, for its turns, or a flow, for its
-  runs. The version is the agent's or the flow's. `count` is how many failed
+  the most first. `tool-failed` runs are grouped by their `reason` too, so a
+  tool's `order-not-found` and its `payment-declined` are two groups. The
+  subject is an agent, for its turns, or a flow, for its runs. The version is the agent's or the flow's. `count` is how many failed
   in the window. `firstSeen` and `lastSeen` are when the first and the latest
   did, and `exampleRunId` is the latest, to open.
 - **`outcomes`:** people's decisions, which aren't errors. A turn a reviewer

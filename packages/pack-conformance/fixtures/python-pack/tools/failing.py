@@ -3,7 +3,7 @@
 
 from typing import Any
 
-from kindgi import tool
+from kindgi import ToolFailure, tool
 
 
 @tool(id="conformance.bad-output", output={"type": "object", "properties": {"message": {"type": "string"}}, "required": ["message"]})
@@ -16,3 +16,10 @@ def bad_output(input: dict[str, Any]) -> dict[str, Any]:
 def throws(input: dict[str, Any]) -> dict[str, Any]:
     """Always fails."""
     raise RuntimeError("boom")
+
+
+@tool(id="conformance.fails-on-purpose")
+def fails_on_purpose(input: dict[str, Any]) -> dict[str, Any]:
+    """Fails the call on purpose: no order Z-9."""
+    code = "Order Not Found" if input.get("bad") is True else "order-not-found"
+    raise ToolFailure(code, "No order Z-9", details={"orderId": "Z-9"})

@@ -64,6 +64,10 @@ The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output 
 
 The output side is the reverse: the advertised output schema requires every field, defaulted ones included. Return them all.
 
+## Failing a call on purpose
+
+When the tool ran and knows why the call can't give an answer, throw `ToolFailure` (`@kindgi/sdk/define`) with its own code, words for a person and, if any, facts: `` throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } }) ``. The call fails with `tool-failed`, the code as `reason`, the message as written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. In an agent it ends the turn unless `toolErrors.retryOn` names `'tool-failed'`; in a flow a step's `retry` never reruns it. An outcome the caller acts on (an order that may not exist) belongs in the output schema instead (`found: false`); a bug just throws.
+
 ## Logging from the handler
 
 `ctx.log` is a logger bound to the call: its records carry the run's ids, the tool's id and the trace id. It has `info`, `warn`, `error`, `debug` and `trace`, each `(message, fields?)`. The pack service sets it; a context your own code builds (a test's) may not, so write `ctx.log?.`:

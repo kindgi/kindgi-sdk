@@ -119,7 +119,16 @@ export interface ToolFailedEvent {
   readonly step: number;
   readonly toolId: string;
   readonly invocationId: string;
-  readonly error: { readonly code: string; readonly message: string };
+  readonly error: {
+    readonly code: string;
+    readonly message: string;
+    /**
+     * For `tool-failed` (the tool failed the call on purpose): the tool's
+     * own code for why (`order-not-found`). Its details stay out of the
+     * stream: the model's retry result and the run's failure carry them.
+     */
+    readonly reason?: string;
+  };
 }
 
 export interface AgentMessageEvent {

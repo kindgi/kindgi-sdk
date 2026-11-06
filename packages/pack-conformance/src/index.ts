@@ -97,6 +97,7 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.context',
   'conformance.defaults',
   'conformance.echo',
+  'conformance.fails-on-purpose',
   'conformance.hold',
   'conformance.http',
   'conformance.noisy',
@@ -1209,6 +1210,34 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         });
         expect(String(answer.message)).toContain('boom');
         expect(String((answer.cause as { message?: unknown }).message)).toContain('boom');
+      });
+
+      test("a failure on purpose: tool-failed, with the tool's code, its words as thrown and its details, and no cause", async () => {
+        // Pack protocol 2.12.0.
+        const answer = response(
+          await invoke(service, toolCall('conformance.fails-on-purpose', {})),
+        );
+        expect(answer).toEqual({
+          v: 2,
+          kind: 'error',
+          code: 'tool-failed',
+          message: 'No order Z-9',
+          toolId: 'conformance.fails-on-purpose',
+          reason: 'order-not-found',
+          details: { orderId: 'Z-9' },
+        });
+      });
+
+      test('a failure on purpose whose code the SDK refuses: handler-throw, naming the code', async () => {
+        const answer = response(
+          await invoke(service, toolCall('conformance.fails-on-purpose', { bad: true })),
+        );
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'handler-throw',
+          toolId: 'conformance.fails-on-purpose',
+        });
+        expect(String(answer.message)).toContain('"Order Not Found"');
       });
 
       test("an app's refusal of a connection, or an error caused by one: connection-rejected, naming it", async () => {

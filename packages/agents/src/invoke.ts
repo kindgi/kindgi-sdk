@@ -306,6 +306,7 @@ export type {
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
   ConnectionNotChosenError,
+  ToolFailedTurnError,
   ToolInvocationError,
   TurnMemoryLimitReachedError,
   UnresolvedToolError,

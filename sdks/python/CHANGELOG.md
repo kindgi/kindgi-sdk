@@ -13,6 +13,17 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool can fail a call on purpose, with its own code and
+  words.** `raise ToolFailure("order-not-found", f"No order {order_id}",
+  details={"orderId": order_id})` answers the call `tool-failed` (pack
+  protocol 2.12.0): the code is its `reason`, the message is said as
+  written, and the details go with it, to the run's `failure` and, in an
+  agent whose `tool_errors` `retryOn` names `tool-failed`, to the model. A
+  code that isn't kebab case, an empty message, or details that aren't a
+  JSON object of at most 4 KiB raise `ValueError`, so the call is a crash
+  that says why. The client's agent models take `tool-failed` in
+  `retryOn`, and `RunFailure`'s docstrings say what a `tool-failed` failure
+  carries.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

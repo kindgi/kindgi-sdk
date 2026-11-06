@@ -389,7 +389,7 @@ class PinCheck(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed, with `details` naming the budget; `tool-failed` when a tool failed a call on purpose, with its code as `reason`); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -400,15 +400,15 @@ class RunFailure(BaseModel):
     message: str
     cause: Any | None = None
     """
-    What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.
+    What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider; for `tool-failed`, the tool, `{ toolId }`.
     """
     reason: str | None = None
     """
-    The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time; for `tool-failed`, the tool's own code for why (`order-not-found`). Absent from an older runtime and from errors without one; read `code` then.
     """
     details: dict[str, Any] | None = None
     """
-    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
+    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses; for `tool-failed`, the facts the tool gave, when it gave any. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
     """
 
 
@@ -440,7 +440,7 @@ class FailureGroup(BaseModel):
     """
     reason: str | None = None
     """
-    The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`.
+    The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`; a `tool-failed` failure's tool code, e.g. `order-not-found`.
     """
     subject: FailureSubject
     version: str | None = None
@@ -3097,13 +3097,16 @@ class ToolErrorsSpec(BaseModel):
     """
     retry_on: Annotated[
         list[
-            Annotated[Literal["invalid-arguments", "unknown-tool", "tool-error"] | str, _open.OPEN]
+            Annotated[
+                Literal["invalid-arguments", "unknown-tool", "tool-error", "tool-failed"] | str,
+                _open.OPEN,
+            ]
         ]
         | None,
         Field(alias="retryOn"),
     ] = None
     """
-    Which failures are sent back: arguments that don't fit the input schema (`invalid-arguments`), a tool the agent doesn't have (`unknown-tool`), a tool that ran and failed (`tool-error`). Default `invalid-arguments`, `unknown-tool`.
+    Which failures are sent back: arguments that don't fit the input schema (`invalid-arguments`), a tool the agent doesn't have (`unknown-tool`), a tool that ran and failed (`tool-error`), a tool that failed the call on purpose (`tool-failed`). Default `invalid-arguments`, `unknown-tool`.
     """
 
 
@@ -19023,7 +19026,7 @@ class Run(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
     """
-    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form, and so does a flow run's step that a tool failed on purpose (`tool-failed`).
     """
     failure: RunFailure | None = None
     output: Any | None = None
@@ -19138,7 +19141,7 @@ class Datum(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
     """
-    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form, and so does a flow run's step that a tool failed on purpose (`tool-failed`).
     """
     failure: RunFailure | None = None
     output: Any | None = None

@@ -591,6 +591,92 @@ secret query value such as `?token=` or `X-Amz-Signature=`, show as
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.
 
+### Fail a call on purpose
+
+When the tool ran and knows why the call can't give an answer, throw its
+own failure instead: a code of the tool's for why, words for a person, and
+facts, if any:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+import { ToolFailure, defineTool } from '@kindgi/sdk/define';
+
+    if (order === undefined) {
+      throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } });
+    }
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+from kindgi import ToolContext, ToolFailure, tool
+
+    if order is None:
+        raise ToolFailure("order-not-found", f"No order {ref.order_id}", details={"orderId": ref.order_id})
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+import com.kindgi.pack.ToolFailureException;
+
+        if (order == null) {
+          throw new ToolFailureException("order-not-found", "No order " + input.orderId(), Map.of("orderId", input.orderId()));
+        }
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+      val order = orders.getOrElse(in.orderId,
+        throw ToolFailureException("order-not-found", s"No order ${in.orderId}", Map("orderId" -> in.orderId)))
+```
+
+</TabItem>
+</Tabs>
+
+The call fails with `tool-failed`, and the run says so in its `failure`:
+the tool's code as `reason`, its words as written, with no lead-in, and its
+details:
+
+```json excerpt
+  "status": "failed",
+  "failure": {
+    "code": "tool-failed",
+    "message": "No order ord_9999",
+    "cause": { "toolId": "my-pack.lookup-order" },
+    "reason": "order-not-found",
+    "details": { "orderId": "ord_9999" }
+  },
+```
+
+- **The code** is kebab case, a letter first, at most 64 characters. Make it
+  a fixed word, never built from the input: a project's failed runs are
+  grouped by it ([See why runs failed](../../runs/see-why-runs-failed/)).
+- **The message** is cut at 1,000 characters, and masked as a thrown
+  message is.
+- **The details** are a JSON object of at most 4 KiB. They reach the run's
+  failure and the model, so never put a secret in them.
+- **A code, message or details the SDK refuses** make the throw a crash
+  that says why, as any other exception is.
+- **In an agent,** a `tool-failed` call fails the turn, unless `tool-failed`
+  is in the agent's `toolErrors.retryOn` (`tool_errors` in Python). Then it
+  goes back to the model with the tool's code, words and details, and the
+  model can tell the person or try another way. It's its own kind, so
+  `tool-error` doesn't send it back.
+- **In a flow,** it fails the step, and an edge's `retry` never runs the
+  step again for it: the same call gives the same answer.
+
+The failure doesn't undo what the handler did before it. When the caller
+should act on the outcome, such as an order that may not be there, put it in
+the output schema instead (`found: false`): the call then succeeds, and the
+flow or the model reads it. A bug just throws.
+
 ## Make a side effect happen once
 
 A run's step can run more than once: resumed after an approval, retried after
