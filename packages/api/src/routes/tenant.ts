@@ -51,7 +51,9 @@ import { readTenantPatch, renameAnswer } from './tenant-rename.js';
  *                         binding; `env` and `config` both surface the
  *                         env binding. Secret
  *                         `value` is ALWAYS redacted here (the admin
- *                         surface never returns raw plaintext).
+ *                         surface never returns raw plaintext). A
+ *                         tenant admin's, as `/v1/env` and
+ *                         `/v1/secrets` reads are.
  *   - `PATCH /config`   — upsert one config entry. Body: `{ kind, key,
  *                         value, sensitive?, ifRevision? }`. Routes to
  *                         `SecretBinding.set` when `kind === 'secret'`
@@ -213,12 +215,13 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       '*',
       authorizer.authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
     );
-    // Changing the config writes the tenant's secrets and env: `admin`
-    // on the tenant (T243 A), as every tenant-wide write.
+    // The config holds the tenant's env values and secret names, and
+    // changing it writes them: `admin` on the tenant to read or change it,
+    // as `/v1/env` and `/v1/secrets` ask for the same values.
     const admin = authorizer.authorize('admin', (c) =>
       ref('tenant', c.get('tenantId') as unknown as string),
     );
-    r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
+    r.use('/config', admin);
     // Renaming the tenant is a tenant-wide write too.
     r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
   }
