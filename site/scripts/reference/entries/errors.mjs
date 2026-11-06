@@ -2827,7 +2827,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'reason',
         meaning:
-          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `dot-in-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
+          "short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `dot-in-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch`, `invalid-secret-ref` or `transport-header-in-config` (one of MCP's own headers, such as `Mcp-Method` or an `Mcp-Param-` one, in `config.headers`)",
       },
     ],
   },
