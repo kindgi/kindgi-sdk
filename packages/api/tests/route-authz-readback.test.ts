@@ -12,6 +12,8 @@
  *   - Provenance: a run's record and its export need `read` on the run's
  *     project (a run that isn't there is the handler's 404, behind `read`
  *     on the tenant); the list holds only records the caller may read.
+ *   - A key limited to a project reads no record with no project: those
+ *     are the whole workspace's, whatever its person may read.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -28,8 +30,6 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'route-authz-readback';
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 const MINE = randomUUID();
 const THEIRS = randomUUID();
 const RUN_MINE = randomUUID();
@@ -74,7 +74,16 @@ const provenanceRecord = (runId: string, projectId?: string) => ({
 
 const NO_TOKENS = { prompt: 0, completion: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
 
-function harness(grants: readonly string[]) {
+/** `grants` are the person's; `keyProject`, the project their API key is limited to. */
+function harness(grants: readonly string[], keyProject?: string) {
+  const resolveToken: TokenResolver = async (token) =>
+    token === TOKEN
+      ? {
+          tenantId,
+          userId: 'user-1' as UserId,
+          ...(keyProject !== undefined && { tokenProjectId: keyProject }),
+        }
+      : null;
   const decide = (action: Action, r: ResourceRef): Decision => {
     const allowed = grants.includes(`${action} ${r.type}:${r.id}`);
     return {
@@ -198,6 +207,13 @@ describe('cost records need `read` on their project (the tenant without one)', (
     expect((await call('GET', '/v1/cost/records/c-mine')).status).toBe(200);
   });
 
+  test("a key limited to a project: the tenant's own record is refused (403) and gone from the list, though its person reads the tenant", async () => {
+    const { call, ids } = harness([`read project:${MINE}`, TENANT_READ], MINE);
+    expect(await ids(await call('GET', '/v1/cost/records'))).toEqual(['c-mine']);
+    expect((await call('GET', '/v1/cost/records/c-tenant')).status).toBe(403);
+    expect((await call('GET', '/v1/cost/records/c-mine')).status).toBe(200);
+  });
+
   test('an aggregate needs `read` on the scope it asks about', async () => {
     const { call } = harness([`read project:${MINE}`]);
     const aggregate = (scope: string) => call('GET', `/v1/cost/aggregate?groupBy=category${scope}`);
@@ -225,6 +241,13 @@ describe("provenance needs `read` on the run's project", () => {
     expect(await ids(res)).toEqual([RUN_MINE]);
   });
 
+  test('a key limited to a project: a record with no project is gone from the list, though its person reads the tenant', async () => {
+    const person = harness([`read project:${MINE}`, TENANT_READ]);
+    expect(await person.ids(await person.call('GET', '/v1/provenance'))).toHaveLength(2);
+    const key = harness([`read project:${MINE}`, TENANT_READ], MINE);
+    expect(await key.ids(await key.call('GET', '/v1/provenance'))).toEqual([RUN_MINE]);
+  });
+
   test("another project's run: its record and its export are refused (403)", async () => {
     const { call } = harness([`read project:${MINE}`]);
     expect((await call('GET', `/v1/provenance/${RUN_THEIRS}`)).status).toBe(403);
@@ -250,5 +273,9 @@ describe("provenance needs `read` on the run's project", () => {
     expect((await harness([TENANT_READ]).call('GET', `/v1/provenance/${missing}`)).status).toBe(
       404,
     );
+    // The tenant here is the project's root, not a row: a limited key gets the same 404.
+    expect(
+      (await harness([TENANT_READ], MINE).call('GET', `/v1/provenance/${missing}`)).status,
+    ).toBe(404);
   });
 });

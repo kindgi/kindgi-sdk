@@ -24,10 +24,11 @@ import type {
 /**
  * A session can carry an API key's limits (`SessionCreateInput.projectId`,
  * `role`), and is held to them as a key is: another project is refused,
- * and so is any action above its project, reading included, where a key
- * is refused only `admin` there. Such a session mints no keys and isn't
- * refreshed. A session without limits, and a key with them, keep today's
- * rules.
+ * and so is any action above its project, reading included. A key limited
+ * the same way reads above its project only what its project's work needs,
+ * so the workspace's settings, and an org or team that isn't its project's,
+ * are refused to both. Such a session mints no keys and isn't refreshed. A
+ * session without limits keeps today's rules.
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -114,7 +115,7 @@ function makeApp() {
     revoke: async () => ({ kind: 'not-found' }),
   };
 
-  // A person's key limited to P1: today's rules for keys.
+  // A person's key limited to P1: refused the workspace's settings, as the session is.
   const resolveToken: TokenResolver = async (token) =>
     token === LIMITED_KEY
       ? {
@@ -197,7 +198,7 @@ type ErrorBody = { error: { code: string; message: string } };
 const limited = { projectId: P1 as ProjectId, role: 'member' as const };
 
 describe('a session limited to a project', () => {
-  test('reads nothing above its project, where a key limited the same way still reads', async () => {
+  test("reads nothing above its project, as a key limited the same way reads none of the workspace's settings", async () => {
     const h = makeApp();
     const open = await h.call(await h.session(), 'GET', '/v1/auth/providers');
     expect(open.status).toBe(200);
@@ -208,7 +209,11 @@ describe('a session limited to a project', () => {
       `this session is limited to project ${P1}`,
     );
 
-    expect((await h.call(LIMITED_KEY, 'GET', '/v1/auth/providers')).status).toBe(200);
+    const key = await h.call(LIMITED_KEY, 'GET', '/v1/auth/providers');
+    expect(key.status).toBe(403);
+    expect((key.body as ErrorBody).error.message).toContain(
+      `the API key is limited to project ${P1}`,
+    );
   });
 
   test('is refused a request that names another project, and says it is a session', async () => {
@@ -229,13 +234,19 @@ describe('a session limited to a project', () => {
   test.each([
     ['an org', '/v1/orgs/acme-org'],
     ['a team', '/v1/teams/acme-team'],
-  ])('reads not even %s, where a key limited the same way may', async (_what, path) => {
-    const h = makeApp();
-    const refused = await h.call(await h.session(limited), 'GET', path);
-    expect(refused.status).toBe(403);
-    expect((refused.body as ErrorBody).error.message).toContain('this session is limited');
-    expect((await h.call(LIMITED_KEY, 'GET', path)).status).toBe(404);
-  });
+  ])(
+    "reads not even %s, nor does a key limited the same way (not its project's org)",
+    async (_what, path) => {
+      const h = makeApp();
+      const refused = await h.call(await h.session(limited), 'GET', path);
+      expect(refused.status).toBe(403);
+      expect((refused.body as ErrorBody).error.message).toContain('this session is limited');
+      // Refused before it's looked up: the fixture's org and team don't exist.
+      const key = await h.call(LIMITED_KEY, 'GET', path);
+      expect(key.status).toBe(403);
+      expect((key.body as ErrorBody).error.message).toContain('the API key is limited');
+    },
+  );
 
   test("reads a run in its own project by the run's id, and not one in another", async () => {
     const h = makeApp();

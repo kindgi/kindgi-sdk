@@ -124,7 +124,9 @@ export async function memoryReadersFor(
  *   - a project's fact (an end user's or a conversation's included),
  *     `write` on the project;
  *   - a conversation's fact outside a project, `write` on the conversation;
- *   - a user's fact, being that user (or a tenant admin).
+ *   - a user's fact, being that user (or a tenant admin). A caller limited
+ *     to a project writes one only in that project: one with no project
+ *     reaches that user's runs in every project.
  */
 export async function memoryWriteProblem(
   c: Context<AppEnv>,
@@ -155,6 +157,16 @@ export async function memoryWriteProblem(
       ? undefined
       : `Writing org-wide memory needs admin on org "${scope.orgId as unknown as string}".`;
   }
-  if (scope.userId !== undefined) return undefined;
+  if (scope.userId !== undefined) return ownUserFactProblem(c);
   return 'Writing workspace-wide memory needs admin on the workspace.';
+}
+
+/**
+ * Why the caller may not write its own user's fact that names no project,
+ * if it may not: a caller limited to a project writes memory there only.
+ */
+function ownUserFactProblem(c: Context<AppEnv>): string | undefined {
+  if (c.get('tokenProjectId') === undefined) return undefined;
+  const caller = c.get('sessionId') !== undefined ? 'session' : 'key';
+  return `A ${caller} limited to a project writes memory in that project only.`;
 }

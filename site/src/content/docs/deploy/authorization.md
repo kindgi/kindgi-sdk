@@ -582,7 +582,7 @@ refused:
 
 - what the caller's API key rules out: a `member` key asking for a tenant
   admin's action, a key limited to a project acting on another project's
-  resource, a key without the capability a write needs (`env:write`,
+  resource or reading the whole workspace's, a key without the capability a write needs (`env:write`,
   `secrets:write`, …);
 - a request that names a project other than its key's, and a key limited to
   a project minting one that isn't (`key-project-mismatch`);
