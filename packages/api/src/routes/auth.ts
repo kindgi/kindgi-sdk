@@ -753,7 +753,7 @@ function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedEr
     const spSigningCertificates = r.strings('spSigningCertificates', false);
     const spDecryptionKeyRef = r.optStr('spDecryptionKeyRef');
     const spDecryptionCertificates = r.strings('spDecryptionCertificates', false);
-    r.error ??= certificatesWithoutKey(b);
+    r.error ??= spCertificatesRefusal(b);
     const wantAssertionsSigned = r.bool('wantAssertionsSigned');
     const mappingRaw = r.object('attributeMapping');
     let attributeMapping: SamlAttributeMapping | undefined;
@@ -795,11 +795,22 @@ const SP_CERTIFICATE_KEYS: Readonly<Record<string, string>> = {
   spDecryptionCertificates: 'spDecryptionKeyRef',
 };
 
-/** Certificates given without their key are refused: there is nothing they certify. */
-function certificatesWithoutKey(b: Record<string, unknown>): ParsedErr | undefined {
+/**
+ * Certificates are refused without the key they certify, and when one holds
+ * a private key: they're published in the metadata, so a key never goes in.
+ */
+function spCertificatesRefusal(b: Record<string, unknown>): ParsedErr | undefined {
   for (const [field, key] of Object.entries(SP_CERTIFICATE_KEYS)) {
-    if (b[field] !== undefined && b[key] === undefined) {
-      return invalid(`\`${field}\` needs \`${key}\`, the key they certify`);
+    const certificates = b[field];
+    if (certificates === undefined) continue;
+    if (b[key] === undefined) return invalid(`\`${field}\` needs \`${key}\`, the key they certify`);
+    if (
+      Array.isArray(certificates) &&
+      certificates.some((c) => String(c).includes('PRIVATE KEY'))
+    ) {
+      return invalid(
+        `\`${field}\` holds a private key, which would be published: give only the certificate, and the key by \`${key}\`, a reference the deployment resolves`,
+      );
     }
   }
   return undefined;

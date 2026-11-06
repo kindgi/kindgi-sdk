@@ -218,6 +218,16 @@ describe('refusals', () => {
       '`spDecryptionCertificates` needs `spDecryptionKeyRef`',
     ],
     [
+      'a private key in an SP certificate',
+      {
+        ...SAML_METADATA,
+        spSigningCertificates: [
+          `${SP_CERT}\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----`,
+        ],
+      },
+      '`spSigningCertificates` holds a private key',
+    ],
+    [
       'an SP certificate that is no string',
       { ...SAML_METADATA, spSigningCertificates: [42] },
       '`spSigningCertificates` must be an array of non-empty strings',
