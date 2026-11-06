@@ -1545,6 +1545,13 @@ plan_allowed_changes() {
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
   # From 0.4.0 the orchestrator's Job runs the server's image too.
   printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.image"
+  # From 0.4.0 its schedule makes one attempt (retry_count = 0). Cloud
+  # Scheduler hands back no retry config at that count, so each plan adds it
+  # again, a change that changes nothing. Only that: a count the schedule
+  # holds, or any other, is still a change.
+  if plan_readds_one_attempt "$1"; then
+    printf '%s\n' "google_cloud_scheduler_job.orchestrator retry_config.retry_count"
+  fi
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)
@@ -1656,6 +1663,16 @@ plan_adds_api() {
   jq -e '[.resource_changes[]?
     | select(.mode == "managed" and .type == "google_project_service" and .name == "apis"
         and .change.actions == ["create"])] | length > 0' "$1" >/dev/null 2>&1
+}
+
+# Whether a plan (terraform show -json) gives the orchestrator's schedule
+# back its one attempt: no retry config before, a retry count of 0 after.
+# Every plan from 0.4.0 has it, as Cloud Scheduler hands back none at 0.
+plan_readds_one_attempt() {
+  jq -e '[.resource_changes[]?
+    | select(.type == "google_cloud_scheduler_job" and .name == "orchestrator" and .change.actions == ["update"])
+    | select(((.change.before.retry_config // []) | length) == 0
+        and .change.after.retry_config[0].retry_count == 0)] | length > 0' "$1" >/dev/null 2>&1
 }
 
 # >>> same in both modules: plan-changes
