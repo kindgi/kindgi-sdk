@@ -157,7 +157,6 @@ export type {
   TenantUsageClient,
   TokenFilter,
   TokensClient,
-  ReinstateToolVersionResult,
   ToolFilter,
   ToolVersionFilter,
   ToolsClient,
@@ -172,6 +171,37 @@ export type {
   UserFilter,
   UsersClient,
   WebhooksClient,
+} from '@kindgi/client';
+
+// ---- Version calls: each resource's `versions` client, and the rows and results they answer ----
+export type {
+  AgentVersionsClient,
+  BlockVersionsClient,
+  FlowVersionRow,
+  FlowVersionsClient,
+  MailTriggerVersionsClient,
+  PolicyVersionRow,
+  PolicyVersionsClient,
+  QueueRuleVersionsClient,
+  ReinstateAgentVersionResult,
+  ReinstateBlockResult,
+  ReinstateFlowVersionResult,
+  ReinstatePolicyVersionResult,
+  ReinstateTestSetVersionResult,
+  ReinstateToolVersionResult,
+  ReleaseGateVersionsClient,
+  ScheduleVersionsClient,
+  SecretVersionsClient,
+  TestSetVersionsClient,
+  ToolVersionRow,
+  ToolVersionsClient,
+  UnregisterAgentResult,
+  UnregisterBlockResult,
+  UnregisterFlowVersionResult,
+  UnregisterPolicyVersionResult,
+  UnregisterTestSetVersionResult,
+  UnregisterToolVersionResult,
+  WebhookTriggerVersionsClient,
 } from '@kindgi/client';
 
 // ---- Error surface ----

@@ -101,6 +101,7 @@ export type {
   ReinstateToolVersionResult,
   ToolFilter,
   ToolVersionFilter,
+  ToolVersionRow,
   ToolVersionsClient,
   ToolsClient,
   UnregisterToolVersionResult,
