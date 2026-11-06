@@ -132,8 +132,9 @@ export interface UsersClient {
 
   /**
    * Remove tenant admin from a person. Refused for the only person who
-   * holds it (`409 last-tenant-admin`) and for the seed user
-   * (`409 seed-user-admin`). Tenant admins only.
+   * holds it (`409 last-tenant-admin`), for the seed user
+   * (`409 seed-user-admin`), and for someone the server's
+   * `KINDGI_ADMIN_EMAILS` names (`409 listed-admin`). Tenant admins only.
    *
    * @wire `POST /v1/identity/users/{userId}/ungrant` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1ungrant/post`.
@@ -150,8 +151,10 @@ export interface UsersClient {
    * taken away before it returns (their keys get 401 at once). Their
    * record stays, with `unregisteredAt`; their email is free again.
    * Removing someone already removed changes nothing. Refused for
-   * yourself, the deployment's seed user (`identity-user-unregister-refused`)
-   * and the only tenant admin (`last-tenant-admin`). Tenant admins only.
+   * yourself, the deployment's seed user and someone the server's
+   * `KINDGI_ADMIN_EMAILS` names (`identity-user-unregister-refused`, with
+   * `reason`), and the only tenant admin (`last-tenant-admin`). Tenant
+   * admins only.
    */
   unregister(
     id: UserId,

@@ -7962,7 +7962,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.unregister',
     summary: 'Remove a person',
     description:
-      "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+      "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself, the deployment's seed user, and someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back (`identity-user-unregister-refused`, `details.reason` `listed-admin`: take the address off the list and restart first), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -7980,7 +7980,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No user with that id under this workspace (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
-        'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
+        'Yourself, the seed user or a person `KINDGI_ADMIN_EMAILS` names (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
       ),
     },
   },
@@ -8287,7 +8287,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.ungrant',
     summary: 'Remove tenant admin from a person',
     description:
-      'A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.',
+      "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first), and for someone the server's `KINDGI_ADMIN_EMAILS` names, whom every start makes one (`listed-admin`: take the address off the list and restart first). Tenant admins only.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -8303,7 +8303,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No user with that id under this workspace (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
-        'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.',
+        'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), a person `KINDGI_ADMIN_EMAILS` names (`listed-admin`), or an idempotency conflict.',
       ),
       '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
     },

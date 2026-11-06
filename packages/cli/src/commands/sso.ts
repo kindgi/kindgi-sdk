@@ -58,6 +58,16 @@ const configOptions = {
     description:
       'An email domain whose people sign in with it (`acme.com`); repeatable or comma-separated.',
   },
+  join: {
+    type: 'string' as const,
+    description:
+      'Who may sign in the first time: `invite` (the default: only people you add) or `domain` (also anyone it says has a verified email at its domains).',
+  },
+  'join-role': {
+    type: 'string' as const,
+    description:
+      'What someone who joins by domain gets: `viewer` (the default) or `member` on the default project, or `none`. Needs `--join=domain`, or a provider already set to it.',
+  },
   issuer: { type: 'string' as const, description: 'OIDC: the issuer URL.' },
   'client-id': { type: 'string' as const, description: 'OIDC: the client ID.' },
   'client-secret-ref': {
@@ -90,6 +100,14 @@ async function configFromFlags(ctx: CommandContext): Promise<Record<string, unkn
     .flatMap((d) => d.split(','))
     .map((d) => d.trim())
     .filter((d) => d !== '');
+  const join = stringFlag(ctx, 'join');
+  if (join !== undefined && join !== 'invite' && join !== 'domain') {
+    throw new Error('--join must be `invite` or `domain`');
+  }
+  const joinRole = stringFlag(ctx, 'join-role');
+  if (joinRole !== undefined && !['viewer', 'member', 'none'].includes(joinRole)) {
+    throw new Error('--join-role must be `viewer`, `member` or `none`');
+  }
   const metadataArg = stringFlag(ctx, 'idp-metadata');
   if (metadataArg !== undefined && !metadataArg.startsWith('@')) {
     throw new Error('--idp-metadata takes a file: --idp-metadata=@<path-to-metadata.xml>');
@@ -101,6 +119,8 @@ async function configFromFlags(ctx: CommandContext): Promise<Record<string, unkn
     clientId: stringFlag(ctx, 'client-id'),
     clientSecretRef: stringFlag(ctx, 'client-secret-ref'),
     spSigningKeyRef: stringFlag(ctx, 'sp-signing-key-ref'),
+    join,
+    joinRole,
     ...(domains.length > 0 && { domains }),
     ...(metadataArg !== undefined && {
       idpMetadataXml: await readFile(metadataArg.slice(1), 'utf8'),
@@ -182,7 +202,7 @@ const finish: LeafCommand = {
   name: 'finish',
   description: 'Register the provider with what your identity provider gave back.',
   usage:
-    'kindgi sso providers finish <provider-id> --domains=<d> (--kind=oidc --issuer=<url> --client-id=<id> --client-secret-ref=<NAME> | --kind=saml --idp-metadata=@<file>) [--name=<text>] [...]',
+    'kindgi sso providers finish <provider-id> --domains=<d> (--kind=oidc --issuer=<url> --client-id=<id> --client-secret-ref=<NAME> | --kind=saml --idp-metadata=@<file>) [--name=<text>] [--join=invite|domain] [--join-role=viewer|member|none] [...]',
   optionSpec: configOptions,
   run: (ctx) =>
     runSdk(ctx, 'sso providers finish', async () => {
@@ -195,6 +215,11 @@ const finish: LeafCommand = {
           "--domains=<your-domain> is required: sign-in is email first, so people find this provider by their email's domain",
         );
       }
+      if (config.joinRole !== undefined && config.join !== 'domain') {
+        throw new Error(
+          '--join-role needs --join=domain: it says what someone who joins by domain gets',
+        );
+      }
       return await ctx.client().auth.providers.register(config as IdentityProviderRegisterInput);
     }),
 };
@@ -204,7 +229,7 @@ const update: LeafCommand = {
   name: 'update',
   description: "Change a provider; its URLs (on your identity provider's side) don't change.",
   usage:
-    'kindgi sso providers update <provider-id> [--client-id=<id>] [--client-secret-ref=<NAME>] [--domains=<d>] [--name=<text>] [--remove=<field>] [...]',
+    'kindgi sso providers update <provider-id> [--client-id=<id>] [--client-secret-ref=<NAME>] [--domains=<d>] [--name=<text>] [--join=invite|domain] [--join-role=viewer|member|none] [--remove=<field>] [...]',
   optionSpec: {
     ...configOptions,
     remove: {

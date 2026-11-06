@@ -16,6 +16,7 @@ import type {
   ClaimMappingSpec,
   IdentityProviderBinding,
   ProviderConfig,
+  ProviderJoinRole,
   SamlAttributeMapping,
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
@@ -63,6 +64,9 @@ export const OPERATOR_MANAGED_MESSAGE =
 /** The answer to adding or changing a provider on a deployment without a secrets store. */
 export const NEEDS_SECRETS_STORE_MESSAGE =
   "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one.";
+
+export const DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE =
+  "This deployment has no authorization store (KINDGI_OPENFGA_API_URL), so it doesn't let people join by domain: without one, roles aren't checked, and a joiner would work in every project. Add people one by one, or give the deployment an authorization store.";
 
 /**
  * Build the auth router, mounted inside the `/v1/*` bearer chain:
@@ -141,6 +145,14 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
           },
           requestId,
         ),
+      );
+    }
+
+    const refused = joinRefusal(identityProvider, parsed.value, parsed.value);
+    if (refused !== undefined) {
+      c.status(statusFor(refused.error.code) as never);
+      return c.json(
+        toWireError({ ...refused.error, providerId: parsed.value.providerId }, requestId),
       );
     }
 
@@ -252,6 +264,15 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       if (parsed.kind === 'err') {
         c.status(statusFor(parsed.error.code) as never);
         return c.json(toWireError(parsed.error, requestId));
+      }
+      const refused = joinRefusal(
+        identityProvider,
+        parsedJson.value as Record<string, unknown>,
+        parsed.value,
+      );
+      if (refused !== undefined) {
+        c.status(statusFor(refused.error.code) as never);
+        return c.json(toWireError({ ...refused.error, providerId }, requestId));
       }
 
       const outcome = await update({ tenantId, config: parsed.value });
@@ -410,6 +431,37 @@ function providerNotFound(c: Context<AppEnv>, providerId: string): Response {
   );
 }
 
+/**
+ * Refuses a registration or change that sets `join: domain` or `joinRole`
+ * (`set`, the body) on a deployment that can't join by domain, and a
+ * `joinRole` the provider wouldn't use (`result`, the provider after the
+ * change, isn't `join: domain`). A change that leaves both alone goes
+ * through, so a provider stored with them keeps them, and `join: invite`
+ * keeps a stored `joinRole`.
+ */
+function joinRefusal(
+  identityProvider: IdentityProviderBinding,
+  set: { readonly join?: unknown; readonly joinRole?: unknown },
+  result: ProviderConfig,
+): ParsedErr | undefined {
+  const setsRole = set.joinRole !== undefined && set.joinRole !== null;
+  if ((set.join === 'domain' || setsRole) && identityProvider.joinsByDomain !== true) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'domain-join-needs-authorization',
+        message: DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE,
+      },
+    };
+  }
+  if (setsRole && result.join !== 'domain') {
+    return invalid(
+      '`joinRole` needs `join: domain`: it says what someone who joins by domain gets',
+    );
+  }
+  return undefined;
+}
+
 function needsSecretsStore(c: Context<AppEnv>, providerId: string): Response {
   c.status(statusFor('identity-providers-need-secrets-store') as never);
   return c.json(
@@ -479,7 +531,7 @@ function serializeProviderConfig(c: ProviderConfig): Record<string, unknown> {
   const base = {
     providerId: c.providerId,
     kind: c.kind,
-    ...definedOf(c, ['displayName', 'domains', 'join', 'signIn', 'metadata']),
+    ...definedOf(c, ['displayName', 'domains', 'join', 'joinRole', 'signIn', 'metadata']),
   };
   switch (c.kind) {
     case 'oidc':
@@ -570,6 +622,8 @@ const REMOVED_FIELDS: Readonly<Record<string, string>> = {
 };
 
 const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+const JOIN_ROLES: readonly ProviderJoinRole[] = ['viewer', 'member', 'none'];
 
 function invalid(message: string): ParsedErr {
   return { kind: 'err', error: { code: 'invalid-provider-config', message } };
@@ -692,12 +746,17 @@ function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedEr
   if (join === 'domain' && (domains === undefined || domains.length === 0)) {
     r.error ??= invalid('`join: domain` needs `domains`');
   }
+  const joinRole = b.joinRole;
+  if (joinRole !== undefined && !JOIN_ROLES.includes(joinRole as ProviderJoinRole)) {
+    r.error ??= invalid('`joinRole` must be `viewer`, `member` or `none`');
+  }
   const metadata = r.object('metadata');
   const base = {
     providerId,
     ...(displayName !== undefined && { displayName }),
     ...(domains !== undefined && { domains }),
     ...(join !== undefined && { join: join as 'invite' | 'domain' }),
+    ...(joinRole !== undefined && { joinRole: joinRole as ProviderJoinRole }),
     ...(metadata !== undefined && { metadata }),
   };
 

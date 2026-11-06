@@ -19,7 +19,10 @@ import type {
   SessionStoreBinding,
   TokenResolver,
 } from '../src/index.js';
-import { NEEDS_SECRETS_STORE_MESSAGE } from '../src/routes/auth.js';
+import {
+  DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE,
+  NEEDS_SECRETS_STORE_MESSAGE,
+} from '../src/routes/auth.js';
 
 /**
  * `/v1/auth/providers` with one shape per `kind`: `oidc` (issuer +
@@ -28,7 +31,9 @@ import { NEEDS_SECRETS_STORE_MESSAGE } from '../src/routes/auth.js';
  * refused as a deployment refused it (422), and `allowedRedirectUris`
  * (which nothing enforces: sign-in runs in the deployment) is refused on
  * writes, while a provider stored with it still loads without it. A
- * deployment without a secrets store takes no provider (409).
+ * deployment without a secrets store takes no provider (409). Domain join
+ * (`join: domain`, `joinRole`) is set only where the deployment can join
+ * by domain (`joinsByDomain`, 409 otherwise).
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -55,6 +60,8 @@ function makeApp(
   signInForAnyKind = false,
   /** What a change answers instead of being stored; `undefined` stores it. */
   onUpdate: (config: ProviderConfig) => IdentityProviderUpdateOutcome | undefined = () => undefined,
+  /** The deployment can join by domain (it has an authorization store). */
+  joinsByDomain = false,
 ) {
   const stored = new Map<string, ProviderConfig>();
   const identityProvider: IdentityProviderBinding = {
@@ -77,6 +84,7 @@ function makeApp(
       kind === 'oidc' || signInForAnyKind
         ? { redirectUri: `https://kindgi.example.com/sso/callback/${providerId}` }
         : undefined,
+    ...(joinsByDomain && { joinsByDomain: true }),
   };
   const app = createApp({
     ...createStubAppBindings(),
@@ -196,6 +204,11 @@ describe('refusals', () => {
     ],
     ['a domain that is no domain', { ...OIDC, domains: ['not a domain'] }, 'email domains'],
     [
+      'a joinRole outside the set',
+      { ...OIDC, join: 'domain', joinRole: 'admin' },
+      '`joinRole` must be `viewer`, `member` or `none`',
+    ],
+    [
       'allowedRedirectUris, which nothing enforces',
       { ...OIDC, allowedRedirectUris: ['https://app.example/cb'] },
       '`allowedRedirectUris` is no longer accepted',
@@ -289,6 +302,88 @@ describe('a deployment without a secrets store', () => {
     });
     expect(removed.status).toBe(200);
     expect(stored.size).toBe(0);
+  });
+});
+
+const patch = (app: ReturnType<typeof makeApp>['app'], body: unknown) =>
+  app.request('/v1/auth/providers/acme-okta', {
+    method: 'PATCH',
+    headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+describe('domain join', () => {
+  test('where the deployment can: join: domain and joinRole are stored and returned; joinRole needs join: domain', async () => {
+    const { app, stored } = makeApp(undefined, false, undefined, true);
+    const res = await register(app, { ...OIDC, join: 'domain', joinRole: 'member' });
+    expect(res.status).toBe(201);
+    expect(stored.get('acme-okta')).toMatchObject({ join: 'domain', joinRole: 'member' });
+    const got = await app.request('/v1/auth/providers/acme-okta', {
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    expect(await got.json()).toMatchObject({ join: 'domain', joinRole: 'member' });
+
+    const alone = await register(app, { ...OIDC, providerId: 'acme-2', joinRole: 'viewer' });
+    expect(alone.status).toBe(400);
+    expect((await errorOf(alone)).message).toContain('`joinRole` needs `join: domain`');
+  });
+
+  test('join: invite keeps a stored joinRole; setting joinRole then needs join: domain again; null removes it', async () => {
+    const { app, stored } = makeApp(undefined, false, undefined, true);
+    expect((await register(app, { ...OIDC, join: 'domain', joinRole: 'none' })).status).toBe(201);
+
+    const invite = await patch(app, { join: 'invite' });
+    expect(invite.status).toBe(200);
+    expect(stored.get('acme-okta')).toMatchObject({ join: 'invite', joinRole: 'none' });
+
+    const renamed = await patch(app, { displayName: 'Acme' });
+    expect(renamed.status).toBe(200);
+    expect(stored.get('acme-okta')?.joinRole).toBe('none');
+
+    const role = await patch(app, { joinRole: 'viewer' });
+    expect(role.status).toBe(400);
+    expect((await errorOf(role)).message).toContain('`joinRole` needs `join: domain`');
+
+    const back = await patch(app, { join: 'domain', joinRole: 'viewer' });
+    expect(back.status).toBe(200);
+    expect(stored.get('acme-okta')).toMatchObject({ join: 'domain', joinRole: 'viewer' });
+
+    expect((await patch(app, { joinRole: null })).status).toBe(200);
+    expect(stored.get('acme-okta')?.joinRole).toBeUndefined();
+  });
+
+  test("where it can't (no authorization store): setting either → 409 domain-join-needs-authorization; a provider stored with them keeps them", async () => {
+    const { app, stored } = makeApp();
+    const added = await register(app, { ...OIDC, join: 'domain' });
+    expect(added.status).toBe(409);
+    expect(await added.json()).toMatchObject({
+      error: {
+        code: 'domain-join-needs-authorization',
+        message: DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE,
+        details: { providerId: 'acme-okta' },
+      },
+    });
+    expect(DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE).toContain('KINDGI_OPENFGA_API_URL');
+    expect(stored.size).toBe(0);
+    expect((await register(app, { ...OIDC, join: 'invite' })).status).toBe(201);
+
+    // Stored with them before (a deployment that had a store, or an older one).
+    const before = stored.get('acme-okta');
+    if (before === undefined) throw new Error('not stored');
+    stored.set('acme-okta', { ...before, join: 'domain', joinRole: 'viewer' });
+
+    expect((await patch(app, { displayName: 'Acme' })).status).toBe(200);
+    expect(stored.get('acme-okta')).toMatchObject({
+      displayName: 'Acme',
+      join: 'domain',
+      joinRole: 'viewer',
+    });
+    for (const body of [{ join: 'domain' }, { joinRole: 'member' }]) {
+      const res = await patch(app, body);
+      expect(res.status).toBe(409);
+      expect((await errorOf(res)).code).toBe('domain-join-needs-authorization');
+    }
+    expect((await patch(app, { join: 'invite' })).status).toBe(200);
   });
 });
 
