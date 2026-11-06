@@ -744,6 +744,11 @@ the header named:
 {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-plain\" config.headers \"Mcp-Protocol-Version\" is a header the MCP transport sets itself. Drop it from config.headers.","details":{"reason":"transport-header-in-config"},…}}
 ```
 
+An endpoint whose `config.headers` holds one anyway, registered through an
+API without this check, works with runtime 0.6.0 or later: the runtime
+leaves that header out of the endpoint's requests, and the MCP client sends
+its own.
+
 ## Give a stdio server a secret
 
 A `stdio` server reads its credentials from its environment. Ask your coding
