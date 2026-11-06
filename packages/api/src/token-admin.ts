@@ -138,7 +138,7 @@ export interface TokenListInput {
   readonly principal?: TokenPrincipal;
   /**
    * Only the keys minted with this key, and with those in turn, to any
-   * depth: what revoking it takes with it (the live ones among them).
+   * depth, revoked ones too: revoking it takes the live ones among them.
    */
   readonly mintedWith?: ApiTokenId;
   /** The last record of the previous page. */
