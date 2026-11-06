@@ -93,7 +93,7 @@ export interface TestSetsClient {
   /**
    * Publish a test set version into a project (`options.projectId`, sent
    * next to the test set fields in the request body; `400 bad-input` when
-   * it does not name a project in the tenant). An `id` starting `agent.`
+   * it does not name a project in the workspace). An `id` starting `agent.`
    * is an agent's own test set, which the API refuses to publish: it's
    * refused here with `invalid-request`, and no request is sent.
    *

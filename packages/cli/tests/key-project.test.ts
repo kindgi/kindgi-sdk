@@ -110,7 +110,7 @@ describe('a command that would take the tenant default project', () => {
     const { out, calls } = await register();
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(
-      `The project stored with your key in ${homeFile()}: No project of this tenant has the slug "no-such-shop".`,
+      `The project stored with your key in ${homeFile()}: No project of this workspace has the slug "no-such-shop".`,
     );
     expect(out.stderr).toContain('Put the id there, or pass --project.');
     expect(calls.map((c) => c[0])).toEqual(['list']);

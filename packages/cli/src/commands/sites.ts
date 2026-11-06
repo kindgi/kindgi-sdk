@@ -24,7 +24,7 @@ const PROJECT_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
     description:
-      "The site's project, by id (default: the project stored with your key, else the tenant's default project).",
+      "The site's project, by id (default: the project stored with your key, else the workspace's default project).",
   },
 };
 

@@ -47,15 +47,15 @@ export interface TeamMembershipAddInput {
  */
 export interface TeamBinding {
   /**
-   * Create a `Team` within the tenant. `spec.orgId` optional (a team
+   * Create a `Team` within the workspace. `spec.orgId` optional (a team
    * may be cross-org — nullable FK). Resolves to `ok` with the
    * assigned `TeamId`, or to `slug-conflict` when another team in the
-   * tenant has `spec.slug`.
+   * workspace has `spec.slug`.
    */
   create(tenantId: TenantId, spec: TeamSpec): Promise<TeamCreateOutcome>;
   /**
    * Look up a `Team` by id. `undefined` when unknown or in a different
-   * tenant.
+   * workspace.
    */
   get(tenantId: TenantId, teamId: TeamId): Promise<Team | undefined>;
   /**
@@ -67,7 +67,7 @@ export interface TeamBinding {
    * Partially update a `Team`. `TeamPatch.orgId` supports `null` to
    * explicitly re-assign the team out of any org (cross-org), and
    * `undefined` to leave the FK untouched. Resolves to `team-not-found`
-   * when no team has `teamId` in the tenant, and to `slug-conflict`
+   * when no team has `teamId` in the workspace, and to `slug-conflict`
    * when `patch.slug` is another team's slug.
    */
   update(tenantId: TenantId, teamId: TeamId, patch: TeamPatch): Promise<TeamUpdateOutcome>;
@@ -94,7 +94,7 @@ export interface TeamMembershipBinding {
    *
    * The conformance suite pins this: adding an existing member whose
    * stored role differs is a no-op (not a role overwrite). Resolves to
-   * `team-not-found` when no team has `input.teamId` in the tenant.
+   * `team-not-found` when no team has `input.teamId` in the workspace.
    */
   add(tenantId: TenantId, input: TeamMembershipAddInput): Promise<TeamMembershipAddOutcome>;
   /**
@@ -109,13 +109,13 @@ export interface TeamMembershipBinding {
   list(tenantId: TenantId, teamId: TeamId, filter: Filter): Promise<Page<TeamMembership>>;
   /**
    * Cursor-paginated memberships of a user (across every team the
-   * user belongs to within the tenant). Used to resolve a user's team
+   * user belongs to within the workspace). Used to resolve a user's team
    * set (identity views, authorization inheritance).
    */
   listForUser(tenantId: TenantId, userId: UserId, filter: Filter): Promise<Page<TeamMembership>>;
   /**
    * Update an existing membership's role. Resolves to `team-not-found`
-   * when the team isn't in the tenant, and to
+   * when the team isn't in the workspace, and to
    * `team-membership-not-found` when the user isn't a member — role
    * mutation of a non-member is a caller mistake, not a silent add.
    */
@@ -131,13 +131,13 @@ export interface TeamMembershipBinding {
 export type TeamCreateOutcome =
   | { readonly kind: 'ok'; readonly teamId: TeamId }
   | {
-      /** Another team in the tenant already has this slug. */
+      /** Another team in the workspace already has this slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
     }
   | {
       /**
-       * The org the team would be in isn't one of the tenant's: it never
+       * The org the team would be in isn't one of the workspace's: it never
        * existed, or it was deleted. Nothing changed.
        */
       readonly kind: 'org-not-found';
@@ -148,17 +148,17 @@ export type TeamCreateOutcome =
 export type TeamUpdateOutcome =
   | { readonly kind: 'ok' }
   | {
-      /** No team with this id in the tenant. */
+      /** No team with this id in the workspace. */
       readonly kind: 'team-not-found';
     }
   | {
-      /** Another team in the tenant already has the patched slug. */
+      /** Another team in the workspace already has the patched slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
     }
   | {
       /**
-       * The org the team would be in isn't one of the tenant's: it never
+       * The org the team would be in isn't one of the workspace's: it never
        * existed, or it was deleted. Nothing changed.
        */
       readonly kind: 'org-not-found';
@@ -169,7 +169,7 @@ export type TeamUpdateOutcome =
 export type TeamMembershipAddOutcome =
   | { readonly kind: 'ok' }
   | {
-      /** No team with this id in the tenant. */
+      /** No team with this id in the workspace. */
       readonly kind: 'team-not-found';
     }
   | {
@@ -182,7 +182,7 @@ export type TeamMembershipAddOutcome =
 export type TeamMembershipUpdateRoleOutcome =
   | { readonly kind: 'ok' }
   | {
-      /** No team with this id in the tenant. */
+      /** No team with this id in the workspace. */
       readonly kind: 'team-not-found';
     }
   | {

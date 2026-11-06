@@ -22,7 +22,7 @@ const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
     description:
-      "The project the rule is in. Without it, the project stored with your key, else the tenant's default project.",
+      "The project the rule is in. Without it, the project stored with your key, else the workspace's default project.",
   },
 };
 

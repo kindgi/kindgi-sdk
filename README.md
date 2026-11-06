@@ -66,7 +66,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/audit-events-inmemory`](./packages/audit-events-inmemory) | Reference in-memory `AuditEventBinding` adapter for dev + tests. |
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
-| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a tenant sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from tenant-named endpoints. |
+| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a workspace sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from workspace-named endpoints. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
 | [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
@@ -85,7 +85,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/log`](./packages/log) | Kindgi™ structured logging: levels per subsystem (with dotted inheritance), JSON and pretty formats, redaction of secret keys and token shapes, and W3C trace-context helpers. |
 | [`@kindgi/memory`](./packages/memory) | Kindgi™ memory type surface. |
 | [`@kindgi/pack-conformance`](./packages/pack-conformance) | Conformance suite for pack services: a black-box HTTP and process test of pack protocol v2 and the pack index, run against any language's pack service and indexer over the same fixture pack. |
-| [`@kindgi/platform`](./packages/platform) | Multi-tenant hierarchy primitives — the Tenant → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the tenant hierarchy, and reference in-memory adapters. |
+| [`@kindgi/platform`](./packages/platform) | Multi-tenant hierarchy primitives — the Workspace → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the workspace hierarchy, and reference in-memory adapters. |
 | [`@kindgi/policy-contract`](./packages/policy-contract) | Kindgi™ policy-contract type surface. |
 | [`@kindgi/provenance`](./packages/provenance) | Kindgi™ provenance type surface + pure DAG primitives. |
 | [`@kindgi/runtime`](./packages/runtime) | Kindgi™ runtime wire-vocabulary + binding interfaces. |

@@ -4,7 +4,7 @@
 import { defineApp } from './define.js';
 
 /**
- * LinkedIn, for a member's own profile: posts made as them. Each tenant
+ * LinkedIn, for a member's own profile: posts made as them. Each workspace
  * registers its own app at LinkedIn's developer portal, with the two
  * self-serve products "Share on LinkedIn" and "Sign In with LinkedIn using
  * OpenID Connect", which need no review (the setup guide says how). Posts

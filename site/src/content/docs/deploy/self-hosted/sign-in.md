@@ -199,7 +199,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 ```
 
 - **Only the deployment's own token** (`KINDGI_API_TOKEN`) can then add,
-  change or remove a provider. A workspace admin's change is refused with
+  change or remove a provider. A tenant admin's change is refused with
   `403 identity-providers-operator-managed`:
 
   ```text
@@ -211,7 +211,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 - **The console's Sign-in page** says who manages it, and lists the
   providers with **Try** only:
 
-  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../../assets/sso/console-providers-operator.png)
+  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, acme-ops listed with a Try icon only, and the Second factor box](../../../../assets/sso/console-providers-operator.png)
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 
@@ -323,7 +323,7 @@ nothing. Access is decided after the provider signs them in:
    expired before they first signed in. That refusal is audited, and stands
    until an admin of that workspace sends the invitation again:
 
-   ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask an admin of the workspace to send it again, then sign in. Detail: invite-expired.](../../../../assets/sso/sign-in-invite-expired.png)
+   ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask a tenant admin of this workspace to send it again, then sign in. Detail: invite-expired. Below it, Your email and Continue.](../../../../assets/sso/sign-in-invite-expired.png)
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't
@@ -537,11 +537,12 @@ as it is.
 
 At most 8 links. A label is 1 to 40 characters once trimmed, isn't only
 digits, and isn't another link's label once trimmed. It can't hold a
-control or format character, such as a bidirectional override or a
-zero-width space, since those can disguise what a label says. Each URL is
-an absolute `https` URL with no username or password in it. With anything
-else, the runtime doesn't start, and says why. Unset, the console
-shows none.
+control, format or invisible character, such as a bidirectional
+override, a zero-width space or a line separator, since those can
+disguise what a label says. An emoji with the variation selector that
+picks its look, such as ✉️ or 1️⃣, is fine. Each URL is an absolute
+`https` URL with no username or password in it. With anything else, the
+runtime doesn't start, and says why. Unset, the console shows none.
 
 The console reads the links once on each page load, from the sign-in
 options, without an email. Sign-in's limit of 30 lookups a minute per

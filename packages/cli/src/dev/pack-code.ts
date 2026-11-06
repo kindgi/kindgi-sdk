@@ -25,6 +25,7 @@ import { join } from 'node:path';
 
 import type { PackLanguage } from '@kindgi/handler-runtime';
 
+import { programPath } from '../program-path.js';
 import { devJvmDir } from './paths.js';
 
 /**
@@ -325,30 +326,12 @@ export async function checkPackPython(
   const [program, ...prefix] = python;
   const script =
     'import sys, kindgi.pack, kindgi; print(sys.version.split()[0], kindgi.__version__)';
-  const { code, stdout, stderr, spawnError } = await new Promise<{
-    code: number | null;
-    stdout: string;
-    stderr: string;
-    spawnError?: string;
-  }>((resolve) => {
-    const child = spawn(program, [...prefix, '-c', script], {
-      env,
-      ...(packDir !== undefined && { cwd: packDir }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      out += chunk.toString('utf8');
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      err += chunk.toString('utf8');
-    });
-    child.once('error', (cause) =>
-      resolve({ code: null, stdout: out, stderr: err, spawnError: cause.message }),
-    );
-    child.once('close', (exit) => resolve({ code: exit, stdout: out, stderr: err }));
-  });
+  const { code, stdout, stderr, spawnError } = await run(
+    program,
+    [...prefix, '-c', script],
+    env,
+    packDir,
+  );
   const shown = python.join(' ');
   if (spawnError !== undefined) {
     return { kind: 'err', message: `the pack's Python (${shown}) did not start: ${spawnError}` };
@@ -488,14 +471,24 @@ export function javaMajor(version: string): number | undefined {
   return first === 1 ? Number(parts[1]) : first;
 }
 
-function run(
+/**
+ * `program` run to its end, the one on `env`'s PATH (`programPath`), never
+ * one in `cwd`: its output, or why it didn't start.
+ */
+async function run(
   program: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   cwd?: string,
 ): Promise<{ code: number | null; stdout: string; stderr: string; spawnError?: string }> {
+  let file: string;
+  try {
+    file = await programPath(program, env);
+  } catch (cause) {
+    return { code: null, stdout: '', stderr: '', spawnError: (cause as Error).message };
+  }
   return new Promise((resolve) => {
-    const child = spawn(program, [...args], {
+    const child = spawn(file, [...args], {
       env,
       ...(cwd !== undefined && { cwd }),
       stdio: ['ignore', 'pipe', 'pipe'],

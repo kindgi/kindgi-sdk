@@ -466,6 +466,33 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(noneWithIds.calls).toEqual([]);
   });
 
+  test('update --clear-label takes the label off; an empty --label names it, and a label is saved trimmed', async () => {
+    const cleared = await webhooks(['update', ID, '--clear-label']);
+    expect(cleared.out.exitCode, cleared.out.stderr).toBe(0);
+    expect(cleared.calls).toEqual([['update', ID, { label: null }]]);
+    for (const empty of ['--label=', '--label= ']) {
+      const run = await webhooks(['update', ID, empty]);
+      expect(run.out.exitCode).toBe(2);
+      expect(run.out.stderr).toContain('--label takes a value: --clear-label clears it');
+      expect(run.calls).toEqual([]);
+    }
+    const both = await webhooks(['update', ID, '--label=x', '--clear-label']);
+    expect(both.out.exitCode).toBe(2);
+    expect(both.out.stderr).toContain('Give --label or --clear-label, not both');
+    expect(both.calls).toEqual([]);
+    const trimmed = await webhooks(['update', ID, '--label= x ']);
+    expect(trimmed.calls).toEqual([['update', ID, { label: 'x' }]]);
+    const help = (await webhooks(['update', '--help'])).out;
+    expect(help.stdout).toContain('--clear-label');
+    expect(help.stdout).toContain('Take the label off.');
+    // update's own --label help comes after the shared signature flags, so it wins there only.
+    expect(help.stdout).toContain('takes it off');
+    expect(help.stdout).not.toContain('A short label.');
+    const register = (await webhooks(['register', '--help'])).out;
+    expect(register.stdout).toContain('A short label.');
+    expect(register.stdout).not.toContain('takes it off');
+  });
+
   test('take-ownership names the tools the trigger keeps allowed unattended, when it lists any', async () => {
     const listed = await webhooks(['take-ownership', ID], {
       trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },

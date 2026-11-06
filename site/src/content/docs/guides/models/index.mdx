@@ -13,7 +13,7 @@ presets, a provider spec's fields, each model's temperature and thinking
 settings, the providers a pack declares, and the commands that manage them.
 
 An agent doesn't name an API. It says what its model must support, and Kindgi
-picks a model from the **providers** registered for your tenant. A provider is
+picks a model from the **providers** registered for your workspace. A provider is
 one connection, to a vendor's API or to an endpoint you serve. It lists the
 models it offers, with each model's features, context window and price.
 [Choose the model an agent uses](../agents/choose-a-model/) explains how a
@@ -54,7 +54,7 @@ time budget, `maxWallMs`.
 
 ## Before you register one
 
-A new pack's tenant has `dev-echo`, a stand-in that answers without a model.
+A new pack's workspace has `dev-echo`, a stand-in that answers without a model.
 It calls the agent's first tool. It replies with a first line saying it isn't
 a real model, then with what the tool returned.
 
@@ -242,7 +242,7 @@ key:
    long-term keys for exploration only, and one works only in the Region it
    was made in
    ([Amazon Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)).
-2. Store it as a tenant secret, such as
+2. Store it as a workspace secret, such as
    `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`
    ([Keys](#keys)).
 3. Register a spec whose `adapter_config.auth` is `api-key` and whose
@@ -735,12 +735,12 @@ uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
   `OPENAI_API_KEY`. The [presets](#presets) table names each preset's key.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+- `--scope=tenant` is where the secret lives: the workspace, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`). Under `kindgi dev`, the
   files hold one value for every scope. On a runtime, a run reads a
-  provider's key at its project, else its org, else the tenant (runtime
-  0.1.9 or later; an older runtime reads the tenant's only), so the
-  tenant's key serves every project without one of its own.
+  provider's key at its project, else its org, else the workspace (runtime
+  0.1.9 or later; an older runtime reads the workspace's only), so the
+  workspace's key serves every project without one of its own.
 
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your
 app doesn't load. In a script, pipe the value in and add `--from-stdin`. To

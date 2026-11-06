@@ -6,6 +6,8 @@ package com.kindgi.client.internal.codec;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kindgi.client.models.Flow;
 import java.util.Map;
@@ -22,13 +24,23 @@ final class FlowJson {
         module.setMixInAnnotation(Flow.class, FlowMixIn.class);
     }
 
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
     abstract static class FlowMixIn {
-        FlowMixIn(@JsonProperty("id") String id,
-                @JsonAnySetter Map<String, Object> additionalProperties) {
+        @JsonCreator(
+                mode = JsonCreator.Mode.PROPERTIES
+        )
+        FlowMixIn(@JsonProperty("id") String id) {
         }
 
         @JsonProperty("id")
         abstract String id();
+
+        @JsonAnySetter
+        abstract void put(String key, Object value);
 
         @JsonAnyGetter
         abstract Map<String, Object> additionalProperties();

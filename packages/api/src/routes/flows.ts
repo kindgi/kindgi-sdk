@@ -25,6 +25,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   flowReferences,
@@ -141,7 +142,7 @@ export function flowsRouter(
       return mw(c, next);
     });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       // A project filter needs read on that project. Parse it as the
       // handler does (`?scopeKind=project&scopeId=`).
       const s = parseScopeParams((n) => c.req.query(n), {
@@ -167,7 +168,7 @@ export function flowsRouter(
         rights: itemRights,
         kind: 'flow',
         id: (c) => c.req.param('flowId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : pinWrite(c) ? undefined : 'admin'),
+        today: (c) => (isReadMethod(c.req.method) ? 'read' : pinWrite(c) ? undefined : 'admin'),
         check: itemPathCheck,
         versionNotFound: flowVersionNotFound,
       }),
@@ -511,7 +512,7 @@ export function flowsRouter(
         toWireError(
           {
             code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
           },
           requestId,
         ),

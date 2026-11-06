@@ -22,8 +22,10 @@ import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import {
   membershipExistsError,
   membershipNotKeptInStepError,
@@ -165,7 +167,7 @@ export function projectsRouter(
         kind: 'refused',
         error: {
           code: 'identity-user-not-found',
-          message: `User "${named.userId as unknown as string}" is not a member of this tenant`,
+          message: `User "${named.userId as unknown as string}" is not a member of this workspace`,
           userId: named.userId as unknown as string,
         },
       };
@@ -187,7 +189,7 @@ export function projectsRouter(
       kind: 'refused',
       error: {
         code: 'identity-user-not-found',
-        message: `No one with email "${named.email}" is a member of this tenant`,
+        message: `No one with email "${named.email}" is a member of this workspace`,
       },
     };
   }
@@ -197,7 +199,7 @@ export function projectsRouter(
   // with a role on another project only gets 403, not its settings.
   if (authorizer !== undefined) {
     r.use('/default', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       const proj = await binding.getDefault(c.get('tenantId') as TenantId);
       // None: the handler answers 404.
       if (proj === undefined) return next();
@@ -215,7 +217,7 @@ export function projectsRouter(
         toWireError(
           {
             code: 'project-not-found',
-            message: 'Tenant has no default project',
+            message: 'Workspace has no default project',
           },
           requestId,
         ),
@@ -257,6 +259,7 @@ export function projectsRouter(
   //   POST /                                     → admin on tenant
   //   GET /:projectId                            → read on project
   //   PATCH /:projectId                          → admin on project
+  //     and, naming `orgId`, admin on tenant     (the handler checks)
   //   DELETE /:projectId                         → delete on project
   //   GET /:projectId/memberships[/:userId]      → read on project
   //   other /:projectId/memberships[/:userId]    → admin on project
@@ -271,9 +274,9 @@ export function projectsRouter(
     });
     r.use('/:projectId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'GET' && method !== 'PATCH' && method !== 'DELETE') return next();
+      if (!isReadMethod(method) && method !== 'PATCH' && method !== 'DELETE') return next();
       const projectId = c.req.param('projectId');
-      const action = method === 'GET' ? 'read' : method === 'DELETE' ? 'delete' : 'admin';
+      const action = isReadMethod(method) ? 'read' : method === 'DELETE' ? 'delete' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -282,13 +285,13 @@ export function projectsRouter(
     // their own roles through their grants, not the other people here.
     r.use('/:projectId/memberships', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
     r.use('/:projectId/memberships/:userId', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -756,6 +759,14 @@ export function projectsRouter(
         );
       }
       shaped.sortEndUserCorrections = b.sortEndUserCorrections;
+    }
+    // A move between orgs changes who administers the project, so it
+    // needs what making one in an org needs: admin on the workspace. A
+    // body naming `orgId` asks, even its current one.
+    if ('orgId' in shaped) {
+      const tenant = ref('tenant', tenantId as unknown as string);
+      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      if (refused !== undefined) return refused;
     }
     const outcome = await binding.update(tenantId, projectId, shaped);
     if (outcome.kind === 'project-not-found') {

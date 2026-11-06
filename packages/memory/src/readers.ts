@@ -15,7 +15,7 @@ import type { MemoryReaders, MemoryScope } from './types.js';
  *   - its user;
  *   - its participant, or the project on behalf of all of them;
  *   - its thread, or the project on behalf of all of them.
- * A fact naming none of them is tenant-wide: every reader sees it. The
+ * A fact naming none of them is workspace-wide: every reader sees it. The
  * session is not a container.
  */
 export function isReadableBy(scope: MemoryScope, readers: MemoryReaders): boolean {

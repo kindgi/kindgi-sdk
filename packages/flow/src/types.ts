@@ -430,7 +430,7 @@ export const SUBGRAPH_CONVERGENCE_MODES = ['success-only', 'settle-all'] as cons
  * ranges — so deterministic replay always resolves the same child flow.
  * Cross-tenant lookup is rejected by construction: the kernel invokes the
  * resolver with the PARENT run's tenantId; a flow registered under a
- * different tenant will not be found.
+ * different workspace will not be found.
  */
 export interface SubflowRef {
   readonly flowId: string;
@@ -610,7 +610,7 @@ export interface EdgePolicy {
   /**
    * Per-key kernel semaphore. When set on the SOLE incoming edge of a
    * destination node, the kernel serializes dispatch across every node
-   * (across every run, across every flow, within a single tenant) that
+   * (across every run, across every flow, within a single workspace) that
    * shares the same key: at most one such node runs at a time.
    *
    * A node whose lease is unavailable at dispatch time is journaled as

@@ -41,6 +41,7 @@ import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -210,7 +211,7 @@ export function runsRouter(
         return mw(c, next);
       };
     r.use('/:runId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       return onRunProject('read')(c, next);
     });
     r.use('/:runId/journal', onRunProject('read'));

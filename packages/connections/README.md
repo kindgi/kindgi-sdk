@@ -49,10 +49,13 @@ Ready-made tools that act with a connection, one subpath per app:
 - `@kindgi/connections/microsoft/tools`: `outlookSend`,
   `outlookMessagesList`, `outlookMessageGet`, `outlookAttachmentGet` and
   `outlookReply`, the same for Outlook.
-- Calendars, from the same two subpaths: `googleCalendarEventsList` and
-  `outlookCalendarEventsList` list the events in a window,
-  `googleCalendarFreeBusy` and `outlookCalendarFreeBusy` say when the
-  calendar is busy, and `googleCalendarEventCreate`,
+- Calendars, from the same two subpaths: `googleCalendarCalendarsList` and
+  `outlookCalendarCalendarsList` list the account's calendars,
+  `googleCalendarEventsList` and `outlookCalendarEventsList` list the
+  events in a window, `googleCalendarFreeBusy` and
+  `outlookCalendarFreeBusy` say when the calendar is busy, both on the main
+  calendar or on those named by `calendarIds`, and
+  `googleCalendarEventCreate`,
   `outlookCalendarEventCreate`, `googleCalendarEventUpdate` and
   `outlookCalendarEventUpdate` add or change an event and invite the
   people it names.
@@ -74,7 +77,7 @@ import { gmailSend } from '@kindgi/connections/google/tools';
 export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
-The id is the pack's because a tool id is the tenant's, filed under the
+The id is the pack's because a tool id is the workspace's, filed under the
 first project that publishes it. Sending, replying, labelling and
 posting are `mutating`, and wait for a person's yes in a run no person
 started. So does a read with a person's connection, such as a mail read

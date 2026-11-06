@@ -205,7 +205,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
   // Anyone else adds a person to a project by their email or id.
   r.get('/users', async (c) => {
     if (!(await isTenantAdmin(c, authorizer))) {
-      return denied(c, "Only a tenant admin lists the tenant's people");
+      return denied(c, "Only a tenant admin lists the workspace's people");
     }
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
@@ -282,7 +282,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
           toWireError(
             {
               code: 'identity-user-email-taken',
-              message: 'Another person of this tenant has that email',
+              message: 'Another person of this workspace has that email',
               userId: outcome.userId as unknown as string,
             },
             requestId,
@@ -315,7 +315,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
         toWireError(
           {
             code: 'identity-user-not-found',
-            message: `No user with id "${userId as unknown as string}" under this tenant`,
+            message: `No user with id "${userId as unknown as string}" under this workspace`,
             userId: userId as unknown as string,
           },
           requestId,
@@ -368,7 +368,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              message: `No user with id "${userId as unknown as string}" under this workspace`,
               userId: userId as unknown as string,
             },
             requestId,
@@ -429,7 +429,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              message: `No user with id "${userId as unknown as string}" under this workspace`,
               userId: userId as unknown as string,
             },
             requestId,
@@ -834,7 +834,7 @@ function notFound(c: Context<AppEnv>, userId: string) {
     toWireError(
       {
         code: 'identity-user-not-found',
-        message: `No user with id "${userId}" under this tenant`,
+        message: `No user with id "${userId}" under this workspace`,
         userId,
       },
       c.get('requestId'),

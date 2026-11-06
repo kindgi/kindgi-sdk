@@ -42,11 +42,12 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/service-accounts/:serviceAccountId/grant',
   '/service-accounts/:serviceAccountId/ungrant',
   '/connections',
+  '/connection-choices',
   '/suggested-changes',
 ];
 
 /**
- * A `POST` whose JSON body has a `projectId` that isn't a project id (a
+ * A `POST` or `PUT` whose JSON body has a `projectId` that isn't a project id (a
  * UUID) is `400 bad-input`; one that names no project of the caller's
  * tenant is `404 project-not-found` (with `projectBinding`; without one,
  * only the shape is checked). Anything else, a body that isn't JSON
@@ -57,7 +58,7 @@ export function refuseBadProjectId(
   projectBinding: ProjectBinding | undefined,
 ): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (c.req.method !== 'POST') return next();
+    if (c.req.method !== 'POST' && c.req.method !== 'PUT') return next();
     let body: unknown;
     try {
       body = await c.req.json();
@@ -85,7 +86,7 @@ export function refuseBadProjectId(
           toWireError(
             {
               code: 'project-not-found',
-              message: `No project with id "${projectId}" in this tenant`,
+              message: `No project with id "${projectId}" in this workspace`,
               projectId,
             },
             c.get('requestId'),

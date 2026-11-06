@@ -5,17 +5,17 @@ import type { Cursor } from '@kindgi/types';
 import type { Transport } from '../transport.js';
 
 /**
- * The order a tenant runs a project through on its way to live — its
- * "environments". One ordered list of projects per parent: the tenant, or
+ * The order a workspace runs a project through on its way to live — its
+ * "environments". One ordered list of projects per parent: the workspace, or
  * one of its orgs. A read names a project the caller can't see by its
  * position alone (`projectId` absent); only a tenant admin writes one.
  */
 export interface EnvironmentOrdersClient {
   /** The orders the caller can read a project in. @wire `GET /v1/environment-orders` */
   list(input?: EnvironmentOrdersListInput): Promise<EnvironmentOrderPage>;
-  /** The tenant's own order (empty when unset). @wire `GET /v1/environment-orders/tenant` */
+  /** The workspace's own order (empty when unset). @wire `GET /v1/environment-orders/tenant` */
   getTenantOrder(): Promise<EnvironmentOrder>;
-  /** Set the tenant's order (tenant admin). `[]` clears it. @wire `PUT /v1/environment-orders/tenant` */
+  /** Set the workspace's order (tenant admin). `[]` clears it. @wire `PUT /v1/environment-orders/tenant` */
   setTenantOrder(input: EnvironmentOrderSetInput): Promise<EnvironmentOrder>;
   /** An org's order. @wire `GET /v1/environment-orders/orgs/{orgId}` */
   getOrgOrder(orgId: string): Promise<EnvironmentOrder>;

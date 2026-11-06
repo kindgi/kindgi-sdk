@@ -324,6 +324,35 @@ describe('kindgi schedules', () => {
     }
   });
 
+  test('update --clear-label takes the label off; an empty --label names it, and a label is saved trimmed', async () => {
+    const cleared = await schedules(['update', ID, '--clear-label']);
+    expect(cleared.out.exitCode, cleared.out.stderr).toBe(0);
+    expect(cleared.calls).toEqual([['update', ID, { label: null }]]);
+    for (const empty of ['--label=', '--label= ']) {
+      const run = await schedules(['update', ID, empty]);
+      expect(run.out.exitCode).toBe(2);
+      expect(run.out.stderr).toContain('--label takes a value: --clear-label clears it');
+      expect(run.calls).toEqual([]);
+    }
+    const both = await schedules(['update', ID, '--label=x', '--clear-label']);
+    expect(both.out.exitCode).toBe(2);
+    expect(both.out.stderr).toContain('Give --label or --clear-label, not both');
+    expect(both.calls).toEqual([]);
+    const trimmed = await schedules(['update', ID, '--label= x ']);
+    expect(trimmed.calls).toEqual([['update', ID, { label: 'x' }]]);
+    const help = (await schedules(['update', '--help'])).out;
+    expect(help.stdout).toContain('--clear-label');
+    expect(help.stdout).toContain('Take the label off.');
+    // create is unchanged: its label is sent as given.
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--label= x ',
+    ]);
+    expect(made.calls[0]).toMatchObject(['register', { label: ' x ' }]);
+  });
+
   test('--run-as names a service account on create and take-over', async () => {
     const BOT = '22222222-2222-4222-8222-222222222222';
     const made = await schedules([

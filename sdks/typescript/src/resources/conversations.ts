@@ -82,7 +82,7 @@ export interface ConversationsClient {
   /**
    * Unregister a conversation: a tombstone. From then on no read, list or
    * recall of earlier conversations returns it, and it takes no more
-   * turns; the retention sweep removes it after the tenant's grace.
+   * turns; the retention sweep removes it after the workspace's grace.
    * Returns it with `unregisteredAt`.
    */
   unregister(id: ThreadId, options?: { readonly idempotencyKey?: string }): Promise<Conversation>;

@@ -34,7 +34,7 @@ turn on: skip
 The steps after it are the same, with two differences:
 - **Register the site with the CLI signed in to Kindgi Cloud**
   ([Sign the CLI in](../../hosted/deploy-your-agent/#sign-the-cli-in)).
-  It takes a workspace admin's key, with **How far it goes** set to
+  It takes a tenant admin's key, with **How far it goes** set to
   **Admin** and **Where it works** to **Every project it can reach**. A
   **Member** key, or one for only one project, gets
   `403 permission-denied`.
@@ -116,7 +116,7 @@ pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
 
 It prints the site and its one-time code, shown once and good for 15
 minutes; `kindgi sites code <site-id>` gives a new one. Without
-`--project`, this and each `kindgi sites` command below use the tenant's
+`--project`, this and each `kindgi sites` command below use the workspace's
 default project. From code, the client's `projects.sites.register` does
 the same.
 
@@ -261,11 +261,11 @@ themselves, in conversations of their own:
   tools of each MCP endpoint whose scope holds the project, the store's
   actions among them (see
   [Give some projects its tools](../../guides/tools/mcp-servers/#give-some-projects-its-tools)).
-- **A read-only tool** runs as the agent's and the tenant's rules say. It
+- **A read-only tool** runs as the agent's and the workspace's rules say. It
   counts as read-only when every version of it, retired ones included,
   says `mutating: false`.
 - **Every other tool waits for a yes** on each call, whatever the agent's
-  or the tenant's rules say, and so does `kindgi_remember`. An MCP tool
+  or the workspace's rules say, and so does `kindgi_remember`. An MCP tool
   always counts as one that changes things, so each of the store's
   actions waits, product lookups included (see
   [Give the agent the store's actions](#give-the-agent-the-stores-actions)).
@@ -342,7 +342,7 @@ another reviewer decides." instead of **Approve**.
 
 **Their sessions are limited.**
 - They last 15 minutes and are held to the site's project: they read nothing
-  above it (the tenant, orgs, teams).
+  above it (the workspace, orgs, teams).
 - Kindgi doesn't refresh them: the plugin signs the person in again.
 
   ```text
@@ -413,7 +413,7 @@ another reviewer decides." instead of **Approve**.
   `kindgi people list --include-removed` finds their id. It's for someone
   removed in Kindgi: someone who left the store stays gone (below). It's
   refused when they also sign in another way (through another site, or the
-  tenant's own sign-in), since that would let them in there too: add them
+  workspace's own sign-in), since that would let them in there too: add them
   again instead, as a new person.
 
 ## When someone leaves the store

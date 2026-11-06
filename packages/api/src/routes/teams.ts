@@ -20,7 +20,9 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import {
   membershipExistsError,
   membershipNotKeptInStepError,
@@ -108,6 +110,7 @@ export function teamsRouter(
   //   POST /                                    → admin on tenant
   //   GET  /:teamId                              → read on team
   //   PATCH /:teamId, DELETE /:teamId           → admin on team
+  //     a PATCH naming `orgId` also admin on tenant (the handler checks)
   //   *    /:teamId/memberships                  → GET: read; else admin
   //   *    /:teamId/memberships/:userId          → same
   //   GET  /                                     → list-filter by can_read
@@ -125,9 +128,9 @@ export function teamsRouter(
     });
     r.use('/:teamId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'GET' && method !== 'PATCH' && method !== 'DELETE') return next();
+      if (!isReadMethod(method) && method !== 'PATCH' && method !== 'DELETE') return next();
       const teamId = c.req.param('teamId');
-      const action = method === 'GET' ? 'read' : 'admin';
+      const action = isReadMethod(method) ? 'read' : 'admin';
       const mw = authorizer.authorize(action, () => ref('team', teamId));
       return mw(c, next);
     });
@@ -375,7 +378,7 @@ export function teamsRouter(
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `User "${b.userId}" is not a member of this tenant`,
+              message: `User "${b.userId}" is not a member of this workspace`,
               userId: b.userId,
             },
             requestId,
@@ -632,6 +635,15 @@ export function teamsRouter(
           ),
         );
       }
+    }
+    // A move between orgs changes who administers the team, and so what
+    // its members are granted, so it needs what making one in an org
+    // needs: admin on the workspace. A body naming `orgId` asks, even its
+    // current one.
+    if ('orgId' in shaped) {
+      const tenant = ref('tenant', tenantId as unknown as string);
+      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      if (refused !== undefined) return refused;
     }
     const outcome = await binding.update(tenantId, teamId, shaped);
     if (outcome.kind === 'team-not-found') {

@@ -15,7 +15,7 @@ export interface ScopeSegment {
 
 /**
  * Where an agent version is pinned, from least to most specific: the
- * agent's default for the tenant, an org, a project, or a segment path
+ * agent's default for the workspace, an org, a project, or a segment path
  * within a project. A run takes the most specific pin that covers it; a
  * segment pin covers every run whose path starts with it.
  */

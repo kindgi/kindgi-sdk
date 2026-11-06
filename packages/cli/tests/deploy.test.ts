@@ -599,7 +599,7 @@ describe('kindgi deploy — response handling', () => {
     expect(summary.deployment.deploymentId).toBe('dep-created-01');
   });
 
-  test('200 OK (idempotent replay) → exit 0, banner notes replay', async () => {
+  test('200 OK (this image was deployed before) → exit 0, banner notes it', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({
       postResult: {
@@ -613,8 +613,10 @@ describe('kindgi deploy — response handling', () => {
       argv: ['deploy', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(0);
-    expect(out.stderr).toContain('200 OK (idempotent replay)');
-    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).toContain('200 OK (this image was deployed before)');
+    expect(out.stderr).toContain(
+      'was deployed before, so the server answered with that deployment.',
+    );
     const summary = JSON.parse(out.stdout) as { outcome: string };
     expect(summary.outcome).toBe('replayed');
   });
@@ -874,7 +876,10 @@ describe('kindgi deploy — response handling', () => {
         kind: 'replayed',
         status: 200,
         idempotentReplay: true,
-        record: makeDeploymentRecord({ deploymentId: 'dep-replayed-02' }),
+        record: makeDeploymentRecord({
+          deploymentId: 'dep-replayed-02',
+          endpoint: { status: 'pending', since: '2026-10-13T08:00:00.000Z' },
+        }),
       },
     });
     const out = await runCli({
@@ -883,7 +888,10 @@ describe('kindgi deploy — response handling', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('Nothing new was deployed');
-    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).toContain(
+      'was deployed before, so the server answered with that deployment.',
+    );
+    expect(out.stderr).not.toContain('Its pack service');
     expect(out.stderr).not.toContain('Deploy complete.');
     expect(out.stderr).not.toContain('already in flight');
     const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
@@ -1037,7 +1045,7 @@ describe("kindgi deploy — the server's rate limit", () => {
     expect(past.keys).toHaveLength(1);
     expect(past.lines).toEqual([]);
     expect(past.out.stderr.replaceAll(/\s+/g, ' ')).toContain(
-      "This tenant's image reads unpacked as much as the server allows in an hour.",
+      "This workspace's image reads unpacked as much as the server allows in an hour.",
     );
   });
 
@@ -1822,7 +1830,7 @@ describe('kindgi deploy --project: one project per client', () => {
       const out = await deployStored(fixtures);
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `project in ${homeFile()} initech-shop: no project of this tenant has that slug.`,
+        `project in ${homeFile()} initech-shop: no project of this workspace has that slug.`,
       );
       expect(fixtures.state.postCalls).toBe(0);
     });
@@ -1834,7 +1842,7 @@ describe('kindgi deploy --project: one project per client', () => {
     const out = await deploy(fixtures, '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain(
-      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
+      '--project initech-shop: no project of this workspace has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
     );
     expect(fixtures.state.postCalls).toBe(0);
     // A slug `projects create` wouldn't take isn't offered as one.
@@ -1849,7 +1857,7 @@ describe('kindgi deploy --project: one project per client', () => {
     const fixtures = makeFixtures({ projects });
     const out = await deploy(fixtures, '--project=shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('2 projects of this tenant have that slug');
+    expect(out.stderr).toContain('2 projects of this workspace have that slug');
     expect(out.stderr).toContain('11111111-2222-4333-8444-555555555555');
     expect(out.stderr).toContain('66666666-7777-4888-8999-aaaaaaaaaaaa');
     expect(out.stderr).toContain('Pass the id.');
@@ -2111,6 +2119,27 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     const out = await deploy(run.fixtures, '--hosted');
     expect(out.exitCode, out.stderr).toBe(0);
     expect(run.readIds).toHaveLength(0);
+  });
+
+  test("a repeat deploy that doesn't wait says its pack service is asked for, and how to see it ready", async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], { repeat: true });
+    const out = await deploy(run.fixtures);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.readIds).toHaveLength(0);
+    expect(out.stderr).toContain(
+      "  Its pack service is asked for (pending since 2026-10-13T08:00:00.000Z): its tools answer once it's made. `kindgi deployments get dep-01H8XM` says when it's ready.",
+    );
+    expect(out.stderr).not.toContain('Waiting for the pack service');
+  });
+
+  test('a repeat deploy with --hosted waits for its pack service, and says its state there only', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], { repeat: true });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain('Waiting for the pack service');
+    expect(out.stderr).not.toContain('Its pack service is asked for');
   });
 
   /** `hostedFixtures` whose runtime counts the kept builds with `answer`, and the reads it was asked. */
@@ -2537,7 +2566,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await deployTo(run.fixtures, 'staging-1');
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        'environments.staging-1.project acme-staging-1: no project of this tenant has that slug.',
+        'environments.staging-1.project acme-staging-1: no project of this workspace has that slug.',
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
     });
@@ -2576,7 +2605,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     });
     const out = await deploy(run.fixtures, '--hosted', '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('no project of this tenant has that slug');
+    expect(out.stderr).toContain('no project of this workspace has that slug');
     expect(run.fixtures.state.buildCalls).toBe(0);
   });
 
@@ -3496,7 +3525,7 @@ describe("kindgi deploy — the pack's blocks against what runs", () => {
   const forbidden = {
     status: 403,
     body: {
-      error: { code: 'permission-denied', message: 'Needs admin on the tenant', requestId: 'r' },
+      error: { code: 'permission-denied', message: 'Needs admin on the workspace', requestId: 'r' },
     },
   };
   const FORBIDDEN_LINE =

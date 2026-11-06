@@ -208,6 +208,25 @@ export function givenFlag(ctx: CommandContext, name: string): string | undefined
   return value;
 }
 
+/**
+ * An update's text flag that `--clear-<name>` can clear: its value,
+ * trimmed as `givenFlag` reads it; `null` for `--clear-<name>`; or
+ * `undefined` when neither is given. Given empty is a usage error that
+ * names the way to clear.
+ */
+export function clearableFlag(ctx: CommandContext, name: string): string | null | undefined {
+  const clear = ctx.options[`clear-${name}`] === true;
+  const raw = ctx.options[name];
+  if (clear && raw !== undefined) {
+    throw new UsageError(`Give --${name} or --clear-${name}, not both`);
+  }
+  if (clear) return null;
+  if (raw === undefined) return undefined;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (value === '') throw new UsageError(`--${name} takes a value: --clear-${name} clears it`);
+  return value;
+}
+
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ZONED_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;

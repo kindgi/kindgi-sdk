@@ -30,7 +30,7 @@ export interface FlowsClient {
   /**
    * Publish a flow definition into a project (`options.projectId`,
    * sent next to the flow fields in the request body; `400 bad-input`
-   * when it does not name a project in the tenant). Server validates against
+   * when it does not name a project in the workspace). Server validates against
    * `@kindgi/specs/flow.schema.json` via `@kindgi/flow.loadFlow` (cycles
    * rejected, unresolved node references rejected, unresolved edge
    * references rejected). Validation failures return
@@ -79,7 +79,7 @@ export interface FlowsClient {
   readonly versions: FlowVersionsClient;
   /**
    * Pinned versions: which version a run that names none takes, per
-   * project, org or tenant. Without a pin covering its project, a run
+   * project, org or workspace. Without a pin covering its project, a run
    * takes the newest version the project reaches.
    */
   readonly pinned: PinnedVersionsClient;

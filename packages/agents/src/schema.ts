@@ -17,7 +17,7 @@ import { index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-o
  *
  * `tenant_id` on every table; implementations enable row-level
  * security on `AGENTS_TENANT_SCOPED_TABLES` and run every statement in
- * a tenant-scoped connection so the RLS predicate has context.
+ * a workspace-scoped connection so the RLS predicate has context.
  */
 
 export const agentConversations = pgTable(
@@ -68,7 +68,7 @@ export const agentConversations = pgTable(
     /**
      * Set when the conversation is unregistered (a tombstone): no read,
      * list or recall returns it from then on, and the retention sweep
-     * removes it after the tenant's grace.
+     * removes it after the workspace's grace.
      */
     unregisteredAt: timestamp('unregistered_at', { withTimezone: true }),
     /**

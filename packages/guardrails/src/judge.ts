@@ -194,7 +194,7 @@ async function resolveJudgeProvider(
     if (decision.kind === 'err') {
       const err: JudgeRoutingError = {
         code: 'judge-routing-failed',
-        message: `Explicit judgeProvider "${bindings.judgeProvider.metadata.id}" is not allowed for this tenant: ${decision.error.message}`,
+        message: `Explicit judgeProvider "${bindings.judgeProvider.metadata.id}" is not allowed for this workspace: ${decision.error.message}`,
         guardrailId: '<unknown>' as never,
         cause: decision.error,
       };
