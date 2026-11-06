@@ -11705,6 +11705,12 @@ export const PersonGrantsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/PersonTeamRole' },
     },
     reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+    capabilities: {
+      type: 'array',
+      description:
+        "The capabilities the person holds, such as `env:write` or `signing-keys:write`. Absent when the runtime doesn't report them: unknown, not none.",
+      items: { type: 'string' },
+    },
   },
 };
 
@@ -12398,6 +12404,22 @@ export const PersonGrantBodySchema: JsonSchema = {
   description:
     "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
   properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const PersonCapabilitiesBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['capabilities'],
+  description:
+    'The capabilities to give: 1 to 32 names, counted as sent; a name sent twice is given once.',
+  properties: {
+    capabilities: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 32,
+      items: { type: 'string', minLength: 1, maxLength: 100 },
+    },
+  },
 };
 
 export const UserCollectionPageSchema: JsonSchema = {
@@ -18452,6 +18474,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
+  ['PersonCapabilitiesBody', PersonCapabilitiesBodySchema],
   ['ExpertQueueRunStatus', ExpertQueueRunStatusSchema],
   ['ExpertQueueState', ExpertQueueStateSchema],
   ['QueueRuleWhen', QueueRuleWhenSchema],

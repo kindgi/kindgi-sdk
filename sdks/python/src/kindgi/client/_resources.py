@@ -865,6 +865,20 @@ OPERATIONS: dict[str, Operation] = {
     "identity.users.ungrant": Operation(
         "identity.users.ungrant", "POST", "/v1/identity/users/{userId}/ungrant", "json", True
     ),
+    "identity.users.giveCapabilities": Operation(
+        "identity.users.giveCapabilities",
+        "POST",
+        "/v1/identity/users/{userId}/capabilities",
+        "json",
+        True,
+    ),
+    "identity.users.takeBackCapability": Operation(
+        "identity.users.takeBackCapability",
+        "DELETE",
+        "/v1/identity/users/{userId}/capabilities/{capability}",
+        "json",
+        True,
+    ),
     "identity.whoami": Operation("identity.whoami", "GET", "/v1/identity/whoami", "json", False),
     "deployments.list": Operation("deployments.list", "GET", "/v1/deployments", "json", False),
     "deployments.register": Operation(
@@ -7832,6 +7846,52 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def give_capabilities(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonCapabilitiesBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Give a tenant admin capabilities. `POST /v1/identity/users/{userId}/capabilities`
+
+        A tenant admin gives another tenant admin capabilities their own person holds now, such as `env:write` or `signing-keys:write`. What a key was minted with never counts, so a service account or a system key gives none. No person gives `secrets:reveal` or a system capability. Written before the call answers, so the person's next request holds them. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.giveCapabilities"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonCapabilitiesBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def take_back_capability(
+        self,
+        user_id: str | UUID,
+        capability: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PersonGrants:
+        """Take back a person's capability. `DELETE /v1/identity/users/{userId}/capabilities/{capability}`
+
+        A tenant admin whose own person holds the capability takes it back from someone. A person drops their own with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is a no-op.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.takeBackCapability"],
+            path={"userId": user_id, "capability": capability},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.PersonGrants,
             timeout=timeout,
         )
@@ -18178,6 +18238,52 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def give_capabilities(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonCapabilitiesBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Give a tenant admin capabilities. `POST /v1/identity/users/{userId}/capabilities`
+
+        A tenant admin gives another tenant admin capabilities their own person holds now, such as `env:write` or `signing-keys:write`. What a key was minted with never counts, so a service account or a system key gives none. No person gives `secrets:reveal` or a system capability. Written before the call answers, so the person's next request holds them. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.giveCapabilities"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonCapabilitiesBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def take_back_capability(
+        self,
+        user_id: str | UUID,
+        capability: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PersonGrants:
+        """Take back a person's capability. `DELETE /v1/identity/users/{userId}/capabilities/{capability}`
+
+        A tenant admin whose own person holds the capability takes it back from someone. A person drops their own with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is a no-op.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.takeBackCapability"],
+            path={"userId": user_id, "capability": capability},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.PersonGrants,
             timeout=timeout,
         )

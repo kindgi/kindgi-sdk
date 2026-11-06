@@ -8255,6 +8255,83 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/capabilities',
+    openapiPath: '/v1/identity/users/{userId}/capabilities',
+    operationId: 'identity.users.giveCapabilities',
+    summary: 'Give a tenant admin capabilities',
+    description:
+      "A tenant admin gives another tenant admin capabilities their own person holds now, such as `env:write` or `signing-keys:write`. What a key was minted with never counts, so a service account or a system key gives none. No person gives `secrets:reveal` or a system capability. Written before the call answers, so the person's next request holds them. Tenant admins only.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PersonCapabilitiesBody') },
+    responses: {
+      '200': {
+        description: "The person's grants, after, with the capabilities they hold.",
+        schema: ref('PersonGrants'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "Not a tenant admin; asked by a service account or a system key (`caller-not-a-person`); a capability no person gives (`capability-not-givable`); or one the caller's own person doesn't hold now (`capability-not-held`, naming the missing ones).",
+      ),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The person was removed from the workspace (`identity-user-unregistered`), isn't a tenant admin (`receiver-not-tenant-admin`: make them one first), or an idempotency conflict.",
+      ),
+      '501': ErrorResponse(
+        "The runtime has no authorization store (`person-grants-unsupported`), or doesn't give capabilities (`person-capabilities-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/identity/users/:userId/capabilities/:capability',
+    openapiPath: '/v1/identity/users/{userId}/capabilities/{capability}',
+    operationId: 'identity.users.takeBackCapability',
+    summary: "Take back a person's capability",
+    description:
+      "A tenant admin whose own person holds the capability takes it back from someone. A person drops their own with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is a no-op.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      {
+        name: 'capability',
+        in: 'path',
+        required: true,
+        description: 'The capability, URL-encoded (`env%3Awrite`).',
+        schema: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: "The person's grants, after, with the capabilities they hold.",
+        schema: ref('PersonGrants'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The capability in the path is longer than 100 characters.'),
+      '403': ErrorResponse(
+        "Neither a tenant admin nor the person with a full API key or session; asked by a service account or a system key (`caller-not-a-person`); or a capability the caller's own person doesn't hold now (`capability-not-held`).",
+      ),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The person was removed from the workspace (`identity-user-unregistered`), or an idempotency conflict.',
+      ),
+      '501': ErrorResponse(
+        "The runtime has no authorization store (`person-grants-unsupported`), or doesn't take back capabilities (`person-capabilities-unsupported`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/identity/whoami',
     openapiPath: '/v1/identity/whoami',
