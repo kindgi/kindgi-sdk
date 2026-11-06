@@ -210,8 +210,9 @@ The TypeScript client's server error carries `serverCode`
 `authz-backend-unavailable` and `retryAfterSeconds` from the `Retry-After`;
 it doesn't retry on its own. The Python client sends a `GET`, or a call with
 an `Idempotency-Key`, again after the wait, as it does any `503`, up to
-`max_retries` times (2 by default). Then it raises a `ServerError` whose
-`server_code` is `authz-backend-unavailable`.
+`max_retries` times (2 by default). A call it doesn't send again, or whose
+retries run out, raises a `ServerError` whose `server_code` is
+`authz-backend-unavailable`.
 
 The answer never carries OpenFGA's error. The runtime logs it at `error`, as
 `authorization store unreachable` for that request id, with OpenFGA's error
