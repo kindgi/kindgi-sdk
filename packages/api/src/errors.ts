@@ -501,10 +501,14 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // provider's client secret and keys are references into: adding or
   // changing a provider waits until it has one.
   'identity-providers-need-secrets-store': 409,
-  // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
-  // deployment's own token or a system key holding `system:license`, save a
-  // sole tenant's admins reading the license's countdown.
+  // `GET /v1/license`, `PUT /v1/license` or `GET /v1/license/usage` by
+  // anyone but the deployment's own token or a system key holding
+  // `system:license`, save a sole tenant's admins reading the license's
+  // countdown.
   'license-operator-only': 403,
+  // `PUT /v1/license`: the running server checked the key handed to it and
+  // runs on with the one it has (`details.reason`).
+  'license-key-refused': 409,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
   // A second factor (`/v1/identity/me/second-factor*`, token sign-in):

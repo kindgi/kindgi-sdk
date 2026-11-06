@@ -56,7 +56,55 @@ export interface LicenseStatus {
    * key.
    */
   readonly preview?: LicensePreview;
+  /**
+   * What the key limits, and how much of it is in use: set only when the
+   * key carries limits (a production key's `lim`). A count it doesn't name
+   * isn't limited. Only the operator's view has it: the deployment's own
+   * token's, or a system key's holding `system:license`.
+   */
+  readonly limits?: LicenseLimits;
 }
+
+/** The counts a key limits: one entry per count it names. */
+export interface LicenseLimits {
+  readonly flows?: LicenseLimit;
+  readonly agents?: LicenseLimit;
+}
+
+/** One count a key limits. */
+export interface LicenseLimit {
+  /** The number the key carries. */
+  readonly plan: number;
+  /** The most this runtime runs: past it, it refuses new ones. */
+  readonly most: number;
+  /** How many it counts now. */
+  readonly inUse: number;
+}
+
+/**
+ * Why the running server refused a key handed to it (`PUT /v1/license`),
+ * checked offline as at a start: `malformed`, not a key; `unknown-key`,
+ * signed with a `kid` this release doesn't trust; `bad-signature`;
+ * `not-yet-valid`, issued for a later time than the server's clock;
+ * `expired`, more than 14 days past its `exp`, so the server wouldn't start
+ * with it; `other-licensee` or `other-use`, not the subject or the use of
+ * the key it runs; `older`, not newer than the key it runs (newer: a later
+ * `exp`, or the same `exp` and an `iat` no earlier).
+ */
+export type LicenseKeyRefusal =
+  | 'malformed'
+  | 'unknown-key'
+  | 'bad-signature'
+  | 'not-yet-valid'
+  | 'expired'
+  | 'other-licensee'
+  | 'other-use'
+  | 'older';
+
+/** What the running server did with a key handed to it: runs it from now, or refused it. */
+export type LicenseReplaced =
+  | { readonly kind: 'taken' }
+  | { readonly kind: 'refused'; readonly reason: LicenseKeyRefusal };
 
 /** A preview build's expiry: when it was released, and the last day it starts. */
 export interface LicensePreview {
@@ -114,6 +162,13 @@ export interface LicenseStatusBinding {
    * token reads the license.
    */
   soleTenant?(): TenantId | null | Promise<TenantId | null>;
+  /**
+   * Hands the running server a new key (`PUT /v1/license`, from
+   * `kindgi license renew --runtime`): checked offline, then run from now
+   * on, without a restart. The same key again is taken as it is. Without
+   * it, `PUT /v1/license` isn't served (404).
+   */
+  replace?(key: string): Promise<LicenseReplaced>;
 }
 
 /**
@@ -126,6 +181,27 @@ export const LICENSE_OPERATOR_ONLY_MESSAGE =
 /** The refusal of a caller who may not read the deployment's use: every caller but its own token or a `system:license` key. */
 export const LICENSE_USAGE_OPERATOR_ONLY_MESSAGE =
   "The deployment's use counts every tenant's: only its operator reads it, with the deployment's own token or a system key holding system:license.";
+
+/** The refusal of a caller who may not hand the server a key: every caller but its own token or a `system:license` key. */
+export const LICENSE_REPLACE_OPERATOR_ONLY_MESSAGE =
+  "Only this deployment's operator hands it a license key: with the deployment's own token, or a system key holding system:license.";
+
+/** What `PUT /v1/license`'s refusal says, by why the server refused the key. */
+export const LICENSE_KEY_REFUSED_MESSAGES: Readonly<Record<LicenseKeyRefusal, string>> = {
+  malformed: "That isn't a Kindgi license key: send the whole key, starting kgi_lk_.",
+  'unknown-key': "The key is signed with a key this runtime release doesn't know.",
+  'bad-signature': "The key's signature doesn't match: it isn't a key Kindgi signed.",
+  'not-yet-valid':
+    "The key is issued for a later time than this server's clock: check the server's clock, then hand the key over again.",
+  expired: "The key expired more than 14 days ago: the server wouldn't start with it.",
+  'other-licensee': 'The key is for another licensee than the key this server runs.',
+  'other-use': 'The key is for another use than the key this server runs.',
+  older:
+    'The key is older than the key this server runs: it expires earlier, or expires with it and was issued before it.',
+};
+
+/** The longest key `PUT /v1/license` reads, in characters. */
+const LICENSE_KEY_MAX_LENGTH = 4096;
 
 /**
  * Whether the deployment serves `tenantId` alone, so that tenant's admins
@@ -163,12 +239,23 @@ const USAGE_CLOCK_SKEW_MS = 5 * 60_000;
  * named, so nothing a binding adds leaves outside the schema.
  */
 export function operatorLicenseView(status: LicenseStatus): LicenseStatus {
-  const { name, use, renew } = status;
+  const { name, use, renew, limits } = status;
   return {
     ...tenantAdminLicenseView(status),
     ...(name !== undefined && { name }),
     ...(use !== undefined && { use }),
     ...(renew !== undefined && { renew }),
+    ...(limits !== undefined && { limits: limitsView(limits) }),
+  };
+}
+
+/** The limits' fields, named, so nothing a binding adds leaves outside the schema. */
+function limitsView(limits: LicenseLimits): LicenseLimits {
+  const one = ({ plan, most, inUse }: LicenseLimit): LicenseLimit => ({ plan, most, inUse });
+  const { flows, agents } = limits;
+  return {
+    ...(flows !== undefined && { flows: one(flows) }),
+    ...(agents !== undefined && { agents: one(agents) }),
   };
 }
 
@@ -313,5 +400,78 @@ export function licenseRouter(
       return c.json(operatorUsageView(await usage({ since: from, until })));
     });
   }
+  const replace = binding.replace?.bind(binding);
+  if (replace !== undefined) {
+    // `PUT /v1/license`: a renewed key handed to the running server
+    // (`kindgi license renew --runtime`), checked offline by the binding.
+    // Only as the operator reads the license, never a tenant admin: the key
+    // is the deployment's.
+    r.put('/', async (c) => {
+      if (!servesAsOperator(c)) {
+        return refused(c, authorizer, {
+          action: 'write',
+          resource: ref('tenant', c.get('tenantId') as unknown as string),
+          message: LICENSE_REPLACE_OPERATOR_ONLY_MESSAGE,
+          failing: 'scope',
+          code: 'license-operator-only',
+        });
+      }
+      const key = await readLicenseKey(c);
+      if (key.kind === 'bad') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(toWireError({ code: 'bad-input', message: key.message }, c.get('requestId')));
+      }
+      const replaced = await replace(key.key);
+      if (replaced.kind === 'refused') {
+        c.status(statusFor('license-key-refused') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'license-key-refused',
+              message: LICENSE_KEY_REFUSED_MESSAGES[replaced.reason],
+              reason: replaced.reason,
+            },
+            c.get('requestId'),
+          ),
+        );
+      }
+      return c.json(operatorLicenseView(await binding.status()));
+    });
+  }
   return r;
+}
+
+/** `PUT /v1/license`'s body, `{ key }`: the key, trimmed, or why the body isn't one. */
+async function readLicenseKey(
+  c: Context<AppEnv>,
+): Promise<
+  | { readonly kind: 'key'; readonly key: string }
+  | { readonly kind: 'bad'; readonly message: string }
+> {
+  const shape = 'the body is `{ "key": "kgi_lk_…" }`';
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return { kind: 'bad', message: `Request body must be valid JSON: ${shape}.` };
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return { kind: 'bad', message: `Request body must be an object: ${shape}.` };
+  }
+  const unknown = Object.keys(body).filter((k) => k !== 'key');
+  if (unknown.length > 0) {
+    return {
+      kind: 'bad',
+      message: `Unknown field ${unknown.map((k) => `\`${k}\``).join(', ')}: ${shape}.`,
+    };
+  }
+  const { key } = body as { readonly key?: unknown };
+  const trimmed = typeof key === 'string' ? key.trim() : '';
+  if (trimmed === '' || trimmed.length > LICENSE_KEY_MAX_LENGTH) {
+    return {
+      kind: 'bad',
+      message: `\`key\` is required: the whole license key, as a string of at most ${LICENSE_KEY_MAX_LENGTH} characters.`,
+    };
+  }
+  return { kind: 'key', key: trimmed };
 }

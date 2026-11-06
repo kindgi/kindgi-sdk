@@ -1544,6 +1544,13 @@ describe('the license key', () => {
     });
     expect(await licenseOf({ KINDGI_LICENSE_KEY: 'not-a-key' })).toMatchObject({ status: 'fail' });
   });
+
+  test("a key's own warning window (`warn`): it warns from that many days, not 30", async () => {
+    const at = (daysLeft: number) =>
+      licenseOf({ KINDGI_LICENSE_KEY: key({ warn: 7, exp: NOW / 1000 + daysLeft * DAY }) });
+    expect((await at(12))?.status).toBe('pass');
+    expect((await at(7))?.status).toBe('warn');
+  });
 });
 
 describe('MCP endpoint headers: a credential kept in plaintext config.headers, on the runtime the CLI points at', () => {

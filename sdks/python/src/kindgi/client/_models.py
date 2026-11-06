@@ -1942,6 +1942,40 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class LicenseLimit(BaseModel):
+    """
+    One count the key limits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[int, Field(ge=1)]
+    """
+    The number the key carries.
+    """
+    most: Annotated[int, Field(ge=1)]
+    """
+    The most this runtime runs: past it, it refuses new ones.
+    """
+    in_use: Annotated[int, Field(alias="inUse", ge=0)]
+    """
+    How many it counts now.
+    """
+
+
+class LicenseKeyBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(max_length=4096, min_length=1)]
+    """
+    The whole license key, `kgi_lk_…`.
+    """
+
+
 class RuntimeInfo(BaseModel):
     """
     Which runtime answers: what a client says about the runtime it's connected to.
@@ -15857,46 +15891,17 @@ class CompleteApprovalResult(BaseModel):
     """
 
 
-class LicenseStatus(BaseModel):
+class LicenseLimits(BaseModel):
+    """
+    What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
-    """
-    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
-    """
-    name: str | None = None
-    """
-    Whose key: the name the banner prints.
-    """
-    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
-    """
-    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
-    """
-    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
-    """
-    Whole days until it expires; negative once it has.
-    """
-    standing: (
-        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
-    ) = None
-    """
-    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
-    """
-    renew_by: Annotated[
-        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
-    ] = None
-    """
-    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
-    """
-    renew: str | None = None
-    """
-    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
-    """
-    preview: LicensePreview | None = None
+    flows: LicenseLimit | None = None
+    agents: LicenseLimit | None = None
 
 
 class CorrectorGroup(BaseModel):
@@ -19332,6 +19337,49 @@ class RunCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class LicenseStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
+    """
+    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
+    """
+    name: str | None = None
+    """
+    Whose key: the name the banner prints.
+    """
+    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    """
+    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    """
+    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    """
+    Whole days until it expires; negative once it has.
+    """
+    standing: (
+        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
+    ) = None
+    """
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
+    """
+    renew_by: Annotated[
+        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
+    ] = None
+    """
+    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
+    """
+    renew: str | None = None
+    """
+    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
+    """
+    preview: LicensePreview | None = None
+    limits: LicenseLimits | None = None
 
 
 class Correction(BaseModel):
