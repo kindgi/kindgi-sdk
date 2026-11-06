@@ -80,7 +80,9 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 /**
  * A domain as written (`acme.com`, `@acme.com`, `ACME.com`, `acme.com.`),
- * lower case, as an A-label; `undefined` when it isn't one.
+ * lower case, as an A-label; `undefined` when it isn't one. The routes
+ * hand a binding its domains in this form, so a binding compares a proved
+ * email's domain in it too (`joinEmailOf`).
  */
 export function joinDomainOf(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;

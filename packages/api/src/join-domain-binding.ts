@@ -46,8 +46,10 @@ import type { ProviderJoinRole } from './identity-provider-binding.js';
  * - Never a public mailbox domain (gmail.com, outlook.com, ...), and never
  *   a domain the operator verified for another workspace, or for a tenant
  *   this runtime doesn't serve.
- * - Refused with no authorization store: a joiner's role couldn't be
- *   checked there, so they'd work in every project.
+ * - Allowing a domain, or allowing it again, is refused with no
+ *   authorization store: a joiner's role couldn't be checked there, so
+ *   they'd work in every project. A raise meets only who may widen and the
+ *   operator's verified domains (`not-yours`, `verified-elsewhere`).
  * - A change that narrows (a lower role, stopping allowing a domain) takes
  *   any tenant admin, an API key too.
  *
@@ -62,9 +64,15 @@ export interface JoinDomain {
   /** What a joiner gets: `viewer` or `runner` on the default project, or `none` (a member only). Never admin. */
   readonly role: ProviderJoinRole;
   readonly createdAt: Timestamp;
-  /** Who allowed it: `user:<id>`, or `system-key:<id>` and the like for the operator. */
+  /**
+   * Who allowed it: `user:<id>`, a person, or the deployment's own token as
+   * its seed user on a runtime serving one tenant; `service_account:<id>`,
+   * a key holding `kindgi:system` that acts as one; or `system-key:<id>` on
+   * the system routes (`system-key:boot` for the deployment's own token).
+   */
   readonly createdBy: string;
   readonly updatedAt?: Timestamp;
+  /** Who last changed its role, in `createdBy`'s forms: any tenant admin's, for a lower one. */
   readonly updatedBy?: string;
 }
 
@@ -121,7 +129,8 @@ export type JoinDomainChangeOutcome =
   | { readonly kind: 'not-found' }
   /** A raise, while the deployment's operator manages sign-in and the caller isn't the operator. */
   | { readonly kind: 'operator-managed' }
-  | JoinDomainRefusal;
+  /** A raise only: neither a public domain nor a missing authorization store refuses one. */
+  | Extract<JoinDomainRefusal, { readonly kind: 'not-yours' | 'verified-elsewhere' }>;
 
 /**
  * A workspace for one verified email (the lookup), of those that let
@@ -150,7 +159,9 @@ export interface JoinDomainBinding {
   /**
    * Change what a joiner gets. Compared with the live row, in one
    * transaction: a raise (`none` to `viewer` to `runner`) takes `allow`'s
-   * rules, a lower takes any admin, the same role writes nothing.
+   * rules for who may widen and which domain (`not-yours`,
+   * `verified-elsewhere`), a lower takes any admin, the same role writes
+   * nothing.
    */
   change(input: {
     readonly tenantId: TenantId;

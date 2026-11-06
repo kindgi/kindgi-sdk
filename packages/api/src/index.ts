@@ -196,6 +196,7 @@ export type {
   JoinDomainRefusal,
   JoinLookupWorkspace,
 } from './join-domain-binding.js';
+export { joinDomainOf, joinEmailOf } from './routes/join-domains.js';
 export type {
   Site,
   SiteBinding,

@@ -215,9 +215,9 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 
 - **Who may join by email domain is the operator's too** (runtime 0.8.0
   or later): allowing a domain, or giving its joiners more, takes the
-  deployment's own token, and a tenant admin's is refused with
-  `403 join-domains-operator-managed`. A tenant admin may still lower
-  joiners' role or stop allowing a domain
+  deployment's own token or a key holding `kindgi:system`, and a tenant
+  admin's is refused with `403 join-domains-operator-managed`. A tenant
+  admin may still lower joiners' role or stop allowing a domain
   ([Let people at your domain join](../../people-and-keys/#let-people-at-your-domain-join)).
 
 `on` is the default. Like the other settings here, it needs sign-in on.

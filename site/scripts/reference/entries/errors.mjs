@@ -2982,7 +2982,7 @@ export const ERROR_ENTRIES = {
   },
   'domain-join-needs-authorization': {
     description:
-      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so people can't join by domain: without one, roles aren't checked, and a joiner would work in every project. On an identity provider, setting `join: domain` or `joinRole` is refused; a provider already stored with them keeps them, and a change that leaves them alone goes through. Allowing an email domain (`/v1/auth/join-domains`), or giving its joiners more, is refused too; lowering their role or stopping allowing it still works. Add people one by one, or run with authorization.",
+      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so people can't join by domain: without one, roles aren't checked, and a joiner would work in every project. On an identity provider, setting `join: domain` or `joinRole` is refused; a provider already stored with them keeps them, and a change that leaves them alone goes through. Allowing an email domain (`/v1/auth/join-domains`), or allowing it again, is refused too; changing what joiners get, or stopping allowing it, still works. Add people one by one, or run with authorization.",
     details: [
       {
         key: 'providerId',
@@ -2999,7 +2999,7 @@ export const ERROR_ENTRIES = {
   },
   'join-domains-operator-managed': {
     description:
-      "The deployment's operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), so letting people at another email domain join, or giving joiners more, takes the operator's credential: the deployment's own token or a key holding `kindgi:system`, or `system:join-domains` on the system routes. A tenant admin can still see the list, lower joiners' role and stop allowing a domain. The refusal is recorded.",
+      "The deployment's operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), so letting people at an email domain join, or giving joiners more, takes the operator's credential: the deployment's own token or a key holding `kindgi:system`, or `system:join-domains` on the system routes. A tenant admin can still see the list, lower joiners' role and stop allowing a domain. The refusal is recorded.",
     details: [],
     seeAlso: ['deploy/people-and-keys', 'deploy/self-hosted/sign-in'],
   },
