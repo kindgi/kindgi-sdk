@@ -65,8 +65,14 @@ const DEV = randomUUID() as ProjectId;
 /** In production, and the workspace's default. */
 const PROD = randomUUID() as ProjectId;
 
+/** The projects, with the optional `setProduction` always there. */
+type Projects = ProjectBinding & {
+  readonly switched: number;
+  readonly setProduction: NonNullable<ProjectBinding['setProduction']>;
+};
+
 /** The projects; `setProduction` puts DEV in production, and counts its calls. */
-function projects(): ProjectBinding & { readonly switched: number } {
+function projects(): Projects {
   let devSince: Timestamp | undefined;
   let switched = 0;
   const row = (id: ProjectId): Project =>
@@ -97,7 +103,7 @@ function projects(): ProjectBinding & { readonly switched: number } {
     list: notUsed,
     update: notUsed,
     delete: notUsed,
-  } as unknown as ProjectBinding & { readonly switched: number };
+  } as unknown as Projects;
 }
 
 interface Trust {
