@@ -542,6 +542,7 @@ export type {
   AgentPage,
   AgentPublishInput,
   AgentPublishOutcome,
+  GoneVersion,
   AgentRegistryBinding,
   AgentVersionRecord,
   AgentReinstateVersionInput,
