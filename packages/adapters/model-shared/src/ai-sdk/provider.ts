@@ -59,9 +59,8 @@ import type {
 } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
-import { describeCauses } from '@kindgi/log';
 
-import { ModelProviderError, modelProviderError } from '../errors.js';
+import { ModelProviderError, modelProviderError, withCauses } from '../errors.js';
 import { type RetryableFailure, isTransport, refusedConnection, withRetries } from '../retries.js';
 
 export interface AiSdkModelProviderOptions {
@@ -681,17 +680,6 @@ function isUnreadableAnswer(error: unknown): boolean {
 /** A failure as the retry policy needs it, and whether it's one we know (a bug isn't). */
 interface DescribedFailure extends RetryableFailure {
   readonly unrecognized?: true;
-}
-
-/**
- * A call's words when nothing came back, with what its causes add (`; caused by …`, masked):
- * the library's message alone says `fetch failed`, or `Cannot connect to API: ` with nothing
- * after it when Node's refused connection has an empty message. A dangling `:` or `.` goes
- * before the causes.
- */
-function withCauses(words: string, error: unknown): string {
-  const causes = describeCauses(error);
-  return causes === '' ? words : `${words.replace(/[:.]\s*$/, '')}${causes}`;
 }
 
 /** An AI SDK failure as the retry policy and the typed error need it. */
