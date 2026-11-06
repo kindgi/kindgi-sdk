@@ -635,6 +635,29 @@ describe('API — mcp endpoints register + get', () => {
       }
     });
 
+    test("header: MCP's own headers, whatever their case, an Mcp-Param- one among them → 400 invalid-auth, naming the header", async () => {
+      const { app } = makeApp();
+      const one = (name: string) => ({ scheme: 'header', headers: [{ name, secretRef: ref }] });
+      for (const name of [
+        'Mcp-Method',
+        'mcp-name',
+        'MCP-PROTOCOL-VERSION',
+        'Mcp-Param-Region',
+        'mcp-param-sku',
+      ]) {
+        const res = await post(app, { ...http, auth: one(name) });
+        const body = (await res.clone().json()) as { error: { message: string } };
+        expect(await refusal(res), name).toEqual([400, 'invalid-mcp-endpoint', 'invalid-auth']);
+        expect(body.error.message).toBe(
+          `endpoint "acme-shop" auth.headers[0].name "${name}" is a header the MCP transport sets itself`,
+        );
+      }
+      // A name that only starts like one is a header of the server's own.
+      expect(
+        (await post(app, { ...http, endpointId: 'acme-params', auth: one('Mcp-Params') })).status,
+      ).toBe(201);
+    });
+
     test('header: a name auth sends that config.headers sets too → 400 auth-header-in-config', async () => {
       const { app } = makeApp();
       const tenantKey = { scheme: 'header', headers: [{ name: 'X-Tenant-Key', secretRef: ref }] };
@@ -709,6 +732,36 @@ describe('API — mcp endpoints register + get', () => {
           'credential-in-headers',
         ]);
       }
+    });
+
+    test("MCP's own headers in config.headers, whatever their case, an Mcp-Param- one among them → 400 transport-header-in-config, naming the header", async () => {
+      const { app } = makeApp();
+      for (const name of [
+        'Mcp-Session-Id',
+        'mcp-protocol-version',
+        'Mcp-Method',
+        'MCP-NAME',
+        'Mcp-Param-Region',
+        'mcp-param-sku',
+      ]) {
+        for (const transport of ['streamable-http', 'http-sse']) {
+          const res = await post(app, withHeaders({ 'X-Region': 'eu', [name]: 'v' }, transport));
+          const body = (await res.clone().json()) as { error: { message: string } };
+          expect(await refusal(res), `${transport} ${name}`).toEqual([
+            400,
+            'invalid-mcp-endpoint',
+            'transport-header-in-config',
+          ]);
+          expect(body.error.message).toBe(
+            `endpoint "acme-shop" config.headers "${name}" is a header the MCP transport sets itself. Drop it from config.headers.`,
+          );
+        }
+      }
+      // A name that only starts like one is a plain header.
+      expect(
+        (await post(app, { ...withHeaders({ 'Mcp-Params': 'v' }), endpointId: 'acme-params' }))
+          .status,
+      ).toBe(201);
     });
 
     test('plain headers register as before, including names near a credential word', async () => {

@@ -2553,6 +2553,8 @@ export type McpEndpointConfig =
        * Plain headers, never a credential: a name such as `Authorization`,
        * `Cookie`, `X-Api-Key` or `X-Auth-Token` is refused (`credential-in-headers`);
        * send it with `McpHeaderAuth`. One registered before reads back as `[redacted]`.
+       * Never one of MCP's own headers either (`Mcp-Session-Id`, `Mcp-Method`,
+       * `Mcp-Param-…`, …: `transport-header-in-config`).
        */
       readonly headers?: Readonly<Record<string, string>>;
     }
@@ -2563,6 +2565,8 @@ export type McpEndpointConfig =
        * Plain headers, never a credential: a name such as `Authorization`,
        * `Cookie`, `X-Api-Key` or `X-Auth-Token` is refused (`credential-in-headers`);
        * send it with `McpHeaderAuth`. One registered before reads back as `[redacted]`.
+       * Never one of MCP's own headers either (`Mcp-Session-Id`, `Mcp-Method`,
+       * `Mcp-Param-…`, …: `transport-header-in-config`).
        */
       readonly headers?: Readonly<Record<string, string>>;
     };
@@ -2613,7 +2617,7 @@ export interface McpOAuth2ClientCredentialsAuth {
 
 /** One header a `header` auth sends (`@kindgi/api/openapi.json#MCPAuthHeader`): `<name>: <prefix><secret>`. */
 export interface McpAuthHeader {
-  /** An HTTP header name, once per auth; not one the transport sets (`Host`, `Content-Type`, …). */
+  /** An HTTP header name, once per auth; not one the transport sets (`Host`, `Content-Type`, `Mcp-Method`, `Mcp-Param-…`, …). */
   readonly name: string;
   /** The value, by reference. */
   readonly secretRef: McpEndpointSecretRef;

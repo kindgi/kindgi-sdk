@@ -866,6 +866,7 @@ function validateMCPEndpoint(
   if (secretEnvResult?.kind === 'err') return secretEnvResult;
   const secretEnv = secretEnvResult?.value;
   const credential =
+    mcpHeaderInHeaders(b.endpointId, configResult.value) ??
     credentialInHeaders(b.endpointId, configResult.value) ??
     credentialInEnv(b.endpointId, configResult.value);
   if (credential !== undefined) return { kind: 'err', error: credential };
@@ -981,6 +982,25 @@ function authHeaderInConfig(
         message: `endpoint "${endpointId}" sets auth and an Authorization header in config.headers: auth sends that header. Drop the header.`,
         reason: 'auth-with-authorization-header',
       };
+}
+
+/**
+ * One of MCP's own headers in `config.headers` (`isMcpHeaderName`), refused:
+ * the MCP client sets each itself where the protocol calls for it, and a
+ * server checks them against the request. Asked before the credential names, which
+ * `Mcp-Session-Id` would otherwise match. The message names the header.
+ */
+function mcpHeaderInHeaders(
+  endpointId: string,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  const headers = config.transport === 'stdio' ? undefined : config.headers;
+  const name = Object.keys(headers ?? {}).find(isMcpHeaderName);
+  if (name === undefined) return undefined;
+  return {
+    message: `endpoint "${endpointId}" config.headers "${name}" is a header the MCP transport sets itself. Drop it from config.headers.`,
+    reason: 'transport-header-in-config',
+  };
 }
 
 /**
@@ -1102,6 +1122,15 @@ const AUTH_FIELDS: Readonly<Record<MCPAuthScheme, ReadonlySet<string>>> = {
 const AUTH_HEADER_FIELDS = new Set(['name', 'secretRef', 'prefix']);
 /** An HTTP field name: an RFC 9110 token. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+/**
+ * MCP's own headers, which the MCP client sets itself where the protocol calls
+ * for them: the session, the protocol version, the method and the name of
+ * what's called. Neither
+ * `auth` nor `config.headers` sets them.
+ */
+const MCP_HEADERS = new Set(['mcp-session-id', 'mcp-protocol-version', 'mcp-method', 'mcp-name']);
+/** The client's `Mcp-Param-<name>` headers, one per tool argument it mirrors. */
+const MCP_PARAM_HEADER_PREFIX = 'mcp-param-';
 /** Headers the MCP transport or HTTP itself sets, which `auth` can't. */
 const TRANSPORT_HEADERS = new Set([
   'host',
@@ -1116,11 +1145,16 @@ const TRANSPORT_HEADERS = new Set([
   'trailer',
   'expect',
   'last-event-id',
-  'mcp-session-id',
-  'mcp-protocol-version',
+  ...MCP_HEADERS,
   'traceparent',
   'tracestate',
 ]);
+
+/** Whether `name` is one of MCP's own headers, or an `Mcp-Param-` one, whatever its case. */
+function isMcpHeaderName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return MCP_HEADERS.has(lower) || lower.startsWith(MCP_PARAM_HEADER_PREFIX);
+}
 /** The hosts a token URL may reach over plain http: this machine's own. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -1203,7 +1237,7 @@ function parseAuthHeader(
     return bad(`${at}.name must be an HTTP header name of 1 to 256 characters`);
   }
   const name = h.name as string;
-  if (TRANSPORT_HEADERS.has(name.toLowerCase())) {
+  if (TRANSPORT_HEADERS.has(name.toLowerCase()) || isMcpHeaderName(name)) {
     return bad(`${at}.name "${name}" is a header the MCP transport sets itself`);
   }
   if (h.prefix !== undefined && !(boundedString(h.prefix, 64) && printable(h.prefix as string))) {
