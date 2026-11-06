@@ -1035,7 +1035,8 @@ whether it's for the API URL.
 the file that holds the key is where a command that names no project goes:
 `kindgi deploy`, and the commands that would otherwise take the workspace's
 default project (`agents publish`, `flows publish`, `guardrails
-register`, `tools publish`, `sites`, `expert-queue` and `queue-rules`).
+register`, `tools publish`, `sites`, `connection-choices`, `expert-queue`
+and `queue-rules`).
 `--project` comes first. It goes with that key only: a key given with
 `--token` or `KINDGI_API_TOKEN` has no project, and `kindgi auth login`
 with another key or address removes it, and says so. `kindgi deploy` names

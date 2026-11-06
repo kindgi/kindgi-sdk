@@ -1121,7 +1121,7 @@ export const CLI_DEFAULTS = {
     default: 'none (required with several connections)',
     flow: 'none (`--agent` or `--flow` is required)',
     need: 'none (required when the tool uses the app twice)',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     tool: "none (the agent's or flow's own choice)",
   },
   'connection-choices list': {
@@ -1130,7 +1130,7 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     flow: 'none',
     limit: '`25` (at most `100`)',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     tool: 'none',
   },
   'connection-apps list': {
