@@ -1551,39 +1551,6 @@ describe('the license key', () => {
     expect((await at(12))?.status).toBe('pass');
     expect((await at(7))?.status).toBe('warn');
   });
-
-  test("signed for longer than its signing key allows: fails, as the runtime won't start with it", async () => {
-    // 87 days, from 30 days ago to 57 days from now.
-    const capped = (days: number) =>
-      doctor({
-        env: { KINDGI_LICENSE_KEY: key() },
-        seam: { ...seam(), now: () => NOW, licensePublicKeys, licenseMaxDays: { 'test-lk': days } },
-      });
-    const { out, report } = await capped(86);
-    expect(report?.checks.find((c) => c.id === 'license')).toMatchObject({
-      status: 'fail',
-      message: expect.stringContaining(
-        "was signed for longer than its signing key allows: the runtime won't start with it.",
-      ),
-      // Renewed like any other: from the deployment, for a self-serve key.
-      fix: expect.stringMatching(/^Renew it: from this deployment \(kindgi license renew /),
-    });
-    expect(out.exitCode).toBe(1);
-    const atCap = await capped(87);
-    expect(atCap.report?.checks.find((c) => c.id === 'license')?.status).toBe('pass');
-  });
-
-  test("signed with a plan `kid`: renewed from the deployment, whoever it's for", async () => {
-    const issued = { sub: 'acme-prod', name: 'Acme', use: 'production', exp: NOW / 1000 + 3 * DAY };
-    const { report } = await doctor({
-      env: { KINDGI_LICENSE_KEY: key(issued) },
-      seam: { ...seam(), now: () => NOW, licensePublicKeys, planLicenseKeyIds: ['test-lk'] },
-    });
-    // The banner's words for a plan key: the deployment's command, and no sign-in.
-    const fix = report?.checks.find((c) => c.id === 'license')?.fix;
-    expect(fix).toMatch(/^Renew it: from this deployment \(kindgi license renew [^)]*\)$/);
-    expect(fix).not.toContain('sign in');
-  });
 });
 
 describe('MCP endpoint headers: a credential kept in plaintext config.headers, on the runtime the CLI points at', () => {

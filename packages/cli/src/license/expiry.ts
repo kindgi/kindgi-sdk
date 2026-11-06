@@ -12,7 +12,7 @@
  * - after that: the runtime doesn't start with it.
  */
 
-import { type LicenseClaims, PLAN_LICENSE_KEY_IDS } from './license-key.js';
+import type { LicenseClaims } from './license-key.js';
 
 export const LICENSE_WARN_DAYS = 30;
 export const LICENSE_GRACE_DAYS = 14;
@@ -53,36 +53,15 @@ export function isSelfServe(subject: string): boolean {
 }
 
 /**
- * Which way to the next key, as the runtime's banner and `GET /v1/license`
- * (`renewBy`) say it: `command`, a key this deployment renews itself (a
- * self-serve key, or one signed with a `kid` of `PLAN_LICENSE_KEY_IDS`);
- * `contact`, a key Kindgi issued by hand.
- */
-export function renewByOf(
-  claims: LicenseClaims,
-  planKeyIds: readonly string[] = PLAN_LICENSE_KEY_IDS,
-): 'command' | 'contact' {
-  return isSelfServe(claims.subject) || planKeyIds.includes(claims.keyId) ? 'command' : 'contact';
-}
-
-/**
  * How to get the next key, in the runtime's startup banner's words, so
  * `kindgi doctor`, the banner and the console say the same: for a
  * self-serve key, renew it from the deployment (`renewCommand`) or sign in
  * at access.kindgi.com, which shows its latest key and renews it unless a
- * deployment renewed it this week and it hasn't expired; for a key signed
- * with a plan `kid`, renew it from the deployment, as a sign-in hands out
- * self-serve keys only; for a key Kindgi issued, write to Kindgi.
+ * deployment renewed it this week and it hasn't expired; for a key Kindgi
+ * issued, write to Kindgi.
  */
-export function renewAdvice(
-  claims: LicenseClaims,
-  renewCommand: string,
-  planKeyIds: readonly string[] = PLAN_LICENSE_KEY_IDS,
-): string {
-  if (isSelfServe(claims.subject)) {
-    return `Renew it: from this deployment (${renewCommand}), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired`;
-  }
-  return renewByOf(claims, planKeyIds) === 'command'
-    ? `Renew it: from this deployment (${renewCommand})`
+export function renewAdvice(claims: LicenseClaims, renewCommand: string): string {
+  return isSelfServe(claims.subject)
+    ? `Renew it: from this deployment (${renewCommand}), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired`
     : 'Renew it: contact@kindgi.com';
 }

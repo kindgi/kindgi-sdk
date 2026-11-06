@@ -2985,7 +2985,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'reason',
         meaning:
-          '`malformed`, `unknown-key`, `bad-signature`, `too-long`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`',
+          '`malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`',
       },
     ],
   },

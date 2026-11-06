@@ -28,7 +28,7 @@ import { bearerValueProblem } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { isSelfServe, renewByOf, warnDaysOf } from '../license/expiry.js';
+import { isSelfServe, warnDaysOf } from '../license/expiry.js';
 import type { LicenseClaims } from '../license/license-key.js';
 import {
   KINDGI_ACCESS_ORIGIN,
@@ -517,14 +517,9 @@ const renew: LeafCommand = {
       // doctor` and the runtime's banner tell them apart (`isSelfServe`).
       // A sign-in leaves a key this deployment renews to it, so the renewer
       // is stopped first (the page's "Renew the key from your deployment").
-      // A key signed with a plan kid renews by command too, but never by a
-      // sign-in, which hands out self-serve keys only (`renewByOf`).
-      const planKeyIds = ctx.licenseDeps?.renew?.planKeyIds;
       const nextKey = isSelfServe(outcome.claims.subject)
         ? `stop this deployment's renewer at ${origin}, then sign in there for a new key`
-        : renewByOf(outcome.claims, planKeyIds) === 'command'
-          ? 'write to contact@kindgi.com'
-          : 'write to contact@kindgi.com to extend the term';
+        : 'write to contact@kindgi.com to extend the term';
       const expiring = `It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`;
       const lines = [
         note(`${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`),

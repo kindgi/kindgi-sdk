@@ -30,7 +30,6 @@
 
 import {
   KINDGI_LICENSE_PUBLIC_KEYS,
-  LICENSE_KEY_MAX_DAYS,
   LICENSE_KEY_MINIMUM_RUNTIME,
   type LicenseClaims,
   type LicenseKeyCheck,
@@ -53,12 +52,8 @@ export interface RenewDeps {
   /** Milliseconds since the epoch. */
   readonly now?: () => number;
   readonly publicKeys?: Readonly<Record<string, string>>;
-  /** The longest each `kid` may run, in whole days (`LICENSE_KEY_MAX_DAYS`). */
-  readonly maxDays?: Readonly<Record<string, number>>;
   /** The first runtime release each `kid` needs (`LICENSE_KEY_MINIMUM_RUNTIME`). */
   readonly minimumRuntime?: Readonly<Record<string, string>>;
-  /** The `kid`s whose keys renew by command (`PLAN_LICENSE_KEY_IDS`): for what renew prints. */
-  readonly planKeyIds?: readonly string[];
   readonly timeoutMs?: number;
 }
 
@@ -210,7 +205,7 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   }
 
   const answer = typeof body.licenseKey === 'string' ? body.licenseKey.trim() : '';
-  const renewed = checkLicenseKey(answer, publicKeys, deps.maxDays ?? LICENSE_KEY_MAX_DAYS);
+  const renewed = checkLicenseKey(answer, publicKeys);
   const problem = whyNotWritten(renewed, held.current);
   if (renewed.kind === 'err' || problem !== undefined) {
     return {
@@ -361,8 +356,7 @@ async function whatIsHeld(
       message: `There's no license key in ${input.key.describe} to renew. The first one comes from signing in at access.kindgi.com; put it there.`,
     };
   }
-  // Read for its claims only: a key past its `kid`'s cap renews like any other.
-  const current = checkLicenseKey(currentKey, publicKeys, {});
+  const current = checkLicenseKey(currentKey, publicKeys);
   if (current.kind === 'err') {
     return {
       kind: 'failed',
@@ -434,9 +428,6 @@ function whyNotWritten(renewed: LicenseKeyCheck, current: LicenseClaims): string
     }
     if (renewed.reason === 'malformed') {
       return 'the answer held no license key (malformed): a page from a proxy or another server, perhaps';
-    }
-    if (renewed.reason === 'too-long') {
-      return 'it was signed for longer than its signing key allows (too-long)';
     }
     return `it isn't a key a released runtime accepts (${renewed.reason})`;
   }

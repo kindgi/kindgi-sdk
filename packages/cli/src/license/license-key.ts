@@ -30,20 +30,6 @@ export const KINDGI_LICENSE_PUBLIC_KEYS: Readonly<Record<string, string>> = Obje
 });
 
 /**
- * The `kid`s of keys a deployment renews itself without a sign-in, as the
- * runtime lists them: a key signed with one renews by command (`renewBy`),
- * whoever it's for. Each is also in `KINDGI_LICENSE_PUBLIC_KEYS`.
- */
-export const PLAN_LICENSE_KEY_IDS: readonly string[] = Object.freeze([]);
-
-/**
- * The most whole days a key signed with each `kid` may run, from its `iat`
- * to its `exp`, as the runtime caps them: a longer one is refused
- * (`too-long`). A `kid` not listed has no cap.
- */
-export const LICENSE_KEY_MAX_DAYS: Readonly<Record<string, number>> = Object.freeze({});
-
-/**
  * The first runtime release that trusts each `kid` added after license keys
  * shipped, as the runtime lists them: a key signed with one doesn't verify
  * on an older runtime.
@@ -78,17 +64,12 @@ export type LicenseKeyCheck =
   | { readonly kind: 'ok'; readonly claims: LicenseClaims }
   | {
       readonly kind: 'err';
-      /**
-       * `malformed`: not a key; `unknown-key`: signed with a `kid` this CLI
-       * doesn't know; `bad-signature`; `too-long`: it runs longer than its
-       * `kid` allows (`LICENSE_KEY_MAX_DAYS`).
-       */
-      readonly reason: 'malformed' | 'unknown-key' | 'bad-signature' | 'too-long';
+      /** `malformed`: not a key; `unknown-key`: signed with a `kid` this CLI doesn't know; `bad-signature`. */
+      readonly reason: 'malformed' | 'unknown-key' | 'bad-signature';
     };
 
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const USES: readonly string[] = ['production', 'non-production'];
-const DAY_SECONDS = 86_400;
 /** The widest warning window a key may set, in whole days: the window it has without one. */
 const MAX_WARN_DAYS = 30;
 /** The most a `lim` member may say. */
@@ -98,12 +79,10 @@ const LIMIT_NAMES = ['flows', 'agents'] as const;
 /**
  * Whether `key` is a license key Kindgi signed, and what it says. The
  * dates aren't judged here: renewal compares them with the current key's.
- * Only how long the key runs is: a `kid` with a cap refuses a longer one.
  */
 export function checkLicenseKey(
   key: string,
   publicKeys: Readonly<Record<string, string>> = KINDGI_LICENSE_PUBLIC_KEYS,
-  maxDays: Readonly<Record<string, number>> = LICENSE_KEY_MAX_DAYS,
 ): LicenseKeyCheck {
   const trimmed = key.trim();
   const dot = trimmed.lastIndexOf('.');
@@ -134,10 +113,6 @@ export function checkLicenseKey(
       signature,
     );
   if (!ok) return { kind: 'err', reason: 'bad-signature' };
-  const cap = Object.hasOwn(maxDays, payload.kid) ? maxDays[payload.kid] : undefined;
-  if (cap !== undefined && payload.exp - payload.iat > cap * DAY_SECONDS) {
-    return { kind: 'err', reason: 'too-long' };
-  }
   const limits = payload.lim === undefined ? undefined : limitsOf(payload.lim);
   return {
     kind: 'ok',

@@ -1321,14 +1321,14 @@ describe('kindgi license renew', () => {
   });
 
   test('--runtime: a key that needs 0.7.0 where the current one needs less is written only once the runtime took it', async () => {
-    const PLAN_KID = 'test-lk-plan';
-    const planKey = licenseKey({ kid: PLAN_KID, iat: NOW / 1000, exp: NOW / 1000 + 45 * DAY });
+    const NEW_KID = 'test-lk-new';
+    const newKey = licenseKey({ kid: NEW_KID, iat: NOW / 1000, exp: NOW / 1000 + 45 * DAY });
     const needs = {
       licenseDeps: {
         renew: {
           now: () => NOW,
-          publicKeys: { ...publicKeys, [PLAN_KID]: publicKeys['test-lk'] },
-          minimumRuntime: { [PLAN_KID]: '0.7.0' },
+          publicKeys: { ...publicKeys, [NEW_KID]: publicKeys['test-lk'] },
+          minimumRuntime: { [NEW_KID]: '0.7.0' },
         },
       },
     };
@@ -1338,7 +1338,7 @@ describe('kindgi license renew', () => {
       const before = readFileSync(join(dir, 'kindgi.env'), 'utf8');
       const out = await cli(dir, RENEW_WITH_RUNTIME, {
         ...needs,
-        fetchImpl: service(renewer, () => Response.json({ licenseKey: planKey })),
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: newKey })),
         clientFactory: served(put).clientFactory,
       });
       expect(out.exitCode).toBe(1);
@@ -1354,17 +1354,17 @@ describe('kindgi license renew', () => {
     writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
     const taken = await cli(dir, RENEW_WITH_RUNTIME, {
       ...needs,
-      fetchImpl: service(renewer, () => Response.json({ licenseKey: planKey })),
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: newKey })),
       clientFactory: served(() => Response.json({})).clientFactory,
     });
     expect(taken.exitCode).toBe(0);
     expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toContain(
-      `KINDGI_LICENSE_KEY=${planKey}\n`,
+      `KINDGI_LICENSE_KEY=${newKey}\n`,
     );
 
     // The next one, from a key that needs 0.7.0 already: the runtime that
     // started with it starts with this one, so a server that's down gets it.
-    const later = licenseKey({ kid: PLAN_KID, iat: NOW / 1000, exp: NOW / 1000 + 46 * DAY });
+    const later = licenseKey({ kid: NEW_KID, iat: NOW / 1000, exp: NOW / 1000 + 46 * DAY });
     const down = await cli(dir, RENEW_WITH_RUNTIME, {
       ...needs,
       fetchImpl: service(renewer, () => Response.json({ licenseKey: later })),
@@ -1382,7 +1382,7 @@ describe('kindgi license renew', () => {
     const fresh = await enrolled();
     const plain = await cli(fresh.dir, RENEW, {
       ...needs,
-      fetchImpl: service(fresh.renewer, () => Response.json({ licenseKey: planKey })),
+      fetchImpl: service(fresh.renewer, () => Response.json({ licenseKey: newKey })),
     });
     expect(plain.exitCode).toBe(0);
     expect(plain.stdout).toContain(

@@ -10,7 +10,7 @@
   - Only the deployment's operator can: with its own token, or with a system key holding `system:license`. System keys now reach this route too.
   - The server checks the key as it does at startup, and against the key it runs. It refuses a key for another licensee or another use, and an older key: one that expires earlier, or expires at the same time and was issued earlier.
   - Taken, it answers with the license, as `GET /v1/license` does.
-  - Refused, it answers 409 `license-key-refused`. Its `reason` is one of `malformed`, `unknown-key`, `bad-signature`, `too-long`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`.
+  - Refused, it answers 409 `license-key-refused`. Its `reason` is one of `malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`.
   - A server that binds no `replace` doesn't serve the route.
 - `@kindgi/client`: `client.license.replace({ key })`.
 - `@kindgi/cli`: `kindgi license renew --runtime` hands a new key to the runtime before writing it.

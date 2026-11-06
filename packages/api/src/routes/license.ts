@@ -85,18 +85,16 @@ export interface LicenseLimit {
  * Why the running server refused a key handed to it (`PUT /v1/license`),
  * checked offline as at a start: `malformed`, not a key; `unknown-key`,
  * signed with a `kid` this release doesn't trust; `bad-signature`;
- * `too-long`, signed for longer than its `kid` allows; `not-yet-valid`,
- * issued for a later time than the server's clock; `expired`, more than 14
- * days past its `exp`, so the server wouldn't start with it;
- * `other-licensee` or `other-use`, not the subject or the use of the key it
- * runs; `older`, not newer than the key it runs (newer: a later `exp`, or
- * the same `exp` and an `iat` no earlier).
+ * `not-yet-valid`, issued for a later time than the server's clock;
+ * `expired`, more than 14 days past its `exp`, so the server wouldn't start
+ * with it; `other-licensee` or `other-use`, not the subject or the use of
+ * the key it runs; `older`, not newer than the key it runs (newer: a later
+ * `exp`, or the same `exp` and an `iat` no earlier).
  */
 export type LicenseKeyRefusal =
   | 'malformed'
   | 'unknown-key'
   | 'bad-signature'
-  | 'too-long'
   | 'not-yet-valid'
   | 'expired'
   | 'other-licensee'
@@ -193,7 +191,6 @@ export const LICENSE_KEY_REFUSED_MESSAGES: Readonly<Record<LicenseKeyRefusal, st
   malformed: "That isn't a Kindgi license key: send the whole key, starting kgi_lk_.",
   'unknown-key': "The key is signed with a key this runtime release doesn't know.",
   'bad-signature': "The key's signature doesn't match: it isn't a key Kindgi signed.",
-  'too-long': 'The key was signed for longer than its signing key allows.',
   'not-yet-valid':
     "The key is issued for a later time than this server's clock: check the server's clock, then hand the key over again.",
   expired: "The key expired more than 14 days ago: the server wouldn't start with it.",
