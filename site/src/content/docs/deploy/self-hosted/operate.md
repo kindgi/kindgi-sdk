@@ -72,7 +72,7 @@ A migration that adds an index to a large table builds it during that start, bef
 
 The log names each build that doesn't block writes, at its start and at its end, on the `migrations` [subsystem](../logs/#the-subsystems):
 
-- `building index <index> on <table>; writes go on, and a large table takes a while`, with the fields `index`, `table`, `tableBytes` and `again`. `tableBytes` is the table's size on disk as the build starts, as `pg_relation_size` gives it, so without its indexes.
+- `building index <index> on <table>; writes go on, and a large table takes a while`, with the fields `index`, `table`, `tableBytes` and `again`. `tableBytes` is the size of the table's main fork on disk as the build starts, as `pg_relation_size` gives it: without its indexes, or the long values Postgres keeps apart in its TOAST table.
 - `building index <index> on <table> again, as an earlier build stopped before it finished; writes go on, and a large table takes a while`, when an earlier start stopped that build (`again` is `true`).
 - `built index <index> in <N.N> s`, with `index`, `table`, `tableBytes` and `durationMs`. A build that fails logs no `built` line: the start fails with its error.
 
