@@ -42,7 +42,8 @@ import {
 import type { SandboxPolicy } from './policy.js';
 
 /** File names masked wherever they are in the app. */
-const SECRET_FILE = /^(\.env.*|kindgi\.env|pack\.env|\.kindgirc\.json|\.npmrc|\.pypirc|\.netrc)$/;
+const SECRET_FILE =
+  /^(\.env.*|kindgi\.env|pack\.env|db\.env|openfga\.env|\.kindgirc\.json|\.npmrc|\.pypirc|\.netrc)$/;
 /** Folders masked whole wherever they are in the app. */
 const SECRET_DIR = /^(\.git|\.kindgi)$/;
 /** Folders not searched: dependencies and build output hold no secret of the app's. */
