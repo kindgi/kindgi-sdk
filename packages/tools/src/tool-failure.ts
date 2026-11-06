@@ -94,14 +94,17 @@ function cut(message: string): string {
 
 /** `details` as a JSON copy, or a TypeError that says why it can't be one. */
 function jsonDetails(code: string, details: unknown): ToolFailureDetails {
-  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
-    throw new TypeError(`ToolFailure "${code}"'s details must be a JSON object`);
-  }
-  let json: string;
+  let json: string | undefined;
   try {
     json = JSON.stringify(details);
   } catch (cause) {
     throw new TypeError(`ToolFailure "${code}"'s details aren't JSON`, { cause });
+  }
+  if (json === undefined) throw new TypeError(`ToolFailure "${code}"'s details aren't JSON`);
+  // The copy is what's checked: a `toJSON` may make anything of the value.
+  const copy: unknown = JSON.parse(json);
+  if (typeof copy !== 'object' || copy === null || Array.isArray(copy)) {
+    throw new TypeError(`ToolFailure "${code}"'s details must be a JSON object`);
   }
   const bytes = new TextEncoder().encode(json).length;
   if (bytes > TOOL_FAILURE_DETAILS_MAX_BYTES) {
@@ -109,5 +112,5 @@ function jsonDetails(code: string, details: unknown): ToolFailureDetails {
       `ToolFailure "${code}"'s details take ${bytes} bytes as JSON, more than ${TOOL_FAILURE_DETAILS_MAX_BYTES}`,
     );
   }
-  return JSON.parse(json) as ToolFailureDetails;
+  return copy as ToolFailureDetails;
 }

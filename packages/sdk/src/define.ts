@@ -45,6 +45,7 @@ export type {
   ToolConnection,
   ToolContext,
   ToolFailedError,
+  ToolFailureDetails,
   ToolFailureOptions,
   ToolManifest,
   ToolSecretRef,

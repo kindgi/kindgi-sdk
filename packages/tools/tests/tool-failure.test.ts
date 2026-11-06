@@ -101,6 +101,19 @@ describe('ToolFailure', () => {
     ).toThrow(why);
   });
 
+  test.each([
+    [new Date('2026-11-06T12:00:00Z'), 'must be a JSON object'],
+    [{ toJSON: () => [1] }, 'must be a JSON object'],
+    [{ toJSON: () => undefined }, "aren't JSON"],
+  ])('checks the JSON copy of the details %s, not the value given', (details, why) => {
+    expect(
+      () =>
+        new ToolFailure('order-not-found', 'No order Z-9', {
+          details: details as unknown as Record<string, unknown>,
+        }),
+    ).toThrow(new TypeError(`ToolFailure "order-not-found"'s details ${why}`));
+  });
+
   test('refuses details of more than 4 KiB as JSON, and takes 4 KiB exactly', () => {
     // {"note":"…"} is 11 bytes around the note.
     const at = (bytes: number) => ({ note: 'x'.repeat(bytes - 11) });
@@ -153,6 +166,20 @@ describe('invokeTool — a ToolFailure', () => {
         apiKey: '[redacted]',
       },
     });
+  });
+
+  test('keeps a `__proto__` key in its details as a key', async () => {
+    const details = JSON.parse('{"__proto__":{"orderId":"Z-9"},"lines":2}') as Record<
+      string,
+      unknown
+    >;
+    const tool = failing(() => {
+      throw new ToolFailure('order-not-found', 'No order Z-9', { details });
+    });
+    const r = await invokeTool(tool, null, ctx());
+    const said = r.kind === 'err' ? (r.error as { details?: object }).details : undefined;
+    expect(said !== undefined && Object.getPrototypeOf(said)).toBe(Object.prototype);
+    expect(JSON.stringify(said)).toBe('{"__proto__":{"orderId":"Z-9"},"lines":2}');
   });
 
   test('a code the class refuses fails the call as a crash that says why', async () => {

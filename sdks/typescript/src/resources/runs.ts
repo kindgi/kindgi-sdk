@@ -395,23 +395,31 @@ export interface RunAgent {
 
 /** Why a failed run failed. Matches `@kindgi/api/openapi.json#RunFailure`. */
 export interface RunFailure {
-  /** The error's own code, or `run-failed`. */
+  /**
+   * The error's own code (`budget-exceeded`, `capability-routing-failed`,
+   * `tool-failed` for a tool that failed the call on purpose, …), or
+   * `run-failed`.
+   */
   readonly code: string;
   readonly message: string;
-  /** What the error came from, when it says (e.g. the router's reasons). */
+  /**
+   * What the error came from, when it says (e.g. the router's reasons, by
+   * provider). For `tool-failed`, the tool: `{ toolId }`.
+   */
   readonly cause?: unknown;
   /**
-   * The error's own reason, when it gives one: for a turn that ended at
-   * its approval (`hitl-cancelled`), `timeout` when nobody decided in
-   * time. Absent from an older runtime and from errors without one; read
-   * `code` then.
+   * The error's own reason, when it gives one: for a turn that ended at its
+   * approval, `timeout` (nobody decided in time) or `approval-withdrawn`;
+   * for `tool-failed`, the tool's own code (`order-not-found`).
+   * Absent from an older runtime, and from errors without one: read `code`.
    */
   readonly reason?: string;
   /**
    * The error's own facts, for a code that has them: for
    * `rate-limit-exceeded`, `limit` and `budgetMs`, as the API's 429 names
-   * them. Never the wait: read back later, it's stale. Absent for any
-   * other code, and from an older runtime.
+   * them; for `tool-failed`, the details the tool gave, when it gave any.
+   * Never a wait: one read back later is stale. Absent for any other code,
+   * and from an older runtime.
    */
   readonly details?: Readonly<Record<string, unknown>>;
 }

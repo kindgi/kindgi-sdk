@@ -306,11 +306,13 @@ function maskedJson(value: unknown): unknown {
   if (typeof value === 'string') return scrubText(value, { fullMask: true });
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(maskedJson);
-  const out: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = isSecretKey(key) ? REDACTED : maskedJson(v);
-  }
-  return out;
+  // fromEntries defines each key, so a `__proto__` stays one.
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, v]) => [
+      key,
+      isSecretKey(key) ? REDACTED : maskedJson(v),
+    ]),
+  );
 }
 
 /**

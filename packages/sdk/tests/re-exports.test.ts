@@ -53,6 +53,9 @@ import type {
   Tool,
   ToolConnection,
   ToolContext,
+  ToolFailedError,
+  ToolFailureDetails,
+  ToolFailureOptions,
   ToolManifest,
   ZodLikeSchema,
 } from '@kindgi/sdk/define';
@@ -177,6 +180,9 @@ describe('@kindgi/sdk/define — pack authoring re-exports', () => {
   it("re-exports a tool's failure on purpose identically (===) from @kindgi/tools", () => {
     expect(ToolFailure).toBe(ToolFailureFromTools);
     expect(isToolFailure).toBe(isToolFailureFromTools);
+    expectTypeOf<ToolFailureDetails>().toEqualTypeOf<import('@kindgi/tools').ToolFailureDetails>();
+    expectTypeOf<ToolFailureOptions>().toEqualTypeOf<import('@kindgi/tools').ToolFailureOptions>();
+    expectTypeOf<ToolFailedError>().toEqualTypeOf<import('@kindgi/tools').ToolFailedError>();
   });
 
   it('re-exports defineFlow identically (===) from @kindgi/flow', () => {

@@ -32,7 +32,7 @@ Re-exports:
 | Symbol | Source | Kind |
 |---|---|---|
 | `defineTool`, `defineToolAsync`, `invokeTool`, `invokeToolForTest`, `toolContextForTest`, `registerToolSpecSynthesizer`, `ConnectionRejectedError`, `isConnectionRejectedError`, `ToolFailure`, `isToolFailure` | `@kindgi/tools` | value |
-| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec`, `ToolConnection`, `ConnectionNeed`, `ConnectionAccount`, `ToolFailureOptions`, `ToolFailedError` | `@kindgi/tools` | type |
+| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec`, `ToolConnection`, `ConnectionNeed`, `ConnectionAccount`, `ToolFailureDetails`, `ToolFailureOptions`, `ToolFailedError` | `@kindgi/tools` | type |
 | `defineCheck` | `@kindgi/guardrails` | value |
 | `DefineCheckSpec`, `DefinedCheck`, `InferCheckConfig` | `@kindgi/guardrails` | type |
 | `defineAgent` | `@kindgi/agents` | value |

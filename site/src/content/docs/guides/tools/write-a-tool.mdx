@@ -668,7 +668,9 @@ details:
   is in the agent's `toolErrors.retryOn` (`tool_errors` in Python). Then it
   goes back to the model with the tool's code, words and details, and the
   model can tell the person or try another way. It's its own kind, so
-  `tool-error` doesn't send it back.
+  `tool-error` doesn't send it back. The list replaces the default one, so
+  name `invalid-arguments` and `unknown-tool` in it too to keep their
+  retries.
 - **In a flow,** it fails the step, and an edge's `retry` never runs the
   step again for it: the same call gives the same answer.
 
