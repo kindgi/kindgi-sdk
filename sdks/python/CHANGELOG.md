@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a removed schedule, webhook trigger or mail trigger can be read.**
+  `get_version` on `schedules`, `webhooks` and `mail_triggers` answers a
+  removed trigger's version, with `unregistered_at`, so a run's
+  `trigger.version` resolves whatever became of its trigger. `get`, `list`,
+  `list_versions` and `fires` take `include_unregistered=True` for removed
+  ones, and the trigger and version models gain an optional
+  `unregistered_at`.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
