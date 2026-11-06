@@ -265,11 +265,11 @@ export interface UserRecord {
   /** Their first sign-in that made a session; absent before it, and for people added before it was kept. */
   readonly firstSignedInAt?: Timestamp;
   /**
-   * Who added them, as `IdentityCreateUserInput.createdBy` says it:
-   * `user:<id>` or `service_account:<id>`; `identity_provider:<providerId>`
-   * or `email_domain:<domain>` for someone who joined by domain; or
-   * `site:<siteId>` for a person a site signs in. Absent for the seed user,
-   * and from a directory that doesn't keep it.
+   * Who added them, ids only: `user:<id>` or `service_account:<id>`;
+   * `identity_provider:<providerId>` or `email_domain:<domain>` for
+   * someone who joined by domain; or `site:<siteId>` for a person a site
+   * signs in. Absent for the seed user, and from a directory that doesn't
+   * keep it.
    */
   readonly createdBy?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
