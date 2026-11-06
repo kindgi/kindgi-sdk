@@ -258,7 +258,7 @@ server_secret_env = {
   - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
   - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
   - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
-- **Tenant admins by email** (one tenant, with `openfga_api_url`): `KINDGI_ADMIN_EMAILS` (`dana@acme.com,lee@acme.com`) in `server_env`. Each listed person is a tenant admin from their first sign-in, and every start makes them one again until they're off the list.
+- **Tenant admins by email** (one tenant, with `openfga_api_url`): `KINDGI_ADMIN_EMAILS` (`dana@acme.com,lee@acme.com`) in `server_env`. Each listed person is a tenant admin from their first sign-in, and every start makes them one again until they're off the list. Leaving the variable out of `server_env` takes everyone off it at the next start.
 - Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
 - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 

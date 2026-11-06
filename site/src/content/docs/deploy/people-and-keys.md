@@ -396,10 +396,18 @@ KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com
   `409 identity-user-unregister-refused`, with `reason` `listed-admin`,
   since the next start would add them back as someone new. Their grants
   read `tenantAdminFromSetting: true`, and the console's People page says
-  "Admin from the server's setting", with both actions off.
+  "tenant admin, from the server's setting", with both actions off and the
+  way to change it under each.
 - **Take an address off the list and restart:** someone the list made a
   tenant admin stops being one at that start. They lose what a first admin
   holds, as when tenant admin is taken from them, and stay a member.
+- **Unset or empty is an empty list.** A start without
+  `KINDGI_ADMIN_EMAILS`, or with it empty, takes every address off: everyone
+  the list made a tenant admin stops being one, and the start log says the
+  list is unset or empty. A redeploy that drops the variable does the same,
+  so keep the line in the runtime's environment for as long as they should
+  be admins. Where the list made no one a tenant admin, unset changes
+  nothing.
 - **Tenant admins made any other way aren't touched.** That's `people
   grant`, the console or `tenants make-admin`. Listing them, or taking them
   off the list, changes nothing for them.
