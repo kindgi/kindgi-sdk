@@ -10,6 +10,8 @@
  * address, the session token. It forwards `POST /v1/invoke` and
  * `GET /v1/info` to whichever child is serving and answers 503 while none
  * is — a caller retries those, since the call provably did not run.
+ * A pack with no primitives yet boots no child (`serveEmpty`): the front
+ * then answers `/v1/info` itself, the pack with no tools and no checks.
  * `/healthz` answers 200 while the front listens; `/readyz` 200 only while
  * a child serves. So a caller holds one URL and one token however often
  * the code changes.
@@ -48,7 +50,7 @@ import { createInterface } from 'node:readline';
 import type { Result } from '@kindgi/types';
 
 import type { PackBlockWrite, PackBlockWriteOutcome, PackFilesState } from '../pack-blocks.js';
-import { PACK_HEADERS } from '../protocol.js';
+import { PACK_HEADERS, PACK_PROTOCOL_VERSION } from '../protocol.js';
 import { PACK_SERVICE_DRAIN_MS } from './main.js';
 
 export interface PackServiceSupervisorOptions {
@@ -186,11 +188,20 @@ export type PackRelayOutcome =
   | { readonly kind: 'failed'; readonly reason: string }
   | { readonly kind: 'cancelled' };
 
-/** Forwards calls to the serving child. */
+/**
+ * Forwards calls to the serving child. With none serving and the pack
+ * empty (`serveEmpty`), it answers `info` itself.
+ */
 export interface PackRelay {
   /** Whether a child is serving. */
   readonly serving: () => boolean;
   forward(call: PackRelayCall): Promise<PackRelayOutcome>;
+}
+
+/** A pack as its config names it (`pack.id`, `pack.version`). */
+export interface PackIdentity {
+  readonly packId: string;
+  readonly packVersion: string;
 }
 
 export interface PackServiceSupervisor {
@@ -207,6 +218,15 @@ export interface PackServiceSupervisor {
   start(indexPath: string): Promise<Result<{ readonly port: number }, BootFailure>>;
   /** Stop the serving child; the front then answers 503. */
   stop(): Promise<void>;
+  /**
+   * The pack has no primitives yet, so no child starts. While none
+   * serves, `/v1/info` answers 200 with `pack`, no tools and no checks;
+   * its `artifactVersion` is `none`, since no artifact runs. So a caller
+   * that asks what the pack serves hears "nothing yet", not that the
+   * pack service isn't answering. `/readyz` still answers 503 (no child
+   * takes calls). The next `start` or `stop` ends it.
+   */
+  serveEmpty(pack: PackIdentity): void;
   /**
    * The supervisor is closing (its owner is shutting down): from now on a
    * child that exits is expected, not restarted, and no new child starts.
@@ -262,6 +282,8 @@ export function createPackServiceSupervisor(
   /** Closing for good (`beginClose`): nothing restarts or starts again. */
   let shuttingDown = false;
   let restarts = 0;
+  /** The pack, while it has no primitives yet (`serveEmpty`). */
+  let empty: PackIdentity | undefined;
   let front: { readonly server: Server; readonly url: string; readonly port: number } | undefined;
 
   async function boot(indexPath: string): Promise<Result<Child, BootFailure>> {
@@ -391,6 +413,7 @@ export function createPackServiceSupervisor(
       return { kind: 'err', error: { problems: ['The pack service is closing'] } };
     }
     stopped = false;
+    empty = undefined;
     const booted = await boot(indexPath);
     if (booted.kind === 'err') {
       emit({ kind: 'boot-failed', problems: booted.error.problems });
@@ -407,6 +430,7 @@ export function createPackServiceSupervisor(
 
   async function stop(): Promise<void> {
     stopped = true;
+    empty = undefined;
     const child = serving;
     serving = undefined;
     await retire(child);
@@ -414,7 +438,10 @@ export function createPackServiceSupervisor(
 
   const relay: PackRelay = {
     serving: () => serving !== undefined,
-    forward: (call) => forwardToChild(serving?.port, token, call),
+    forward: async (call) =>
+      call.route === 'info' && serving === undefined && empty !== undefined
+        ? emptyPackInfo(empty)
+        : forwardToChild(serving?.port, token, call),
   };
 
   function authorized(req: IncomingMessage): boolean {
@@ -567,6 +594,9 @@ export function createPackServiceSupervisor(
     },
     start,
     stop,
+    serveEmpty(pack) {
+      empty = { packId: pack.packId, packVersion: pack.packVersion };
+    },
     beginClose() {
       shuttingDown = true;
     },
@@ -582,6 +612,23 @@ export function createPackServiceSupervisor(
         await closed;
       }
     },
+  };
+}
+
+/** `GET /v1/info` for a pack with no primitives yet: nothing serves, so no artifact either. */
+function emptyPackInfo(pack: PackIdentity): PackRelayOutcome {
+  return {
+    kind: 'answer',
+    status: 200,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      protocol: PACK_PROTOCOL_VERSION,
+      packId: pack.packId,
+      packVersion: pack.packVersion,
+      artifactVersion: 'none',
+      tools: [],
+      checks: [],
+    }),
   };
 }
 

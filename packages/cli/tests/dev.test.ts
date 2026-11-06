@@ -42,6 +42,7 @@ import { basename, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { PackIdentity } from '@kindgi/handler-runtime/pack-service';
 import { createLogger } from '@kindgi/log';
 
 import { describeDevToken } from '../src/commands/dev.js';
@@ -138,6 +139,8 @@ interface Fixtures {
   readonly fetchCalls: { readonly url: string; readonly body: unknown }[];
   /** Index paths the fake pack service was started on, in order. */
   readonly packStarts: string[];
+  /** The packs the fake pack service was told have no primitives (`serveEmpty`), in order. */
+  readonly packsServedEmpty: PackIdentity[];
   /** `[staged, index]` pairs published, in order. */
   readonly published: (readonly [string, string])[];
   readonly packStops: () => number;
@@ -226,6 +229,7 @@ function makeFixtures(
   };
 
   const packStarts: string[] = [];
+  const packsServedEmpty: PackIdentity[] = [];
   const published: (readonly [string, string])[] = [];
   let packStops = 0;
   let packBeginCloses = 0;
@@ -274,6 +278,9 @@ function makeFixtures(
         },
         stop: async () => {
           packStops += 1;
+        },
+        serveEmpty: (pack) => {
+          packsServedEmpty.push(pack);
         },
         beginClose: () => {
           packBeginCloses += 1;
@@ -345,6 +352,7 @@ function makeFixtures(
     providers: [...(opts.providers ?? [DEV_ECHO_ROW])],
     fetchCalls: [],
     packStarts,
+    packsServedEmpty,
     published,
     packStops: () => packStops,
     packBeginCloses: () => packBeginCloses,
@@ -1505,6 +1513,9 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('kindgi/agents/');
     expect(out.stderr).toContain('kindgi/tools/');
     expect(out.stderr).not.toContain('Indexer failed');
+    // The pack service answers for the pack before the runtime boots and asks.
+    expect(fixtures.packStarts).toEqual([]);
+    expect(fixtures.packsServedEmpty).toEqual([{ packId: 'my-pack', packVersion: '0.1.0' }]);
   });
 
   test('indexer failure keeps the process green + surfaces error in banner', async () => {

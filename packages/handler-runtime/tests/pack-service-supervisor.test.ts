@@ -455,6 +455,49 @@ describe('createPackServiceSupervisor — the front', () => {
     expect(await info.json()).toMatchObject({ packId: 'local' });
   });
 
+  test('a pack with no primitives yet: /v1/info answers it with no tools and no checks until a child starts', async () => {
+    const running = await supervisor();
+    const info = () =>
+      fetch(`${running.url}/v1/info`, {
+        headers: { [PACK_HEADERS.token]: running.supervisor.token },
+      });
+    expect((await info()).status).toBe(503);
+
+    running.supervisor.serveEmpty({ packId: 'acme.app', packVersion: '0.1.0' });
+    const empty = await info();
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({
+      protocol: PACK_PROTOCOL_VERSION,
+      packId: 'acme.app',
+      packVersion: '0.1.0',
+      artifactVersion: 'none',
+      tools: [],
+      checks: [],
+    });
+    // Only `/v1/info`: it still takes the token, and nothing takes calls.
+    expect((await fetch(`${running.url}/v1/info`)).status).toBe(401);
+    expect((await invoke(running, 'pid')).status).toBe(503);
+    expect((await fetch(`${running.url}/readyz`)).status).toBe(503);
+
+    // A start ends it, even one whose child doesn't boot: the pack has code now.
+    const bad = await writePack({ 'broken.mjs': 'export async function handler( {' }, 'bad.json');
+    expect((await running.supervisor.start(bad)).kind).toBe('err');
+    expect((await info()).status).toBe(503);
+
+    running.supervisor.serveEmpty({ packId: 'acme.app', packVersion: '0.1.0' });
+    await running.supervisor.start(await writePack({ 'pid.mjs': PID_TOOL }));
+    expect(await (await info()).json()).toMatchObject({
+      packId: 'local',
+      tools: [{ id: 'local.pid' }],
+    });
+
+    // A serving child answers for itself; a stop ends it too.
+    running.supervisor.serveEmpty({ packId: 'acme.app', packVersion: '0.1.0' });
+    expect(await (await info()).json()).toMatchObject({ packId: 'local' });
+    await running.supervisor.stop();
+    expect((await info()).status).toBe(503);
+  });
+
   test("passes the caller's trace context (traceparent) on to the child", async () => {
     // A stand-in child that answers every call with the traceparent it received.
     const echo = join(dir, 'echo-child.mjs');

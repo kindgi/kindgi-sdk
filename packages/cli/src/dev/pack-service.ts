@@ -18,7 +18,10 @@
  * So the api-server never lists a tool whose code isn't running. Code
  * that fails to bundle or to load leaves the previous pack service and
  * index in place. A pack whose last primitives were deleted publishes an
- * empty index, so what was deleted stops being listed.
+ * empty index, so what was deleted stops being listed. A pack with no
+ * primitives boots no pack service; until one serves, the front answers
+ * for the pack, with nothing in it, so the runtime isn't told that the
+ * pack service isn't answering.
  *
  * Refreshes run one at a time. A refresh asked for while one runs waits
  * for it, and several such requests collapse into one, with the latest
@@ -30,6 +33,7 @@ import { dirname } from 'node:path';
 
 import type { PackBlockWrite } from '@kindgi/handler-runtime';
 import type {
+  PackIdentity,
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
@@ -57,6 +61,11 @@ export interface PackRefresherDeps {
   readonly env: () => Promise<Readonly<Record<string, string>>>;
   /** The pack's code: which indexer reads it. */
   readonly code: PackCode;
+  /**
+   * The pack's id and version, from its config: what the pack service
+   * answers with while the pack has no primitives (`serveEmpty`).
+   */
+  readonly identity?: PackIdentity;
   /**
    * Told each build a refresh loads (a watch rebuild, a new bundle, or
    * the last good one again), before it's indexed; the refresh waits for
@@ -116,7 +125,7 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
       ...(deps.onNotice !== undefined && { onNotice: deps.onNotice }),
     });
     if (indexed.kind !== 'ok') {
-      if (indexed.code === 'discovery-empty') await publishEmpty();
+      if (indexed.code === 'discovery-empty') await noPrimitives();
       return indexed;
     }
 
@@ -137,6 +146,16 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
     }
     await deps.dev.publishIndex(staged, devIndexPath(deps.packDir));
     return withBlockProblems(indexed);
+  }
+
+  /**
+   * The pack has no primitives: none yet, or the last ones were deleted.
+   * The pack service answers for it while no child serves, and the
+   * published index lists nothing.
+   */
+  async function noPrimitives(): Promise<void> {
+    if (deps.identity !== undefined) deps.pack.serveEmpty(deps.identity);
+    await publishEmpty();
   }
 
   /**

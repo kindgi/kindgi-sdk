@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
+  `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
+  connect's wait and one listed in `tokens` aren't `unattributed` either: it's
+  a wait that isn't an approval's, a connect's or one of `tokens`, or whose
+  approval, connect or token can't be read. What you pass or read doesn't
+  change.
 - `kindgi`: **a key carries the key it was minted with, and a revoke names
   the keys that went with it.** `ApiToken.minted_with` is the key a key was
   minted with, which revoking stops it with. `tokens.list(minted_with=...)`
@@ -21,7 +27,6 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
-
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
