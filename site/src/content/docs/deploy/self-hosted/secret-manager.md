@@ -294,10 +294,11 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
   }
   ```
 
-  `patch` on the metadata lets the runtime keep the number a secret's
-  versions start from in its custom metadata, so a secret revoked for good,
-  set again and then revoked can be set again by its name; without it, the
-  runtime logs a `secrets` warning that names the capability.
+  `patch` on the metadata lets the runtime keep `kindgi_version_base` in a
+  secret's custom metadata (leave it there), so a secret revoked for good,
+  set again and then revoked can be set again by its name. Without it, a
+  set or a revoke that needs to keep it logs a `secrets` warning that names
+  the capability.
 
 - **Revoking** a secret soft-deletes every one of its versions in Vault.
   With `--hard`, see [Revoking for good](#revoking-for-good).
