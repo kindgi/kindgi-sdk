@@ -58,9 +58,9 @@ public final class Guardrail<C> {
 
   /**
    * Where in a turn a guardrail may run ({@code GUARDRAIL_POINTS} in the TypeScript {@code
-   * @kindgi/guardrails}).
+   * @kindgi/guardrails}), held to the pack-index schema's {@code at} by GuardrailTest.
    */
-  private static final List<String> GUARDRAIL_POINTS =
+  static final List<String> GUARDRAIL_POINTS =
       List.of("before-tool", "after-tool", "model-step", "final-answer");
 
   /** A {@code scope.tools} entry: a tool id, or a prefix with a trailing {@code *} ({@code SCOPE_TOOL} in TypeScript). */

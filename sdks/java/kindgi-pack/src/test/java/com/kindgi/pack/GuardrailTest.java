@@ -6,6 +6,7 @@ package com.kindgi.pack;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.kindgi.pack.internal.Specs;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -174,9 +175,15 @@ class GuardrailTest {
     assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").configSchema(Map.of("type", "object"))
         .builtInCheck("must-cite"))
         .hasMessageContaining("takes no typed config or config schema");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt")
+        .set("configSchema", Map.of("type", "object")).builtInCheck("must-cite"))
+        .hasMessageContaining("takes no typed config or config schema");
     assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").checkId("must-cite")
         .builtInCheck("must-cite"))
         .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: builtInCheck names its check, so it takes no checkId(…)");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("checkId", "must-cite")
+        .builtInCheck("must-cite"))
         .hasMessage("guardrail acme.g: builtInCheck names its check, so it takes no checkId(…)");
     assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").kind("llm-judge")
         .builtInCheck("must-cite"))
@@ -188,6 +195,18 @@ class GuardrailTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("guardrail acme.g: the runtime runs a built-in check, which takes no judgeCapabilities, sandbox,"
             + " network");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("limits", Map.of())
+        .builtInCheck("must-cite"))
+        .hasMessage("guardrail acme.g: the runtime runs a built-in check, which takes no limits");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void theGuardrailPointsAreThePackIndexSchemas() {
+    Map<String, Object> guardrail = (Map<String, Object>) ((Map<String, Object>) Specs.schema("pack-index")
+        .get("$defs")).get("guardrail");
+    Map<String, Object> at = (Map<String, Object>) ((Map<String, Object>) guardrail.get("properties")).get("at");
+    assertThat(Guardrail.GUARDRAIL_POINTS).isEqualTo(at.get("enum"));
   }
 
   @Test
