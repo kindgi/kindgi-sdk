@@ -18,7 +18,7 @@
  * - A tag reads the first declaration after its doc comment, so a later
  *   overload isn't checked.
  * - A tag whose path has a placeholder for a whole resource, such as
- *   pinned-versions.ts's `/v1/:kind/:id/pinned`, meets no spec route. A 204
+ *   pinned-versions.ts's `/v1/{flows|tools}/:id/pinned`, meets no spec route. A 204
  *   route tagged only that way counts as untagged, and fails the check.
  */
 
@@ -91,8 +91,8 @@ function declaredReturn(rest: string): string | undefined {
 
 /**
  * Each `@wire` tag in `source`'s doc comments, plain or in backticks, with
- * the declaration's return after it. A path's trailing `:`, `,` or `.` is
- * the sentence's, not the route's.
+ * the declaration's return after it. A path's `?query` isn't the route's,
+ * and its trailing `:`, `,` or `.` is the sentence's.
  */
 function wireTags(source: string, file: string): Tagged[] {
   const tagged: Tagged[] = [];
@@ -100,7 +100,7 @@ function wireTags(source: string, file: string): Tagged[] {
     const line = source.slice(0, comment.index).split('\n').length;
     const returns = declaredReturn(source.slice((comment.index ?? 0) + comment[0].length));
     for (const tag of (comment[1] ?? '').matchAll(
-      /@wire\s+`?(GET|POST|PUT|PATCH|DELETE)\s+([^\s`]+)/gu,
+      /@wire\s+`?(GET|POST|PUT|PATCH|DELETE)\s+([^\s`?]+)/gu,
     )) {
       const path = tag[2]!.replace(/[:,.]+$/u, '');
       tagged.push({ where: `${file}:${line}`, route: routeKey(tag[1]!, path), returns });
@@ -178,6 +178,8 @@ describe('a method on a 204-only route resolves to nothing', () => {
       '  archive(thingId: string): Promise<Thing>;',
       '  /** @wire GET /v1/things/:thingId/parts: its parts */',
       '  readonly parts: PartsClient;',
+      '  /** @wire `DELETE /v1/things/:thingId/tags?name=`. */',
+      '  untag(thingId: string, name: string): Promise<Thing>;',
       '}',
     ].join('\n');
     const routes = new Set([
@@ -185,11 +187,13 @@ describe('a method on a 204-only route resolves to nothing', () => {
       'DELETE /v1/things/*',
       'POST /v1/things/*/archive',
       'GET /v1/things/*/parts',
+      'DELETE /v1/things/*/tags',
     ]);
     expect(offenders(wireTags(source, 'things.ts'), routes)).toEqual([
       'things.ts:2: PATCH /v1/things/* answers only 204, but returns Promise<Thing>',
       'things.ts:9: POST /v1/things/*/archive answers only 204, but returns Promise<Thing>',
       'things.ts:15: GET /v1/things/*/parts answers only 204, but returns no declaration it could read',
+      'things.ts:17: DELETE /v1/things/*/tags answers only 204, but returns Promise<Thing>',
     ]);
   });
 
