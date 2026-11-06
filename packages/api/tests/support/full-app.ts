@@ -735,6 +735,14 @@ export function fullAppInput(): CreateAppInput {
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     identityDirectory: noopIdentityDirectory,
+    // An API key is no person: the binding refuses the sweep's admin key, as the deployment's would.
+    joinDomains: {
+      list: async () => [],
+      allow: async () => ({ kind: 'not-yours', reason: 'not-a-person' }),
+      change: async () => ({ kind: 'not-found' }),
+      remove: async () => ({ kind: 'not-found' }),
+      lookup: async () => [],
+    },
     secondFactor: noopSecondFactor,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,

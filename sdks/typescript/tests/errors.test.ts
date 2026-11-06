@@ -139,6 +139,8 @@ describe('fromWire — pinned versions', () => {
     'role-exceeds-principal',
     'key-project-mismatch',
     'identity-providers-operator-managed',
+    'join-domains-operator-managed',
+    'join-domain-not-yours',
   ])('a %s is forbidden', (code) => {
     expect(fromWire({ code, message: 'no' })).toMatchObject({
       code: 'auth',

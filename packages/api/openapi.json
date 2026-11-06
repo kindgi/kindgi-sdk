@@ -37,7 +37,7 @@
     },
     {
       "name": "system-tenants",
-      "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope."
+      "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix, the email domains its people may join from), plus the admins' contacts for service notices and, for a sign-up page, the workspaces one verified email may join. System keys only, each route under its own scope."
     },
     {
       "name": "system-usage",
@@ -160,7 +160,7 @@
     },
     {
       "name": "auth",
-      "description": "OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
+      "description": "OIDC and SAML identity providers, the email domains people may join the workspace from, + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
     },
     {
       "name": "identity",
@@ -516,6 +516,12 @@
           "identity-providers-operator-managed": 403,
           "identity-providers-need-secrets-store": 409,
           "domain-join-needs-authorization": 409,
+          "join-domain-not-yours": 403,
+          "join-domains-operator-managed": 403,
+          "join-domain-public": 400,
+          "join-domain-verified-elsewhere": 409,
+          "join-domain-exists": 409,
+          "join-domain-not-found": 404,
           "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
@@ -3285,6 +3291,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3335,6 +3343,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3391,6 +3401,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3464,6 +3476,8 @@
                       "system:env-refs",
                       "system:usage:read",
                       "system:license",
+                      "system:join-domains:read",
+                      "system:join-domains",
                       "kindgi:system"
                     ],
                     "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3528,6 +3542,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -19615,6 +19631,226 @@
           }
         }
       },
+      "JoinDomain": {
+        "description": "An email domain the workspace lets people join from.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "role",
+          "createdAt",
+          "createdBy"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who allowed it: `user:<id>` for a tenant admin, or the operator's own identity (`system-key:<id>`, `token:<hash>`)."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who last changed its role."
+          }
+        }
+      },
+      "JoinDomainList": {
+        "description": "The workspace's allowed domains, the first allowed first.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinDomain"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AllowJoinDomainBody": {
+        "description": "A domain to let people join from.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Default `viewer`."
+          }
+        }
+      },
+      "ChangeJoinDomainBody": {
+        "description": "What someone joining by the domain gets from now on. People who joined already keep what they have.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin."
+          }
+        }
+      },
+      "UnregisterJoinDomainResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "unregistered"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unregistered": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "JoinDomainLookupBody": {
+        "description": "One email a sign-up page verified.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "description": "An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it."
+          }
+        }
+      },
+      "JoinLookupWorkspace": {
+        "description": "A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "tenantId",
+              "name",
+              "role"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "join"
+              },
+              "tenantId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "runner",
+                  "none"
+                ],
+                "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "tenantId",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "member"
+              },
+              "tenantId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "JoinDomainLookupResult": {
+        "description": "For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinLookupWorkspace"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
       "UnregisterUserResult": {
         "description": "A removed person, and what removing them took away (each 0 when they were already removed).",
         "type": "object",
@@ -33745,6 +33981,577 @@
             "description": "The tenant's id."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/join-domains": {
+      "get": {
+        "operationId": "systemTenants.joinDomains",
+        "summary": "The email domains a tenant lets people join from",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The allowed domains.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomainList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "systemTenants.allowJoinDomain",
+        "summary": "Let people at an email domain join a tenant",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "201": {
+            "description": "Allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`); the domain is verified for another tenant (`join-domain-verified-elsewhere`); no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/join-domains/{domain}": {
+      "patch": {
+        "operationId": "systemTenants.updateJoinDomain",
+        "summary": "Change what someone joining a tenant by a domain gets",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The domain now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ role }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`); a raise for a domain since verified for another tenant (`join-domain-verified-elsewhere`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/join-domains/{domain}/unregister": {
+      "post": {
+        "operationId": "systemTenants.unregisterJoinDomain",
+        "summary": "Stop letting people at a domain join a tenant",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterJoinDomainResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`), or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/join-domains/lookup": {
+      "post": {
+        "operationId": "systemTenants.lookupJoinDomains",
+        "summary": "The workspaces one verified email may join by its domain",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspaces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomainLookupResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ email }`, or an email that isn't one (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key with neither `system:join-domains:read` nor `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinDomainLookupBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -57712,6 +58519,438 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/join-domains": {
+      "get": {
+        "operationId": "auth.joinDomains.list",
+        "summary": "The email domains people may join the workspace from",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The allowed domains.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomainList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the workspace (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "auth.joinDomains.allow",
+        "summary": "Let people at an email domain join the workspace",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "201": {
+            "description": "Allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Not the caller's to widen (`join-domain-not-yours`): an API key or a service account, a session whose sign-in proved another domain or no email, or one by a way in that doesn't count for it (GitHub; the workspace's own provider for a domain the deployment doesn't route to the workspace). Or this deployment's operator manages sign-in (`join-domains-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only `kindgi:system` lets more people in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The operator verified the domain for another workspace (`join-domain-verified-elsewhere`); the deployment has no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`: change its role instead); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/join-domains/{domain}": {
+      "patch": {
+        "operationId": "auth.joinDomains.update",
+        "summary": "Change what someone joining by a domain gets",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The domain now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ role }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Not the caller's to widen (`join-domain-not-yours`): an API key or a service account, a session whose sign-in proved another domain or no email, or one by a way in that doesn't count for it (GitHub; the workspace's own provider for a domain the deployment doesn't route to the workspace). Or this deployment's operator manages sign-in (`join-domains-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only `kindgi:system` lets more people in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A raise for a domain the operator has since verified for another workspace (`join-domain-verified-elsewhere`), or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/join-domains/{domain}/unregister": {
+      "post": {
+        "operationId": "auth.joinDomains.unregister",
+        "summary": "Stop letting people at a domain join",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterJoinDomainResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []

@@ -11683,6 +11683,142 @@ export const AuthSettingsPatchSchema: JsonSchema = {
   },
 };
 
+const JOIN_DOMAIN_ROLE = {
+  type: 'string',
+  enum: ['viewer', 'runner', 'none'],
+  description:
+    "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.",
+} as const;
+
+export const JoinDomainSchema: JsonSchema = {
+  description: 'An email domain the workspace lets people join from.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain', 'role', 'createdAt', 'createdBy'],
+  properties: {
+    domain: {
+      type: 'string',
+      minLength: 1,
+      description: 'Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`.',
+    },
+    role: JOIN_DOMAIN_ROLE,
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Who allowed it: `user:<id>` for a tenant admin, or the operator's own identity (`system-key:<id>`, `token:<hash>`).",
+    },
+    updatedAt: { type: 'string', format: 'date-time' },
+    updatedBy: { type: 'string', minLength: 1, description: 'Who last changed its role.' },
+  },
+};
+
+export const JoinDomainListSchema: JsonSchema = {
+  description: "The workspace's allowed domains, the first allowed first.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JoinDomain' } },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const AllowJoinDomainBodySchema: JsonSchema = {
+  description: 'A domain to let people join from.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain'],
+  properties: {
+    domain: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent.',
+    },
+    role: {
+      type: 'string',
+      enum: ['viewer', 'runner', 'none'],
+      description: `${JOIN_DOMAIN_ROLE.description} Default \`viewer\`.`,
+    },
+  },
+};
+
+export const ChangeJoinDomainBodySchema: JsonSchema = {
+  description:
+    'What someone joining by the domain gets from now on. People who joined already keep what they have.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  properties: { role: JOIN_DOMAIN_ROLE },
+};
+
+export const UnregisterJoinDomainResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain', 'unregistered'],
+  properties: {
+    domain: { type: 'string', minLength: 1 },
+    unregistered: { type: 'boolean', const: true },
+  },
+};
+
+export const JoinDomainLookupBodySchema: JsonSchema = {
+  description: 'One email a sign-up page verified.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['email'],
+  properties: {
+    email: {
+      type: 'string',
+      minLength: 3,
+      description:
+        "An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it.",
+    },
+  },
+};
+
+export const JoinLookupWorkspaceSchema: JsonSchema = {
+  description:
+    "A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'tenantId', 'name', 'role'],
+      properties: {
+        kind: { type: 'string', const: 'join' },
+        tenantId: { type: 'string', format: 'uuid' },
+        name: { type: 'string' },
+        role: JOIN_DOMAIN_ROLE,
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'tenantId', 'name'],
+      properties: {
+        kind: { type: 'string', const: 'member' },
+        tenantId: { type: 'string', format: 'uuid' },
+        name: { type: 'string' },
+      },
+    },
+  ],
+};
+
+export const JoinDomainLookupResultSchema: JsonSchema = {
+  description:
+    'For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JoinLookupWorkspace' } },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 export const UnregisterUserResultSchema: JsonSchema = {
   description:
     'A removed person, and what removing them took away (each 0 when they were already removed).',
@@ -18583,6 +18719,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SecondFactorRemoved', SecondFactorRemovedSchema],
   ['AuthSettings', AuthSettingsSchema],
   ['AuthSettingsPatch', AuthSettingsPatchSchema],
+  ['JoinDomain', JoinDomainSchema],
+  ['JoinDomainList', JoinDomainListSchema],
+  ['AllowJoinDomainBody', AllowJoinDomainBodySchema],
+  ['ChangeJoinDomainBody', ChangeJoinDomainBodySchema],
+  ['UnregisterJoinDomainResult', UnregisterJoinDomainResultSchema],
+  ['JoinDomainLookupBody', JoinDomainLookupBodySchema],
+  ['JoinLookupWorkspace', JoinLookupWorkspaceSchema],
+  ['JoinDomainLookupResult', JoinDomainLookupResultSchema],
   ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
   ['PersonGrants', PersonGrantsSchema],

@@ -176,6 +176,8 @@ _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = 
     "auth-revoked": "unauthenticated",
     "permission-denied": "forbidden",
     "identity-providers-operator-managed": "forbidden",
+    "join-domains-operator-managed": "forbidden",
+    "join-domain-not-yours": "forbidden",
 }
 _ID_FIELDS = (
     "agentId", "toolId", "runId", "adapterId", "userId", "providerId", "capabilityId", "tokenId",

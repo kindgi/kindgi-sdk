@@ -133,3 +133,39 @@ describe("auth.settings — the workspace's sign-in settings", () => {
     expect(stub.calls[1]?.headers['idempotency-key']).toBe('idem-s');
   });
 });
+
+describe('auth.joinDomains — the email domains people may join from', () => {
+  it('lists, allows, changes a role and stops allowing one, a domain in the path encoded', async () => {
+    const acme = {
+      domain: 'acme.com',
+      role: 'viewer',
+      createdAt: '2026-11-06T00:00:00.000Z',
+      createdBy: 'user:u-1',
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [acme], hasMore: false }) },
+      { status: 201, body: JSON.stringify(acme) },
+      { status: 200, body: JSON.stringify({ ...acme, role: 'runner' }) },
+      { status: 200, body: JSON.stringify({ domain: 'acme.com', unregistered: true }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.auth.joinDomains.list()).toEqual({ data: [acme], hasMore: false });
+    expect(
+      await client.auth.joinDomains.allow({ domain: 'acme.com' }, { idempotencyKey: 'idem-j' }),
+    ).toEqual(acme);
+    await client.auth.joinDomains.update('acme.com', { role: 'runner' });
+    expect(await client.auth.joinDomains.unregister('a/b.com')).toEqual({
+      domain: 'acme.com',
+      unregistered: true,
+    });
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'GET /v1/auth/join-domains',
+      'POST /v1/auth/join-domains',
+      'PATCH /v1/auth/join-domains/acme.com',
+      'POST /v1/auth/join-domains/a%2Fb.com/unregister',
+    ]);
+    expect(JSON.parse(stub.calls[1]?.body ?? 'null')).toEqual({ domain: 'acme.com' });
+    expect(stub.calls[1]?.headers['idempotency-key']).toBe('idem-j');
+    expect(JSON.parse(stub.calls[2]?.body ?? 'null')).toEqual({ role: 'runner' });
+  });
+});

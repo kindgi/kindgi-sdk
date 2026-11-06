@@ -107,6 +107,8 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
 | `system:env-refs` | [Setting a tenant's env names to a cloud secret](#set-a-name-to-a-cloud-secret), for its pack services (runtime 0.4.0 or later) |
 | `system:license` | Reading the deployment's license, for its renewal |
+| `system:join-domains` | [The email domains a tenant lets people join from](../../people-and-keys/#let-people-at-your-domain-join): listing, allowing, changing and stopping them, and the sign-up lookup (runtime 0.8.0 or later) |
+| `system:join-domains:read` | For one verified email, of the tenants that let people at its domain join, the ones it may join and the ones it's in already, for a sign-up page that offers them before it makes a new tenant: ids, names and join roles only, never a list of every tenant the email is in (`POST /v1/system/join-domains/lookup`, runtime 0.8.0 or later) |
 | `kindgi:system` | All of them: a full key |
 
 ```sh

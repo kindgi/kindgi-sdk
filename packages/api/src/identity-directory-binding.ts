@@ -146,9 +146,10 @@ export interface IdentityCreateUserInput {
   readonly displayName: string;
   readonly primaryEmail?: string;
   /**
-   * Who added them: `user:<id>` or `service_account:<id>`, or
-   * `identity_provider:<providerId>` for someone who joined by domain
-   * through that provider (`join: domain`).
+   * Who added them: `user:<id>` or `service_account:<id>`, or for
+   * someone who joined by domain, `identity_provider:<providerId>` through
+   * that provider (`join: domain`), or `email_domain:<domain>` through one
+   * of the workspace's allowed domains (`JoinDomainBinding`).
    */
   readonly createdBy?: string;
   /**

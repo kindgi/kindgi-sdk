@@ -2982,14 +2982,49 @@ export const ERROR_ENTRIES = {
   },
   'domain-join-needs-authorization': {
     description:
-      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so a provider can't let people join by domain: without one, roles aren't checked, and a joiner would work in every project. Setting `join: domain` or `joinRole` is refused. A provider already stored with them keeps them, and a change that leaves them alone goes through. Add people one by one, or run with authorization.",
+      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so people can't join by domain: without one, roles aren't checked, and a joiner would work in every project. On an identity provider, setting `join: domain` or `joinRole` is refused; a provider already stored with them keeps them, and a change that leaves them alone goes through. Allowing an email domain (`/v1/auth/join-domains`), or giving its joiners more, is refused too; lowering their role or stopping allowing it still works. Add people one by one, or run with authorization.",
     details: [
       {
         key: 'providerId',
-        meaning: 'the provider that was being added or changed',
+        meaning: 'the provider that was being added or changed (only on an identity provider)',
       },
     ],
     seeAlso: ['deploy/people-and-keys', 'guides/sso/index'],
+  },
+  'join-domain-not-yours': {
+    description:
+      "Letting people at an email domain join a workspace, or giving its joiners more, takes a person who's a tenant admin, signed in with an email at exactly that domain (no subdomain, no parent) by a way that proves the mailbox: a Google Workspace account at it, a Microsoft work account, or the emailed link. GitHub never counts, and the workspace's own identity provider counts only for a domain the deployment routes to the workspace. An API key or a service account can't, and neither can a person whose sign-in recorded no email. The deployment's operator always can. Ask a tenant admin at that domain, or the operator. Lowering joiners' role or stopping allowing the domain takes any tenant admin. The refusal is recorded.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domains-operator-managed': {
+    description:
+      "The deployment's operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), so letting people at another email domain join, or giving joiners more, takes the operator's credential: the deployment's own token or a key holding `kindgi:system`, or `system:join-domains` on the system routes. A tenant admin can still see the list, lower joiners' role and stop allowing a domain. The refusal is recorded.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys', 'deploy/self-hosted/sign-in'],
+  },
+  'join-domain-public': {
+    description:
+      "That's a public mailbox domain (gmail.com, outlook.com and the like), where anyone can have an address, so people there can never join by domain. Add them one by one.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-verified-elsewhere': {
+    description:
+      "The deployment's operator verified that domain for another workspace (`KINDGI_AUTH_VERIFIED_DOMAINS`), or for a tenant this runtime doesn't serve, so only that workspace may let its people join.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-exists': {
+    description:
+      'The workspace lets people at that domain join already. To change what joiners get, change its role (`PATCH` the domain).',
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-not-found': {
+    description: "The workspace doesn't let people at that domain join, or stopped allowing it.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
   },
   'license-operator-only': {
     description:
