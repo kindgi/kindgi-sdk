@@ -1986,7 +1986,8 @@ export const SystemTenantPurgeSchema: JsonSchema = {
     },
     leftBecause: {
       type: 'string',
-      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
+      description:
+        "Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase.",
     },
   },
 };

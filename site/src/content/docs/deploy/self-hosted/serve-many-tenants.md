@@ -585,18 +585,31 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
 - **`complete: true`:** nothing of it is left, its record is written, and
   it's marked purged at `purgedAt`. **`complete: false`:** `left` and
   `objectsLeft` say what is, and `leftBecause` why, when it's a setting the
-  runtime lacks. Run it again. A call that ended before its answer is
+  runtime lacks or a secret your secret manager didn't erase. Run it again. A call that ended before its answer is
   finished the same way. Each run again is a new request: a new
   `Idempotency-Key`, or none.
 - **Refused, with nothing changed:** a tenant that isn't closing
   (`409 tenant-not-closing`), or whose window is still open
   (`409 tenant-export-window-open`, with `windowEndsAt`), and one with
-  artifacts or an authorization store when the server has no
-  `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL` (`409 purge-setting-missing`).
+  artifacts, an authorization store or secrets a secret manager may still
+  hold when the server has no `KINDGI_ARTIFACTS`, `KINDGI_OPENFGA_API_URL` or
+  `KINDGI_SECRETS_MANAGER` (`409 purge-setting-missing`).
 - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`,
   and its message says what that left. A tenant's rows go only after its
   store, so by then its artifacts' bytes may be deleted, but none of its
   rows. Run it again once OpenFGA answers.
+- **With your own secret manager**
+  ([Keep secrets in your own secret manager](../secret-manager/)), the
+  purge erases each of the tenant's secrets there after its OpenFGA store
+  and before its rows. One your secret manager doesn't erase stops it, with
+  none of its rows deleted (a rate limit is waited out a few times first): `complete: false`, and `leftBecause` names the
+  secret manager, its answer and the secret's id. The server's warning in
+  its log says where the secret is. Fix the server's access to your secret
+  manager, or delete that secret there by hand, then run it again. A server
+  whose `KINDGI_SECRETS_BACKEND` isn't `secret-manager` refuses a tenant with
+  secrets left in a secret manager by an earlier setup: purge it with
+  [`kindgi-runtime tenants purge`](#with-kindgi-runtime), with that secret
+  manager's settings.
 - **A day later,** run it again. On a tenant already purged, it deletes
   anything of it written since its mark (`alreadyPurged: true`), and its
   mark and its record stay as they were. Nothing should write to a tenant
@@ -628,11 +641,33 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
 
 - **It deletes the tenant for good:** every row of it, its artifacts' bytes and
   its OpenFGA store. Its tenants row stays, marked purged, with nothing left
-  that signs in.
-- **`--dry-run`** says what would be deleted, and changes nothing.
+  that signs in. With your own secret manager, it erases the tenant's
+  secrets there before its rows (`secrets: <n> erased in the secret manager`).
+- **`--dry-run`** says what would be deleted, and changes nothing. With
+  secrets a secret manager may still hold, it counts them:
+  `secrets a secret manager may still hold: <n> (<secret manager>)`.
 - **Refused (exit 2)** for a tenant that isn't closing or is still in its
   window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
+- **Its secrets in a secret manager need `KINDGI_SECRETS_MANAGER`,** with
+  that secret manager's settings and, on AWS or Azure, the server's identity
+  there, as the server has them. Without it, a tenant with secrets a secret
+  manager may still hold is refused (exit 2). For a tenant with secrets, it
+  first checks it can reach the secret manager, as the server does when it
+  starts, and stops with exit 2, nothing deleted, when it can't. A dry run,
+  or a tenant with no secrets, doesn't reach it.
+  When the server's `KINDGI_SECRETS_BACKEND` isn't `secret-manager`, and an
+  earlier setup left secrets in a secret manager, set
+  `KINDGI_SECRETS_MANAGER` and that secret manager's settings for the purge.
+  A secret manager gone for good can only be passed by deleting the
+  tenant's `secret_mappings` rows by hand.
+- **Exit 1, too, when your secret manager doesn't erase a secret:**
+  `stopped, nothing after it deleted: …` names it, and the warning
+  before it says where it is. Fix the access, or delete that secret there
+  by hand, then run it again. A secret it doesn't send to a secret manager
+  is warned of and counted
+  (`secrets not sent to a secret manager: <n> (named above; their values may still be there)`),
+  and its row goes.
 - **With a key for OpenFGA**
   ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)),
   purging a tenant with an OpenFGA store needs runtime 0.1.9 or later. An
@@ -653,7 +688,9 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   its prefix.
 - **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
   `s3:<bucket>[/<prefix>]` with runtime 0.4.0 or later) keeps a record of
-  each purge, `purged/<tenant id>.json` under it. After a restore,
+  each purge, `purged/<tenant id>.json` under it. With your own secret
+  manager, it counts the secrets erased (`secretsErased`) and names any not
+  sent (`secretsNotSent`). After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
   second, here or through the system API, waits for the first to finish.
@@ -715,10 +752,12 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
   (`refused: its record's createdAt isn't this tenant's.`), and, for a
   record without a creation time, by the tenant's slug.
 - **Exit `0`:** done. **`1`:** rows of a tenant are left, named
-  (`tenant <id>: left: <table>: <n> rows`): run it again. **`2`:** a tenant
-  was refused, as above or for a setting the run lacks (artifacts or an
-  OpenFGA store, and no `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL`), or
-  it couldn't run.
+  (`tenant <id>: left: <table>: <n> rows`), or a secret your secret manager
+  didn't erase stopped it (`stopped, nothing after it deleted: …`): run
+  it again. **`2`:** a tenant was refused, as above or for a setting the run
+  lacks (artifacts, an OpenFGA store or secrets a secret manager may still
+  hold, and no `KINDGI_ARTIFACTS`, `KINDGI_OPENFGA_API_URL` or
+  `KINDGI_SECRETS_MANAGER`), or it couldn't run.
 
 ## After each upgrade: tenants repair
 

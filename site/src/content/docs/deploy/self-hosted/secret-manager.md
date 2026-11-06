@@ -391,6 +391,72 @@ What's left after that follows where the values were:
     disabled, then writes the new value. The old versions stay in the vault,
     disabled, until the secret is deleted again. Kindgi never reads them.
 
+## When an org, a project or a tenant goes
+
+- **Deleting an org:** the server's sweep erases each of the org's secrets
+  in your secret manager, every version, then drops its row. A secret
+  manager that doesn't answer stops the sweep, and its next run goes on
+  from there.
+- **Purging a tenant:** the purge erases every secret the tenant set there,
+  revoked ones too, before any of its rows go. A secret your secret manager
+  doesn't erase stops the purge, with nothing of the tenant deleted after
+  it: fix the server's access to your secret manager, then run the purge
+  again ([Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant)).
+- **Deleting a project** drops its secrets' rows and leaves their values in
+  your secret manager. Find them by the project's id, as below, and delete
+  them there.
+- **A secret Kindgi doesn't send to your secret manager** isn't erased with
+  the rest. That's one stored under a name outside the rule for new names
+  (above), or one kept in another secret manager than the server's. The
+  runtime logs a warning for each, with its tenant, its id and its path,
+  and its row goes. Delete it in your secret manager by hand.
+
+The org's sweep and the purge erase as a hard revoke does, so what each
+secret manager keeps afterwards is as [Revoking for good](#revoking-for-good)
+says. An Azure vault that can't purge keeps each deleted secret recoverable
+until its scheduled purge date. The erase still counts, and the runtime logs
+a warning that says until when.
+
+### Values left with no row
+
+A value can stay in your secret manager after Kindgi's rows for it are gone:
+
+- **A deleted org's or a purged tenant's secrets,** from a runtime that
+  deleted their rows without erasing them first.
+- **A deleted project's secrets,** as above.
+- **A hard-revoked secret whose tenant was purged without this secret
+  manager set.** A purge doesn't ask for a secret manager to erase what a
+  hard revoke already erased, but a set written while that revoke ran can
+  have left a value there.
+
+Kindgi marks each value with where it belongs, so you can find them:
+
+- **AWS Secrets Manager:** a secret under `kindgi/` carries the tags
+  `kindgi_tenant_id`, and `kindgi_org_id` or `kindgi_project_id` at those
+  scopes.
+
+  ```sh
+  aws secretsmanager list-secrets \
+    --filters Key=tag-key,Values=kindgi_tenant_id Key=tag-value,Values=<tenant id>
+  ```
+
+- **Google Secret Manager:** the same names, as labels.
+
+  ```sh
+  gcloud secrets list --project=<project> --filter='labels.kindgi_tenant_id=<tenant id>'
+  ```
+
+- **Azure Key Vault:** a secret's `kindgi-path` tag starts with its scope
+  and the tenant's id: `tenant/<tenant id>/_/`, `org/<tenant id>/<org id>/`
+  or `project/<tenant id>/<project id>/`.
+- **HashiCorp Vault or OpenBao:** the same paths, under the mount.
+
+  ```sh
+  vault kv list -mount=<mount> org/<tenant id>/
+  ```
+
+Delete each one in your secret manager, as you would any secret there.
+
 ## Next
 
 - [The environment variable reference](../../../reference/env-vars/#kindgi_secrets_manager):
