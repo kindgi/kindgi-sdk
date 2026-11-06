@@ -546,11 +546,12 @@ A project admin changes who works there:
   role through a team, an org or tenant admin is changed where it comes
   from, and a service account's on its own page. To anyone without `delete`
   on the project, an owner's role can't be changed, and reads "Only an
-  owner, an admin of its org, or a tenant admin changes an owner."
+  owner, an admin of the project's org, or a tenant admin changes an
+  owner."
 - **Take away** a person's role of their own. To anyone without `delete` on
   the project, an owner's has no Take away, and reads "Only an owner, an
-  admin of its org, or a tenant admin changes an owner." Taking a role away
-  asks first, and says what stays:
+  admin of the project's org, or a tenant admin changes an owner." Taking a
+  role away asks first, and says what stays:
 
 ![The Take away step: "Take Ada Lovelace off Support? From their next request on, they can't work in Support through this role. Ada Lovelace keeps editor access through Team Support crew. What was done here stays.", with Cancel and Take it away.](../../../assets/access/members-take-away.png)
 
