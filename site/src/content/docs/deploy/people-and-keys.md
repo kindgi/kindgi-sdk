@@ -395,9 +395,9 @@ KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com
   that person answers `409 listed-admin`. Removing them answers
   `409 identity-user-unregister-refused`, with `reason` `listed-admin`,
   since the next start would add them back as someone new. Their grants
-  read `tenantAdminFromSetting: true`, and the console's People page says
-  "tenant admin, from the server's setting", with both actions off and the
-  way to change it under each.
+  read `tenantAdminFromSetting: true`. In the console, People's Access
+  column says "tenant admin, from the server's setting", and on their page
+  both actions are off, with the way to change it under each.
 - **Take an address off the list and restart:** someone the list made a
   tenant admin stops being one at that start. They lose what a first admin
   holds, as when tenant admin is taken from them, and stay a member.

@@ -213,8 +213,9 @@ npx --yes @kindgi/cli@0.4 sso providers update acme-kc --join=domain --join-role
   `email_verified` claim of `true`, in its ID token or userinfo. One that
   doesn't send the claim lets no one join, and the runtime's log says why.
   A SAML provider's signed assertion counts as its word. A runtime that
-  serves one workspace finds it by the provider's domains. One that serves several needs its
-  operator to list the domain in `KINDGI_AUTH_VERIFIED_DOMAINS`
+  serves one workspace finds it by the provider's domains. One that serves
+  several needs its operator to list the domain in
+  `KINDGI_AUTH_VERIFIED_DOMAINS`
   ([Which domains find a workspace's identity provider](../../deploy/self-hosted/sign-in/#which-domains-find-a-workspaces-identity-provider)).
   Continue with Google, Microsoft or GitHub, and the emailed link, still
   need the person added.
