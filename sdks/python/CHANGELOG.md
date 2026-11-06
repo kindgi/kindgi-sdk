@@ -18,8 +18,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   does for a TypeScript pack. When a module imports a package that isn't
   installed, it also says that a pack's image installs the main dependencies
   only, so a package that only a dev group lists belongs in
-  `[project].dependencies`. A pack image's build runs it with `--strict`.
-  Without the flag, nothing changes.
+  `[project].dependencies`. A helper module (`tools/_db.py`) that won't
+  import doesn't count on its own: a module that imports it fails too. A pack
+  image's build runs it with `--strict`. Without the flag, nothing changes.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

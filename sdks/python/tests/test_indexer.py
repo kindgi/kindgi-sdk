@@ -177,8 +177,34 @@ def test_strict_exits_1_on_a_missing_package_naming_it_and_the_dev_group_fix(
         "kindgi.pack index: file-import-failed: Failed to import tools/needs.py: "
         "ModuleNotFoundError: No module named 'acme_package_not_installed'"
     ) in err
-    assert "if pyproject.toml lists the package only in a dev group, move it to" in err
-    assert "[project].dependencies" in err
+    assert (
+        "if that module is a package pyproject.toml lists only in a dev group, move it to "
+        "[project].dependencies"
+    ) in err
+
+
+def test_strict_counts_a_helper_that_wont_import_only_through_a_module_that_imports_it(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A test helper that imports a dev-only package, which no tool imports: it doesn't count.
+    helper = {"tools/_fixtures.py": "import acme_package_not_installed\n"}
+    assert main([*_index_args(full_pack(make_pack, **helper)), "--strict"]) == 0
+    err = capsys.readouterr().err
+    assert (
+        "kindgi.pack index: file-import-failed: Failed to import tools/_fixtures.py: "
+        "ModuleNotFoundError"
+    ) in err
+    assert (
+        "kindgi.pack index: tools/_fixtures.py is a helper module and nothing in the index "
+        "imports it, so this doesn't fail the build."
+    ) in err
+    assert "dev group" not in err
+    # A tool that imports it fails on its own: the helper's import runs again and fails again.
+    uses = {**helper, "tools/uses.py": "from ._fixtures import *  # noqa: F403\n"}
+    assert main([*_index_args(full_pack(make_pack, **uses)), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert "kindgi.pack index: file-import-failed: Failed to import tools/uses.py" in err
+    assert "if that module is a package pyproject.toml lists only in a dev group" in err
 
 
 def test_strict_exits_1_on_any_file_error_with_the_package_hint_only_for_a_missing_one(

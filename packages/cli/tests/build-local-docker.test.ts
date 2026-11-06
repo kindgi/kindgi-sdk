@@ -406,7 +406,7 @@ fs.writeFileSync('generated/marker.json', JSON.stringify({ input: fs.readFileSyn
       "kindgi.pack index: file-import-failed: Failed to import tools/echo.py: ModuleNotFoundError: No module named 'iniconfig'",
     );
     expect(out.stderr).toContain(
-      'if pyproject.toml lists the package only in a dev group, move it to',
+      'if that module is a package pyproject.toml lists only in a dev group, move it to',
     );
   }, 600_000);
 

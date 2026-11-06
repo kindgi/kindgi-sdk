@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -66,29 +66,43 @@ def _index(argv: Sequence[str]) -> int:
         print(json.dumps(outcome["value"], indent=2))
     file_errors = outcome["value"]["fileErrors"]
     if strict and file_errors:
-        _print_file_errors(file_errors)
-        return 1
+        return _strict(file_errors)
     return 0
 
 
-def _print_file_errors(file_errors: Sequence[dict[str, Any]]) -> None:
-    """`--strict`'s report: each file error, then the likely fix for a missing package.
+def _strict(file_errors: Sequence[dict[str, Any]]) -> int:
+    """`--strict`'s report and exit code: each file error, then the likely fix for a missing module.
 
     A pack image's build runs the indexer with `--strict`, after the CLI's own index of the same
     files had no file errors. So a module that won't import there most likely imports a package
-    the image doesn't install.
+    the image doesn't install. A helper module (`tools/_db.py`) that won't import doesn't count:
+    the index holds nothing of its own, and a module that imports it fails on its own, since a
+    failed import isn't kept and the next one fails again.
     """
+    failing = [e for e in file_errors if not _helper_import_failed(e)]
     for error in file_errors:
         print(f"kindgi.pack index: {error['code']}: {error['message']}", file=sys.stderr)
-    if any(e.get("cause", {}).get("name") == "ModuleNotFoundError" for e in file_errors):
+        if _helper_import_failed(error):
+            print(
+                f"kindgi.pack index: {error['filePath']} is a helper module and nothing in the "
+                "index imports it, so this doesn't fail the build.",
+                file=sys.stderr,
+            )
+    if any(e.get("cause", {}).get("name") == "ModuleNotFoundError" for e in failing):
         print(
-            "kindgi.pack index: a package a module imports isn't installed here. A pack's image "
-            "installs its main dependencies only (uv sync --no-dev, or Poetry's main group): if "
-            "pyproject.toml lists the package only in a dev group, move it to "
-            "[project].dependencies (in a Poetry 1 app, [tool.poetry.dependencies]) and lock "
-            "again.",
+            "kindgi.pack index: a file above imports a module that isn't installed here. A pack's "
+            "image installs its main dependencies only (uv sync --no-dev, or Poetry's main "
+            "group): if that module is a package pyproject.toml lists only in a dev group, move "
+            "it to [project].dependencies (in a Poetry 1 app, [tool.poetry.dependencies]) and "
+            "lock again.",
             file=sys.stderr,
         )
+    return 1 if failing else 0
+
+
+def _helper_import_failed(error: Mapping[str, Any]) -> bool:
+    """A helper module's import failure: a discovered file whose name starts with `_`."""
+    return error["code"] == "file-import-failed" and Path(error["filePath"]).name.startswith("_")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
