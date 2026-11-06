@@ -19329,6 +19329,11 @@
             "format": "date-time",
             "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9)."
           },
+          "createdBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it."
+          },
           "metadata": {
             "type": "object",
             "additionalProperties": true
@@ -19433,6 +19438,11 @@
             "type": "string",
             "format": "date-time",
             "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9)."
+          },
+          "createdBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it."
           },
           "metadata": {
             "type": "object",
@@ -19663,7 +19673,7 @@
           "createdBy": {
             "type": "string",
             "minLength": 1,
-            "description": "Who allowed it: `user:<id>` for a tenant admin, or the operator's own identity (`system-key:<id>`, `token:<hash>`)."
+            "description": "Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token)."
           },
           "updatedAt": {
             "type": "string",
@@ -19672,7 +19682,7 @@
           "updatedBy": {
             "type": "string",
             "minLength": 1,
-            "description": "Who last changed its role."
+            "description": "Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one."
           }
         }
       },

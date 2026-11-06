@@ -8492,6 +8492,10 @@ class UserCreated(BaseModel):
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
+    """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
 
@@ -8663,12 +8667,12 @@ class JoinDomain(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     created_by: Annotated[str, Field(alias="createdBy", min_length=1)]
     """
-    Who allowed it: `user:<id>` for a tenant admin, or the operator's own identity (`system-key:<id>`, `token:<hash>`).
+    Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token).
     """
     updated_at: Annotated[AwareDatetime | None, Field(alias="updatedAt")] = None
     updated_by: Annotated[str | None, Field(alias="updatedBy", min_length=1)] = None
     """
-    Who last changed its role.
+    Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one.
     """
 
 
@@ -20238,6 +20242,10 @@ class UserRecord(BaseModel):
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
