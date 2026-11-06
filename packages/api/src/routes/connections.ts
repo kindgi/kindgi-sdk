@@ -29,6 +29,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { personWideRefusal } from '../middleware/key-project.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type RateLimitStore,
@@ -263,6 +264,36 @@ export function connectionsRouter(
   /** A member's request is the member's alone; the company's, a tenant admin's. */
   const mayAct = async (c: Context<AppEnv>, owner: ConnectionOwner): Promise<boolean> =>
     owner.kind === 'member' ? isOwner(c, owner) : isTenantAdmin(c, authorizer);
+  /**
+   * Whether a caller limited to a project sees the connection: only when
+   * its runs there may use it, its registration naming no projects or that
+   * one. Any other caller: always.
+   */
+  const usableHere = async (c: Context<AppEnv>, connection: ConnectionRecord): Promise<boolean> => {
+    const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+    if (keyProject === undefined) return true;
+    const tenantId = c.get('tenantId') as TenantId;
+    const registration = await binding.getApp({ tenantId, appId: connection.appId });
+    return (
+      registration !== null &&
+      (registration.projects === undefined || registration.projects.includes(keyProject))
+    );
+  };
+  /**
+   * A caller limited to a project connects, changes and disconnects nothing:
+   * a connection is its person's, or the company's, in every project.
+   */
+  const limitedRefusal = (c: Context<AppEnv>): Response | undefined => {
+    const caller = callerPrincipal(c);
+    const resource =
+      caller?.kind === 'user'
+        ? ref('user', caller.userId)
+        : ref('tenant', c.get('tenantId') as unknown as string);
+    return personWideRefusal(c, authorizer, 'write', resource, 'a connection reaches beyond it');
+  };
+  /** Who connects or changes a connection: the caller, unless it may not. */
+  const changer = (c: Context<AppEnv>): PrincipalRef | Response =>
+    limitedRefusal(c) ?? principalRef(c) ?? noPrincipal(c, authorizer);
 
   /**
    * Whose connections the caller lists: every one's for a tenant admin
@@ -307,7 +338,9 @@ export function connectionsRouter(
     if (query.kind === 'err') return badInput(c, query.message, query.field);
     const listed = await listedOwner(c, query.value);
     if (listed === undefined) return c.json({ data: [], hasMore: false });
-    const { projectId, app, ownerKind, state, includeRemoved } = query.value;
+    const { app, ownerKind, state, includeRemoved } = query.value;
+    // A caller limited to a project: the connections its runs there may use.
+    const projectId = query.value.projectId ?? (c.get('tokenProjectId') as ProjectId | undefined);
     const cursor = c.req.query('cursor');
     const page = await binding.list({
       tenantId,
@@ -325,8 +358,8 @@ export function connectionsRouter(
 
   r.post('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
-    const by = principalRef(c);
-    if (by === undefined) return noPrincipal(c, authorizer);
+    const by = changer(c);
+    if (by instanceof Response) return by;
     const body = await readJsonObject(c);
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseConnectBody(body.value);
@@ -353,8 +386,8 @@ export function connectionsRouter(
 
   r.post('/finish', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
-    const caller = principalRef(c);
-    if (caller === undefined) return noPrincipal(c, authorizer);
+    const caller = changer(c);
+    if (caller instanceof Response) return caller;
     const body = await readJsonObject(c);
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseFinishBody(body.value);
@@ -384,8 +417,8 @@ export function connectionsRouter(
     withholdFromReplay(c);
     const tenantId = c.get('tenantId') as TenantId;
     const requestId = c.req.param('requestId');
-    const caller = principalRef(c);
-    if (caller === undefined) return noPrincipal(c, authorizer);
+    const caller = changer(c);
+    if (caller instanceof Response) return caller;
     const request = await binding.getRequest({ tenantId, requestId });
     if (request === null || !(await mayAct(c, request.owner))) {
       return requestNotFound(c, requestId);
@@ -403,7 +436,11 @@ export function connectionsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const connectionId = c.req.param('connectionId');
     const connection = await binding.get({ tenantId, connectionId });
-    if (connection === null || !(await mayReach(c, connection.owner))) {
+    if (
+      connection === null ||
+      !(await mayReach(c, connection.owner)) ||
+      !(await usableHere(c, connection))
+    ) {
       return connectionNotFound(c, connectionId);
     }
     return c.json(serializeConnection(connection));
@@ -416,8 +453,8 @@ export function connectionsRouter(
   r.patch('/:connectionId', connectionIdChecked, async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const connectionId = c.req.param('connectionId');
-    const by = principalRef(c);
-    if (by === undefined) return noPrincipal(c, authorizer);
+    const by = changer(c);
+    if (by instanceof Response) return by;
     const body = await readJsonObject(c);
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseUpdateBody(body.value);
@@ -439,13 +476,18 @@ export function connectionsRouter(
 
   /**
    * The live choices that name a connection, in every project: for its
-   * owner and a tenant admin, whom it reaches. Others get the same 404.
+   * owner and a tenant admin, whom it reaches. Others get the same 404. A
+   * caller limited to a project sees only that project's.
    */
   r.get('/:connectionId/choices', connectionIdChecked, async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const connectionId = c.req.param('connectionId');
     const connection = await binding.get({ tenantId, connectionId });
-    if (connection === null || !(await mayReach(c, connection.owner))) {
+    if (
+      connection === null ||
+      !(await mayReach(c, connection.owner)) ||
+      !(await usableHere(c, connection))
+    ) {
       return connectionNotFound(c, connectionId);
     }
     const cursor = c.req.query('cursor');
@@ -456,14 +498,20 @@ export function connectionsRouter(
       limit: clampLimit(c.req.query('limit')),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
-    return c.json(serializePage(page, serializeChoice));
+    // Cut where the store's page is, so the cursor holds.
+    const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+    const shown =
+      keyProject === undefined
+        ? page
+        : { ...page, data: page.data.filter((choice) => choice.projectId === keyProject) };
+    return c.json(serializePage(shown, serializeChoice));
   });
 
   r.delete('/:connectionId', connectionIdChecked, async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const connectionId = c.req.param('connectionId');
-    const by = principalRef(c);
-    if (by === undefined) return noPrincipal(c, authorizer);
+    const by = changer(c);
+    if (by instanceof Response) return by;
     const connection = await binding.get({ tenantId, connectionId });
     if (connection === null || !(await mayReach(c, connection.owner))) {
       return connectionNotFound(c, connectionId);

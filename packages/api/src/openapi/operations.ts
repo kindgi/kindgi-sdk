@@ -5154,7 +5154,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.writeFact',
     summary: 'Write a fact',
     description:
-      "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`).",
+      "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`). A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5178,7 +5178,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.supersedeFact',
     summary: "Change a fact's content",
     description:
-      'Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.',
+      'Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [FactIdPathParam, IdempotencyKeyParam],
@@ -5200,7 +5200,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.deleteFact',
     summary: 'Delete a fact',
     description:
-      'Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.',
+      'Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [FactIdPathParam, FactExpectVersionQueryParam],
@@ -5225,7 +5225,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.verifyFact',
     summary: 'Mark a fact verified',
     description:
-      'A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.',
+      'A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [FactIdPathParam, IdempotencyKeyParam],
@@ -7889,7 +7889,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.listSessions',
     summary: 'List active sessions for a user',
     description:
-      'A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
+      'A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user"). A key or session limited to a project is refused, `403 permission-denied`, even for its own person: their sessions reach every project.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -7898,7 +7898,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of sessions.', schema: ref('IdentitySessionCollectionPage') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("Someone else's sessions, and not a tenant admin."),
+      '403': ErrorResponse(
+        "Someone else's sessions, and not a tenant admin; or a key or session limited to a project.",
+      ),
     },
   },
   {
@@ -7969,12 +7971,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.secondFactor',
     summary: 'My second factor',
     description:
-      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).',
+      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.',
     tags: ['identity'],
     security: 'bearer',
     responses: {
       '200': { description: 'Your second factor.', schema: ref('SecondFactorStatus') },
       ...CommonAuthErrors,
+      '403': ErrorResponse('A session limited to a project (`permission-denied`).'),
       '400': ErrorResponse('Not a session (`auth-not-session-token`).'),
     },
   },
@@ -7985,7 +7988,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.startSecondFactor',
     summary: 'Start setting up a second factor',
     description:
-      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
+      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8009,7 +8012,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.confirmSecondFactor',
     summary: 'Confirm a new second factor',
     description:
-      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
+      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8037,7 +8040,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.newRecoveryCodes',
     summary: 'New recovery codes',
     description:
-      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
+      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8064,7 +8067,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.removeSecondFactor',
     summary: 'Take my second factor off',
     description:
-      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
+      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8138,7 +8141,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.revokeSessions',
     summary: 'Revoke every active session for a user',
     description:
-      "A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.",
+      "A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out. A key or session limited to a project is refused, `403 permission-denied`, even for its own person: their sessions reach every project.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -8148,7 +8151,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revocation outcome.', schema: ref('RevokeSessionsResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("Another person's sessions, and not a tenant admin."),
+      '403': ErrorResponse(
+        "Another person's sessions, and not a tenant admin; or a key or session limited to a project.",
+      ),
       '500': ErrorResponse('Session revocation failed inside the caller-plugged binding.'),
     },
   },
@@ -8180,7 +8185,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.grants',
     summary: "Read a person's grants",
     description:
-      "What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+      "What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own. A key or session limited to a project sees only the person's role in that project, in `projects`.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -12390,7 +12395,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.list',
     summary: 'List connections',
     description:
-      'A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.',
+      'A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`. A key or session limited to a project lists the connections its runs there may use, as `projectId` does; another `projectId` is `403 key-project-mismatch`.',
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -12454,7 +12459,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.connect',
     summary: 'Start a connect',
     description:
-      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12483,7 +12488,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.finish',
     summary: 'Finish a connect',
     description:
-      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
+      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12539,7 +12544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.requests.start',
     summary: 'Start a connect request',
     description:
-      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.",
+      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectRequestIdPathParam, IdempotencyKeyParam],
@@ -12547,6 +12552,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Where to send the person.', schema: ref('ConnectStart') },
       ...CommonMutationErrors,
+      '403': ErrorResponse('A key or session limited to a project (`permission-denied`).'),
       '400': ErrorResponse(
         '`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`; or either on a request whose app is not a GitHub App (`bad-input`, `details.field`).',
       ),
@@ -12566,7 +12572,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.get',
     summary: 'Fetch a connection',
     description:
-      "A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.",
+      "A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam],
@@ -12586,7 +12592,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.choices',
     summary: "List a connection's choices",
     description:
-      "The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+      "The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project, and sees only the choices in that project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam, LimitQueryParam, CursorQueryParam],
@@ -12606,7 +12612,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.update',
     summary: 'Rename a connection, or make it your main',
     description:
-      "One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.",
+      "One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
@@ -12614,6 +12620,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The connection, renamed or made main.', schema: ref('Connection') },
       ...CommonMutationErrors,
+      '403': ErrorResponse('A key or session limited to a project (`permission-denied`).'),
       '400': ErrorResponse(
         "`connectionId` is not a UUID, or a malformed body, unknown field, both `label` and `main`, or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`). With `main` (`details.field` `main`): `false`, since a main moves only by making another connection main; the company's connection, which has no main; or a caller who isn't its owner, a tenant admin too.",
       ),
@@ -12635,13 +12642,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.disconnect',
     summary: 'Disconnect',
     description:
-      'Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.',
+      'Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.',
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'The connection, removed.', schema: ref('Connection') },
       ...CommonMutationErrors,
+      '403': ErrorResponse('A key or session limited to a project (`permission-denied`).'),
       '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
