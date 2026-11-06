@@ -11,6 +11,8 @@
  *     environment, admin on the target;
  *   - a superseded or suspended source or target copy, a signer no longer
  *     trusted, a signature that doesn't verify: refused, nothing written;
+ *   - a promote-only build moves into production, its signed mark kept and
+ *     verified again;
  *   - a value the build needs that isn't ready in the target: refused, each
  *     value named; the check lists the same ones and writes nothing;
  *   - a repeat answers the target's own deployment, and records only the
@@ -42,7 +44,7 @@ import type {
   VersionDerivation,
 } from '@kindgi/types';
 
-import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
+import { type ProductionEntry, canonicalizeEnvelope } from '../src/deployment-envelope.js';
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentPinBindings,
@@ -119,6 +121,8 @@ function built(opts: {
   readonly seed?: string;
   readonly contents?: DeploymentContents;
   readonly endpoint?: DeploymentEndpoint;
+  /** Signed into the envelope and kept, as a deploy that sent it keeps it. */
+  readonly productionEntry?: ProductionEntry;
 }): Deployment {
   minute += 1;
   const imageDigest = sha(opts.seed ?? 'build-1');
@@ -128,6 +132,7 @@ function built(opts: {
     indexHash: sha(`index:${opts.seed ?? 'build-1'}`),
     tenantId: tenantId as unknown as string,
     publishedAt: '2026-10-01T09:00:00.000Z',
+    ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
   };
   const signed = signEd25519(keys.privateKey, canonicalizeEnvelope(fields));
   if (signed.kind === 'err') throw new Error(signed.error.message);
@@ -142,6 +147,7 @@ function built(opts: {
     signerPublicKey: PUBLIC_KEY,
     signature: Buffer.from(signed.value).toString('base64'),
     publishedAt: fields.publishedAt,
+    ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
     activatedAt: new Date(Date.UTC(2026, 9, 1, 10, minute)).toISOString(),
     ...(opts.projectId !== undefined && { projectId: opts.projectId }),
     packId: 'acme.pack',
@@ -1160,6 +1166,36 @@ describe('a build moves only while it serves and its signature holds', () => {
     const res = await h.promote('dep-s1', S2);
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('signature-invalid');
+  });
+
+  test('a promote-only build moves into production, its mark kept and verified again', async () => {
+    const h = harness({
+      rows: [built({ id: 'dep-s2', projectId: S2, productionEntry: 'promote-only' })],
+    });
+    const res = await h.promote('dep-s2', PROD);
+    expect(res.status).toBe(201);
+    expect(res.body.deployment.productionEntry).toBe('promote-only');
+    expect(res.body.deployment.promotedFromDeploymentId).toBe('dep-s2');
+  });
+
+  test('a promote-only mark the deployment no longer keeps, or one it gained: 400 signature-invalid', async () => {
+    const { productionEntry: _mark, ...unmarked } = built({
+      id: 'dep-s1',
+      projectId: S1,
+      productionEntry: 'promote-only',
+    });
+    const lost = harness({ rows: [unmarked] });
+    const lostRes = await lost.promote('dep-s1', S2);
+    expect(lostRes.status).toBe(400);
+    expect(lostRes.body.error.code).toBe('signature-invalid');
+
+    const gained = harness({
+      rows: [{ ...built({ id: 'dep-s1', projectId: S1 }), productionEntry: 'promote-only' }],
+    });
+    const gainedRes = await gained.promote('dep-s1', S2);
+    expect(gainedRes.status).toBe(400);
+    expect(gainedRes.body.error.code).toBe('signature-invalid');
+    expect(gained.deployments.rows).toHaveLength(1);
   });
 });
 

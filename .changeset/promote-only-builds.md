@@ -1,0 +1,5 @@
+---
+"@kindgi/api": patch
+---
+
+A build can be promote-only: it reaches a project in production only by promotion, never by a deploy. It is promote-only when its signed envelope says `productionEntry: 'promote-only'`, or when the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted, revoked or not. `POST /v1/deployments` takes the field, the signature covers it, and the deployment keeps it. A deploy of a promote-only build into a project in production, or into one whose production the runtime can't read, is `409 promote-only-build`, and nothing is deployed; a promotion keeps the mark and checks the signature over it again. An envelope without the field signs the same bytes as before, and another value of it is `400`. A build carrying the field deploys only on a runtime that knows it, since an earlier runtime checks the signature without it. From this version, a key trusted under an id starting with `kindgi-promote-only:` signs only promote-only builds.

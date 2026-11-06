@@ -87,7 +87,12 @@ import {
   type DeploymentSource,
   serializeDeployment,
 } from '../deployment-binding.js';
-import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
+import {
+  PROMOTE_ONLY_KEY_PREFIX,
+  type ProductionEntry,
+  canonicalizeEnvelope,
+  normaliseSha256Hex,
+} from '../deployment-envelope.js';
 import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
 import type { EnvBinding, EnvCloudSecretBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
@@ -859,6 +864,7 @@ export function deploymentsRouter(
       indexHash: wire.indexHash,
       tenantId: tenantId as unknown as string,
       publishedAt: wire.publishedAt,
+      ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
     });
     let signatureBytes: Buffer;
     try {
@@ -1148,9 +1154,9 @@ export function deploymentsRouter(
     // A later environment of an order takes builds by promotion only: the
     // deploy goes to the order's first environment. The project is the one
     // named, else the default's (where a deploy naming none lands).
+    const entryProjectId =
+      targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
     if (bindings.environmentOrders !== undefined) {
-      const entryProjectId =
-        targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
       const later =
         entryProjectId === undefined
           ? undefined
@@ -1164,6 +1170,29 @@ export function deploymentsRouter(
           later,
         );
       }
+    }
+
+    // A promote-only build reaches a project in production by promotion
+    // only, so a deploy into one (or into one whose production can't be
+    // read) is refused. The project is the one the order check reads.
+    if (
+      (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId)) &&
+      (await promoteOnlyBuild(bindings.signingKeyRegistry, tenantId, wire, publicKeyBase64))
+    ) {
+      c.status(statusFor('promote-only-build') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'promote-only-build',
+            message: `This build reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). Deploy it into a project before this one in its environment order and promote it from there; nothing was deployed.`,
+            signerKeyId: wire.signerKeyId as unknown as string,
+            ...(entryProjectId !== undefined && {
+              projectId: entryProjectId as unknown as string,
+            }),
+          },
+          requestId,
+        ),
+      );
     }
 
     // What its agents and flows name, besides what it brings itself, must be
@@ -1508,6 +1537,7 @@ export function deploymentsRouter(
         signerPublicKey: publicKeyBase64,
         signature: wire.signature,
         publishedAt: wire.publishedAt,
+        ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
@@ -1899,6 +1929,59 @@ type ParsedSyncEntry =
   | { readonly kind: 'value'; readonly name: string; readonly value: string };
 
 // ------------------------------------------------------------
+// Promote-only builds
+// ------------------------------------------------------------
+
+/**
+ * Whether `projectId` is in production, or its production can't be read
+ * (no project binding, no project): a promote-only build is refused at
+ * both.
+ */
+async function mayBeInProduction(
+  projects: ProjectBinding | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+): Promise<boolean> {
+  if (projects === undefined || projectId === undefined) return true;
+  const project = await projects.get(tenantId, projectId);
+  return project === undefined || project.productionSince !== undefined;
+}
+
+/**
+ * Whether the build is promote-only: its envelope says so, or its key does.
+ * A key whose id starts with `PROMOTE_ONLY_KEY_PREFIX` signs only such
+ * builds, and so does any key with the public key of one the workspace has
+ * ever trusted (a revoked entry is kept), so trusting the same key again
+ * under another id never lifts it.
+ */
+async function promoteOnlyBuild(
+  keys: SigningKeyRegistryBinding,
+  tenantId: TenantId,
+  wire: WireBody,
+  publicKey: string,
+): Promise<boolean> {
+  if (wire.productionEntry === 'promote-only') return true;
+  if ((wire.signerKeyId as unknown as string).startsWith(PROMOTE_ONLY_KEY_PREFIX)) return true;
+  let cursor: Cursor | undefined;
+  do {
+    const page = await keys.listTrusted({
+      tenantId,
+      limit: 100,
+      includeRevoked: true,
+      ...(cursor !== undefined && { cursor }),
+    });
+    const marked = page.data.some(
+      (key) =>
+        (key.keyId as unknown as string).startsWith(PROMOTE_ONLY_KEY_PREFIX) &&
+        key.publicKey === publicKey,
+    );
+    if (marked) return true;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return false;
+}
+
+// ------------------------------------------------------------
 // Wire body validation
 // ------------------------------------------------------------
 
@@ -1910,6 +1993,8 @@ interface WireBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
+  /** Signed with the rest when present: how the build may reach a project in production. */
+  readonly productionEntry?: ProductionEntry;
   /** The project to deploy into; absent: the tenant's default project. */
   readonly projectId?: ProjectId;
   /** Where the pack lives in git, when the client said. */
@@ -1987,6 +2072,12 @@ function parseWireBody(body: unknown): ParseResult {
   if (publishedAt !== undefined && parseTimeInput(publishedAt) === null) {
     issues.push({ path: 'publishedAt', message: 'publishedAt must be ISO-8601' });
   }
+  // A value this runtime doesn't know is refused, never read as absent: the
+  // signature would then be checked over fewer fields than were signed.
+  const productionEntry = b.productionEntry;
+  if (productionEntry !== undefined && productionEntry !== 'promote-only') {
+    issues.push({ path: 'productionEntry', message: "productionEntry must be 'promote-only'" });
+  }
   // Checked again by the project-ref middleware, which also answers 404 for
   // a project of no tenant's; here only its shape, for a router mounted alone.
   const projectId = b.projectId;
@@ -2013,6 +2104,7 @@ function parseWireBody(body: unknown): ParseResult {
       signerPublicKey: signerPublicKey as string,
       signature: signature as string,
       publishedAt: publishedAt as string,
+      ...(productionEntry === 'promote-only' && { productionEntry }),
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
       ...(source !== undefined && { source }),
       ...(replace !== undefined && { replace }),

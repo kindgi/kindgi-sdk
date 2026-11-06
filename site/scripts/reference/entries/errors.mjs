@@ -737,6 +737,20 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'promote-only-build': {
+    description:
+      "The build is promote-only, so it reaches a project in production only by promotion, never by a deploy. Its envelope says `productionEntry: 'promote-only'`, or the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted. The project you named (or the default project, when you named none) is in production, or this runtime can't read whether it is. Deploy the build into a project that isn't in production and comes before this one in its environment order, then promote it from there. Nothing is deployed.",
+    details: [
+      {
+        key: 'signerKeyId',
+        meaning: 'id of the key that signed the build',
+      },
+      {
+        key: 'projectId',
+        meaning: 'the project the deploy was aimed at; absent when no project could be read',
+      },
+    ],
+  },
   'promotion-not-next-environment': {
     description:
       "A deployment is promoted only to the next environment of its environment order, one environment at a time. The project named isn't that one, or the deployment is in the order's last environment, or in no order. `kindgi environments list` shows the order. Nothing is written.",
