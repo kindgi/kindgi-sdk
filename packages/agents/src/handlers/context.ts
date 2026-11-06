@@ -181,7 +181,8 @@ export interface TurnContext {
   lastProvider?: { readonly id: string; readonly model: string };
   /**
    * The providers' warnings about the turn's answers, by code (the first
-   * message of each): set by `model-call`, surfaced in
+   * message of each): set by `model-call`, and by the guardrail gates for
+   * their judges' calls (`addJudgeWarnings`), surfaced in
    * `AgentTurnResult.warnings`.
    */
   modelWarnings?: Map<string, string>;
