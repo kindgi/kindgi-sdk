@@ -138,7 +138,7 @@ export async function referencesOutOfScope(
  * (the item's references, as the route asked them) that names it, else
  * at the item itself (`''`). Trying again gets the answer the version's
  * absence gets: a version a step names is refused by reach, a pinned one
- * is pinned afresh.
+ * is pinned afresh (an agent names no versions, so its own are only pinned).
  */
 export function heldVersionsGone(
   item: { readonly kind: 'agent' | 'flow'; readonly id: string; readonly version: string },
@@ -166,10 +166,16 @@ export function heldVersionsGone(
   });
   return {
     code: 'reference-out-of-scope',
-    message: `${NOUN[item.kind]} "${item.id}" ${item.version} wasn't published: ${gone.map(named).join(', ')} ${gone.length === 1 ? 'was' : 'were'} removed while it was published. Try again: a version it names is then refused, and one it pins is pinned afresh`,
+    message: `${NOUN[item.kind]} "${item.id}" ${item.version} wasn't published: ${gone.map(named).join(', ')} ${gone.length === 1 ? 'was' : 'were'} removed while it was published. Try again: ${TRIED_AGAIN[item.kind]}`,
     issues,
   };
 }
+
+/** What publishing again does with a removed version, by what was published. */
+const TRIED_AGAIN = {
+  flow: 'a version it names is then refused, and one it pins is pinned afresh',
+  agent: 'what it pins is then pinned afresh',
+} as const;
 
 /** `agent "acme.desk"`, with its version when the reference is to one (`agent "acme.desk" 1.1.0`). */
 function named(ref: ItemReference): string {

@@ -128,6 +128,36 @@ describe('a publish whose registry found a version it holds removed', () => {
     expect(registry.published).toEqual(['acme.flow@1.0.0']);
   });
 
+  test('POST /v1/flows: a step naming another version of the agent is no path of the removed one', async () => {
+    const registry = goneRegistry('flowId', [{ kind: 'agent', id: 'acme.desk', version: '1.1.0' }]);
+    const res = await send({ flowRegistry: registry.binding }, '/v1/flows', {
+      id: 'acme.flow',
+      version: '1.0.0',
+      projectId: randomUUID(),
+      nodes: [
+        // The flow pins this step's agent, and the pin held 1.1.0.
+        { id: 'a', kind: 'agent', ref: 'acme.desk' },
+        { id: 'b', kind: 'agent', ref: 'acme.desk', config: { version: '1.0.0' } },
+      ],
+      edges: [
+        { id: 'e0', from: '$start', to: 'a' },
+        { id: 'e1', from: 'a', to: 'b' },
+        { id: 'e2', from: 'b', to: '$end' },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error?.code).toBe('reference-out-of-scope');
+    expect(res.body.error?.details?.issues).toEqual([
+      {
+        path: '/nodes/a',
+        kind: 'agent',
+        id: 'acme.desk',
+        message: 'agent "acme.desk" 1.1.0 was removed while this flow was published',
+      },
+    ]);
+    expect(registry.published).toEqual(['acme.flow@1.0.0']);
+  });
+
   test('POST /v1/agents: 400 reference-out-of-scope, at the tool it pins', async () => {
     const registry = goneRegistry('agentId', [
       { kind: 'tool', id: 'acme.lookup', version: '1.2.0' },
@@ -146,7 +176,7 @@ describe('a publish whose registry found a version it holds removed', () => {
     expect(res.status).toBe(400);
     expect(res.body.error?.code).toBe('reference-out-of-scope');
     expect(res.body.error?.message).toBe(
-      `agent "acme.desk" 1.0.0 wasn't published: tool "acme.lookup" 1.2.0 was removed while it was published. Try again: a version it names is then refused, and one it pins is pinned afresh`,
+      `agent "acme.desk" 1.0.0 wasn't published: tool "acme.lookup" 1.2.0 was removed while it was published. Try again: what it pins is then pinned afresh`,
     );
     expect(res.body.error?.details?.issues).toEqual([
       {
