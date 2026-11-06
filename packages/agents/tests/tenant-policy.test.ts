@@ -53,7 +53,7 @@ describe('mergeTenantPolicies — the result is at least as strict as each side'
     expect(merged?.providers).toEqual({ allow: ['anthropic'], deny: ['openai'] });
   });
 
-  test('deny lists union; the lower highest price is kept; a limit on one side only applies as-is', () => {
+  test('deny lists union; `maxCostPerCallUsd` keeps the smaller value; a limit on one side only applies as-is', () => {
     const merged = mergeTenantPolicies(
       policy({ models: { deny: ['opus'] }, maxCostPerCallUsd: 0.05, maxTokensPerCall: 100_000 }),
       policy({ models: { deny: ['gpt-large'] }, maxCostPerCallUsd: 0.02 }),
