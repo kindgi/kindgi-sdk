@@ -362,6 +362,9 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
 
+      # C-RT-4: a slow first start runs the migrations; up to 10 minutes,
+      # the most Cloud Run allows a startup probe (failure_threshold times
+      # period_seconds). A start that runs longer is shut down and starts over.
       startup_probe {
         http_get {
           path = "/health"
@@ -369,7 +372,7 @@ resource "google_cloud_run_v2_service" "server" {
         }
         period_seconds    = 5
         timeout_seconds   = 3
-        failure_threshold = 24
+        failure_threshold = 120
       }
       liveness_probe {
         http_get {

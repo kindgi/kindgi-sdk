@@ -145,9 +145,11 @@ readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
-# How long to wait for the new revision to become ready (step 6).
+# How long to wait for the new revision to become ready (step 6): longer
+# than the server's startup probe (10 minutes), so a start the platform
+# still lets run is never reported as failed.
 readonly POLL_INTERVAL=10
-readonly POLL_TRIES=60
+readonly POLL_TRIES=90
 # <<<
 
 # How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
@@ -1129,7 +1131,11 @@ EOT
      A long transaction holding one of those tables makes the new revision
      fail after about a minute, naming the session that holds it (end it
      with pg_terminate_backend, or let it finish). The old revision keeps
-     serving meanwhile.
+     serving meanwhile. The first start has 10 minutes to run the
+     migrations (the module's startup probe): one that runs longer is
+     restarted and runs them again from the start, so it may never
+     finish. With many judgments or test runs, time the upgrade on a
+     copy of the database first.
    - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
      identity the server reads it as storage.buckets.get on that bucket
      first: the 0.4.0 runtime reads the bucket's settings at start, and

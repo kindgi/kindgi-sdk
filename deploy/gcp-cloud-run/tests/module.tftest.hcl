@@ -85,6 +85,11 @@ run "defaults_keep_kms_and_the_own_repository" {
     condition     = contains(keys(google_project_service.apis), "cloudresourcemanager.googleapis.com")
     error_message = "The module turns Cloud Resource Manager on, for a root beside it that reads the project billed to the project."
   }
+  # C-RT-4: the first start has 10 minutes to run the migrations, Cloud Run's most.
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].containers[0].startup_probe[0].period_seconds == 5 && google_cloud_run_v2_service.server.template[0].containers[0].startup_probe[0].failure_threshold == 120
+    error_message = "C-RT-4: the server's startup probe waits 600 s, 120 tries 5 s apart."
+  }
 }
 
 run "secrets_backend_none_seals_endpoint_tokens_under_the_key" {

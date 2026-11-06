@@ -786,7 +786,7 @@ case_start "start never ready"
 reset_env; export STUB_TAGS="0.1.8" STUB_APP_AFTER="$APP_STUCK"
 run "yes"
 assert_rc 1 "unhealthy start"
-assert_out "did not become ready within 600s"
+assert_out "did not become ready within 900s"
 assert_out "into a NEW server"
 assert_jobs_deleted "after the revision never comes up"
 
