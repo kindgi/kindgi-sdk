@@ -141,6 +141,32 @@ class IndexerTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void aBuiltInCheckIndexesAsTypeScriptIndexesIt() throws Exception {
+    // checkBuiltIn and the built-in's id, its config as given and no configSchema: the runtime runs and checks it.
+    Map<String, Object> report = value(index("builtin"));
+    assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    // A built-in's id has no pack prefix, so no check-id-unprefixed.
+    assertThat(report.get("warnings")).isEqualTo(List.of());
+    String text = Files.readString(out.resolve("builtin.json"), StandardCharsets.UTF_8);
+    Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
+    String rel = "src/main/java/com/kindgi/pack/testpacks/builtin/guardrails/Rules.java";
+    assertThat((List<Map<String, Object>>) index.get("guardrails")).containsExactly(
+        Map.of("id", "acme.cites", "kind", "zero-llm", "action", Map.of("on-violation", "log-only"),
+            "checkModulePath", rel, "checkId", "must-cite", "checkBuiltIn", true),
+        Map.of("id", "acme.no-guarantees", "name", "No guarantees", "kind", "zero-llm",
+            "action", Map.of("on-violation", "halt"), "checkModulePath", rel, "checkId", "forbidden-substring",
+            "checkBuiltIn", true, "config", Map.of("patterns", List.of("guaranteed", "we promise"))),
+        Map.of("id", "acme.no-refunds", "kind", "zero-llm",
+            "action", Map.of("on-violation", "retry", "retry", Map.of("maxAttempts", 2)), "at", "before-tool",
+            "checkModulePath", rel, "checkId", "never-call-tool", "checkBuiltIn", true,
+            "config", Map.of("tools", List.of("acme.refund"))));
+
+    List<Map<String, Object>> issues = Specs.validator("pack-index").issues(index);
+    assertThat(issues).as(String.valueOf(issues)).isEmpty();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void aCheckIdWithoutThePacksPrefixIsAWarningAndStillIndexes() throws Exception {
     Map<String, Object> report = value(index("warn"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());

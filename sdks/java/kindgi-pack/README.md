@@ -203,7 +203,11 @@ A guardrail ships its check, so its check id (`checkId`, else the guardrail's
 id) can't be a built-in check's (`must-cite`, `never-call-tool`,
 `max-tool-calls`, … in `Guardrail.RESERVED_CHECK_IDS`): the runtime runs the
 built-in for a guardrail naming one. `check(…)` refuses it, saying to rename
-your check, and the indexer reports the file.
+your check, and the indexer reports the file. To use a built-in, name it in
+place of a check: `builtInCheck("forbidden-substring", Map.of("patterns",
+List.of("guaranteed")))`, with its settings keyed as on the wire, or
+`builtInCheck("must-cite")` for its defaults. The runtime runs it, where
+`set("at", …)` says, and `evaluate` throws.
 
 An agent or a flow takes any other field of its schema with
 `set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`

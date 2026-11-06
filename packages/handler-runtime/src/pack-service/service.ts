@@ -160,8 +160,11 @@ export function createPackService(options: PackServiceOptions): PackService {
   for (const t of options.index.tools) {
     versionsOf.set(t.id, [...(versionsOf.get(t.id) ?? []), t]);
   }
+  // A built-in's check (`checkBuiltIn`) is the runtime's: the pack has no code for it.
   const checks = new Map<string, IndexedGuardrail>(
-    options.index.guardrails.map((g) => [g.checkId ?? g.id, g]),
+    options.index.guardrails
+      .filter((g) => g.checkBuiltIn !== true)
+      .map((g) => [g.checkId ?? g.id, g]),
   );
 
   let inFlight = 0;

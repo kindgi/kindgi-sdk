@@ -210,6 +210,10 @@ final class PackService implements HttpServer.Handler {
     }
     for (Object g : (List<Object>) index.getOrDefault("guardrails", List.of())) {
       Map<String, Object> entry = (Map<String, Object>) g;
+      // A built-in's check (`checkBuiltIn`) is the runtime's: the pack has no code for it.
+      if (Boolean.TRUE.equals(entry.get("checkBuiltIn"))) {
+        continue;
+      }
       String checkId = String.valueOf(entry.get("checkId") != null ? entry.get("checkId") : entry.get("id"));
       String path = String.valueOf(entry.get("checkModulePath"));
       List<Object> primitives = load(path, loader, loaded, checkId, failures);

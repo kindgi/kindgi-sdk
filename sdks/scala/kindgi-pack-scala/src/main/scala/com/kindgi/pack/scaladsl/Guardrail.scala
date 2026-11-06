@@ -28,7 +28,7 @@ object Guardrail {
     new GuardrailBuilder[Map[String, Any]](id, None, None, Vector.empty)
 }
 
-/** A guardrail being built; `check` or `checkAsync` finishes it. */
+/** A guardrail being built; `check`, `checkAsync` or `builtInCheck` finishes it. */
 final class GuardrailBuilder[C] private[scaladsl] (
     id: String,
     configType: Option[Class[_]],
@@ -90,6 +90,40 @@ final class GuardrailBuilder[C] private[scaladsl] (
       def check(config: AnyRef, trace: RunTrace): CompletionStage[CheckResult] = f(in(config), trace).asJava
     }))
 
+  /**
+   * Finishes the guardrail with a built-in check and its defaults, in place of a check: the Kindgi
+   * runtime runs it. See the other `builtInCheck`.
+   *
+   * @param checkId the built-in's id, one of `com.kindgi.pack.Guardrail.RESERVED_CHECK_IDS`
+   */
+  def builtInCheck(checkId: String): Guardrail[Map[String, Any]] = builtIn(_.builtInCheck(checkId))
+
+  /**
+   * Finishes the guardrail with a built-in check in place of a check: the Kindgi runtime runs it,
+   * with `config` as its settings, keyed as on the wire (`Map("patterns" -> List("guaranteed"))`).
+   * It runs where `set("at", …)` says (left out, the final answer). The runtime checks the settings,
+   * and that the built-in runs at that point, when the pack is registered and deployed. Calling the
+   * guardrail in this JVM throws.
+   *
+   * A built-in's config is the runtime's to check, so the guardrail is a `Guardrail.json` one with no
+   * `configSchema`. Java's `builtInCheck` says what else it refuses: a `set("config", …)` as well, a
+   * `checkId`, a `kind` other than `zero-llm`, `judgeCapabilities`, a `sandbox`, `limits` or
+   * `network`, and an action or `scope.tools` the guardrail can't use where it runs.
+   *
+   * @param checkId the built-in's id, one of `com.kindgi.pack.Guardrail.RESERVED_CHECK_IDS`
+   * @param config the built-in's settings
+   */
+  def builtInCheck(checkId: String, config: Map[String, Any]): Guardrail[Map[String, Any]] =
+    builtIn(_.builtInCheck(checkId, JsonValues.javaMap(config)))
+
+  private def builtIn(finish: GuardrailBuilder.JBuilder => GuardrailBuilder.JBuiltIn): Guardrail[Map[String, Any]] = {
+    if (configType.isDefined || configSchema.isDefined) {
+      throw new IllegalStateException(s"guardrail $id: a built-in's config is the runtime's to check, so build it"
+        + " from Guardrail.json, with no configSchema")
+    }
+    build(b => finish(b).asInstanceOf[com.kindgi.pack.Guardrail[AnyRef]]).asInstanceOf[Guardrail[Map[String, Any]]]
+  }
+
   private def in(config: AnyRef): C =
     (if (configType.isEmpty) JsonValues.scalaMap(config) else config).asInstanceOf[C]
 
@@ -105,6 +139,7 @@ final class GuardrailBuilder[C] private[scaladsl] (
 private[scaladsl] object GuardrailBuilder {
   type JBuilder = com.kindgi.pack.Guardrail.Builder[AnyRef]
   type Step = JBuilder => JBuilder
+  type JBuiltIn = com.kindgi.pack.Guardrail[java.util.Map[String, Object]]
 }
 
 /** A check's verdict. */

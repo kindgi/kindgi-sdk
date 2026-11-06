@@ -195,6 +195,25 @@ until the guardrail has failed `maxAttempts` answers, and then the turn fails
 the same way. Any other action is recorded on the turn's violations and the
 turn completes; in 0.1 nothing escalates or calls a compensating tool.
 
+A rule one of Kindgi's built-in checks covers needs no function: name the
+built-in, with its settings keyed as on the wire.
+
+```python
+# guardrails/no_guarantees.py
+from kindgi import built_in_guardrail
+
+no_guarantees = built_in_guardrail(
+    id="acme.ledger.no-guarantees",
+    check="forbidden-substring",
+    config={"patterns": ["guaranteed", "we promise"]},
+    on_violation="halt",
+)
+```
+
+`check` is one of `kindgi.pack.define.RESERVED_CHECK_IDS`, and `at=` runs it
+at another of its points (`"before-tool"` for `never-call-tool`). The runtime
+runs it and checks its settings; calling it in Python raises.
+
 ### Agents and flows
 
 ```python
