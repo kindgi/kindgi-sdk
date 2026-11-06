@@ -95,6 +95,14 @@ def mail(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             raise RuntimeError("send failed") from rejected
     connection = ctx.connections["mail"]
     return {"label": connection.account.label, "length": len(connection.access_token)}
+
+@tool(id="t.fails-with-cause")
+def fails_with_cause(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    "Fails with a cause that quotes the call's secret, as a client's error can."
+    try:
+        raise OSError(f"login refused for {ctx.secrets['SHOP_KEY']}")
+    except OSError as error:
+        raise RuntimeError("lookup failed") from error
 """
 
 CHECKS = """
@@ -278,6 +286,25 @@ async def test_output_json_cannot_hold(client: Any) -> None:
     answer = await call(http, tool_call("t.not-json", {}))
     assert answer["code"] == "output-validation-failed"
     assert "not JSON" in answer["message"]
+
+
+@pytest.mark.anyio
+async def test_a_handlers_failure_says_its_causes_with_the_calls_secret_taken_out(
+    client: Any,
+) -> None:
+    http, _ = client
+    secret = "shop-key-0123456789"
+    message = tool_call("t.fails-with-cause", {})
+    message["ctx"]["secrets"] = {"SHOP_KEY": secret}
+    answer = await call(http, message)
+    assert answer["code"] == "handler-throw"
+    assert answer["message"] == (
+        'Handler for tool "t.fails-with-cause" threw: RuntimeError: lookup failed; '
+        "caused by OSError: login refused for [redacted]"
+    )
+    assert answer["cause"]["message"] == "lookup failed"
+    assert "OSError: login refused for [redacted]" in answer["cause"]["stack"]
+    assert secret not in json.dumps(answer)
 
 
 @pytest.mark.anyio

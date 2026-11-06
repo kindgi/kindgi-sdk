@@ -13,6 +13,18 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool's or a check's error says what caused it, and leaves out
+  the call's secrets.** A handler's or a check's failure message, and a module's
+  that fails to import, goes on to say its causes (`raise … from err`), up to
+  three, each as `; caused by <Name> [<code>]: <message>`, masked and on one
+  line: `RuntimeError: lookup failed; caused by ConnectionRefusedError: [Errno
+  111] Connection refused`. A handler's error has the call's secrets, its
+  connection tokens and its files token as `[redacted]`, in its message and its
+  `cause`, wherever it quotes them. The message is masked as the TypeScript pack
+  service masks it: a Kindgi token whole, and a URL's secret query value, such as
+  `?token=`. An error with no cause and no secret reads as it did. `kindgi.log`
+  gains `scrub_text(text, full_mask=True)` and `describe_causes`, as
+  `@kindgi/log`'s `scrubText` and `describeCauses`.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

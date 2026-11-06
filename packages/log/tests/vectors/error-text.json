@@ -1,0 +1,205 @@
+{
+  "scrub": [
+    {
+      "name": "a Kindgi token goes whole, with no prefix and no last four",
+      "text": "the key kgi_sk_ABCDEFGHIJKLMNOPQRSTUV was refused",
+      "expected": "the key [redacted] was refused"
+    },
+    {
+      "name": "Bearer and what follows it",
+      "text": "sent Authorization: Bearer abc.def-123 to the shop",
+      "expected": "sent Authorization: Bearer [redacted] to the shop"
+    },
+    {
+      "name": "a URL's password",
+      "text": "postgres://app:hunter22@db.acme.example:5432/app refused the connection",
+      "expected": "postgres://app:***@db.acme.example:5432/app refused the connection"
+    },
+    {
+      "name": "a URL's secret query and fragment values, their names kept",
+      "text": "GET https://api.acme.example/v1/orders?key=abc123&page=2&access_token=xyz#sig=s1 failed",
+      "expected": "GET https://api.acme.example/v1/orders?key=[redacted]&page=2&access_token=[redacted]#sig=[redacted] failed"
+    },
+    {
+      "name": "a signed URL's signature",
+      "text": "https://files.acme.example/o?X-Amz-Date=20261106&X-Amz-Signature=deadbeef expired",
+      "expected": "https://files.acme.example/o?X-Amz-Date=20261106&X-Amz-Signature=[redacted] expired"
+    },
+    {
+      "name": "a name that only ends in key is an id, and stays",
+      "text": "https://api.acme.example/v1/orders?sort_key=name&idempotency_key=ik-1",
+      "expected": "https://api.acme.example/v1/orders?sort_key=name&idempotency_key=ik-1"
+    },
+    {
+      "name": "an empty value stays",
+      "text": "https://api.acme.example/v1/orders?token=&page=2",
+      "expected": "https://api.acme.example/v1/orders?token=&page=2"
+    },
+    {
+      "name": "text with no secret shape reads as it did",
+      "text": "No order Z-9 in the shop",
+      "expected": "No order Z-9 in the shop"
+    }
+  ],
+  "causes": [
+    {
+      "name": "an error with no cause says nothing more",
+      "error": {
+        "name": "LookupError",
+        "message": "No order Z-9"
+      },
+      "expected": ""
+    },
+    {
+      "name": "a cause says why",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "Connection refused"
+        }
+      },
+      "expected": "; caused by ConnectError: Connection refused"
+    },
+    {
+      "name": "a code the cause's message doesn't hold is said",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "connect failed",
+          "code": "ECONNREFUSED"
+        }
+      },
+      "expected": "; caused by ConnectError [ECONNREFUSED]: connect failed"
+    },
+    {
+      "name": "a code the cause's message holds is left out",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "connect ECONNREFUSED 10.0.0.1:443",
+          "code": "ECONNREFUSED"
+        }
+      },
+      "expected": "; caused by ConnectError: connect ECONNREFUSED 10.0.0.1:443"
+    },
+    {
+      "name": "a cause the message already holds is passed over, and the next is said",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed: Connection refused",
+        "cause": {
+          "name": "ConnectError",
+          "message": "Connection refused",
+          "cause": {
+            "name": "SocketError",
+            "message": "socket closed"
+          }
+        }
+      },
+      "expected": "; caused by SocketError: socket closed"
+    },
+    {
+      "name": "a cause whose code the message lacks is said, though its message is there",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed: Connection refused",
+        "cause": {
+          "name": "ConnectError",
+          "message": "Connection refused",
+          "code": "ECONNREFUSED"
+        }
+      },
+      "expected": "; caused by ConnectError [ECONNREFUSED]: Connection refused"
+    },
+    {
+      "name": "three causes at most",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "hop 1",
+          "cause": {
+            "name": "SocketError",
+            "message": "hop 2",
+            "cause": {
+              "name": "TimeoutError",
+              "message": "hop 3",
+              "cause": {
+                "name": "LookupError",
+                "message": "hop 4"
+              }
+            }
+          }
+        }
+      },
+      "expected": "; caused by ConnectError: hop 1; caused by SocketError: hop 2; caused by TimeoutError: hop 3"
+    },
+    {
+      "name": "a cause with an empty message says its name, and is never passed over",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "TimeoutError",
+          "message": ""
+        }
+      },
+      "expected": "; caused by TimeoutError"
+    },
+    {
+      "name": "a cause's secrets are masked with the full mask",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "GET https://api.acme.example/v1?key=abc123&page=2 with kgi_sk_ABCDEFGHIJKLMNOPQRSTUV failed"
+        }
+      },
+      "expected": "; caused by ConnectError: GET https://api.acme.example/v1?key=[redacted]&page=2 with [redacted] failed"
+    },
+    {
+      "name": "a cause of several lines is said on one",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "first line\n  second line\tthird"
+        }
+      },
+      "expected": "; caused by ConnectError: first line second line third"
+    },
+    {
+      "name": "a long cause is cut at a space, with …",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "word00 word01 word02 word03 word04 word05 word06 word07 word08 word09 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32 word33 word34 word35 word36 word37 word38 word39 word40 word41 word42 word43 word44 word45 word46 word47 word48 word49 word50 word51 word52 word53 word54 word55 word56 word57 word58 word59 word00 word01 word02 word03 word04 word05 word06 word07 word08 word09 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32 word33 word34 word35 word36 word37 word38 word39 word40 word41 word42 word43 word44 word45 word46 word47 word48 word49 word50 word51 word52 word53 word54 word55 word56 word57 word58 word59"
+        }
+      },
+      "expected": "; caused by ConnectError: word00 word01 word02 word03 word04 word05 word06 word07 word08 word09 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32 word33 word34 word35 word36 word37 word38 word39 word40 word41 word42 word43 word44 word45 word46 word47 word48 word49 word50 word51 word52 word53 word54 word55 word56 word57 word58 word59 word00 word01 word02 word03 word04 word05 word06 word07 word08…"
+    },
+    {
+      "name": "a word longer than the cut is left out whole",
+      "error": {
+        "name": "ToolError",
+        "message": "lookup failed",
+        "cause": {
+          "name": "ConnectError",
+          "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expected": "; caused by ConnectError:…"
+    }
+  ]
+}
