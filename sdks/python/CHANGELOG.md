@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a SAML provider carries the service provider's certificates,
+  for its metadata.** `SamlIdentityProviderConfig` and
+  `UpdateIdentityProviderBody` gain `sp_signing_certificates` and
+  `sp_decryption_certificates` (`spSigningCertificates` and
+  `spDecryptionCertificates` on the wire): the certificates (PEM) of the keys
+  `sp_signing_key_ref` and `sp_decryption_key_ref` name, published in the
+  service provider's metadata. Each needs its key. Both are optional and
+  default to `None`.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

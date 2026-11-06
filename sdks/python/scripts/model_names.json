@@ -1031,6 +1031,14 @@
   "SiteSignInResult": ["SiteSignInResult"],
   "SourceFreshness": ["SourceFreshness"],
   "SourceRefresh": ["SourceRefresh"],
+  "SpDecryptionCertificate": [
+    "SamlIdentityProviderConfig.spDecryptionCertificates",
+    "UpdateIdentityProviderBody.spDecryptionCertificates"
+  ],
+  "SpSigningCertificate": [
+    "SamlIdentityProviderConfig.spSigningCertificates",
+    "UpdateIdentityProviderBody.spSigningCertificates"
+  ],
   "StartConnectBody": ["StartConnectBody"],
   "StartEvalRunBody": [],
   "StartEvalRunResult": [],
