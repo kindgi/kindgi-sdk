@@ -1612,6 +1612,10 @@ class RevokeTokenResult(BaseModel):
     )
     token_id: Annotated[UUID, Field(alias="tokenId")]
     revoked: Literal[True]
+    also_revoked: Annotated[list[UUID] | None, Field(alias="alsoRevoked")] = None
+    """
+    The keys revoked with it: every key minted with it, and with those in turn, that wasn't revoked yet, oldest first. Absent where the deployment's key store doesn't record which key minted which.
+    """
 
 
 class TrustedSigningKey(BaseModel):
@@ -15251,6 +15255,10 @@ class MintTokenResult(BaseModel):
     """
     When the key last authenticated a request (updated at most once a minute).
     """
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.
+    """
     token: str
     """
     Plaintext bearer token. Returned exactly once at mint time.
@@ -15451,6 +15459,10 @@ class ApiToken(BaseModel):
     """
     When the key last authenticated a request (updated at most once a minute).
     """
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.
+    """
 
 
 class Datum4(BaseModel):
@@ -15491,6 +15503,10 @@ class Datum4(BaseModel):
     """
     When the key last authenticated a request (updated at most once a minute).
     """
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.
+    """
 
 
 class ApiTokenPage(BaseModel):
@@ -15504,6 +15520,10 @@ class ApiTokenPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key a list asked for with `?mintedWith=` was narrowed to, on every page. Absent from an older runtime, which ignores the filter and lists every key the caller sees.
+    """
 
 
 class ServiceAccountGrantProject(BaseModel):
@@ -19964,6 +19984,10 @@ class UnregisterUserResult(BaseModel):
     )
     user: UserRecord
     keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
+    minted_keys_revoked: Annotated[int | None, Field(alias="mintedKeysRevoked", ge=0)] = None
+    """
+    The keys minted with theirs, and with those in turn, revoked with them, whoever they act for. Not in `keysRevoked`. Absent where the key store doesn't record which key minted which.
+    """
     sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
     grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
 

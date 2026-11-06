@@ -290,6 +290,8 @@ export type {
   MintPublicRunTokenInput,
   PublicRunToken,
   TokenFilter,
+  TokenPage,
+  TokenRevoked,
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';

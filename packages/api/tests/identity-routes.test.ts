@@ -626,6 +626,17 @@ describe('API — removing a person (POST /users/:userId/unregister)', () => {
       grantsRemoved: 3,
     });
     expect(calls).toEqual([{ userId: 'u-a' }]);
+    // A directory that doesn't count the keys minted with theirs says nothing of them.
+    expect(
+      await (await jsonPost(app, '/v1/identity/users/u-b/unregister', ADMIN_TOKEN)).json(),
+    ).not.toHaveProperty('mintedKeysRevoked');
+  });
+
+  test('the keys minted with theirs are counted apart', async () => {
+    const { app } = makeUnregisterApp((userId) => ({ ...removed(userId), mintedKeysRevoked: 4 }));
+    const res = await jsonPost(app, '/v1/identity/users/u-a/unregister', ADMIN_TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ keysRevoked: 2, mintedKeysRevoked: 4 });
   });
 
   test('anyone else is refused before the directory is asked', async () => {

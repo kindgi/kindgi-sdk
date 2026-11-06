@@ -430,18 +430,23 @@ npx --yes @kindgi/cli@0.2 tokens create --label=laptop --expires=30d
 The secret is printed once, there. Store it, because nothing shows it
 again.
 
-A key can't outlive the key that makes it. Made with a key that expires,
-the new key's `--expires` must be no later than that key's. A later one, or
-none, is refused with `403 token-expiry-exceeds-minter`, naming the latest
-date allowed. The same holds in a console signed in with a key. These
-aren't limited this way:
+A key can't outlive the key that makes it. Made with a key, it stops when
+that key is revoked, and so does every key made with it in turn, whoever
+they act for. Made with a key that expires, the new key's `--expires` must
+be no later than that key's. A later one, or none, is refused with
+`403 token-expiry-exceeds-minter`, naming the latest date allowed. The same
+holds in a console signed in with a key. These aren't limited by an expiry:
 
 - the deployment's token;
-- a key without an expiry;
+- a key without an expiry, though a key it makes still stops when it's
+  revoked;
 - a console signed in through SSO, a social sign-in or an emailed link.
 
 Make longer-lived keys with one of those, such as the 90-day key in
-[Service accounts](#service-accounts).
+[Service accounts](#service-accounts). A key that stands alone, which no
+other key's revoke stops, is made with the deployment's token or from a
+console signed in through SSO, a social sign-in or an emailed link. A key
+made by a runtime that doesn't record which key made it stands alone too.
 
 - **For someone else,** as a tenant admin only: `--for=user:<user-id>` or
   `--for=sa:<service-account-id>`.
@@ -501,7 +506,25 @@ ID                                    FOR                                       
 `kindgi tokens list` lists your keys, and `--table` prints them as a table.
 A tenant admin sees everyone's, and `--for=user:<id>` narrows it to one
 person's. Someone else's key reads as `404`. `kindgi tokens revoke
-<token-id>` refuses the key from its next request on, with `401`.
+<token-id>` refuses the key from its next request on, with `401`, and every
+key made with it, and with those in turn, whoever they act for. Their
+sessions end too. It says how many went:
+
+```text
+{
+  "tokenId": "16979e65-a65d-46aa-a348-1b64d1c7d41f",
+  "revoked": true,
+  "alsoRevoked": [
+    "5b0f4b8e-7d0a-4c43-9d1e-2f6a8c3e1b77",
+    "c3a1e9d2-4b6f-4e8a-a0d7-9f2b5c8e4a61"
+  ]
+}
+Also revoked 2 keys minted with it.
+```
+
+`GET /v1/tokens?mintedWith=<token-id>` lists first what a revoke would take
+with it: the keys made with it, to any depth, among those you see. The
+console's Revoke says how many before you press it.
 
 ## Service accounts
 
@@ -557,7 +580,10 @@ npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --project=
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed, and
-`--project=<project-id>` limits the key to that one project.
+`--project=<project-id>` limits the key to that one project. The key is made
+with yours, so it stops when yours is revoked, or when you're removed. If it
+must outlive yours, make it from a console signed in through SSO, a social
+sign-in or an emailed link, or with the deployment's token.
 Its grants are written before `create` answers, so its first key works at
 once. You can grant `--tenant-admin`, `--tenant-member` and
 `--project=<id>:<role>`, now or later with `kindgi service-accounts grant`
@@ -668,7 +694,11 @@ npx --yes @kindgi/cli@0.2 people remove <user-id>
 Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(s) taken away.
 ```
 
-In one step, before it answers, their API keys are revoked, their sessions
+In one step, before it answers, their API keys are revoked, with every key
+made with one of them and with those in turn, whoever they act for: a pipeline's
+key they made from the command line stops too. The answer counts those
+apart, as `mintedKeysRevoked`, and the CLI says `Also revoked 2 key(s)
+minted with theirs, whoever they act for.` Their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
 test set they made, and `admin` on an org they made (runtime 0.1.9 or

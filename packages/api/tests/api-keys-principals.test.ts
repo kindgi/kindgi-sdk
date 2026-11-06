@@ -100,11 +100,29 @@ function harness(
     return undefined;
   };
 
+  /** Every key minted with `root`, and with those in turn, oldest first: the store's walk. */
+  const mintedFrom = (root: string): StoredKey[] => {
+    const found: StoredKey[] = [];
+    let frontier = [root];
+    while (frontier.length > 0) {
+      const next = [...keys.values()].filter(
+        (k) => k.mintedWith !== undefined && frontier.includes(k.mintedWith as unknown as string),
+      );
+      found.push(...next);
+      frontier = next.map((k) => k.tokenId as unknown as string);
+    }
+    return found.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  };
+
   const tokenAdmin: TokenAdmin = {
     async mint(input) {
       const refused = refusal(input);
       if (refused !== undefined) return refused;
       const p = input.principal;
+      const minter =
+        input.mintedWith !== undefined
+          ? keys.get(input.mintedWith as unknown as string)
+          : undefined;
       const tokenId = randomUUID() as ApiTokenId;
       const secret = `kgi_ak_test_${keys.size + 1}`;
       const record: StoredKey = {
@@ -116,15 +134,24 @@ function harness(
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, keys.size)),
+        ...(input.mintedWith !== undefined && { mintedWith: input.mintedWith }),
+        // Born revoked when its minter is.
+        ...(minter?.revokedAt !== undefined && { revokedAt: minter.revokedAt }),
       };
       keys.set(tokenId as unknown as string, record);
       return { record, token: secret };
     },
-    async list({ limit, principal }) {
+    async list({ limit, principal, mintedWith }) {
+      const tree =
+        mintedWith !== undefined
+          ? new Set(mintedFrom(mintedWith as unknown as string).map((k) => k.tokenId))
+          : undefined;
       return [...keys.values()]
         .filter(
           (k) =>
-            principal === undefined || JSON.stringify(k.principal) === JSON.stringify(principal),
+            (principal === undefined ||
+              JSON.stringify(k.principal) === JSON.stringify(principal)) &&
+            (tree === undefined || tree.has(k.tokenId)),
         )
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         .slice(0, limit);
@@ -136,8 +163,14 @@ function harness(
       changedBy.push(`revoke:${revokedBy}`);
       const k = keys.get(tokenId as unknown as string);
       if (k === undefined) return { kind: 'not-found' };
-      keys.set(tokenId as unknown as string, { ...k, revokedAt: new Date() });
-      return { kind: 'ok' };
+      const at = new Date();
+      if (k.revokedAt === undefined)
+        keys.set(tokenId as unknown as string, { ...k, revokedAt: at });
+      const also = mintedFrom(tokenId as unknown as string).filter(
+        (m) => m.revokedAt === undefined,
+      );
+      for (const m of also) keys.set(m.tokenId as unknown as string, { ...m, revokedAt: at });
+      return { kind: 'ok', alsoRevoked: also.map((m) => m.tokenId) };
     },
   };
 
@@ -513,6 +546,75 @@ describe('API keys act for a principal', () => {
     expect((await h.call(daily.token, 'GET', '/v1/tokens')).status).toBe(200);
     const admin = await h.mint(ALICE, { role: 'admin' });
     await h.mint(admin.token, { for: { kind: 'user', id: 'bob' } });
+  });
+});
+
+describe('a key minted with a key stops with it', () => {
+  test("a key caller mints with its key; the deployment's token with none: the record says which", async () => {
+    const h = harness();
+    // A static token has no key: what it mints stands alone.
+    const root = await h.mint(ALICE);
+    expect(root.body).not.toHaveProperty('mintedWith');
+    const child = await h.mint(root.token);
+    expect(child.body.mintedWith).toBe(root.tokenId);
+    const read = await h.call(ALICE, 'GET', `/v1/tokens/${child.tokenId}`);
+    expect(read.body.mintedWith).toBe(root.tokenId);
+  });
+
+  test('revoking a key revokes every key minted with it, to any depth, and says which', async () => {
+    const h = harness();
+    const root = await h.mint(ALICE);
+    const child = await h.mint(root.token);
+    const grandchild = await h.mint(child.token);
+    const apart = await h.mint(ALICE);
+
+    const revoked = await h.call(ALICE, 'POST', `/v1/tokens/${root.tokenId}/revoke`);
+    expect(revoked.status).toBe(200);
+    expect(revoked.body).toEqual({
+      tokenId: root.tokenId,
+      revoked: true,
+      alsoRevoked: [child.tokenId, grandchild.tokenId],
+    });
+    for (const gone of [root, child, grandchild]) {
+      expect((await h.call(gone.token, 'GET', '/v1/identity/whoami')).status).toBe(401);
+    }
+    expect((await h.call(apart.token, 'GET', '/v1/identity/whoami')).status).toBe(200);
+    // Revoked again: nothing more goes.
+    const again = await h.call(ALICE, 'POST', `/v1/tokens/${root.tokenId}/revoke`);
+    expect(again.body.alsoRevoked).toEqual([]);
+  });
+
+  test('`?mintedWith=` lists what revoking a key takes, said on the page, and only within what the caller sees', async () => {
+    const h = harness();
+    const root = await h.mint(ALICE, { role: 'admin' });
+    const own = await h.mint(root.token);
+    const bobs = await h.mint(root.token, { for: { kind: 'user', id: 'bob' } });
+    const deeper = await h.mint(own.token);
+    await h.mint(ALICE);
+
+    const tree = await h.call(ALICE, 'GET', `/v1/tokens?mintedWith=${root.tokenId}`);
+    expect(tree.status).toBe(200);
+    expect((tree.body.data as { tokenId: string }[]).map((k) => k.tokenId).sort()).toEqual(
+      [own.tokenId, bobs.tokenId, deeper.tokenId].sort(),
+    );
+    expect(tree.body.mintedWith).toBe(root.tokenId);
+    // Bob sees only his own key among them.
+    const bobView = await h.call(BOB, 'GET', `/v1/tokens?mintedWith=${root.tokenId}`);
+    expect((bobView.body.data as { tokenId: string }[]).map((k) => k.tokenId)).toEqual([
+      bobs.tokenId,
+    ]);
+    // Without the filter, the page says nothing of it.
+    expect((await h.call(ALICE, 'GET', '/v1/tokens')).body).not.toHaveProperty('mintedWith');
+  });
+
+  test('a member key limited to a project: the key it mints stops with it', async () => {
+    const h = harness();
+    const parent = await h.mint(BOB, { role: 'member', projectId: P1 });
+    const child = await h.mint(parent.token, { projectId: P1 });
+    expect(child.body.mintedWith).toBe(parent.tokenId);
+    expect((await h.call(child.token, 'GET', '/v1/identity/whoami')).status).toBe(200);
+    await h.call(BOB, 'POST', `/v1/tokens/${parent.tokenId}/revoke`);
+    expect((await h.call(child.token, 'GET', '/v1/identity/whoami')).status).toBe(401);
   });
 });
 
