@@ -39,7 +39,11 @@ import type {
   TokenResolver,
   UserRecord,
 } from '../src/index.js';
-import { createAuthorizer } from '../src/middleware/authorize.js';
+import {
+  type AuthorizerOptions,
+  createAuthorizer,
+  tenantWide,
+} from '../src/middleware/authorize.js';
 import type { AppEnv } from '../src/types.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
@@ -752,8 +756,11 @@ describe('/v1/service-accounts', () => {
 });
 
 describe("a key limited to a project reaches only that project's resources", () => {
-  /** An authorizer whose store places agents `a1` in P1 and `a2` in P2, and allows any grant. */
-  function authorizerWith(placed: boolean) {
+  /**
+   * An authorizer whose store places agents `a1` in P1 and `a2` in P2, and
+   * allows any grant; `options`, the projects it looks a key's org up in.
+   */
+  function authorizerWith(placed: boolean, options: AuthorizerOptions = {}) {
     const asked: string[] = [];
     const binding = {
       check: async () => ({ allowed: true }),
@@ -766,7 +773,36 @@ describe("a key limited to a project reaches only that project's resources", () 
         },
       }),
     } as unknown as AuthzCheckBinding;
-    return { authorizer: createAuthorizer(binding), asked };
+    return { authorizer: createAuthorizer(binding, options), asked };
+  }
+  /** Projects where P1 is in org `o1`, or in none; `got` counts the lookups. */
+  function projectsWith(orgOfP1: string | undefined) {
+    const got: string[] = [];
+    const projects = {
+      get: async (_t: TenantId, id: string) => {
+        got.push(id);
+        return id === P1 ? { id, ...(orgOfP1 !== undefined && { orgId: orgOfP1 }) } : null;
+      },
+    } as unknown as NonNullable<AuthorizerOptions['projects']>;
+    return { projects, got };
+  }
+  /** What a key limited to `keyProject` (`null`: a caller with no limited key) is allowed on each ref, in one request. */
+  async function limitedTo(
+    authorizer: ReturnType<typeof authorizerWith>['authorizer'],
+    checks: readonly (readonly ['read' | 'admin', ResourceRef])[],
+    keyProject: string | null = P1,
+  ) {
+    const r = new Hono<AppEnv>();
+    r.get('/', async (c) => {
+      c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+      if (keyProject !== null) c.set('tokenProjectId', keyProject);
+      const out: boolean[] = [];
+      for (const [action, resource] of checks) {
+        out.push((await authorizer.check(c, action, resource)).allowed);
+      }
+      return c.json(out);
+    });
+    return (await (await r.request('/')).json()) as boolean[];
   }
   async function decide(placed: boolean, keyProject: string | undefined, agentId: string) {
     const { authorizer, asked } = authorizerWith(placed);
@@ -809,19 +845,74 @@ describe("a key limited to a project reaches only that project's resources", () 
     expect(await (await r.request('/')).json()).toEqual(['a1']);
   });
 
-  test('admin on an org or a team is above the key', async () => {
+  test("admin on an org or a team is above the key; it reads its project's org, no other, and no team", async () => {
+    const { projects, got } = projectsWith('o1');
+    const { authorizer } = authorizerWith(true, { projects });
+    expect(
+      await limitedTo(authorizer, [
+        ['admin', ref('org', 'o1')],
+        ['admin', ref('team', 't1')],
+        ['read', ref('org', 'o1')],
+        ['read', ref('org', 'o2')],
+        ['read', ref('team', 't1')],
+      ]),
+    ).toEqual([false, false, true, false, false]);
+    // The key's project is looked up once for the request, however many orgs it asks about.
+    expect(got).toEqual([P1]);
+  });
+
+  test('a project in no org, or no projects to look it up in: the key reads no org', async () => {
+    const none = authorizerWith(true, { projects: projectsWith(undefined).projects });
+    expect(await limitedTo(none.authorizer, [['read', ref('org', 'o1')]])).toEqual([false]);
+    const unwired = authorizerWith(true);
+    expect(await limitedTo(unwired.authorizer, [['read', ref('org', 'o1')]])).toEqual([false]);
+  });
+
+  test("a caller without a limited key reads every org and team its grants give, and isn't looked up", async () => {
+    const { projects, got } = projectsWith('o1');
+    const { authorizer } = authorizerWith(true, { projects });
+    expect(
+      await limitedTo(
+        authorizer,
+        [
+          ['read', ref('org', 'o2')],
+          ['read', ref('team', 't1')],
+          ['read', tenantWide(tenantId)],
+        ],
+        null,
+      ),
+    ).toEqual([true, true, true]);
+    expect(got).toEqual([]);
+  });
+
+  test("the workspace's own rows and settings (tenantWide) are above the key; the tenant as its project's root isn't", async () => {
     const { authorizer } = authorizerWith(true);
+    expect(
+      await limitedTo(authorizer, [
+        ['read', tenantWide(tenantId)],
+        ['read', ref('tenant', tenantId)],
+      ]),
+    ).toEqual([false, true]);
+  });
+
+  test("listing orgs: a limited key lists its project's org only", async () => {
+    const { projects } = projectsWith('o1');
+    const authorizer = createAuthorizer(
+      {
+        check: async () => ({ allowed: true }),
+        checkBatch: async (_p: unknown, _a: unknown, refs: readonly ResourceRef[]) =>
+          refs.map(() => ({ allowed: true })),
+        listObjects: async () => ['o1', 'o2'],
+      } as unknown as AuthzCheckBinding,
+      { projects },
+    );
     const r = new Hono<AppEnv>();
     r.get('/', async (c) => {
       c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
       c.set('tokenProjectId', P1);
-      return c.json([
-        (await authorizer.check(c, 'admin', ref('org', 'o1'))).allowed,
-        (await authorizer.check(c, 'admin', ref('team', 't1'))).allowed,
-        (await authorizer.check(c, 'read', ref('org', 'o1'))).allowed,
-      ]);
+      return c.json((await authorizer.listObjects?.(c, 'read', 'org')) ?? null);
     });
-    expect(await (await r.request('/')).json()).toEqual([false, false, true]);
+    expect(await (await r.request('/')).json()).toEqual(['o1']);
   });
 });
 

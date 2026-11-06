@@ -1477,6 +1477,16 @@ async function providerCheck(
         )
       : fail('provider', 'No provider is registered, so an agent has no model to call.', register);
   } catch (err) {
+    const wire = extractKindgiError(err);
+    // A 403 is the key, not the runtime: a key limited to a project doesn't
+    // read the workspace's providers, and a restart wouldn't change that.
+    if (wire?.code === 'auth' && wire.reason === 'forbidden') {
+      return skip(
+        'provider',
+        `Not checked: the key in .kindgirc.json can't list the providers (${wire.message}).`,
+        "The providers are the workspace's, which a key limited to a project doesn't read: check them with a key that isn't.",
+      );
+    }
     return fail(
       'provider',
       `Couldn't list the providers: ${(err as Error).message}`,

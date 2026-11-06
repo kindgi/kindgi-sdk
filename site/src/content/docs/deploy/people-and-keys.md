@@ -455,6 +455,14 @@ Make longer-lived keys with one of those, such as the 90-day key in
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
+
+  Such a key reads its project's work and what that work needs: the
+  workspace's release gates and the org its project is in, but no team.
+  The workspace's settings answer it `403`: providers, policies, adapters,
+  capabilities, signing keys and sign-in providers. A row with no project,
+  such as an approval or a cost record with none, is the whole workspace's:
+  a list leaves it out, and asked for alone it's `404`, as another
+  project's is. A cost total it asks for counts only its project's records.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,

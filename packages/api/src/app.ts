@@ -1665,8 +1665,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // And its work is the tenant's: a schema it compiles again counts
   // against the tenant's compile budget.
   v1.use('*', tenantScopeMiddleware());
+  // A key limited to a project reads its project's own org: the authorizer
+  // looks the project up once per request.
   const authorizer: Authorizer | undefined =
-    input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+    input.authz !== undefined
+      ? createAuthorizer(input.authz.authzCheckBinding, {
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        })
+      : undefined;
   // Rights on an item more than one project serves (`item-rights.ts`).
   const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
   // With no authorizer, which projects serve an item still decides what

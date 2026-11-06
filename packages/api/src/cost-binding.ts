@@ -212,7 +212,8 @@ export interface CostAggregateInput {
   /**
    * Count only records in these projects, and records with no project
    * (the tenant's own, which `/v1/cost/records` shows to anyone who may
-   * read the tenant), within `scope`. An org scope covers only the org's
+   * read the whole workspace) unless `includeTenantRecords` is `false`,
+   * within `scope`. An org scope covers only the org's
    * projects: a record with no project never counts there, and nor does a
    * listed project outside the org. The route sets it when the caller
    * may not read every project (`read` on each listed one); absent, every
@@ -220,6 +221,13 @@ export interface CostAggregateInput {
    * that applies it says so with `CostBinding.aggregatesReadableProjects`.
    */
   readonly readableProjectIds?: readonly string[];
+  /**
+   * With `readableProjectIds`: whether records with no project count.
+   * `true` (default); the route sets `false` for a caller who doesn't read
+   * the whole workspace's rows, as a key limited to a project doesn't. A
+   * binding that applies `readableProjectIds` applies this too.
+   */
+  readonly includeTenantRecords?: boolean;
   /**
    * The most groups the caller wants (`?limit=`, 1..`COST_AGGREGATE_MAX_LIMIT`,
    * default `COST_AGGREGATE_DEFAULT_LIMIT`): the most expensive ones. A
