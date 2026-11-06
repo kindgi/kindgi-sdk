@@ -265,7 +265,8 @@ environment):
   put there by hand;
 - `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
 - `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
-- a self-hosted deployment's `kindgi.env` or `pack.env`.
+- a self-hosted deployment's `kindgi.env`, `pack.env`, `db.env` (its
+  database's password) or `openfga.env` (OpenFGA's database address and key).
 
 A value you read lands in your context and in every later request to the
 model provider. To see which secrets exist, run
