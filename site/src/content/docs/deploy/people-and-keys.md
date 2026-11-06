@@ -432,10 +432,14 @@ again.
 
 A key can't outlive the key that makes it. Made with a key, it stops when
 that key is revoked, and so does every key made with it in turn, whoever
-they act for. Made with a key that expires, the new key's `--expires` must
-be no later than that key's. A later one, or none, is refused with
-`403 token-expiry-exceeds-minter`, naming the latest date allowed. The same
-holds in a console signed in with a key. These aren't limited by an expiry:
+they act for. A runtime that records which key made a key shows it as the
+key's `mintedWith`. An older runtime records none, so a key it made stands
+alone: revoking the key that made it, or removing its maker, leaves it
+working, and `kindgi tokens revoke` names no keys with it. Made with a key
+that expires, the new key's `--expires` must be no later than that key's. A
+later one, or none, is refused with `403 token-expiry-exceeds-minter`,
+naming the latest date allowed. The same holds in a console signed in with a
+key. These aren't limited by an expiry:
 
 - the deployment's token;
 - a key without an expiry, though a key it makes still stops when it's
@@ -445,8 +449,7 @@ holds in a console signed in with a key. These aren't limited by an expiry:
 Make longer-lived keys with one of those, such as the 90-day key in
 [Service accounts](#service-accounts). A key that stands alone, which no
 other key's revoke stops, is made with the deployment's token or from a
-console signed in through SSO, a social sign-in or an emailed link. A key
-made by a runtime that doesn't record which key made it stands alone too.
+console signed in through SSO, a social sign-in or an emailed link.
 
 - **For someone else,** as a tenant admin only: `--for=user:<user-id>` or
   `--for=sa:<service-account-id>`.
@@ -522,9 +525,9 @@ sessions end too. It says how many went:
 Also revoked 2 keys minted with it.
 ```
 
-`GET /v1/tokens?mintedWith=<token-id>` lists first what a revoke would take
-with it: the keys made with it, to any depth, among those you see. The
-console's Revoke says how many before you press it.
+`GET /v1/tokens?mintedWith=<token-id>` lists the keys made with it, to any
+depth, revoked ones too, among those you see: revoking it takes the live ones
+among them. The console's Revoke says how many before you press it.
 
 ## Service accounts
 
