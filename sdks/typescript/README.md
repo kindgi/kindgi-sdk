@@ -132,7 +132,7 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `webhooks` | `/v1/webhooks` | — |
 | `packs` | — | every method |
 
-`client.providers` and `client.capabilities.providers` both address `/v1/providers`.
+`client.capabilities.providers` is deprecated: use `client.providers`. Its methods call `client.providers`'s and answer as they do (`configure` is `register`, `capabilitiesFor(id)` is `capabilities(id)`'s `data`, and `delete` is `unregister`).
 
 ## Non-goals
 
