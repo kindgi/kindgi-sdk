@@ -12,6 +12,7 @@
  */
 
 import type { WebhookEvent } from '@kindgi/client';
+import { UUID_RE } from '@kindgi/types';
 
 import { WEBHOOK_EVENT_SHAPES } from './webhook-event-shapes.generated.js';
 
@@ -230,10 +231,8 @@ function checkUnion(
 
 /** RFC 3339: a date, a time and a zone (`Z` or an offset), as the API writes them. */
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-/** A UUID in its usual form, any version (the API writes them so). */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FORMATS: Readonly<Record<'uuid' | 'date-time', (value: string) => boolean>> = {
-  uuid: (v) => UUID.test(v),
+  uuid: (v) => UUID_RE.test(v),
   'date-time': (v) => DATE_TIME.test(v) && !Number.isNaN(Date.parse(v)),
 };
 

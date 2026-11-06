@@ -16,7 +16,7 @@ description: >
   models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.15"
+version: "0.1.19"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -388,7 +388,8 @@ environment):
   put there by hand;
 - `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
 - `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
-- a self-hosted deployment's `kindgi.env` or `pack.env`.
+- a self-hosted deployment's `kindgi.env`, `pack.env`, `db.env` or
+  `openfga.env`.
 
 A value you read lands in your context and in every later request to the
 model provider. To see which secrets exist, run

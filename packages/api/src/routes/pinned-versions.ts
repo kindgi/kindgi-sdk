@@ -34,10 +34,9 @@ import { actorOf } from './agent-pins.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { parsePinScopeBody, pinScopeToWire } from './pin-scope-wire.js';
+import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The routes that change an item's pins: authorized as `pin` on the item (`pinChangeRefusal`), not `admin`. */
 export function isPinWrite(method: string, path: string): boolean {

@@ -111,7 +111,7 @@ const publish: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to register the flow in, by id (default: the workspace's default project).",
+        "The project to register the flow in, by id (default: the project stored with your key, else the workspace's default project).",
     },
   },
   run: (ctx) =>

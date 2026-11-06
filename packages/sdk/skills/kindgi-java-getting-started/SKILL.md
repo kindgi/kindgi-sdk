@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.8"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -339,7 +339,8 @@ environment):
   put there by hand;
 - `.kindgi/secrets.env`: Kindgi's own secrets, where `./kindgiw secrets set` writes;
 - `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
-- a self-hosted deployment's `kindgi.env` or `pack.env`.
+- a self-hosted deployment's `kindgi.env`, `pack.env`, `db.env` or
+  `openfga.env`.
 
 A value you read lands in your context and in every later request to the
 model provider. To see which secrets exist, run

@@ -9,6 +9,7 @@
  */
 
 import type { Tool, ToolContext } from '@kindgi/tools';
+import { UUID_RE } from '@kindgi/types';
 
 import { appFetch } from './app-fetch.js';
 import { appTool } from './app-tool.js';
@@ -739,8 +740,6 @@ function patchedTime(
     : { date: t.day, dateTime: null };
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * The call's key as an event id: Google takes base32hex (`a`-`v`, `0`-`9`),
  * 5 to 1,024 characters, and a UUID's 32 hex digits are among them, one id
@@ -748,7 +747,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * a create nor share an id with another key.
  */
 function eventIdOf(key: string): string | undefined {
-  return UUID.test(key) ? key.toLowerCase().replaceAll('-', '') : undefined;
+  return UUID_RE.test(key) ? key.toLowerCase().replaceAll('-', '') : undefined;
 }
 
 /**

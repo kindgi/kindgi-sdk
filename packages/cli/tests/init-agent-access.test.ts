@@ -42,12 +42,20 @@ const RULES = [
   'Read(./.kindgi/dev/runtime.env)',
   'Read(./kindgi.env)',
   'Read(./pack.env)',
+  'Read(./db.env)',
+  'Read(./openfga.env)',
 ];
 
 describe('KEY_FILES', () => {
   test("the key files; not .kindgirc.json, which the agent's own kindgi commands read", () => {
     expect(claudeReadDenyRules()).toEqual(RULES);
     expect(KEY_FILES).not.toContain('.kindgirc.json');
+  });
+
+  test("a self-hosted deployment's env files, its database password's and OpenFGA's too", () => {
+    expect(KEY_FILES).toEqual(
+      expect.arrayContaining(['kindgi.env', 'pack.env', 'db.env', 'openfga.env']),
+    );
   });
 });
 
@@ -171,7 +179,7 @@ describe('a pack below its git root (a monorepo)', () => {
     expect(result.repoRoot).toMatchObject({ dir, prefix: 'apps/agent' });
 
     const rows = agentAccessRows(pack, result);
-    const line = `${rootSettings()}: created with 5 deny rules for apps/agent/, ${WHY}`;
+    const line = `${rootSettings()}: created with 7 deny rules for apps/agent/, ${WHY}`;
     expect(rows.outside).toEqual([line]);
     expect(rows.created).toContain(line);
   });
@@ -204,10 +212,10 @@ describe('a pack below its git root (a monorepo)', () => {
       model: string;
     };
     expect(after.permissions.deny.slice(0, 2)).toEqual(['Read(./infra/**)', 'Bash(rm -rf:*)']);
-    expect(after.permissions.deny).toHaveLength(7);
+    expect(after.permissions.deny).toHaveLength(9);
     expect(after.model).toBe('opus');
     expect(agentAccessRows(pack, first).outside).toEqual([
-      `${rootSettings()}: added 5 deny rules for apps/agent/, ${WHY}`,
+      `${rootSettings()}: added 7 deny rules for apps/agent/, ${WHY}`,
     ]);
 
     const rootBytes = await readFile(rootSettings(), 'utf8');
@@ -346,7 +354,7 @@ describe('writeAgentAccess (a new pack)', () => {
     expect(out.files).toEqual([join(pack, '.claude', 'settings.json')]);
     expect(out.lines).toEqual([
       {
-        text: `✓ ${join(dir, '.claude', 'settings.json')}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
+        text: `✓ ${join(dir, '.claude', 'settings.json')}: created with 7 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
         problem: false,
       },
     ]);

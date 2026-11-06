@@ -4,7 +4,8 @@
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
-import { loadConfig } from '../src/config.js';
+import { keyedFor } from '../src/api-address.js';
+import { keepsProject, loadConfig } from '../src/config.js';
 
 const CWD = '/work/acme-pack';
 const HOME = '/home/acme';
@@ -151,5 +152,82 @@ describe("loadConfig: a folder's .kindgirc.json for a `kindgi dev` runtime", () 
     });
     expect(config).toMatchObject({ apiUrl: OTHER, token: 'kgi_tk_folder', keyAddress: OTHER });
     expect(config.devRuntime).toBeUndefined();
+  });
+});
+
+describe('loadConfig: the project stored with the key', () => {
+  const PROJECT = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+
+  test("the home file's project goes with its key", async () => {
+    const config = await load({
+      [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home', project: PROJECT },
+    });
+    expect(config.keyProject).toBe(PROJECT);
+    expect(config.storedKeys).toEqual([
+      {
+        token: 'kgi_tk_home',
+        apiUrl: SIGNED_IN,
+        project: PROJECT,
+        file: { path: HOME_FILE, kind: 'home' },
+      },
+    ]);
+  });
+
+  test.each([
+    ['--token', { flagToken: 'kgi_tk_given' }],
+    ['KINDGI_API_TOKEN', { env: { KINDGI_API_TOKEN: 'kgi_tk_given' } }],
+  ])('a key given with %s has no project, though the file has one', async (_, extra) => {
+    const config = await load(
+      { [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home', project: PROJECT } },
+      extra,
+    );
+    expect(config.token).toBe('kgi_tk_given');
+    expect(config.keyProject).toBeUndefined();
+  });
+
+  test("the folder's key: its own project, never the home file's", async () => {
+    const home = { apiUrl: SIGNED_IN, token: 'kgi_tk_home', project: PROJECT };
+    const without = await load({
+      [HOME_FILE]: home,
+      [FOLDER_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_folder' },
+    });
+    expect(without.token).toBe('kgi_tk_folder');
+    expect(without.keyProject).toBeUndefined();
+    const own = await load({
+      [HOME_FILE]: home,
+      [FOLDER_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_folder', project: 'acme-shop' },
+    });
+    expect(own.keyProject).toBe('acme-shop');
+  });
+
+  test('a project with no key beside it, or an empty one, is none', async () => {
+    const config = await load({
+      [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home' },
+      [FOLDER_FILE]: { project: PROJECT },
+    });
+    expect(config.token).toBe('kgi_tk_home');
+    expect(config.keyProject).toBeUndefined();
+    const empty = await load({
+      [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home', project: '' },
+    });
+    expect(empty.keyProject).toBeUndefined();
+  });
+
+  test('keyedFor: the project goes with the key it picks', async () => {
+    const config = await load({
+      [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home', project: PROJECT },
+      [FOLDER_FILE]: { apiUrl: OTHER, token: 'kgi_tk_folder' },
+    });
+    expect(config.keyProject).toBeUndefined();
+    const home = keyedFor(config, SIGNED_IN);
+    expect(home).toMatchObject({ token: 'kgi_tk_home', keyProject: PROJECT });
+    expect(keyedFor(home, OTHER).keyProject).toBeUndefined();
+  });
+
+  test('keepsProject: only while the key and the address stay', () => {
+    const file = { apiUrl: SIGNED_IN, token: 'kgi_tk_home' };
+    expect(keepsProject(file, { apiUrl: SIGNED_IN, token: 'kgi_tk_home' })).toBe(true);
+    expect(keepsProject(file, { apiUrl: SIGNED_IN, token: 'kgi_tk_new' })).toBe(false);
+    expect(keepsProject(file, { apiUrl: OTHER, token: 'kgi_tk_home' })).toBe(false);
   });
 });

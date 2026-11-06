@@ -34,7 +34,8 @@ import { type PatchResult, patchIgnoreFile } from './gitignore-patcher.js';
  * The files that hold keys and tokens, relative to the project root: the
  * app's env files (model keys added by hand, the app's own secrets), Kindgi's
  * own secrets file, the dev runtime's settings (its token, the database
- * URL), and a self-hosted deployment's env files.
+ * URL), and a self-hosted deployment's env files (`db.env` holds its
+ * database's password, `openfga.env` OpenFGA's database address and key).
  *
  * Not `.kindgirc.json`: it holds the dev token the agent's own `kindgi`
  * commands read to reach `kindgi dev`, and with Claude Code's sandbox on, a
@@ -48,6 +49,8 @@ export const KEY_FILES: readonly string[] = [
   '.kindgi/dev/runtime.env',
   'kindgi.env',
   'pack.env',
+  'db.env',
+  'openfga.env',
 ];
 
 /**
