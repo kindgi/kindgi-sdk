@@ -195,13 +195,17 @@ the runtime's one retry. With `KINDGI_OPENFGA_AUTH=google-id-token`, it also
 can't be reached when the runtime gets no ID token to call it with
 ([OpenFGA behind Cloud Run IAM](../self-hosted/cloud-run/#openfga-behind-cloud-run-iam)).
 Any other failure of a check answers `500 internal-server-error`, as any
-error does.
+error does. `GET /v1/identity/me/permissions`, which the console reads for
+what the signed-in person may do, answers its own `503
+authz-backend-unavailable` for any failure to read their access, with the
+same `Retry-After` from runtime X.Y.Z, and logs it at `warn` as
+`me/permissions: the authorization store couldn't be read: …`.
 
 - **A check before the request's work** answers the `503` on any method.
 - **A check a `GET` or `HEAD` makes as it reads** answers the `503` too.
-- **A check a write makes partway through its work** answers `500
-  internal-server-error` instead: the write may have done part of its work,
-  and sending it again could do that part twice.
+- **A check a write makes as it works** answers `500
+  internal-server-error` instead: the write may have done part of its work
+  before that check, and sending it again could do that part twice.
 
 Every operation that needs a signed-in caller can answer the `503`. The API
 reference names it in each one's `503`
