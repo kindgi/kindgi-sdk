@@ -202,7 +202,7 @@ describe('lockedBy names only what the caller may read', () => {
     },
   ];
 
-  function readHarness(served?: ItemRow[]) {
+  function readHarness(served?: ItemRow[], answer: readonly VersionLock[] = LOCKS) {
     const app = createApp({
       ...createStubAppBindings(),
       resolveToken: async (token) =>
@@ -210,7 +210,7 @@ describe('lockedBy names only what the caller may read', () => {
       runHandler,
       toolRegistry: tools,
       agentRegistry: agents,
-      versionLocks: recording(LOCKS).binding,
+      versionLocks: recording(answer).binding,
       authz: grantsAuthz(PEOPLE).authz,
       ...(served !== undefined && { itemProjects: itemProjects(served) }),
     });
@@ -234,10 +234,10 @@ describe('lockedBy names only what the caller may read', () => {
   });
 
   test("an agent's admin who reads none of its lockers is told []", async () => {
-    const { status, body } = await readHarness()(
-      'triage-admin',
-      '/v1/agents/acme.triage/versions/1.2.0/unregister',
-    );
+    // An agent's lockers are flows: acme.desk runs acme.triage 1.2.0.
+    const { status, body } = await readHarness(undefined, [
+      { kind: 'flow', id: 'acme.desk', version: '2.0.0' },
+    ])('triage-admin', '/v1/agents/acme.triage/versions/1.2.0/unregister');
     expect(status).toBe(200);
     expect(body.lockedBy).toEqual([]);
   });
