@@ -224,8 +224,9 @@ case "${1:-}" in
     # and the pack at the images the var files set, a later file over an
     # earlier one and -var over both, as terraform reads them, and the
     # license renewal job at the server's, with STUB_LICENSE_JOB;
-    # STUB_PLAN_CHANGES adds resource changes; STUB_PLAN_KEEP_IMAGE leaves the
-    # server's image as it is.
+    # STUB_PLAN_CHANGES adds resource changes; STUB_SERVER_PROBE ({before,
+    # after}) gives the server's own change a startup probe;
+    # STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
     out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
@@ -249,19 +250,21 @@ case "${1:-}" in
     if [[ -n $out ]]; then
       jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
         --arg pold "$STUB_PACK_BEFORE" --arg pnew "${pack:-$STUB_PACK_BEFORE}" \
-        --arg license "${STUB_LICENSE_JOB:-}" --argjson extra "${STUB_PLAN_CHANGES:-[]}" '
+        --arg license "${STUB_LICENSE_JOB:-}" --argjson extra "${STUB_PLAN_CHANGES:-[]}" \
+        --argjson sprobe "${STUB_SERVER_PROBE:-null}" '
         def envs: [{name: "KINDGI_ENV", value: "dev", secret_name: null}];
-        def app($type; $n; $addr; $b; $a):
+        def probe($p): if $p == null then {} else {startup_probe: [$p]} end;
+        def app($type; $n; $addr; $b; $a; $probe):
           {address: $addr, mode: "managed", type: $type, name: $n,
-           change: {actions: (if $b == $a then ["no-op"] else ["update"] end),
-             before: {name: ("kindgi-" + $n), template: [{container: [{name: $n, image: $b, env: envs}]}]},
-             after: {name: ("kindgi-" + $n), template: [{container: [{name: $n, image: $a, env: envs}]}]},
+           change: {actions: (if $b == $a and $probe == null then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{container: [{name: $n, image: $b, env: envs} + probe($probe.before)]}]},
+             after: {name: ("kindgi-" + $n), template: [{container: [{name: $n, image: $a, env: envs} + probe($probe.after)]}]},
              after_unknown: {}}};
         {format_version: "1.2",
-         resource_changes: ([app("azurerm_container_app"; "server"; "azurerm_container_app.server"; $old; $new),
-                             app("azurerm_container_app"; "pack"; "azurerm_container_app.pack"; $pold; $pnew)]
+         resource_changes: ([app("azurerm_container_app"; "server"; "azurerm_container_app.server"; $old; $new; $sprobe),
+                             app("azurerm_container_app"; "pack"; "azurerm_container_app.pack"; $pold; $pnew; null)]
            + (if $license == "" then [] else
-               [app("azurerm_container_app_job"; "license_renewal"; "azurerm_container_app_job.license_renewal[0]"; $old; $new) + {index: 0}] end)
+               [app("azurerm_container_app_job"; "license_renewal"; "azurerm_container_app_job.license_renewal[0]"; $old; $new; null) + {index: 0}] end)
            + $extra)}' >"$out"
     fi
     exit "${STUB_PLAN_RC:-0}" ;;
@@ -377,7 +380,7 @@ reset_env() {
   unset STUB_TAGS STUB_SUBSCRIPTION STUB_ACR_LOGIN_ERR STUB_DOCKER_LOGIN_ERR STUB_PG_ERR STUB_PG_STATE STUB_PG_RETENTION \
         STUB_PG_EARLIEST STUB_PG_TIER STUB_PG_NESTED STUB_URL_SECRET STUB_JOB_CREATE_ERR STUB_JOB_START_ERR \
         STUB_EXEC_STATUS STUB_EXEC_ONLY STUB_EXEC_SEQUENCE STUB_JOB_DELETE_RC STUB_JOB_SHOW_RC STUB_BACKUP_ERR \
-        STUB_PLAN_RC STUB_APPLY_RC STUB_COPY_RC STUB_INSPECT_ERR STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE \
+        STUB_PLAN_RC STUB_APPLY_RC STUB_COPY_RC STUB_INSPECT_ERR STUB_PLAN_CHANGES STUB_SERVER_PROBE STUB_PLAN_KEEP_IMAGE \
         STUB_SHOW_RC STUB_LICENSE_JOB STUB_URL_RESTORED STUB_URL_RESTORED_OLDER STUB_KV_VERSIONS_ERR \
         STUB_EXEC_FLAT V_PACK V_PREFIX V_DB_URL_VERSION
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
@@ -1852,6 +1855,36 @@ assert_rc 0 "it runs"
 assert_file_has "$STUB_WARNED" "console acme_note" "console warned"
 if grep -q "^console server_image" "$STUB_WARNED"; then fail "console warned for a declared variable"; else pass; fi
 assert_out "crossing: 0.2.0$"
+
+# 67. The server's startup probe at 10 minutes, 120 tries 5 s apart (from
+# 24), passes the check when the run crosses the release that ships it, and
+# stops it when it doesn't. The script names that release NEXT until it has a
+# name, so the half that crosses it runs on a copy that knows it as 0.9.0, a
+# stand-in past every release.
+SERVER_PROBE='{"before":{"transport":"HTTP","path":"/health","port":4000,"interval_seconds":5,"timeout":3,"failure_count_threshold":24},"after":{"transport":"HTTP","path":"/health","port":4000,"interval_seconds":5,"timeout":3,"failure_count_threshold":120}}'
+case_start "the server's 10-minute startup probe, on a run that doesn't cross its release"
+reset_env; export STUB_TAGS="0.4.0" STUB_SERVER_PROBE="$SERVER_PROBE"
+run "yes" --to 0.5.0
+assert_rc 1 "the probe change stops a run to 0.5.0"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    azurerm_container_app.server: changes template.container.startup_probe.failure_count_threshold" "the threshold named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+NEXT_SCRIPT="$TMP/upgrade-next.sh"
+sed -e 's/^\(readonly KNOWN_RELEASES=(.*\))$/\1 "0.9.0")/' -e '/^ *NEXT)$/s/NEXT/0.9.0/' "$SCRIPT" >"$NEXT_SCRIPT"
+chmod +x "$NEXT_SCRIPT"
+if grep -q '^readonly KNOWN_RELEASES=(.* "0.9.0")$' "$NEXT_SCRIPT" && [[ $(grep -c -x ' *0\.9\.0)' "$NEXT_SCRIPT") -eq 2 ]]; then pass; else fail "the copy doesn't know the probe's release as 0.9.0"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$NEXT_SCRIPT"
+
+case_start "the server's 10-minute startup probe, crossing its release"
+reset_env; export STUB_TAGS="0.5.0" STUB_SERVER_PROBE="$SERVER_PROBE"
+run "yes" --to 0.9.0
+assert_rc 0 "the probe change passes"
+assert_out "crossing: 0.9.0$"
+assert_out "its startup probe allows"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

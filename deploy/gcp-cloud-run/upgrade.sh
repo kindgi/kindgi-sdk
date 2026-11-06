@@ -1109,7 +1109,8 @@ EOT
       # The 0.4.0 release notes' Upgrade steps, but for three: the core file
       # limit is set in compose, docker run or systemd, which neither module
       # runs, and the two on Cloud Run's packs are that module's own changes,
-      # which it prints with its plan and after its apply.
+      # which it prints with its plan and after its apply. The first start's
+      # 10 minutes, after the lock lines, came after the notes.
       cat <<'EOT'
    - Eighteen new migrations: four new tables (block_version_prs,
      env_cloud_secrets, run_files and tool_file_tokens), new columns that
@@ -1396,6 +1397,15 @@ EOT
    - 0.5.0 doesn't change the module.
 EOT
       ;;
+    # NEXT: the release that ships the server's 10-minute startup probe (see
+    # plan_allowed_changes).
+    NEXT)
+      cat <<'EOT'
+   - The plan also changes the server in place: its startup probe allows
+     10 minutes, 120 tries 5 s apart, so a first start has that long to run
+     the migrations.
+EOT
+      ;;
   esac
 }
 
@@ -1642,6 +1652,12 @@ plan_allowed_changes() {
             "google_storage_bucket_iam_member.pack_reads (created)" \
             "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
         fi
+        ;;
+      # NEXT stands in for the release that ships the server's 10-minute
+      # startup probe, until it has a name: then that name goes here, in
+      # module_changes and in KNOWN_RELEASES.
+      NEXT)
+        printf '%s\n' "google_cloud_run_v2_service.server template.containers.startup_probe.failure_threshold"
         ;;
     esac
   done
