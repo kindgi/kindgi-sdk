@@ -1115,9 +1115,11 @@ to, so set it to the deployment's before any `gcloud` command for it
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
   - the switch, and the way back.
-- **Rotate a secret:** add a version, then roll a new revision of the
-  runtime's service
-  (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`).
+- **Rotate a secret:** add a version, then set `server_rotation` to a new
+  value, such as the date (`"2026-11-06"`), and apply. The runtime's service
+  rolls a new revision, which reads the new version. Roll it through
+  Terraform, not `gcloud run services update`: the next apply would take
+  back what gcloud set.
   The orchestrator's key is pinned: mint a new one as in
   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator), add it as
   the secret's next version, set `orchestrator_key_version` to it and apply.
