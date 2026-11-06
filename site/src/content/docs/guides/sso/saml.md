@@ -137,7 +137,7 @@ it stored:
 Then run `finish` again with the key's name and its certificate:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
+npx --yes @kindgi/cli@0.7 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
   --sp-signing-key-ref=ACME_SAML_SIGNING_KEY --sp-signing-certificate=@acme-sp-cert.pem
 ```
 
@@ -146,6 +146,11 @@ npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metad
   provider metadata then carries the certificate, so an identity provider
   that imports the metadata has it. If yours doesn't, give whoever runs it
   `acme-sp-cert.pem` to add to the app.
+- The flag comes with `@kindgi/cli@0.7`, and the metadata carries the
+  certificate on runtime 0.7.0 or later. An earlier runtime takes the
+  certificate and keeps none: `sso providers get acme-saml` then shows no
+  `spSigningCertificates`, and the identity provider goes on refusing the
+  signed requests.
 
 To change the key, first run `update` with both certificates, the old
 key's and the new one's, each with its own `--sp-signing-certificate`. Once
