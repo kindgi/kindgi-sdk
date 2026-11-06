@@ -232,8 +232,9 @@ final class Indexer {
         }
         defined.put(version, rel);
         entries.get(kind).add(entry);
-        if (primitive instanceof Guardrail) {
-          Map<String, Object> warning = unprefixedCheck((Guardrail<?>) primitive, rel, config.id());
+        // A built-in's id is the runtime's, with no pack's prefix.
+        if (primitive instanceof Guardrail<?> guardrail && !guardrail.builtIn()) {
+          Map<String, Object> warning = unprefixedCheck(guardrail, rel, config.id());
           if (warning != null) {
             warnings.add(warning);
           }

@@ -92,7 +92,16 @@ class PackServiceTest {
     Map<String, Object> laterMin = new LinkedHashMap<>(min);
     laterMin.put("id", "acme.laterMin");
     laterMin.put("checkId", "acme.checks.laterMin");
-    index.put("guardrails", List.of(min, broken, laterMin));
+    // A built-in's entry, as builtInCheck indexes it: no class of the pack's defines its check.
+    Map<String, Object> builtIn = new LinkedHashMap<>();
+    builtIn.put("id", "acme.no-guarantees");
+    builtIn.put("kind", "zero-llm");
+    builtIn.put("action", Map.of("on-violation", "halt"));
+    builtIn.put("checkModulePath", CHECKS);
+    builtIn.put("checkId", "forbidden-substring");
+    builtIn.put("checkBuiltIn", true);
+    builtIn.put("config", Map.of("patterns", List.of("guaranteed")));
+    index.put("guardrails", List.of(min, broken, laterMin, builtIn));
     assertThat(PackService.missingModules(index, getClass().getClassLoader())).isEmpty();
     service = new PackService(index, TOKEN, 4, "strict", Map.of(), log.child(Map.of("packId", "acme")));
     assertThat(service.prewarm(getClass().getClassLoader())).isEmpty();
@@ -183,6 +192,13 @@ class PackServiceTest {
     // Left out, minLength is its default: the check ran with 1.
     assertThat(check("acme.checks.min", Map.of())).containsEntry("kind", "check-result")
         .containsEntry("result", Map.of("passed", true, "attributes", Map.of("minLength", 1)));
+  }
+
+  @Test
+  void aBuiltInCheckIsTheRuntimesNotThePacks() throws IOException {
+    // Prewarm (in start) found no failure: the service holds no check for it.
+    assertThat(check("forbidden-substring", Map.of("patterns", List.of("hello"))))
+        .containsEntry("code", "check-not-in-pack").containsEntry("checkId", "forbidden-substring");
   }
 
   @Test
