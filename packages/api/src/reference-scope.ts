@@ -23,6 +23,7 @@ import type { AgentPinScope, ProjectId, TenantId } from '@kindgi/types';
 import type { TriggerTarget } from '@kindgi/runtime';
 import type { Context } from 'hono';
 
+import type { GoneVersion } from './agent-binding.js';
 import { blockRefs } from './block-pins.js';
 import { statusFor, toWireError } from './errors.js';
 
@@ -131,6 +132,45 @@ export async function referencesOutOfScope(
   };
 }
 
+/**
+ * The refusal for a publish its registry answered `held-version-gone`:
+ * each version removed while it was published, at every path of `refs`
+ * (the item's references, as the route asked them) that names it, else
+ * at the item itself (`''`). Trying again gets the answer the version's
+ * absence gets: a version a step names is refused by reach, a pinned one
+ * is pinned afresh.
+ */
+export function heldVersionsGone(
+  item: { readonly kind: 'agent' | 'flow'; readonly id: string; readonly version: string },
+  gone: readonly GoneVersion[],
+  refs: readonly (ItemReference & { readonly path: string })[],
+): ReferenceOutOfScopeError {
+  const issues = gone.flatMap((version) => {
+    const message = `${named(version)} was removed while this ${item.kind} was published`;
+    const paths = new Set(
+      refs
+        .filter(
+          (ref) =>
+            ref.kind === version.kind &&
+            ref.id === version.id &&
+            (ref.version === undefined || ref.version === version.version),
+        )
+        .map((ref) => ref.path),
+    );
+    return [...(paths.size > 0 ? paths : [''])].map((path) => ({
+      path,
+      kind: version.kind,
+      id: version.id,
+      message,
+    }));
+  });
+  return {
+    code: 'reference-out-of-scope',
+    message: `${NOUN[item.kind]} "${item.id}" ${item.version} wasn't published: ${gone.map(named).join(', ')} ${gone.length === 1 ? 'was' : 'were'} removed while it was published. Try again: a version it names is then refused, and one it pins is pinned afresh`,
+    issues,
+  };
+}
+
 /** `agent "acme.desk"`, with its version when the reference is to one (`agent "acme.desk" 1.1.0`). */
 function named(ref: ItemReference): string {
   return `${NOUN[ref.kind]} "${ref.id}"${ref.version !== undefined ? ` ${ref.version}` : ''}`;
@@ -151,7 +191,10 @@ function refusedBecause(ref: ItemReference): string {
 
 /**
  * Every item a flow names, at the path it's named: tool nodes and fanout
- * branches (tools), agent nodes, subflows, in loop bodies too.
+ * branches (tools), agent nodes, subflows, in loop bodies too. An agent
+ * node that names its version (`config.version`) references that
+ * version: its runs take it, whatever the flow pins, so reach is asked of
+ * that version, as a run's step asks it.
  */
 export function flowReferences(flow: Flow): (ItemReference & { readonly path: string })[] {
   const refs: (ItemReference & { readonly path: string })[] = [];
@@ -170,11 +213,20 @@ export function flowReferences(flow: Flow): (ItemReference & { readonly path: st
       } else if (isSubflowNode(node)) {
         refs.push({ path, kind: 'flow', id: node.flowRef.flowId });
       } else if (node.kind === 'tool') refs.push({ path, kind: 'tool', id: node.ref });
-      else if (node.kind === 'agent') refs.push({ path, kind: 'agent', id: node.ref });
+      else if (node.kind === 'agent') refs.push({ path, ...agentStepReference(node) });
     }
   };
   walk(flow.nodes, '/');
   return refs;
+}
+
+/** An agent step's reference: to the version it names (`config.version`), else to the agent. */
+function agentStepReference(node: {
+  readonly ref: string;
+  readonly config?: Readonly<Record<string, unknown>>;
+}): ItemReference {
+  const named = node.config?.version;
+  return { kind: 'agent', id: node.ref, ...(typeof named === 'string' && { version: named }) };
 }
 
 /** Every item an agent names, at the path it's named: its tools, guardrails and data blocks. */

@@ -6,7 +6,10 @@ import { canonicalize } from '@kindgi/schema';
 import { nextVersion } from '@kindgi/tools';
 import type { VersionDerivation, VersionDerivationReason } from '@kindgi/types';
 
-import type { AgentVersionRecord } from './agent-binding.js';
+import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
+import type { FlowRegistryBinding } from './flow-binding.js';
+import { PublishRefused, ReferencesRefused } from './publish-refused.js';
+import { type ItemReference, heldVersionsGone } from './reference-scope.js';
 
 /** A version a deploy registers with pins: an agent's or a flow's. */
 export interface PinnedDefinition {
@@ -198,4 +201,31 @@ export function definitionKey(definition: PinnedDefinition): string {
     ...rest
   } = withoutRecordFields(definition);
   return canonicalize(rest);
+}
+
+/** A registry's answer to a deploy's agent or flow publish, other than `ok` or `already-registered`. */
+type RefusedVersionOutcome = Exclude<
+  | Awaited<ReturnType<AgentRegistryBinding['publish']>>
+  | Awaited<ReturnType<FlowRegistryBinding['publish']>>,
+  { readonly kind: 'ok' | 'already-registered' }
+>;
+
+/**
+ * Why a deploy's agent or flow, which the pack names at `at` (`/flows/0`),
+ * wasn't published. `held-version-gone` (a version it holds was removed
+ * while it was published) is `ReferencesRefused`, at each path in the pack
+ * that names a version removed: `refs` are the item's references, their
+ * paths within it. Any other outcome is `PublishRefused`.
+ */
+export function refusedPublish(
+  at: string,
+  item: { readonly kind: 'agent' | 'flow'; readonly id: string; readonly version: string },
+  outcome: RefusedVersionOutcome,
+  refs: readonly (ItemReference & { readonly path: string })[],
+): ReferencesRefused | PublishRefused {
+  if (outcome.kind !== 'held-version-gone') {
+    return new PublishRefused(item.kind, `${item.id}@${item.version}`, outcome);
+  }
+  const inPack = refs.map((ref) => ({ ...ref, path: `${at}${ref.path}` }));
+  return new ReferencesRefused(heldVersionsGone(item, outcome.gone, inPack));
 }

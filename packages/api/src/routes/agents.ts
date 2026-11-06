@@ -40,6 +40,7 @@ import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
+  heldVersionsGone,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
@@ -720,6 +721,16 @@ export function agentsRouter(
     }
     if (outcome.kind === 'project-mismatch') {
       return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
+    }
+    if (outcome.kind === 'held-version-gone') {
+      // A tool version it pins, removed since it was pinned: refused as reach
+      // refuses it, at the paths that name it.
+      const item = { kind: 'agent', id: agent.id, version: agent.version } as const;
+      return outOfScopeResponse(
+        c,
+        requestId,
+        heldVersionsGone(item, outcome.gone, agentReferences(agent)),
+      );
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within

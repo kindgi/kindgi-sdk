@@ -29,6 +29,7 @@ import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   flowReferences,
+  heldVersionsGone,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
@@ -500,6 +501,16 @@ export function flowsRouter(
     }
     if (outcome.kind === 'project-mismatch') {
       return projectMismatch(c, 'flow', outcome.flowId as unknown as string, outcome.projectId);
+    }
+    if (outcome.kind === 'held-version-gone') {
+      // A version it names or pins, removed since reach was asked: refused as
+      // reach refuses it, at the paths that name it.
+      const item = { kind: 'flow', id: flow.id, version: flow.version } as const;
+      return outOfScopeResponse(
+        c,
+        requestId,
+        heldVersionsGone(item, outcome.gone, flowReferences(flow)),
+      );
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
