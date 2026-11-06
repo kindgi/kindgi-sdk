@@ -7,8 +7,10 @@
  * and commit messages (`check-pr-text.mjs`):
  *
  * - **internal process markers** (`MARKERS`): development-phase ids,
- *   hand-off notes, scratch paths, internal labels; a pull request's own
- *   text also leaves out internal tracking references (`ID_MARKERS`);
+ *   hand-off notes, scratch paths, internal labels;
+ * - **internal tracking references** (`ID_MARKERS`): all of them in a
+ *   pull request's own text, and in a file those that can't be sample
+ *   data (`FILE_ID_MARKERS`);
  * - **forbidden names**: kept here only as salted hashes
  *   (`forbidden-names.json`), so the repository checks for a name without
  *   naming it. Text is split into tokens, runs of `[a-z0-9_]` lower-cased;
@@ -36,29 +38,39 @@ export const MARKERS = [
   [/\bTBD\b/, 'unresolved placeholder'],
 ];
 
+// One digit, or a letter and one or two: `A-1042` (an order id in a sample) isn't one, nor is
+// a regex's character class (`[A-Z0-9_]`, `[A-F0-9]`: after `[`, or before a range's `-9`).
+const STEP_ID = [/(?<!\[)\b[A-Z]-(?:[0-9]|[A-Z][0-9]{1,2})[a-z]?\b(?!-[0-9])/, 'internal step id'];
+// Lower case and whole: `W3C` and `w3c` aren't one.
+const SESSION_NAME = [/\bw[1-9]\b/, 'internal session name'];
+
 /**
  * Internal tracking references, for a pull request's own text
  * (`check-pr-text.mjs`, and the `commit-msg` hook): a ticket id (`T123`),
  * a step or check id (`M-2`, `L-A5`), a process rule's number, a release
  * batch's name, a working session's name (`w3`). They mean nothing
  * outside the team, and a pull request's
- * commits are public, though the squash commit leaves them out. Files
- * aren't checked for these (yet). A real term that looks like one goes in
- * `ALLOWED_TERMS`.
+ * commits are public, though the squash commit leaves them out. A real
+ * term that looks like one goes in `ALLOWED_TERMS`.
  */
 export const ID_MARKERS = [
   // `T12:00` is a time.
   [/\bT[0-9]{2,4}[a-z]?\b(?!:[0-9])/, 'internal tracking id'],
-  // One digit, or a letter and one or two: `A-1042` (an order id in a sample) isn't one, nor is
-  // a regex's character class (`[A-Z0-9_]`, `[A-F0-9]`: after `[`, or before a range's `-9`).
-  [/(?<!\[)\b[A-Z]-(?:[0-9]|[A-Z][0-9]{1,2})[a-z]?\b(?!-[0-9])/, 'internal step id'],
+  STEP_ID,
   // A dotted version (`protocol 2.5.0`) is a real term; the pack protocol's `protocol 2` is allowed.
   [/\bprotocol [0-9]+\b(?![.][0-9])/i, 'internal process rule'],
   [/\bwave [0-9]+\b/i, 'internal release batch'],
   [/\bpin[ -]batch(?:es)?\b/i, 'internal release batch'],
-  // Lower case and whole: `W3C` and `w3c` aren't one.
-  [/\bw[1-9]\b/, 'internal session name'],
+  SESSION_NAME,
 ];
+
+/**
+ * The internal tracking references a repository file leaves out
+ * (`check-refs.mjs`): `ID_MARKERS` less a step id and a session name,
+ * which in a file are sample data as often as not (an order `A-1` in a
+ * test, `w3.org` in an XML namespace).
+ */
+export const FILE_ID_MARKERS = ID_MARKERS.filter((m) => m !== STEP_ID && m !== SESSION_NAME);
 
 /**
  * Real terms that look like internal references (`ID_MARKERS`), each with
@@ -87,6 +99,22 @@ function withoutAllowed(line, allowed) {
   return out;
 }
 
+/**
+ * The tracked files the file rules read (`check-refs.mjs`): docs,
+ * manifests, and the source, tests and templates of each of the
+ * repository's languages. Not an ignore list, which names what's kept out,
+ * nor a binary.
+ */
+export const PUBLIC_TEXT_FILE =
+  /\.(ts|tsx|mts|cts|js|mjs|cjs|md|mdx|json|ya?ml|py|java|scala|sbt|php|sh|sql|tf|tfvars|hcl|astro|tmpl|liquid|css|xml|properties)$/;
+
+/**
+ * A changelog records what releases said, so it keeps the names and
+ * references it was released with; the runtime's own border check skips
+ * changelogs too. A changeset is checked: it becomes a changelog's line.
+ */
+const RELEASE_RECORD = /(^|\/)CHANGELOG\.md$/;
+
 /** What a name hit is reported as: never the name. */
 export const NAME_HIT = 'a name the repository doesn\'t use (see CONTRIBUTING, "Public text")';
 
@@ -103,6 +131,7 @@ export function loadNames(json) {
 const NAMES = loadNames(
   JSON.parse(readFileSync(new URL('./forbidden-names.json', import.meta.url), 'utf8')),
 );
+const NO_NAMES = loadNames({ salt: '', maxPhrase: 0, tokens: [], allowed: [] });
 
 /** The tokens of `text`: runs of `[a-z0-9_]`, lower-cased. */
 export function tokenize(text) {
@@ -152,4 +181,19 @@ export function scanText(text, { names = NAMES, markers = MARKERS, allowed = [] 
     if (nameHits(line, names) > 0) problems.push({ line: i + 1, what: NAME_HIT });
   });
   return problems;
+}
+
+/**
+ * The problems in a repository file's text (`check-refs.mjs`), as
+ * `scanText` reports them: the markers, the file's tracking references
+ * (`FILE_ID_MARKERS`, less `ALLOWED_TERMS`) and the names. A changelog
+ * gets the markers only.
+ */
+export function fileTextProblems(file, text, { names = NAMES } = {}) {
+  if (RELEASE_RECORD.test(file)) return scanText(text, { names: NO_NAMES });
+  return scanText(text, {
+    names,
+    markers: [...MARKERS, ...FILE_ID_MARKERS],
+    allowed: ALLOWED_TERMS.map((t) => t.term),
+  });
 }

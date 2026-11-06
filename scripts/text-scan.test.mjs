@@ -16,7 +16,15 @@ import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { PR_RULES, commitMessageText, prTextProblems, prTexts } from './check-pr-text.mjs';
-import { NAME_HIT, loadNames, nameHits, scanText, tokenize } from './text-scan.mjs';
+import {
+  NAME_HIT,
+  PUBLIC_TEXT_FILE,
+  fileTextProblems,
+  loadNames,
+  nameHits,
+  scanText,
+  tokenize,
+} from './text-scan.mjs';
 
 const SALT = 'kindgi-names-v1';
 const hash = (text) => createHash('sha256').update(`${SALT}:${text}`).digest('hex');
@@ -164,10 +172,6 @@ describe("internal tracking references, in a pull request's text", () => {
     }
   });
 
-  test("a repository file isn't checked for them: only a pull request's text", () => {
-    assert.deepEqual(whats(`see ${ref('T', 292)}`, { names }), []);
-  });
-
   test('an allowed term is blanked out, as a whole word only', () => {
     const allowed = { ...pr, allowed: [ref('X-', 1)] };
     assert.deepEqual(whats(`the ${ref('x-', 1)} board`, allowed), []);
@@ -187,6 +191,69 @@ describe("internal tracking references, in a pull request's text", () => {
     assert.deepEqual(prTextProblems(texts, { names }), [
       `commit aaaaaaa, line 3: internal tracking id: found in ${ref('T', 292)}`,
     ]);
+  });
+});
+
+describe("internal tracking references, in a repository file's text", () => {
+  const whats = (file, text) => fileTextProblems(file, text, { names }).map((p) => p.what);
+  /** A changeset's path, assembled so the repository's reference check doesn't look for it. */
+  const changeset = ref('.changeset/a-fix', '.md');
+
+  test('ticket ids, process rule numbers and release batches, in code, tests and docs', () => {
+    assert.deepEqual(whats('packages/cli/src/commands/dev.ts', `// a fix (${ref('T', 292)})`), [
+      'internal tracking id',
+    ]);
+    assert.deepEqual(whats('sdks/python/tests/test_client.py', `"""${ref('T', 236)}: pages."""`), [
+      'internal tracking id',
+    ]);
+    assert.deepEqual(whats('site/src/content/docs/a.mdx', `asked first (${ref('protocol ', 4)})`), [
+      'internal process rule',
+    ]);
+    assert.deepEqual(whats('packages/api/src/a.ts', `// since ${ref('wave ', 2)}`), [
+      'internal release batch',
+    ]);
+  });
+
+  test("a step id and a session name aren't checked: in a file, they're sample data", () => {
+    for (const text of [
+      `{ orderId: 'A-1' }`,
+      `new Error('No order Z-9')`,
+      `database_tier = "db-perf-optimized-N-2"`,
+      `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`,
+      `deliver(one, 'w1')`,
+      'the pack protocol 2',
+    ]) {
+      assert.deepEqual(whats('packages/api/tests/a.test.ts', text), [], text);
+    }
+  });
+
+  test("a changelog keeps what its releases said; a changeset, its next line, doesn't", () => {
+    const line = `- aec851d: the zorblax hooks (${ref('T', 83)})`;
+    assert.deepEqual(whats('packages/api/CHANGELOG.md', line), []);
+    assert.deepEqual(whats(changeset, line), ['internal tracking id', NAME_HIT]);
+    assert.deepEqual(whats('packages/api/CHANGELOG.md', `see ${scratch('notes.txt')}`), [
+      'scratch path',
+    ]);
+  });
+
+  test("the files read: each language's source, tests and templates; not an ignore list", () => {
+    for (const file of [
+      'packages/cli/src/main.ts',
+      'scripts/check-refs.mjs',
+      changeset,
+      'site/src/content/docs/guides/a.mdx',
+      'sdks/python/tests/test_client.py',
+      'sdks/java/kindgi-client/src/main/java/com/kindgi/A.java',
+      'sdks/scala/build.sbt',
+      'packages/cli/src/templates/java/pom.xml.tmpl',
+      'deploy/gcp-cloud-run/main.tf',
+      '.github/workflows/ci.yml',
+    ]) {
+      assert.ok(PUBLIC_TEXT_FILE.test(file), file);
+    }
+    for (const file of ['.gitignore', 'site/public/favicon.png', 'LICENSE']) {
+      assert.ok(!PUBLIC_TEXT_FILE.test(file), file);
+    }
   });
 });
 

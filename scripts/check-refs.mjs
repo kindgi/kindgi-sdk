@@ -12,8 +12,12 @@
  *      with that name.
  *   2. No internal process markers (development-phase identifiers,
  *      hand-off notes, scratch paths, internal labels, references to
- *      closed-source code) in tracked files, and none of the names the
- *      repository doesn't use (`text-scan.mjs`), in their text or paths.
+ *      closed-source code), no internal tracking references (ticket ids,
+ *      process rule numbers, release batches), and none of the names the
+ *      repository doesn't use (`text-scan.mjs`), in the text of tracked
+ *      docs, manifests, source, tests and templates in any of the
+ *      repository's languages (`PUBLIC_TEXT_FILE`), or in any tracked path.
+ *      A changelog keeps what its releases said (`fileTextProblems`).
  *   3. Every path a skill's frontmatter lists under `sources:` (repository-
  *      relative) is a tracked file or directory.
  *   4. A skill's links to docs.kindgi.com name this release line's docs
@@ -41,8 +45,9 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, join, normalize } from 'node:path';
 
 import { DOCS_URL, docsLineOf, isShipped, isSkill } from './lib/docs-line.mjs';
-import { MARKERS, NAME_HIT, nameHits } from './text-scan.mjs';
+import { NAME_HIT, PUBLIC_TEXT_FILE, fileTextProblems, nameHits } from './text-scan.mjs';
 
+/** The files whose Markdown references must resolve. */
 const TEXT = /\.(ts|tsx|mts|cts|js|mjs|cjs|md|json|ya?ml)$/;
 /** The checks themselves: they spell out the markers. */
 const SELF = new Set(['scripts/check-refs.mjs', 'scripts/text-scan.mjs']);
@@ -51,8 +56,6 @@ const SELF = new Set(['scripts/check-refs.mjs', 'scripts/text-scan.mjs']);
  * pack, or a coding agent's own (Gemini CLI's context file).
  */
 const EXTERNAL_DOCS = new Set(['FEEDBACK.md', 'GEMINI.md']);
-/** Changelogs record what releases said; the runtime's own border check skips them too. */
-const NAME_EXEMPT = /(^|\/)CHANGELOG\.md$/;
 // Not preceded by a path/URL character (so URL paths and %-encoded URIs don't match).
 const MD_REF = /(?<![\w/.@%-])((?:\.{1,2}\/)*(?:[\w.-]+\/)*[\w.-]+\.md)\b/g;
 
@@ -101,7 +104,9 @@ const problems = [];
 for (const file of tracked) {
   if (nameHits(file) > 0) problems.push(`${file}: its path holds ${NAME_HIT}`);
   const shipped = isShipped(file);
-  if ((!TEXT.test(file) && !shipped) || SELF.has(file)) continue;
+  // Every `TEXT` file is a public-text one.
+  const publicText = PUBLIC_TEXT_FILE.test(file);
+  if ((!publicText && !shipped) || SELF.has(file)) continue;
   const text = readFileSync(join(root, file), 'utf8');
   const skill = isSkill(file);
   if (skill) {
@@ -120,21 +125,19 @@ for (const file of tracked) {
         );
     }
   }
-  if (!TEXT.test(file)) continue;
-  const lines = text.split('\n');
-  lines.forEach((line, i) => {
-    for (const match of line.matchAll(MD_REF)) {
-      const ref = match[1];
-      if (!resolves(file, ref))
-        problems.push(`${file}:${i + 1}: references ${ref}, which is not in this repository`);
-    }
-    for (const [re, what] of MARKERS) {
-      if (re.test(line)) problems.push(`${file}:${i + 1}: ${what}: ${line.trim().slice(0, 120)}`);
-    }
-    if (!NAME_EXEMPT.test(file) && nameHits(line) > 0) {
-      problems.push(`${file}:${i + 1}: ${NAME_HIT}`);
-    }
-  });
+  if (TEXT.test(file)) {
+    text.split('\n').forEach((line, i) => {
+      for (const match of line.matchAll(MD_REF)) {
+        const ref = match[1];
+        if (!resolves(file, ref))
+          problems.push(`${file}:${i + 1}: references ${ref}, which is not in this repository`);
+      }
+    });
+  }
+  if (!publicText) continue;
+  for (const { line, what, excerpt } of fileTextProblems(file, text)) {
+    problems.push(`${file}:${line}: ${what}${excerpt === undefined ? '' : `: ${excerpt}`}`);
+  }
 }
 
 if (problems.length > 0) {
