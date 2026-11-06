@@ -37,6 +37,6 @@ const hash: ContentHash = 'sha256:abc123...' as ContentHash;
 
 ## Non-goals
 
-- **No runtime validation.** Branded types are compile-time only. Validation of wire payloads lives in `@kindgi/schema`; the runtime exports above (`makeEnvName`, `UUID_RE`, `isFileValue` and the rest) are the exceptions, each a check with no dependency.
+- **No runtime validation.** Branded types are compile-time only. Validation of wire payloads lives in `@kindgi/schema`; the runtime exports above (`makeEnvName`, `UUID_RE`, `isFileValue` and the rest) are the exceptions: small helpers with no dependency.
 - **No constructors.** Construction is by `as` cast, except `makeEnvName` for `EnvName`.
 - **No business logic.** Only types that are used by two or more packages belong here. Package-scoped types stay in that package.

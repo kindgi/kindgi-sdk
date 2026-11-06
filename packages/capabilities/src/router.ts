@@ -499,7 +499,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
   if (policy.maxCostPerCallUsd !== undefined) {
     const cap = policy.maxCostPerCallUsd;
     out.push({
-      label: `tenant.maxCostPerCallUsd<=${cap}`,
+      label: `tenant.maxCostPerCallUsd: promptUsdPer1kTokens<=${cap}`,
       test: (t): RejectionReason | null =>
         t.model.cost.promptUsdPer1kTokens <= cap
           ? null
@@ -514,14 +514,15 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
   if (policy.maxTokensPerCall !== undefined) {
     const cap = policy.maxTokensPerCall;
     out.push({
-      label: `tenant.maxTokensPerCall<=${cap}`,
+      label: `tenant.maxTokensPerCall: contextWindow>=${cap}`,
       test: (t): RejectionReason | null =>
         t.model.contextWindow >= cap
           ? null
           : {
-              // Reuse context-window-mismatch for tenant-side context caps.
+              // The workspace's smallest context window: the same check as a
+              // capability's, so the same code.
               code: 'context-window-mismatch',
-              message: `contextWindow=${t.model.contextWindow} < workspace cap ${cap}`,
+              message: `contextWindow=${t.model.contextWindow} < workspace minimum ${cap}`,
               observed: t.model.contextWindow,
               op: '>=',
               wanted: cap,

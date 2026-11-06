@@ -215,7 +215,9 @@ export function buildRunTrace(input: {
 /**
  * Filter the bound guardrail list to those referenced by the agent's
  * `guardrails: string[]` declaration. Missing references are collected
- * into `missing` — the caller decides whether that's fatal.
+ * into `missing` — the caller decides whether that's fatal. An id the
+ * agent lists more than once counts once, where it's first listed, so its
+ * check runs once a step and an llm-judge check is called once.
  */
 export function resolveGuardrails(
   agent: Agent,
@@ -225,7 +227,7 @@ export function resolveGuardrails(
   for (const inv of bindings.guardrails ?? []) available.set(inv.id, inv);
   const resolved: Guardrail[] = [];
   const missing: string[] = [];
-  for (const id of agent.guardrails) {
+  for (const id of new Set(agent.guardrails)) {
     const inv = available.get(id);
     if (inv !== undefined) resolved.push(inv);
     else missing.push(id);

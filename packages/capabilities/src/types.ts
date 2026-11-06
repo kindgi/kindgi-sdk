@@ -751,9 +751,13 @@ export interface ProviderSetupFailure {
  *
  * `regionAllow` narrows to specific provider regions; an empty list
  * allows none.
- * `maxCostPerCallUsd` caps per-invocation cost using the picked
- * model's `promptUsdPer1kTokens` as the cheap proxy.
- * `maxTokensPerCall` caps the picked model's context window.
+ * `maxCostPerCallUsd` is the highest prompt price a picked model may
+ * have, in US dollars per 1K prompt tokens (its
+ * `cost.promptUsdPer1kTokens`). The router knows a model's price before
+ * a call, not what the call will cost, so it doesn't limit a call's cost.
+ * `maxTokensPerCall` is the smallest context window a picked model must
+ * have: a model whose `contextWindow` is below it isn't picked. It
+ * doesn't limit the tokens a call uses.
  */
 export interface TenantPolicy {
   readonly tenantId: TenantId;

@@ -53,7 +53,7 @@ describe('mergeTenantPolicies — the result is at least as strict as each side'
     expect(merged?.providers).toEqual({ allow: ['anthropic'], deny: ['openai'] });
   });
 
-  test('deny lists union; caps take the smaller value', () => {
+  test('deny lists union; `maxCostPerCallUsd` keeps the smaller value; a limit on one side only applies as-is', () => {
     const merged = mergeTenantPolicies(
       policy({ models: { deny: ['opus'] }, maxCostPerCallUsd: 0.05, maxTokensPerCall: 100_000 }),
       policy({ models: { deny: ['gpt-large'] }, maxCostPerCallUsd: 0.02 }),
@@ -61,5 +61,12 @@ describe('mergeTenantPolicies — the result is at least as strict as each side'
     expect(merged?.models?.deny).toEqual(['opus', 'gpt-large']);
     expect(merged?.maxCostPerCallUsd).toBe(0.02);
     expect(merged?.maxTokensPerCall).toBe(100_000);
+  });
+
+  test('maxTokensPerCall, the smallest context window, keeps the larger: a window too small for either side is never picked', () => {
+    const small = policy({ maxTokensPerCall: 8_192 });
+    const large = policy({ maxTokensPerCall: 100_000 });
+    expect(mergeTenantPolicies(small, large)?.maxTokensPerCall).toBe(100_000);
+    expect(mergeTenantPolicies(large, small)?.maxTokensPerCall).toBe(100_000);
   });
 });

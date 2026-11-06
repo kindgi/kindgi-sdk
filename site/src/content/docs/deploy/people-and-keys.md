@@ -55,11 +55,12 @@ With authorization on:
 - **A service account** has only what it's granted. It isn't a tenant member
   unless you make it one.
 - **A capability** is needed on top of the role to trust signing keys
-  (`signing-keys:write`) and to write secrets and environment values
-  (`secrets:write`, `env:write` and the like). A workspace's first admin, the
-  person it was created with on a runtime serving many tenants, holds every
-  one but `secrets:reveal`, and no other person holds any. A key carries
-  those it was made with ([API keys](#api-keys)).
+  (`signing-keys:write`) and to write secrets, environment values and the
+  workspace's config entries (`secrets:write`, `env:write` and the like). A
+  workspace's first admin, the person it was created with on a runtime
+  serving many tenants, holds every one but `secrets:reveal`, and no other
+  person holds any. A key carries those it was made with
+  ([API keys](#api-keys)).
 
 Lists hold only what the caller may read.
 
@@ -76,14 +77,15 @@ team. `kindgi dev` runs this way. Serving many tenants needs authorization:
 with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 
 - **Everyone it lets in works in every project,** by a sign-in or a key:
-  its agents, runs, conversations and deployments. Writing secrets and
-  environment values still takes its capability: a key made with it
-  carries it, and a sign-in carries none ([API keys](#api-keys)).
+  its agents, runs, conversations and deployments. Writing secrets,
+  environment values and the workspace's config entries still takes its
+  capability: a key made with it carries it, and a sign-in carries none
+  ([API keys](#api-keys)).
 - **Workspace settings are the tenant admin's.** Anyone reads the workspace's
-  policies, model providers, adapters, identity providers and signing keys,
-  and only the tenant admin changes them. Webhook endpoints and compliance
-  evidence are the tenant admin's to read too, as are people, keys for
-  others and service accounts. Anyone else gets `403 permission-denied`.
+  name, policies, model providers, adapters, identity providers and signing
+  keys, and only the tenant admin changes them. Webhook endpoints and
+  compliance evidence are the tenant admin's to read too, as are people, keys
+  for others and service accounts. Anyone else gets `403 permission-denied`.
 - **The tenant admin is whoever uses the runtime's API token,** or an
   `admin` key made for the seed user, and a console signed in with either
   ([Signing in with an API token](../self-hosted/sign-in/#signing-in-with-an-api-token)).
@@ -374,8 +376,9 @@ a role.
   - whether you can decide at all.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
-- **`tokenCapabilities`:** what your token itself carries for secret, env and
-  signing-key writes. A sign-in session carries the ones you hold as a person.
+- **`tokenCapabilities`:** what your token itself carries for secret, env,
+  config-entry and signing-key writes. A sign-in session carries the ones you
+  hold as a person.
   A workspace's first admin, the person it was created with, holds every one but
   `secrets:reveal`; no one else holds any. An API key carries those it was
   minted with, none by default, and only ones its minter holds.
@@ -399,9 +402,10 @@ a role.
   couldn't read its tenants just then, and on an older runtime: ask
   `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
-  view a project, when a tenant admin set one. It's in the workspace's config,
+  view a project, when one is set. It's in the workspace's config,
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
-  most 280 characters.
+  most 280 characters. Setting it takes `env:write`, as every config entry
+  does ([Who can do what](#who-can-do-what)).
 
 A key limited to a project sees that project alone (in memory, it also reads
 its person's own facts that name no other project:

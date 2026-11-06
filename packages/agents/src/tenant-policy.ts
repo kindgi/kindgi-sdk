@@ -13,7 +13,10 @@ type AllowDeny = { readonly allow?: readonly string[]; readonly deny?: readonly 
  *     INTERSECTION when both set one; a list set on one side only applies
  *     as-is. An empty result allows nothing (the router fails closed).
  *   - deny lists (`providers.deny`, `models.deny`) → UNION.
- *   - `maxCostPerCallUsd` / `maxTokensPerCall` → the smaller value.
+ *   - `maxCostPerCallUsd`, the highest prompt price a model may have →
+ *     the smaller value.
+ *   - `maxTokensPerCall`, the smallest context window a model must have
+ *     → the larger value.
  *
  * Returns `undefined` when both are undefined (routing runs with no
  * tenant policy).
@@ -28,7 +31,7 @@ export function mergeTenantPolicies(
   const models = mergeAllowDeny(a.models, b.models);
   const regionAllow = intersectStrings(a.regionAllow, b.regionAllow);
   const maxCost = minDefined(a.maxCostPerCallUsd, b.maxCostPerCallUsd);
-  const maxTokens = minDefined(a.maxTokensPerCall, b.maxTokensPerCall);
+  const maxTokens = maxDefined(a.maxTokensPerCall, b.maxTokensPerCall);
   const merged: { -readonly [K in keyof TenantPolicy]: TenantPolicy[K] } = {
     tenantId: a.tenantId,
   };
@@ -75,4 +78,10 @@ function minDefined(a: number | undefined, b: number | undefined): number | unde
   if (a === undefined) return b;
   if (b === undefined) return a;
   return Math.min(a, b);
+}
+
+function maxDefined(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return Math.max(a, b);
 }
