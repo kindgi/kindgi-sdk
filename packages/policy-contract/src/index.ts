@@ -120,7 +120,9 @@ export interface PolicyRegistryBinding {
  *   rules.
  * - `model-routing` — the workspace routing policy (`TenantPolicy`) that
  *   `route` in `@kindgi/capabilities` applies: provider / model allow
- *   and deny lists, `regionAllow`, per-call cost and token caps.
+ *   and deny lists, `regionAllow`, a highest prompt price per 1K tokens
+ *   (`maxCostPerCallUsd`) and a smallest context window
+ *   (`maxTokensPerCall`).
  * - `adapter-allowlist` — narrows the adapters a workspace can see at the
  *   `/v1/adapters/*` surface.
  * - `rate-limit` — per-workspace, per-key rate caps for a rate-limit
