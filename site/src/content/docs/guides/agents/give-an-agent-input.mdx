@@ -1,14 +1,15 @@
 ---
 title: Give an agent its input
-description: What a turn's input is, how parameters fill an agent's instructions, what an agent gets as a flow step, and what a turn returns.
+description: What a turn's input is, the stored files it can carry, how parameters fill an agent's instructions, what an agent gets as a flow step, and what a turn returns.
 sidebar:
   order: 2
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide gives an agent its input, from a direct run or a flow step, fills
-its instructions with parameters, and reads what a turn returns.
+This guide gives an agent its input, from a direct run or a flow step, shows
+it stored files, fills its instructions with parameters, and reads what a
+turn returns.
 
 An agent runs one turn at a time. Run directly, a turn's input is the user's
 message and a few optional fields. Run as a step of a flow, the agent gets the
@@ -68,11 +69,12 @@ fields:
 | `conversationId` | Continue a conversation: see [Hold a conversation](../conversations/). Without it, the turn opens a new one. |
 | `participantId` | Who the conversation is with, kept on the conversation the turn opens. |
 | `parameters` | Values for the agent's parameters, as [Parameters](#parameters) describes: strings, numbers or booleans. |
+| `files` | Stored files the turn's message carries, each as `{ "artifactId": "<id>" }`, as [Files](#files) describes. |
 
 Without a `userMessage`, the run is refused:
 
 ```text
-Error [invalid-request]: An agent run expects input { userMessage: string, conversationId?: string, participantId?: string, parameters?: { [name]: string | number | boolean } }.
+Error [invalid-request]: An agent run expects input { userMessage: string, conversationId?: string, participantId?: string, parameters?: { [name]: string | number | boolean }, files?: [{ artifactId: string }] }.
 ```
 
 From your app, the same input goes in `runs.start`. Ask your coding agent:
@@ -189,6 +191,88 @@ Each prints the agent's answer. A run waits for the turn to end. To get the
 run back as soon as it exists, add `--no-wait`, or `options: { wait: false }`
 in the clients. It comes back `pending`, and `kindgi runs get <run-id>` shows
 it `completed`, with its `output`, once the turn ends.
+
+## Files
+
+A turn's message can carry stored files, such as a customer's order list or
+a photo of a damaged parcel. The agent's model is shown them with the
+message, and the conversation keeps them with it.
+
+Keep each file in the runtime first, in the project the run starts in, as
+[Keep files with a run](../../runs/keep-files-with-a-run/#upload-one) shows.
+A run that names no project starts in its agent's own project, the one its
+deploy named, else the default project, as
+[Organize by org and project](../../projects/organize-by-org-and-project/)
+describes. A turn in a conversation stays in the conversation's project. For
+an agent outside the default project, upload with `--project=<project-id>`.
+
+The upload prints the file's record, and its `blobId` is the `artifactId`
+the run's `files` name:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi artifacts upload orders.csv --content-type=text/csv
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Which of these orders are still open?","files":[{"artifactId":"<blob-id>"}]}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi artifacts upload orders.csv --content-type=text/csv
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Which of these orders are still open?","files":[{"artifactId":"<blob-id>"}]}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw artifacts upload orders.csv --content-type=text/csv
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Which of these orders are still open?","files":[{"artifactId":"<blob-id>"}]}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw artifacts upload orders.csv --content-type=text/csv
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Which of these orders are still open?","files":[{"artifactId":"<blob-id>"}]}'
+```
+
+</TabItem>
+</Tabs>
+
+The model is shown:
+
+- a JPEG, PNG or WebP image, at most 5 MB and 8,000 pixels a side;
+- a PDF, at most 10 MB;
+- a text file, at most 1 MB, such as plain text, Markdown or CSV: any file
+  whose bytes are UTF-8 text, with no NUL byte. The model reads its first
+  100,000 characters, marked as data, not instructions.
+
+An image or a PDF is shown to an agent that needs `vision`, as
+[Choose a model](../choose-a-model/) describes. Any other agent's model
+reads a line naming the file instead. Every agent is shown a text file.
+
+One model call sends at most 10 images and PDFs, 12 MB and 100 PDF pages of
+them in all, and reads in at most 200,000 characters of text files, never
+more than its model's window has tokens. A file past these is a line naming
+it and why, and the call goes on.
+
+A run's input carries at most 10 files, and more are refused with
+`400 bad-input`. A runtime that keeps no files refuses any `files` the same
+way, until you [turn them on](../../runs/keep-files-with-a-run/#turn-them-on).
+A file is refused the same way, naming it, when:
+
+- there's no such file, or you can't read it;
+- it's in a project other than the run's;
+- it isn't one of the files above, or it's over its size.
+
+The CLI prints each refusal as `Error [invalid-request]` with the runtime's
+words, as it does a missing `userMessage`. From your app, `runs.start` takes
+the same `files` in its `input`.
 
 ## Parameters
 
