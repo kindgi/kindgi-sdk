@@ -35,7 +35,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -164,6 +163,7 @@ import {
   writeProviderKeysRecord,
 } from '../env/provider-keys.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
+import { homeFolder } from '../home.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
@@ -444,6 +444,16 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     return { kind: 'error', stderr: `kindgi dev: ${earlyView.message}\n`, exitCode: 1 };
   }
   logView = earlyView.value;
+  // The dev sandbox keeps the home folder closed: with none, refused before anything starts.
+  const home = homeFolder(ctx.env.HOME);
+  if (home === undefined) {
+    return {
+      kind: 'error',
+      stderr:
+        'kindgi dev: found no home folder for the dev sandbox to keep closed, since HOME is empty. Set HOME and run it again.\n',
+      exitCode: 1,
+    };
+  }
 
   const runners = pickRunners(ctx);
   if (runners.kind === 'error') return runners;
@@ -486,7 +496,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   }
   const lock = taken.lock;
   try {
-    return await runDevForPack(ctx, args, dev, configFile, stderrIsTTY, lock);
+    return await runDevForPack(ctx, args, dev, configFile, stderrIsTTY, lock, home);
   } finally {
     await lock.release();
   }
@@ -500,6 +510,7 @@ async function runDevForPack(
   configFile: NonNullable<Awaited<ReturnType<typeof findKindgiConfig>>>,
   stderrIsTTY: boolean,
   lock: HeldDevLock,
+  home: string,
 ): Promise<CommandResult> {
   // The project's env files — Kindgi runtime config (`KINDGI_*`) for
   // this process, everything else for the pack's agents via the dev
@@ -563,7 +574,7 @@ async function runDevForPack(
     config: projectEnv.config,
     env: ctx.env,
     packDir: args.packDir,
-    home: ctx.env.HOME ?? homedir(),
+    home,
     detect: () => dev.detectSandbox(ctx.env),
   });
   if (devSandbox.kind === 'error') {
