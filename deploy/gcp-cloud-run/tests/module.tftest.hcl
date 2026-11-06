@@ -187,8 +187,8 @@ run "no_rotation_label_by_default" {
   command = plan
 
   assert {
-    condition     = try(google_cloud_run_v2_service.server.template[0].labels["rotated"], null) == null
-    error_message = "With server_rotation unset, the server's revision has no rotated label."
+    condition     = google_cloud_run_v2_service.server.template[0].labels == null
+    error_message = "With server_rotation unset, the server's revision has no labels, so an existing deployment's plan doesn't change."
   }
 }
 
@@ -198,11 +198,11 @@ run "a_rotation_is_the_revisions_label" {
   command = plan
 
   variables {
-    server_rotation = "2026-11-06"
+    server_rotation = "2026-11-06-1530"
   }
 
   assert {
-    condition     = google_cloud_run_v2_service.server.template[0].labels == tomap({ rotated = "2026-11-06" })
+    condition     = google_cloud_run_v2_service.server.template[0].labels == tomap({ rotated = "2026-11-06-1530" })
     error_message = "server_rotation is the server revision's rotated label, and its only label."
   }
 }
