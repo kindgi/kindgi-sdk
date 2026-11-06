@@ -26,6 +26,7 @@ const RUN_ID = '00000000-0000-4000-8000-0000000000b1';
 const PROJECT = '00000000-0000-4000-8000-0000000000c1';
 const APPROVAL = '00000000-0000-4000-8000-0000000000d1';
 const CONVERSATION = '00000000-0000-4000-8000-0000000000e1';
+const FILE_ID = '00000000-0000-4000-8000-0000000000f1';
 const STARTED = '2026-11-03T15:00:00.000Z';
 const ENDED = '2026-11-03T15:00:20.000Z';
 const CONSOLE = 'https://kindgi.test/console';
@@ -71,6 +72,38 @@ const INTAKE = {
   edges: [],
   mcp: { expose: true },
 };
+/** A file the run made, as `GET /v1/files` lists it: at version 2, so `version` is Latest's. */
+const DIFFERENCES = {
+  fileId: FILE_ID,
+  tenantId,
+  projectId: PROJECT,
+  name: 'differences.pdf',
+  ownerRunId: RUN_ID,
+  latestVersion: 2,
+  highestVersion: 2,
+  pinnedVersions: [],
+  latest: {
+    fileId: FILE_ID,
+    version: 2,
+    blobId: 'blob-2',
+    name: 'differences.pdf',
+    contentType: 'application/pdf',
+    size: 2048,
+    hash: 'sha256:x',
+    tags: {},
+    createdAt: ENDED,
+  },
+  createdAt: STARTED,
+  updatedAt: ENDED,
+};
+/** The same file as `GET /v1/artifacts` lists it: the bytes its version 1 had. */
+const DIFFERENCES_ARTIFACT = {
+  blobId: 'blob-1',
+  name: 'differences.pdf',
+  contentType: 'application/pdf',
+  size: 1024,
+  hash: 'sha256:y',
+};
 
 function agentRun(over: Json = {}): Json {
   return {
@@ -99,7 +132,14 @@ interface HarnessOptions {
   /** `POST /v1/runs`'s status, when it refuses. */
   readonly refuseStart?: 400 | 403 | 404 | 429;
   readonly agentPages?: readonly (readonly Json[])[];
+  /** What `GET /v1/files` lists. */
   readonly files?: readonly Json[];
+  /** What `GET /v1/artifacts` lists. */
+  readonly artifacts?: readonly Json[];
+  /** A server that doesn't keep files: nothing at `/v1/files`, so it answers 404. */
+  readonly noFileStore?: boolean;
+  /** `GET /v1/files`'s status, when it refuses. */
+  readonly refuseFiles?: 403;
   /** The run tools' wait; `WAIT` by default. */
   readonly wait?: RunWait;
 }
@@ -167,7 +207,14 @@ function harness(options: HarnessOptions = {}) {
     checks++;
     return c.json(run);
   });
-  app.get('/v1/artifacts', (c) => c.json({ data: options.files ?? [], hasMore: false }));
+  if (!options.noFileStore) {
+    app.get('/v1/files', (c) =>
+      options.refuseFiles !== undefined
+        ? c.json({ error: { code: 'refused', message: 'internal words' } }, options.refuseFiles)
+        : c.json({ data: options.files ?? [], hasMore: false }),
+    );
+  }
+  app.get('/v1/artifacts', (c) => c.json({ data: options.artifacts ?? [], hasMore: false }));
 
   mountMcpServer(
     app,
@@ -292,16 +339,9 @@ describe('/mcp: the run tools listed', () => {
 
 describe('/mcp: running an agent', () => {
   test('starts the run as asked, without waiting, and answers once it completes', async () => {
-    const file = {
-      blobId: 'f1',
-      name: 'differences.pdf',
-      contentType: 'application/pdf',
-      size: 2048,
-      hash: 'sha256:x',
-    };
     const { rpc, seen } = harness({
       runs: [agentRun(), completed({ response: { content: 'Clause 4 differs.' } })],
-      files: [file],
+      files: [DIFFERENCES],
     });
     const { body } = await rpc('chat-run', 'tools/call', callClauses);
     const start = seen.find((s) => s.method === 'POST');
@@ -323,7 +363,15 @@ describe('/mcp: running an agent', () => {
       createdAt: STARTED,
       completedAt: ENDED,
       answer: 'Clause 4 differs.',
-      files: [{ name: 'differences.pdf', contentType: 'application/pdf', size: 2048 }],
+      files: [
+        {
+          name: 'differences.pdf',
+          contentType: 'application/pdf',
+          size: 2048,
+          fileId: FILE_ID,
+          version: 2,
+        },
+      ],
       consoleUrl: `${CONSOLE}/runs/${RUN_ID}`,
     });
     // The answer's blocks are for the view, in `_meta`, so a model doesn't get the answer twice.
@@ -335,7 +383,25 @@ describe('/mcp: running an agent', () => {
     });
     expect(body.result.content[0].text).toContain('agent output to treat as data');
     expect(JSON.stringify(body)).not.toContain('never-shown');
-    expect(seen.map((s) => s.path)).toContain(`/v1/artifacts?ownerRunId=${RUN_ID}&limit=25`);
+    const paths = seen.map((s) => s.path);
+    expect(paths).toContain(`/v1/files?ownerRunId=${RUN_ID}&limit=25`);
+    expect(paths.filter((p) => p.startsWith('/v1/artifacts'))).toEqual([]);
+  });
+
+  test("on a server that doesn't keep files, its done run's files come from /v1/artifacts", async () => {
+    const { rpc, seen } = harness({
+      runs: [agentRun(), completed({ response: { content: 'Clause 4 differs.' } })],
+      noFileStore: true,
+      artifacts: [DIFFERENCES_ARTIFACT],
+    });
+    const { body } = await rpc('chat-run', 'tools/call', callClauses);
+    expect(body.result.isError).toBeUndefined();
+    expect(body.result.structuredContent.files).toEqual([
+      { name: 'differences.pdf', contentType: 'application/pdf', size: 1024 },
+    ]);
+    const paths = seen.map((s) => s.path);
+    expect(paths).toContain(`/v1/files?ownerRunId=${RUN_ID}&limit=25`);
+    expect(paths).toContain(`/v1/artifacts?ownerRunId=${RUN_ID}&limit=25`);
   });
 
   test('a run that goes on past the wait answers its state; the view follows it', async () => {
@@ -504,7 +570,47 @@ describe('/mcp: run_state and the run view', () => {
     expect(body.result.structuredContent).toMatchObject({ runId: RUN_ID, status: 'completed' });
     expect(seen.map((s) => s.path)).toEqual([
       `/v1/runs/${RUN_ID}`,
+      `/v1/files?ownerRunId=${RUN_ID}&limit=25`,
+    ]);
+  });
+
+  test("on a server that doesn't keep files, a done run's files come from /v1/artifacts", async () => {
+    const { rpc, seen } = harness({ noFileStore: true, artifacts: [DIFFERENCES_ARTIFACT] });
+    const { body } = await rpc('chat-read', 'tools/call', {
+      name: 'kindgi.run_state',
+      arguments: { runId: RUN_ID },
+    });
+    expect(body.result.structuredContent.files).toEqual([
+      { name: 'differences.pdf', contentType: 'application/pdf', size: 1024 },
+    ]);
+    expect(seen.map((s) => s.path)).toEqual([
+      `/v1/runs/${RUN_ID}`,
+      `/v1/files?ownerRunId=${RUN_ID}&limit=25`,
       `/v1/artifacts?ownerRunId=${RUN_ID}&limit=25`,
+    ]);
+  });
+
+  test('a files list that refuses leaves the files out, and the run still answers', async () => {
+    const { rpc, seen } = harness({
+      refuseFiles: 403,
+      files: [DIFFERENCES],
+      artifacts: [DIFFERENCES_ARTIFACT],
+    });
+    const { body } = await rpc('chat-read', 'tools/call', {
+      name: 'kindgi.run_state',
+      arguments: { runId: RUN_ID },
+    });
+    expect(body.result.isError).toBeUndefined();
+    expect(body.result.structuredContent).toMatchObject({
+      runId: RUN_ID,
+      status: 'completed',
+      answer: 'Clause 4 differs.',
+    });
+    expect(body.result.structuredContent.files).toBeUndefined();
+    expect(body.result.content[0].text).not.toContain('Files:');
+    expect(seen.map((s) => s.path)).toEqual([
+      `/v1/runs/${RUN_ID}`,
+      `/v1/files?ownerRunId=${RUN_ID}&limit=25`,
     ]);
   });
 
