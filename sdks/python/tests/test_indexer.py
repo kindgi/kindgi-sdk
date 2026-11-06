@@ -195,16 +195,50 @@ def test_strict_counts_a_helper_that_wont_import_only_through_a_module_that_impo
         "ModuleNotFoundError"
     ) in err
     assert (
-        "kindgi.pack index: tools/_fixtures.py is a helper module and nothing in the index "
-        "imports it, so this doesn't fail the build."
+        "kindgi.pack index: tools/_fixtures.py's name starts with an underscore, so on its own "
+        "this doesn't fail the build: a file that imports it fails too. If it defines tools "
+        "itself, they're missing from this index"
     ) in err
-    assert "dev group" not in err
+    # The dev-group fix, for the case it defines tools.
+    assert (
+        "a module above whose name starts with an underscore imports a module that isn't "
+        "installed here. If it defines tools, they're left out: a pack's image installs its main "
+        "dependencies only"
+    ) in err
     # A tool that imports it fails on its own: the helper's import runs again and fails again.
     uses = {**helper, "tools/uses.py": "from ._fixtures import *  # noqa: F403\n"}
     assert main([*_index_args(full_pack(make_pack, **uses)), "--strict"]) == 1
     err = capsys.readouterr().err
     assert "kindgi.pack index: file-import-failed: Failed to import tools/uses.py" in err
     assert "if that module is a package pyproject.toml lists only in a dev group" in err
+
+
+def test_strict_lets_a_helper_that_defines_tools_through_saying_they_are_left_out(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Its tools are in the local index; the build stops at the index check, after this line.
+    shared = (
+        "import acme_package_not_installed\n"
+        "from kindgi import tool\n"
+        '@tool(id="acme.shared")\n'
+        "def shared(input: dict) -> dict:\n"
+        '    """Shared."""\n'
+        "    return {}\n"
+    )
+    root = full_pack(make_pack, **{"tools/_more.py": shared})
+    assert main([*_index_args(root), "--strict"]) == 0
+    err = capsys.readouterr().err
+    assert (
+        "kindgi.pack index: tools/_more.py's name starts with an underscore, so on its own this "
+        "doesn't fail the build: a file that imports it fails too. If it defines tools itself, "
+        "they're missing from this index, and the build stops when it's checked against the "
+        "local one."
+    ) in err
+    assert (
+        "If it defines tools, they're left out: a pack's image installs its main dependencies "
+        "only (uv sync --no-dev, or Poetry's main group), so if that module is a package "
+        "pyproject.toml lists only in a dev group, move it to [project].dependencies"
+    ) in err
 
 
 def test_strict_exits_1_on_any_file_error_with_the_package_hint_only_for_a_missing_one(

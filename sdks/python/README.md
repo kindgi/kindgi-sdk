@@ -270,8 +270,8 @@ KINDGI_PACK_SERVICE_TOKEN=… python -m kindgi.pack serve --index index.json
 won't import, or defines nothing), and lists those file errors in what it
 prints. With `--strict` it then exits 1, printing each one; a pack image's
 build runs it that way. A helper module (`tools/_db.py`) that won't import
-doesn't count on its own: nothing in the index needs it, and a module that
-imports it fails too.
+doesn't make it exit 1 on its own: a module that imports it fails too. If the
+helper defines tools itself, it says they're left out of the index.
 
 `serve` has the Node pack service's process contract: `--index`,
 `--module-root` and `--host`; `KINDGI_PACK_SERVICE_TOKEN`, `PORT`,
