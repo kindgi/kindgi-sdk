@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in the SDK, the CLI or the docs doesn't do what it says.
+description: Something in the SDK or the CLI doesn't do what it says.
 labels: ["bug"]
 body:
   - type: markdown
@@ -10,6 +10,8 @@ body:
         as [SECURITY.md](https://github.com/kindgi/kindgi-sdk/blob/main/SECURITY.md) says.
 
         An issue is public: leave out keys, tokens, passwords, and any personal or customer data.
+
+        A docs page that's wrong or missing something has a form of its own: Docs problem.
   - type: dropdown
     id: area
     attributes:
@@ -20,7 +22,6 @@ body:
         - The Python SDK (kindgi)
         - The Java SDK (kindgi-client or kindgi-pack)
         - The Scala SDK (kindgi-pack-scala)
-        - The docs (docs.kindgi.com)
         - Not sure
     validations:
       required: true
@@ -28,7 +29,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: The package's version, or the CLI's (`kindgi --version`). For the docs, the page's URL.
+      description: The package's version, or the CLI's (`kindgi --version`).
     validations:
       required: true
   - type: dropdown
@@ -39,7 +40,7 @@ body:
         - kindgi dev
         - Self-hosted
         - Kindgi Cloud
-        - It doesn't run (a build, the docs)
+        - It doesn't run (a build, a command)
   - type: textarea
     id: what-happened
     attributes:
