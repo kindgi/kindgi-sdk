@@ -38,8 +38,17 @@ const isClientType = (symbol: ts.Symbol): boolean =>
     (d) => ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d),
   );
 
-/** A `@deprecated` client type is an old path's, kept until it goes: the entry exports its replacement. */
-const isDeprecated = (symbol: ts.Symbol): boolean =>
+const index = program.getSourceFile(`${SRC}index.ts`);
+if (index === undefined) throw new Error(`${SRC}index.ts isn't in the program`);
+const exported = new Map(exportsOf(index).map((s) => [s.name, s] as const));
+
+/**
+ * A `@deprecated` client type whose name the entry exports is an old path's
+ * namesake, kept until it goes: the entry exports its replacement under that
+ * name. A deprecated one with no namesake is still exported.
+ */
+const isReplaced = (symbol: ts.Symbol): boolean =>
+  exported.has(symbol.name) &&
   (symbol.declarations ?? []).some((d) => ts.getJSDocDeprecatedTag(d) !== undefined);
 
 /** Each client type a module under `src/` declares (not re-exports), with its module. */
@@ -53,15 +62,12 @@ for (const file of program.getSourceFiles()) {
     continue;
   for (const symbol of exportsOf(file)) {
     const isAlias = (symbol.flags & ts.SymbolFlags.Alias) !== 0;
-    if (!isAlias && isClientType(symbol) && !isDeprecated(symbol)) {
+    if (!isAlias && isClientType(symbol) && !isReplaced(symbol)) {
       declared.push({ symbol, module: file.fileName.slice(SRC.length) });
     }
   }
 }
 
-const index = program.getSourceFile(`${SRC}index.ts`);
-if (index === undefined) throw new Error(`${SRC}index.ts isn't in the program`);
-const exported = new Map(exportsOf(index).map((s) => [s.name, s] as const));
 const target = (symbol: ts.Symbol): ts.Symbol =>
   symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 
