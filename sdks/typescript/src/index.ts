@@ -17,6 +17,7 @@ export type { KindgiClient } from './client.js';
 export type {
   AgentReleaseGateClient,
   AgentPinnedClient,
+  AgentTestSetClient,
   AgentUnpinInput,
   AgentsClient,
   DefineAgentOptions,
@@ -85,6 +86,11 @@ export type {
   ReviewersClient,
 } from './resources/approvals.js';
 export type {
+  AuditResourceClient,
+  AuthzAuditClient,
+  SignInAuditClient,
+} from './resources/audit.js';
+export type {
   DefineFlowOptions,
   FlowFilter,
   FlowsClient,
@@ -119,6 +125,7 @@ export type {
   EnvironmentsListInput,
   EnvironmentsPage,
 } from './resources/environments.js';
+export type { EnvironmentOrdersClient } from './resources/environment-orders.js';
 export type {
   PollingOverrides,
   RawRotationResponse,
@@ -133,6 +140,7 @@ export type {
   SecretRevokeInput,
   SecretRevokeOutcome,
   SecretRotateInput,
+  SecretRotationsClient,
   SecretSetInput,
   SecretSetOutcome,
   SecretVersionPage,
@@ -342,6 +350,8 @@ export type {
   McpClient,
   McpEndpointFilter,
   McpEndpointsClient,
+  McpPromptsClient,
+  McpResourcesClient,
 } from './resources/mcp.js';
 export type {
   EventsClient,
