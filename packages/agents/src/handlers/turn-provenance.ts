@@ -7,6 +7,12 @@
  * (`rehydrate.ts`) adds those of the steps that ran before it from what
  * they left durable (the conversation, the journal). Either way the DAG
  * is the same.
+ *
+ * The nodes of the agent's own acts name it as their `actor`, in one form
+ * (`agentActor`): its model calls, the tool calls they made, its answer,
+ * what it remembered, and the approvals it parked on. The others don't:
+ * the user message is its sender's, a decision whoever made it, a tool's
+ * result the tool's, and a search or a guardrail's check the turn's.
  */
 
 import type { MessageFile } from '@kindgi/capabilities';
@@ -16,6 +22,7 @@ import type { Timestamp } from '@kindgi/types';
 import { REMEMBER_TOOL_ID } from '../remember.js';
 import type { CallThinking } from '../streaming.js';
 import type {
+  Agent,
   ConversationMessage,
   RecalledMemory,
   RetrievalIntent,
@@ -24,6 +31,14 @@ import type {
 import type { TurnContext } from './context.js';
 import type { GateDecision } from './gate-decision.js';
 import type { RememberToolOutput } from './remember-tool.js';
+
+/**
+ * The agent as the nodes of its acts name it: `agent:<id>@<version>`, the
+ * form a `memory-write` node has always had.
+ */
+export function agentActor(agent: Pick<Agent, 'id' | 'version'>): string {
+  return `agent:${agent.id}@${agent.version}`;
+}
 
 /** The turn's user message. */
 export function addInputNode(provenance: ProvenanceBuilder, message: ConversationMessage): void {
@@ -173,21 +188,24 @@ export function filesReadOf(files: readonly FileRead[]): { readonly files?: read
 }
 
 /**
- * A model call, `caused-by` the turn's user message and `influenced-by`
- * each of this turn's tool results it read: all of them so far, since
- * the call's input holds every message of the turn before it.
+ * A model call, its actor the agent (`agentActor`), `caused-by` the turn's
+ * user message and `influenced-by` each of this turn's tool results it
+ * read: all of them so far, since the call's input holds every message of
+ * the turn before it.
  */
 export function addModelCallNode(
   provenance: ProvenanceBuilder,
   call: ModelCallFacts,
   inputSequence: number,
   toolResultIds: readonly string[],
+  actor: string,
 ): void {
   const id = `model-call:${call.step}`;
   provenance.addNode({
     id,
     kind: 'model-call',
     timestamp: call.at,
+    actor,
     modelVersion: `${call.provider.id}/${call.provider.model}`,
     attributes: {
       step: call.step,
@@ -206,15 +224,17 @@ export function addModelCallNode(
 }
 
 /**
- * A tool call the model at `step` made, and its result: the stored tool
- * message (a tool's output, a rejected approval's, or a failed call's).
- * `version` is the tool the agent's binding resolved, when it has one.
+ * A tool call the model at `step` made, its actor the agent, and its
+ * result: the stored tool message (a tool's output, a rejected approval's,
+ * or a failed call's). `version` is the tool the agent's binding resolved,
+ * when it has one.
  */
 export function addToolNodes(
   provenance: ProvenanceBuilder,
   step: number,
   result: ConversationMessage,
   version: { readonly resolvedVersion: string; readonly requestedRange: string } | undefined,
+  actor: string,
 ): void {
   const call = result.toolCall;
   if (call === undefined) return;
@@ -224,6 +244,7 @@ export function addToolNodes(
     id: callNodeId,
     kind: 'tool-call',
     timestamp: result.createdAt,
+    actor,
     attributes: {
       toolId: call.toolId,
       invocationId: call.invocationId,
@@ -249,7 +270,7 @@ export function addToolNodes(
 export function addMemoryWriteNode(
   provenance: ProvenanceBuilder,
   result: ConversationMessage,
-  agent: { readonly id: string; readonly version: string },
+  actor: string,
 ): void {
   const call = result.toolCall;
   if (call === undefined || call.toolId !== REMEMBER_TOOL_ID) return;
@@ -260,7 +281,7 @@ export function addMemoryWriteNode(
     id,
     kind: 'memory-write',
     timestamp: result.createdAt,
-    actor: `agent:${agent.id}@${agent.version}`,
+    actor,
     attributes: {
       operation: written.outcome === 'superseded' ? 'update_memory' : 'create_memory',
       factId: written.factId,
@@ -288,23 +309,16 @@ export function addStepToolNodes(
   step: number,
   stored: readonly ConversationMessage[],
 ): void {
+  const actor = agentActor(ctx.input.agent);
   for (const result of stored) {
     if (result.role !== 'tool' || result.toolCall === undefined) continue;
     const { invocationId, toolId } = result.toolCall;
     if (ctx.provenance !== undefined) {
-      addToolNodes(ctx.provenance, step, result, versionOf(ctx, toolId));
-      addMemoryWriteNode(ctx.provenance, result, {
-        id: ctx.input.agent.id as unknown as string,
-        version: ctx.input.agent.version as unknown as string,
-      });
+      addToolNodes(ctx.provenance, step, result, versionOf(ctx, toolId), actor);
+      addMemoryWriteNode(ctx.provenance, result, actor);
       const approval = ctx.toolApprovals?.get(invocationId);
       if (approval !== undefined) {
-        addToolApprovalNodes(
-          ctx.provenance,
-          invocationId,
-          approval,
-          ctx.input.agent.id as unknown as string,
-        );
+        addToolApprovalNodes(ctx.provenance, invocationId, approval, actor);
       }
     }
     ctx.toolResultIds ??= [];
@@ -346,16 +360,16 @@ export interface ToolApproval {
 
 /**
  * The approval a tool call waited on, as the session gate records its own:
- * a `wait` node (the agent parked) `resumed-from` a `resume` node (the
- * decision, its actor whoever decided). The call `waited-on` the wait, and
- * its result was `caused-by` the decision: the tool's output when approved,
- * the rejection when not.
+ * a `wait` node (the agent parked, its actor the agent) `resumed-from` a
+ * `resume` node (the decision, its actor whoever decided). The call
+ * `waited-on` the wait, and its result was `caused-by` the decision: the
+ * tool's output when approved, the rejection when not.
  */
 export function addToolApprovalNodes(
   provenance: ProvenanceBuilder,
   invocationId: string,
   approval: ToolApproval,
-  agentId: string,
+  actor: string,
 ): void {
   const waitId = `tool-hitl-gate-wait:${invocationId}`;
   const resumeId = `tool-hitl-gate-resume:${invocationId}`;
@@ -364,7 +378,7 @@ export function addToolApprovalNodes(
     id: waitId,
     kind: 'wait',
     timestamp: approval.parkedAt,
-    actor: `agent:${agentId}`,
+    actor,
     attributes: { gate: 'tool-call', invocationId, waitTokenId: approval.waitTokenId },
   });
   provenance.addNode({

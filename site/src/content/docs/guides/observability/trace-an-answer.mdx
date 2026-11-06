@@ -78,11 +78,11 @@ Both answer the record:
   "dag": {
     "nodes": [
       {"id": "input:0", "kind": "input", "timestamp": "2026-10-08T15:13:29.826Z"},
-      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-08T15:13:31.345Z", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 1, "model": "claude-sonnet-5-5", "callId": "975d170b-d14f-4fbf-b662-85bcf26b9431", "providerId": "anthropic", "finishReason": "tool-use"}},
-      {"id": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-call", "timestamp": "2026-10-08T15:13:31.369Z", "attributes": {"toolId": "acme.echo", "toolVersion": "0.1.0", "invocationId": "toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "toolVersionRange": "0.1.0"}},
+      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-08T15:13:31.345Z", "actor": "agent:acme.assistant@0.1.0", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 1, "model": "claude-sonnet-5-5", "callId": "975d170b-d14f-4fbf-b662-85bcf26b9431", "providerId": "anthropic", "finishReason": "tool-use"}},
+      {"id": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-call", "timestamp": "2026-10-08T15:13:31.369Z", "actor": "agent:acme.assistant@0.1.0", "attributes": {"toolId": "acme.echo", "toolVersion": "0.1.0", "invocationId": "toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "toolVersionRange": "0.1.0"}},
       {"id": "tool-result:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-result", "timestamp": "2026-10-08T15:13:31.369Z"},
-      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-08T15:13:32.418Z", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 2, "model": "claude-sonnet-5-5", "callId": "99929d2e-05e2-4452-853e-b6c6f0deed6e", "providerId": "anthropic", "finishReason": "stop"}},
-      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-08T15:13:32.442Z", "modelVersion": "anthropic/claude-sonnet-5-5"}
+      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-08T15:13:32.418Z", "actor": "agent:acme.assistant@0.1.0", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 2, "model": "claude-sonnet-5-5", "callId": "99929d2e-05e2-4452-853e-b6c6f0deed6e", "providerId": "anthropic", "finishReason": "stop"}},
+      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-08T15:13:32.442Z", "actor": "agent:acme.assistant@0.1.0", "modelVersion": "anthropic/claude-sonnet-5-5"}
     ],
     "edges": [
       {"from": "model-call:1", "to": "input:0", "kind": "caused-by"},
@@ -116,6 +116,11 @@ Read it from the answer backwards:
 | `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
 | `model-output` | The answer. |
 | `wait`, `resume` | A tool call that waited for an approval: the wait, and the decision that ended it. |
+
+The nodes of the agent's own acts name it as their `actor`, as
+`agent:<id>@<version>`: its model calls, the tool calls they made, its
+answer, and the `wait` of an approval it waited for. A `tool-result` node has
+no `actor`: the result is the tool's.
 
 Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`,
 and `influenced-by` from a model call to each tool result it read.
