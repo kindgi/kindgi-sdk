@@ -411,6 +411,12 @@ What's left after that follows where the values were:
   runtime logs a warning for each, with its tenant, its id and its path,
   and its row goes. Delete it in your secret manager by hand.
 
+The org's sweep and the purge erase as a hard revoke does, so what each
+secret manager keeps afterwards is as [Revoking for good](#revoking-for-good)
+says. An Azure vault that can't purge keeps each deleted secret recoverable
+until its scheduled purge date. The erase still counts, and the runtime logs
+a warning that says until when.
+
 ### Values left with no row
 
 A value can stay in your secret manager after Kindgi's rows for it are gone:

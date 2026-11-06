@@ -13,6 +13,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`SystemTenantPurge.left_because`'s docstring says it also names
+  a secret the secret manager didn't erase.** It named only a setting the
+  runtime lacks. What you pass or read doesn't change.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
