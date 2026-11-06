@@ -4,7 +4,7 @@
 
 ## Design principles
 
-1. **Type-only, with small exceptions.** Every export is a `type` except a few helpers with no dependencies: `makeEnvName` (the validated `EnvName` factory), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS`. Consumers pay zero runtime cost for using branded types.
+1. **Type-only, with small exceptions.** Every export is a `type` except a few helpers with no dependencies: `makeEnvName` (the validated `EnvName` factory), `UUID_RE` (the one check of a UUID id's shape), `isCredentialName`, `headerValueProblem` and `bearerValueProblem`, `parseCloudSecretVersion` with `CLOUD_SECRET_FORM`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS` and `FILE_NOT_READ_REASONS`. Consumers pay zero runtime cost for using branded types.
 2. **Nominal typing via brands.** Every entity ID is nominally distinct from any other. A `TenantId` and a `UserId` are both structurally `string`, but statically incompatible. Cross-boundary confusion becomes a compile error.
 3. **Correspondence to JSON Schemas.** Most entity kinds in `@kindgi/specs/*.schema.json` have a branded ID here (test sets, for one, do not). If a schema defines a new entity kind, its ID goes here. Some IDs (e.g. `ConversationId`, `TriggerId`) name entities that have no schema.
 4. **Two or more consumers rule.** A type belongs in `@kindgi/types` only if two or more packages use it. Package-scoped types stay in that package.
@@ -26,7 +26,7 @@ A branded type is constructed by cast:
 const tenant = 'abc' as TenantId;
 ```
 
-There is no runtime constructor, except `makeEnvName(raw)`, which returns an `EnvName` or `null` when `raw` breaks the `[a-z][a-z0-9-]{0,62}` grammar. Other validated construction (`"abc"` matches the tenant-id pattern before it's accepted) belongs in `@kindgi/schema`.
+There is no runtime constructor, except `makeEnvName(raw)`, which returns an `EnvName` or `null` when `raw` breaks the `[a-z][a-z0-9-]{0,62}` grammar. Other validated construction (`"abc"` matches the tenant-id pattern before it's accepted) belongs in `@kindgi/schema`. `UUID_RE` isn't a constructor: it is the one check of a UUID id's shape, shared by every package that checks one.
 
 ### Interop with strings
 
@@ -145,7 +145,7 @@ Type-only tests via vitest typecheck mode (`vitest run --typecheck`):
 - `.test-d.ts` files under `src/` are compiled by TS in typecheck mode.
 - Use `expectTypeOf(x).toEqualTypeOf<T>()` for positive assertions.
 - Use `// @ts-expect-error` immediately above lines that MUST fail compilation.
-- No runtime assertions in this package — the one runtime export, `makeEnvName`, is exercised by the `@kindgi/env-inmemory` tests.
+- No runtime assertions in this package — its runtime exports are small checks with no dependency. `makeEnvName` is exercised by the `@kindgi/env-inmemory` tests, and `UUID_RE` and `isFileValue` by this package's own.
 
 Coverage includes:
 - ID nominal distinctness (positive + negative).
