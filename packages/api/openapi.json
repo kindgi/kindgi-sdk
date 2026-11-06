@@ -66579,7 +66579,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.",
+            "description": "With an authorization store, not a tenant admin; with a store or without one, bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.",
             "content": {
               "application/json": {
                 "schema": {

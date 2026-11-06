@@ -376,8 +376,9 @@ a role.
   - whether you can decide at all.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
-- **`tokenCapabilities`:** what your token itself carries for secret, env and
-  signing-key writes. A sign-in session carries the ones you hold as a person.
+- **`tokenCapabilities`:** what your token itself carries for secret, env,
+  config-entry and signing-key writes. A sign-in session carries the ones you
+  hold as a person.
   A workspace's first admin, the person it was created with, holds every one but
   `secrets:reveal`; no one else holds any. An API key carries those it was
   minted with, none by default, and only ones its minter holds.

@@ -10414,7 +10414,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse(
-        'Bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.',
+        'With an authorization store, not a tenant admin; with a store or without one, bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.',
       ),
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
     },
