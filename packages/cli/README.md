@@ -722,6 +722,10 @@ deployment. The envelope is `--from-envelope`, else
 
 - **The API:** `--endpoint`, else the env block's `endpoint`, else
   `--url` / `KINDGI_API_URL`.
+- **The project:** `--project`, else the env block's `project` (on a
+  runtime that keeps its values under one env), else the project stored
+  with the key (see [Auth and config](#auth-and-config)), else
+  workspace-wide.
 - **Idempotent:** the `Idempotency-Key` header is a hash of the request
   body (`--idempotency-key` overrides it). Deploying the same image again
   returns the same deployment. When the server answers from its record of
@@ -1026,6 +1030,18 @@ for another one, give that server's key with `--token` or `KINDGI_API_TOKEN`.
 A key given with `--token` or `KINDGI_API_TOKEN` goes to whatever address
 the command goes to. `kindgi doctor` says which key the CLI would use, and
 whether it's for the API URL.
+
+**A project can be stored with the key.** A `project` (an id or a slug) in
+the file that holds the key is where a command that names no project goes:
+`kindgi deploy`, and the commands that would otherwise take the workspace's
+default project (`agents publish`, `flows publish`, `guardrails
+register`, `tools publish`, `sites`, `connection-choices`, `expert-queue`
+and `queue-rules`).
+`--project` comes first. It goes with that key only: a key given with
+`--token` or `KINDGI_API_TOKEN` has no project, and `kindgi auth login`
+with another key or address removes it, and says so. `kindgi deploy` names
+it: `Project: <project>  (project in <file>)`. `kindgi dev` writes its
+`./.kindgirc.json` anew at each start, so that file keeps no project.
 
 ### The runtime image's registry
 
