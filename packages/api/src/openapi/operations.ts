@@ -11125,7 +11125,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.unregister',
     summary: 'Soft-delete a cron schedule (tombstone)',
     description:
-      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11554,7 +11554,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.unregister',
     summary: 'Soft-delete a webhook trigger (tombstone)',
     description:
-      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.",
+      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11813,7 +11813,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.unregister',
     summary: 'Soft-delete a mail trigger (tombstone)',
     description:
-      'Who may unregister it is as for a pause. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.',
+      'Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).',
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],

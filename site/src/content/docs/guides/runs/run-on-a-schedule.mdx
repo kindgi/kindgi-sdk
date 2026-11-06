@@ -343,8 +343,9 @@ reads when you ask with `?includeUnregistered=true`:
 Nothing changes a removed schedule: an `update`, a pause or a `run-now` of
 it is `404 trigger-not-found`. A runtime whose registry doesn't read
 removed triggers answers these reads `404 trigger-not-found` too. The
-versions and fires stay until the workspace is purged
-([retention](../../../deploy/retention/#triggers-versions)).
+schedule and its versions stay until the workspace is purged
+([retention](../../../deploy/retention/#triggers-versions)), and its fires
+for their 30 days.
 
 From the CLI:
 

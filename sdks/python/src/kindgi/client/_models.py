@@ -18155,7 +18155,7 @@ class WebhookTriggerRecord(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.
+    When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`.
     """
 
 

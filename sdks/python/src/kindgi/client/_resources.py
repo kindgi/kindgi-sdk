@@ -10496,7 +10496,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -10768,7 +10768,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
 
-        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return self._client._request(
             _OPERATIONS["webhooks.unregister"],
@@ -11019,7 +11019,7 @@ class MailTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.
+        Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.unregister"],
@@ -20891,7 +20891,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -21163,7 +21163,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
 
-        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.unregister"],
@@ -21414,7 +21414,7 @@ class AsyncMailTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.
+        Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.unregister"],

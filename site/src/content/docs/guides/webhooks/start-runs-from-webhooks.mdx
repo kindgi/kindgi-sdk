@@ -625,8 +625,9 @@ reads when you ask with `?includeUnregistered=true`:
 Nothing changes a removed trigger: an `update`, a pause or a take-over of
 it is `404 trigger-not-found`. A runtime whose registry doesn't read
 removed triggers answers these reads `404 trigger-not-found` too. The
-versions and deliveries stay until the workspace is purged
-([retention](../../../deploy/retention/#triggers-versions)).
+trigger and its versions stay until the workspace is purged
+([retention](../../../deploy/retention/#triggers-versions)), and its
+deliveries for their [30 days](../../../deploy/retention/#webhook-deliveries).
 
 From the CLI:
 

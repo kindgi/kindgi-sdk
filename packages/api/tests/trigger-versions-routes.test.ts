@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
@@ -491,6 +491,15 @@ describe.each(KINDS)("a $name's versions", (kind) => {
         version: 2,
         unregisteredAt: removedAt,
       });
+      if (kind.name === 'schedule') {
+        // A removed schedule fires no more, so its occurrences to come aren't asked for.
+        const gets = vi.spyOn(h.registry, 'get');
+        const ahead = await h.call('GET', `${kind.base}/${id}${asked}&upcoming=3`);
+        expect(ahead.status, JSON.stringify(ahead.body)).toBe(200);
+        expect(ahead.body).toEqual(record.body);
+        expect(gets.mock.calls.map(([input]) => input.upcoming)).toEqual([undefined]);
+        gets.mockRestore();
+      }
       const page = await h.call('GET', `${kind.base}/${id}/versions${asked}`);
       expect(page.status).toBe(200);
       expect(validateAgainst(`${kind.schema}VersionPage`, page.body)).toEqual([]);

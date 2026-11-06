@@ -15801,7 +15801,7 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description:
-        'When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.',
+        'When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`.',
     },
   },
 };

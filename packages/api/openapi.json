@@ -26258,7 +26258,7 @@
           "unregisteredAt": {
             "type": "string",
             "format": "date-time",
-            "description": "When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then."
+            "description": "When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`."
           }
         }
       },
@@ -69810,7 +69810,7 @@
             }
           }
         },
-        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -71165,7 +71165,7 @@
             }
           }
         },
-        "description": "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.",
+        "description": "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
         "parameters": [
           {
             "name": "triggerId",
@@ -72371,7 +72371,7 @@
             }
           }
         },
-        "description": "Who may unregister it is as for a pause. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.",
+        "description": "Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
         "parameters": [
           {
             "name": "triggerId",
