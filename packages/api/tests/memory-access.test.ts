@@ -36,6 +36,8 @@ const ADMIN = 'admin-token';
 const KEY_B = 'key-b-token';
 /** The same user, signed in with no project limit. */
 const MULTI_1 = 'multi-1-token';
+/** The same user's session, limited to project B. */
+const SESSION_B = 'session-b-token';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === USER_1) return { tenantId, userId: 'user-1' as UserId };
@@ -44,6 +46,14 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === ADMIN) return { tenantId, userId: 'admin-1' as UserId };
   if (token === KEY_B) return { tenantId, userId: 'multi-1' as UserId, tokenProjectId: projectB };
   if (token === MULTI_1) return { tenantId, userId: 'multi-1' as UserId };
+  if (token === SESSION_B) {
+    return {
+      tenantId,
+      userId: 'multi-1' as UserId,
+      tokenProjectId: projectB,
+      sessionId: 'session-b' as never,
+    };
+  }
   return null;
 };
 
@@ -327,6 +337,17 @@ describe('API — memory write checks', () => {
       write({ userId: 'multi-1', projectId: projectB }),
     );
     expect(inProject.status).toBe(201);
+    // A session limited to the project is refused the same way, and named as one.
+    const bySession = await h.call(
+      'POST',
+      '/v1/memory/facts',
+      SESSION_B,
+      write({ userId: 'multi-1' }),
+    );
+    expect(bySession.status).toBe(403);
+    expect(bySession.body.error.message).toBe(
+      'A session limited to a project writes memory in that project only.',
+    );
     // The same person, signed in with no project limit, writes one with no project.
     const signedIn = await h.call(
       'POST',
