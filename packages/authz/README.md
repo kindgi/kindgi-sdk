@@ -9,6 +9,7 @@ Give every enforcement site one vocabulary — which object types exist, which a
 ## Exports
 
 - **Vocabulary** — `OBJECT_TYPES` / `ObjectType`, `ACTIONS` / `Action`, `ACTION_TO_RELATION` (e.g. `read` → `can_read`), `OBJECT_ACTIONS` (the actions meaningful per object type, so a PEP can reject `rotate` on an agent before calling FGA), `CHECK_ONLY_ACTIONS` (actions a check may ask that `OBJECT_ACTIONS` doesn't list, so no permissions report names them: a project's `call` and `execute`), `ResourceRef`, `resourceKey(ref)`, `ref(type, id)`.
+  - The `run` type and its actions (`read`, `cancel`, `delete`) are deprecated, and removed in the next minor release. Nothing grants them: a run is checked on its project.
 - **Principals** — `Principal` (`actor`, optional `onBehalfOf`, optional `scope`), `PrincipalRef`, `PrincipalKind` (`user`, `agent`, `service_account`, `system`), `DownscopedPermissions` (`allowedActions` / `deniedActions`).
   - `userPrincipal`, `systemPrincipal`, `serviceAccountPrincipal`, `delegate(actor, onBehalfOf, scope?)` (throws on cross-tenant delegation), `downscope(principal, scope)`.
   - `fgaSubject(ref)` — the FGA subject string for a principal; `system` maps to `user:system`.
@@ -16,7 +17,7 @@ Give every enforcement site one vocabulary — which object types exist, which a
 - **Decisions** — `AuthzCheckBinding` with `check(principal, action, resource, ctx?)` and `checkBatch(...)`, `AuthzCheckContext` (`correlationId`, `runId`), and `Decision` (`allowed`, `reason`, `failing`, `evidence`). The effective permission is the intersection of actor, `onBehalfOf` and `scope`.
 - **Tuples** — `TupleIntent` and `TupleEnqueueHook` (the hook every content and config binding calls inside its write transaction).
   - `tuplesForCreate(entity, creatorUserId?)` / `tuplesForDelete(entity)` over `EntityRef`; `tuplesForDelete` removes only the parent / scope tuple.
-  - Subject and object helpers (`userSubject`, `teamMemberSubject`, `tenantObject` … `runObject`, `scopeSubject`) and the tuple-side `Scope`.
+  - Subject and object helpers (`userSubject`, `teamMemberSubject`, `tenantObject` … `runObject`, `scopeSubject`) and the tuple-side `Scope`. `runObject` and the `run` entity are deprecated with the `run` type.
   - Membership and grants: `teamMembershipTuple`, `projectMembershipTuple`, `teamProjectGrantTuple` (`TeamRole`, `ProjectRole`), `machineAccessTuple` for `agent` / `service_account` subjects (`MachineSubject`, `AgentAccessResource`), and its agent shorthand `agentAccessTuple`.
 - **Reviewer roles** — `ReviewerRole` (`standard`, `senior`, `admin`) and `REVIEWER_ROLE_RANK`, where a higher rank covers the lower ones.
 
