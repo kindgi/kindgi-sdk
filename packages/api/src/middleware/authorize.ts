@@ -36,6 +36,7 @@ import {
 
 import { toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { authzUnavailableAnswer } from './error-mapper.js';
 
 /**
  * Callback that produces the resource being acted upon from the Hono
@@ -294,7 +295,17 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     authorize(action, getResource) {
       return async (c, next) => {
         const resource = await getResource(c);
-        const decision = await checkInternal(c, action, resource);
+        let decision: Decision;
+        try {
+          decision = await checkInternal(c, action, resource);
+        } catch (err) {
+          // The handler hasn't run, and the resource getter only reads: a
+          // store that couldn't be reached answers 503 on any method, as
+          // nothing ran. Anything else is the error handler's.
+          const unavailable = authzUnavailableAnswer(err, c);
+          if (unavailable !== undefined) return unavailable;
+          throw err;
+        }
         if (!decision.allowed) {
           // In the error envelope every route answers in, so clients type it
           // (`permission-denied` is an auth error, forbidden); what was

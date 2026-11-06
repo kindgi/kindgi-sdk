@@ -42,6 +42,15 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * a write can have committed part of its work before the timeout, and
  * clients retry a 503 as an answer that nothing ran.
  *
+ * A check the authorization store couldn't be reached for is the same: an
+ * error with `code: 'authz-backend-unavailable'` on it or down its `cause`
+ * chain answers `503 authz-backend-unavailable` with `Retry-After` on a
+ * GET or HEAD (`authzUnavailableAnswer`), and the 500 on any other method,
+ * where the handler may have written before its check. The runtime's
+ * binding sets that code (`AuthzCheckBinding`'s contract). A check in the
+ * `authorize` middleware runs before the handler, so there it answers the
+ * 503 on any method.
+ *
  * The requestId embedded in the response body matches
  * `middleware/request-id.ts`, so a caller can correlate.
  *
@@ -59,6 +68,10 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 export function mapThrownError(cause: Error, c: Context): Response {
   const busy = databaseBusyAnswer(cause, c);
   if (busy !== undefined) return busy;
+  if (READ_METHODS.has(c.req.method)) {
+    const unavailable = authzUnavailableAnswer(cause, c);
+    if (unavailable !== undefined) return unavailable;
+  }
   if ('getResponse' in cause && typeof cause.getResponse === 'function') {
     const res = (cause as { getResponse(): Response }).getResponse();
     return c.newResponse(res.body, res);
@@ -132,10 +145,55 @@ const MAX_CAUSE_DEPTH = 16;
 
 /** `code: 'database-busy'` on the error or anywhere on its `cause` chain. */
 function isDatabaseBusy(err: unknown): boolean {
+  return hasCode(err, 'database-busy');
+}
+
+/**
+ * The answer to a request whose authorization check couldn't reach the
+ * store: `503 authz-backend-unavailable` with `Retry-After` and a fixed
+ * message, when `err` has `code: 'authz-backend-unavailable'` on it or
+ * down its `cause` chain, and the error logged with it, at the 500's
+ * level: a store that can't be reached needs an operator. The store's own
+ * error text never reaches the body. `undefined` for any other error, for
+ * the caller to answer as it would.
+ *
+ * The caller has decided that sending the request again is safe: the
+ * `authorize` middleware, before the handler runs, on any method, and
+ * `mapThrownError`, on a GET or HEAD.
+ */
+export function authzUnavailableAnswer(err: unknown, c: Context): Response | undefined {
+  if (!isAuthzUnavailable(err)) return undefined;
+  (c.get('log') as Logger | undefined)?.error('authorization store unreachable', {
+    err: loggable(err),
+  });
+  c.header('Retry-After', String(AUTHZ_UNAVAILABLE_RETRY_AFTER_S));
+  c.status(statusFor('authz-backend-unavailable') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'authz-backend-unavailable',
+        message:
+          "The authorization store couldn't be reached, so the request wasn't run. Try again after Retry-After.",
+      },
+      (c.get('requestId') as string | undefined) ?? 'req-unknown',
+    ),
+  );
+}
+
+/** The wait a `503 authz-backend-unavailable` gives, in seconds. */
+export const AUTHZ_UNAVAILABLE_RETRY_AFTER_S = 5;
+
+/** `code: 'authz-backend-unavailable'` on the error or anywhere on its `cause` chain. */
+function isAuthzUnavailable(err: unknown): boolean {
+  return hasCode(err, 'authz-backend-unavailable');
+}
+
+/** `code` on the error or anywhere on its `cause` chain, `MAX_CAUSE_DEPTH` deep at most. */
+function hasCode(err: unknown, code: string): boolean {
   let node: unknown = err;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth++) {
     if (typeof node !== 'object' || node === null) return false;
-    if ((node as { code?: unknown }).code === 'database-busy') return true;
+    if ((node as { code?: unknown }).code === code) return true;
     node = (node as { cause?: unknown }).cause;
   }
   return false;
