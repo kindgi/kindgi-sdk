@@ -445,11 +445,11 @@ machine:
 
 ### The heads-up before a connection's access ends
 
-This server sends one more email. Some apps give no way to renew a
-sign-in, LinkedIn among them
+The runtime sends one more email through this SMTP service. Some apps give
+no way to renew a sign-in, LinkedIn among them
 ([LinkedIn](../../../guides/connections/linkedin/#when-linkedin-ends-access)).
 Seven days before such a connection's access ends, the runtime emails
-whoever can reconnect it, once for that end:
+whoever can reconnect it, once for that end (runtime 0.7.0 or later):
 
 - **A person's own connection:** that person.
 - **The company's:** each workspace admin. Without authorization there are
@@ -457,11 +457,11 @@ whoever can reconnect it, once for that end:
   ([Without authorization](../../people-and-keys/#without-authorization)).
 
 The email links to the connection in the console. It has no setting of its
-own: it goes out whenever this server is set. Without the server, the
-start log says the email is off:
+own: it goes out whenever the SMTP service is set. Without it, the start
+log says the email is off:
 
 ```text
-[connections] the heads-up email before a connection's access ends is off: it needs the emailed sign-in link's server (KINDGI_AUTH_EMAIL_SMTP_URL and KINDGI_AUTH_EMAIL_FROM). The console still shows it on the connection.
+17:36:46.102 INFO  [connections] the heads-up email before a connection's access ends is off: it needs the emailed sign-in link's server (KINDGI_AUTH_EMAIL_SMTP_URL and KINDGI_AUTH_EMAIL_FROM). The console still shows it on the connection.
 ```
 
 With or without the email, the console shows it from those seven days on.
