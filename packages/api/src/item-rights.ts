@@ -52,6 +52,7 @@ import type {
   OrderItemKind,
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
+import { beforeHandler } from './middleware/error-mapper.js';
 import { isReadMethod } from './read-method.js';
 import { UUID_RE } from './routes/uuid-param.js';
 import type { AppEnv } from './types.js';
@@ -1047,6 +1048,10 @@ export async function pinWidthRefusal(
  * an item more than one project serves, what `check` names (`enforce`);
  * else `today`, the item's own check, as before. `today` returning
  * `undefined` leaves the route to check for itself.
+ *
+ * Its reads and checks come before the handler, so a store that couldn't
+ * be reached, or a database too busy to read, answers 503 on any method
+ * (`beforeHandler`), as the `authorize` middleware's own do.
  */
 export function itemMiddleware(how: {
   readonly authorizer: Authorizer;
@@ -1058,20 +1063,34 @@ export function itemMiddleware(how: {
   readonly versionNotFound: (c: Ctx, version: string) => Response;
 }): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const today = await how.today(c);
-    if (today === undefined) return next();
-    const id = how.id(c);
-    const projects = await how.rights?.multi(c, how.kind, id);
-    if (how.rights !== undefined && projects !== undefined) {
-      const check = await how.check(c, projects);
-      return (
-        (await how.rights.enforce(c, how.kind, id, projects, check, how.versionNotFound)) ?? next()
-      );
-    }
-    const type = ITEM_TYPE[how.kind];
-    if (type === undefined) return next();
-    return how.authorizer.authorize(today, () => ref(type, id))(c, next);
+    const gate = await beforeHandler(c, () => itemGate(c, how));
+    if (gate instanceof Response) return gate;
+    if (gate === undefined) return next();
+    // One project (or no item-rights binding): the item's own check, by the
+    // `authorize` middleware, which answers its own 503s.
+    const { action, resource } = gate;
+    return how.authorizer.authorize(action, () => resource)(c, next);
   };
+}
+
+/**
+ * `itemMiddleware`'s reads and checks: its refusal, the item's own check
+ * for the `authorize` middleware to ask, or `undefined` to go on.
+ */
+async function itemGate(
+  c: Ctx,
+  how: Parameters<typeof itemMiddleware>[0],
+): Promise<Response | { readonly action: Action; readonly resource: ResourceRef } | undefined> {
+  const today = await how.today(c);
+  if (today === undefined) return undefined;
+  const id = how.id(c);
+  const projects = await how.rights?.multi(c, how.kind, id);
+  if (how.rights !== undefined && projects !== undefined) {
+    const check = await how.check(c, projects);
+    return how.rights.enforce(c, how.kind, id, projects, check, how.versionNotFound);
+  }
+  const type = ITEM_TYPE[how.kind];
+  return type === undefined ? undefined : { action: today, resource: ref(type, id) };
 }
 
 /** What `shownLatest` answers. */
