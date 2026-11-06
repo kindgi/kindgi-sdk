@@ -32,7 +32,9 @@ import { parseTimeInput } from './time-input.js';
  * a ceiling under them and its project a narrowing.
  *
  * - **Your own keys:** a person, or a service account's key, may mint,
- *   list, read and revoke the keys that act for them.
+ *   list, read and revoke the keys that act for them. A key or session
+ *   limited to a project lists, reads and revokes only those of them
+ *   limited to the same project: another reads as missing.
  * - **Someone else's:** only a tenant admin (`admin` on the tenant when
  *   authorization is on, otherwise the `tenant-admin` scope) mints keys
  *   for another principal, and sees and revokes every key. A tenant admin
@@ -123,18 +125,23 @@ export function tokensRouter(
     const filter = parsePrincipalQuery(c.req.query('principal'));
     if (filter.kind === 'err') return fail(c, filter.error, requestId);
     // An admin sees every key (or one principal's); anyone else, their own.
+    // A caller limited to a project, only its own limited to that project.
     const principal = (await isTenantAdmin(c, authorizer)) ? filter.value : keyOwner(c);
+    const project = keyProject(c);
     const records = await admin.list({
       tenantId,
       limit: limit + 1,
       ...(principal !== undefined && { principal }),
+      ...projectFilter(project),
       ...(after && { after }),
     });
     const hasMore = records.length > limit;
     const page = hasMore ? records.slice(0, limit) : records;
     const last = page[page.length - 1];
     return c.json({
-      data: page.map(toWire),
+      // Cut where the store's page is, so the cursor holds when a store
+      // doesn't apply `projectId`.
+      data: page.filter((k) => inProject(k, project)).map(toWire),
       hasMore,
       ...(hasMore &&
         last !== undefined && {
@@ -203,6 +210,21 @@ function keyOwner(c: Context<AppEnv>): TokenPrincipal | undefined {
     return undefined;
   }
   return caller;
+}
+
+/** The project the caller's key or session is limited to, if any. */
+function keyProject(c: Context<AppEnv>): ProjectId | undefined {
+  return c.get('tokenProjectId') as unknown as ProjectId | undefined;
+}
+
+/** The store's `projectId`, for a caller limited to a project. */
+function projectFilter(project: ProjectId | undefined): { projectId?: ProjectId } {
+  return project !== undefined ? { projectId: project } : {};
+}
+
+/** Whether a key is in `project`: any key is, when there's no project. */
+function inProject(record: ApiTokenRecord, project: ProjectId | undefined): boolean {
+  return project === undefined || record.projectId === project;
 }
 
 function samePrincipal(a: TokenPrincipal, b: TokenPrincipal | undefined): boolean {
@@ -353,7 +375,10 @@ async function expiryRefusal(
   return refusalError(refusal);
 }
 
-/** A key the caller may see: any, for a tenant admin; otherwise only their own. */
+/**
+ * A key the caller may see: any, for a tenant admin; otherwise only their
+ * own, and for a caller limited to a project only their own limited to it.
+ */
 async function visibleKey(
   c: Context<AppEnv>,
   admin: TokenAdmin,
@@ -364,7 +389,9 @@ async function visibleKey(
   const record = await admin.get({ tenantId, tokenId });
   if (record === undefined) return undefined;
   if (await isTenantAdmin(c, authorizer)) return record;
-  return record.principal !== undefined && samePrincipal(record.principal, keyOwner(c))
+  return record.principal !== undefined &&
+    samePrincipal(record.principal, keyOwner(c)) &&
+    inProject(record, keyProject(c))
     ? record
     : undefined;
 }

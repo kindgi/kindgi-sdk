@@ -2457,7 +2457,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.list',
     summary: 'List API keys',
     description:
-      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
+      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session limited to a project sees only its own keys limited to that project.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [
@@ -2486,7 +2486,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.get',
     summary: 'Read an API key',
     description:
-      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
+      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing). A key or session limited to a project reads only its own keys limited to that project (another reads as missing).",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam],
@@ -2504,7 +2504,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.revoke',
     summary: 'Revoke an API key',
     description:
-      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.',
+      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own. A key or session limited to a project revokes only its own keys limited to that project (another reads as missing).',
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam, IdempotencyKeyParam],
