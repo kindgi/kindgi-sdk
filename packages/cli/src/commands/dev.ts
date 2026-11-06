@@ -35,7 +35,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -165,6 +164,7 @@ import {
   writeProviderKeysRecord,
 } from '../env/provider-keys.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
+import { homeFolder } from '../home.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
@@ -564,7 +564,7 @@ async function runDevForPack(
     config: projectEnv.config,
     env: ctx.env,
     packDir: args.packDir,
-    home: ctx.env.HOME ?? homedir(),
+    home: homeFolder(ctx.env.HOME),
     detect: () => dev.detectSandbox(ctx.env),
   });
   if (devSandbox.kind === 'error') {
