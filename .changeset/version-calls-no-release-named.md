@@ -7,4 +7,3 @@
 - **The calls:** `agents.reinstateVersion`, `tools.listVersions`, `tools.getVersion`, `tools.reinstateVersion`, `tools.unregisterVersion`, `flows.getVersion`, `flows.delete`, `flows.reinstateVersion`, calling `flows.versions(id)` directly, and `policies.author`. Each one's docs name the call to use instead: the resource's `versions.list`, `versions.get`, `versions.reinstate` or `versions.unregister`, or `policies.publish`.
 - **`flows.delete`'s docs** also say that it answers nothing, where `flows.versions.unregister` answers `{ flowId, version, unregistered }`.
 - **Three docs that named the old calls** now name the new ones: `ToolVersionRow`'s, the policies client's and the retention client's.
-- **A new test** fails a `@deprecated` tag in the client's source that names a version.

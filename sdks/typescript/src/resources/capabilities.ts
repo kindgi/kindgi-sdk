@@ -209,13 +209,7 @@ export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient
       },
 
       async capabilitiesFor(id) {
-        const envelope = await transport.request<{
-          readonly data: readonly CapabilityDeclaration[];
-        }>({
-          method: 'GET',
-          path: `/v1/providers/${encodeURIComponent(id)}/capabilities`,
-        });
-        return envelope.data;
+        return (await current.capabilities(id)).data;
       },
 
       async enable(_id) {
