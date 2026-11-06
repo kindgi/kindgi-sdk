@@ -8937,6 +8937,7 @@ describe('POST /v1/deployments and /v1/deployments/check — a deploy against wh
       message: 'A block version pull request could not be read',
       fields: { blockId: REPLY, version: '2.0.0', projectId: CLIENT_B, error: 'TypeError' },
     });
-    expect(JSON.stringify(h.logger.warns)).not.toContain('502');
+    // The thrown message's words, not its status alone: a random project id can hold '502'.
+    expect(JSON.stringify(h.logger.warns)).not.toContain('answered 502');
   });
 });
