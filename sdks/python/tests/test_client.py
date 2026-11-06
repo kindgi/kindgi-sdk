@@ -452,6 +452,8 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
             AuthError,
             lambda e: e.reason == "forbidden",
         ),
+        (error(403, "join-domains-operator-managed"), AuthError, lambda e: e.reason == "forbidden"),
+        (error(403, "join-domain-not-yours"), AuthError, lambda e: e.reason == "forbidden"),
         (
             error(500, "kaboom", requestId="req-1"),
             ServerError,

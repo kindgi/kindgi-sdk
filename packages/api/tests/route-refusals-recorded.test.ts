@@ -50,6 +50,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'connection-not-yours',
   'connection-installation-unreachable',
   'identity-providers-operator-managed',
+  'join-domains-operator-managed',
+  'join-domain-not-yours',
   'token-sign-in-not-allowed',
   'token-sign-in-off',
   'key-project-mismatch',
@@ -104,6 +106,10 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
     'GET /v1/system/usage system-principal-required',
+    'POST /v1/system/tenants/{tenantId}/join-domains system-principal-required',
+    'POST /v1/system/join-domains/lookup system-principal-required',
+    // A member key lets no one join.
+    'POST /v1/auth/join-domains',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
@@ -118,6 +124,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
     'GET /v1/system/usage system-principal-required',
+    'POST /v1/system/tenants/{tenantId}/join-domains system-principal-required',
+    'POST /v1/system/join-domains/lookup system-principal-required',
   ],
   // A key limited to a project is never the tenant's admin: it reads no approvals.
   [PROJECT_KEY]: ['GET /v1/approvals'],
@@ -133,6 +141,7 @@ const MUST_REFUSE_OPERATOR_MANAGED: Readonly<Record<string, readonly string[]>> 
     ...(MUST_REFUSE[NO_CAPS_KEY] ?? []),
     'POST /v1/auth/providers identity-providers-operator-managed',
     'PATCH /v1/auth/providers/{providerId} identity-providers-operator-managed',
+    'POST /v1/auth/join-domains join-domains-operator-managed',
   ],
 };
 
@@ -358,6 +367,14 @@ describe('refusals deeper in a route, which an empty body never reaches, are rec
     expect([r.status, r.error.code]).toEqual([403, 'host-access-denied']);
     expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
       ['admin', 'mcp_endpoint:acme-docs', 'scope'],
+    ]);
+  });
+
+  test('letting people at a domain join, by an API key, which has no proved email (join-domain-not-yours)', async () => {
+    const r = await refusal(NO_CAPS_KEY, 'POST', '/v1/auth/join-domains', { domain: 'acme.com' });
+    expect([r.status, r.error.code]).toEqual([403, 'join-domain-not-yours']);
+    expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
+      ['admin', `tenant:${tenantId}`, 'actor'],
     ]);
   });
 

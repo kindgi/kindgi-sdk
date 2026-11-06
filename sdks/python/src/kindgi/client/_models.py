@@ -777,6 +777,8 @@ class SystemKey(BaseModel):
             "system:env-refs",
             "system:usage:read",
             "system:license",
+            "system:join-domains:read",
+            "system:join-domains",
             "kindgi:system",
         ]
     ]
@@ -810,6 +812,8 @@ class MintSystemKeyBody(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
         ],
@@ -858,6 +862,8 @@ class MintSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -910,6 +916,8 @@ class Datum2(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -966,6 +974,8 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -8482,6 +8492,10 @@ class UserCreated(BaseModel):
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
+    """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
 
@@ -8631,6 +8645,106 @@ class AuthSettingsPatch(BaseModel):
         populate_by_name=True,
     )
     second_factor: Annotated[SecondFactor1, Field(alias="secondFactor")]
+
+
+class JoinDomain(BaseModel):
+    """
+    An email domain the workspace lets people join from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    """
+    Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`.
+    """
+    role: Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy", min_length=1)]
+    """
+    Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token).
+    """
+    updated_at: Annotated[AwareDatetime | None, Field(alias="updatedAt")] = None
+    updated_by: Annotated[str | None, Field(alias="updatedBy", min_length=1)] = None
+    """
+    Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one.
+    """
+
+
+class JoinDomainList(BaseModel):
+    """
+    The workspace's allowed domains, the first allowed first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JoinDomain]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class AllowJoinDomainBody(BaseModel):
+    """
+    A domain to let people join from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    """
+    An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent.
+    """
+    role: Literal["viewer", "runner", "none"] | None = None
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Default `viewer`.
+    """
+
+
+class ChangeJoinDomainBody(BaseModel):
+    """
+    What someone joining by the domain gets from now on. People who joined already keep what they have.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["viewer", "runner", "none"]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+
+
+class UnregisterJoinDomainResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    unregistered: Literal[True]
+
+
+class JoinDomainLookupBody(BaseModel):
+    """
+    One email a sign-up page verified.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    email: Annotated[str, Field(min_length=3)]
+    """
+    An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it.
+    """
 
 
 class CreateUserBody(BaseModel):
@@ -13678,6 +13792,38 @@ class CallDifferenceFieldValue(BaseModel):
     """
 
 
+class JoinLookupWorkspaceJoin(BaseModel):
+    """
+    A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["join"]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    name: str
+    role: Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+
+
+class JoinLookupWorkspaceMember(BaseModel):
+    """
+    A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["member"]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    name: str
+
+
 class ScopeTenant(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
@@ -14489,6 +14635,21 @@ class IdentityProviderConfigUnrecognized(BaseModel):
 
 
 class ImproveRunOutcomeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class JoinLookupWorkspaceUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -17073,6 +17234,24 @@ class UpdateIdentityProviderResult(BaseModel):
     """
     The provider as stored now; its `signIn` is unchanged.
     """
+
+
+class JoinDomainLookupResult(BaseModel):
+    """
+    For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[
+        Annotated[
+            JoinLookupWorkspaceJoin | JoinLookupWorkspaceMember | JoinLookupWorkspaceUnrecognized,
+            _open.OpenUnion("kind", JoinLookupWorkspaceUnrecognized),
+        ]
+    ]
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class PersonProjectRole(BaseModel):
@@ -20063,6 +20242,10 @@ class UserRecord(BaseModel):
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None

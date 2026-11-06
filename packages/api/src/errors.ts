@@ -510,6 +510,23 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // authorization store: a joiner's role couldn't be checked there, so
   // they'd work in every project.
   'domain-join-needs-authorization': 409,
+  // Letting people at an email domain join a workspace
+  // (`/v1/auth/join-domains`), or giving joiners more: only a person who's a
+  // tenant admin, for the domain of the email their sign-in proved, from a
+  // way in that counts for it, or the deployment's operator.
+  'join-domain-not-yours': 403,
+  // The deployment's operator manages sign-in: letting more people join,
+  // or giving joiners more, takes the operator's credential.
+  'join-domains-operator-managed': 403,
+  // A public mailbox domain (gmail.com, outlook.com...): anyone can have an
+  // address there, so it can never be allowed.
+  'join-domain-public': 400,
+  // The operator verified the domain for another workspace
+  // (KINDGI_AUTH_VERIFIED_DOMAINS), or for a tenant this runtime doesn't
+  // serve: it's not this workspace's to allow.
+  'join-domain-verified-elsewhere': 409,
+  'join-domain-exists': 409,
+  'join-domain-not-found': 404,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.

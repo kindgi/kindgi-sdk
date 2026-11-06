@@ -188,6 +188,16 @@ export type {
   SignInOptionsInput,
 } from './identity-provider-binding.js';
 export type {
+  JoinDomain,
+  JoinDomainAllowOutcome,
+  JoinDomainBinding,
+  JoinDomainCaller,
+  JoinDomainChangeOutcome,
+  JoinDomainRefusal,
+  JoinLookupWorkspace,
+} from './join-domain-binding.js';
+export { joinDomainOf, joinEmailOf } from './routes/join-domains.js';
+export type {
   Site,
   SiteBinding,
   SiteChangeOutcome,

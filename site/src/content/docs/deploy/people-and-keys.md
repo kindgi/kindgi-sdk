@@ -297,6 +297,73 @@ added; its `inviteEmail` says whether the invitation was emailed, and is
 absent on a runtime that doesn't invite. `users.resendInvite(userId)`
 sends it again, and `users.list({ pending: true })` lists the invited.
 
+### Let people at your domain join
+
+Rather than add each person, a tenant admin can let everyone at the
+company's email domain join the workspace (runtime 0.8.0 or later, with an
+authorization store). Someone who signs in with a mailbox at an allowed
+domain, by a way that proves it, and whom the workspace doesn't have yet,
+is offered the workspace and joins with a press:
+
+- **The ways that prove a mailbox** are a Google Workspace account at that
+  domain, a Microsoft work account, and the emailed link. GitHub never
+  counts. A sign-in through the workspace's own identity provider follows
+  that provider's own `join` setting instead
+  ([Or let your colleagues join](../../guides/sso/#or-let-your-colleagues-join)).
+- **A joiner gets the domain's role:** `viewer` (the default) or `runner`
+  (who also runs its agents and flows) on the default project, or `none`, a
+  member only. Never tenant admin. Their `createdBy` is
+  `email_domain:<domain>`.
+- **Someone removed stays out.** Stopping allowing a domain stops new
+  joins; the people who joined stay.
+- **Never a public mailbox domain,** such as gmail.com or outlook.com
+  (`400 join-domain-public`), and never a domain the operator verified for
+  another workspace (`409 join-domain-verified-elsewhere`).
+
+The domain's own mailbox is the proof. So allowing a domain, or giving its
+joiners more, takes a tenant admin whose sign-in proved an email at
+exactly that domain (no subdomain, no parent), by one of those ways. An API
+key or a service account can't. Anyone else is refused with
+`403 join-domain-not-yours`, and the refusal is recorded. Lowering the
+role, or stopping allowing the domain, takes any tenant admin, a key too.
+The deployment's operator can always do both.
+
+| Route | What it does |
+|---|---|
+| `GET /v1/auth/join-domains` | The allowed domains, the first allowed first. Anyone in the workspace may read them |
+| `POST /v1/auth/join-domains` | Allows one: `{"domain": "acme.com", "role": "viewer"}`. `409 join-domain-exists` if it is already |
+| `PATCH /v1/auth/join-domains/{domain}` | Changes what joiners get: `{"role": "runner"}`. The same role writes nothing |
+| `POST /v1/auth/join-domains/{domain}/unregister` | Stops allowing it |
+
+A domain is stored lower case, as its A-label: `bücher.de` is
+`xn--bcher-kva.de`. In the TypeScript client, it's `auth.joinDomains`:
+`list()`, `allow({ domain, role })`, `update(domain, { role })` and
+`unregister(domain)`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi sign-in join-domains list --table
+pnpm exec kindgi sign-in join-domains allow acme.com --role=runner
+pnpm exec kindgi sign-in join-domains remove acme.com
+```
+
+The CLI signs in with an API key, which proves no email, so `allow` takes
+the operator's key. On a runtime serving one tenant, make one with the
+deployment's own token,
+`kindgi tokens create --role=admin --capability=kindgi:system`, and sign in
+with it (`kindgi auth login --token`). A tenant admin allows their own
+domain from the console's **Sign-in** page instead. Anyone's key in the
+workspace can `list`, and any tenant admin's can `remove`.
+
+Where the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`),
+allowing a domain or giving joiners more takes the operator's credential,
+and a tenant admin's is refused with `403 join-domains-operator-managed`.
+On a runtime serving many tenants, the operator manages each tenant's
+domains on `/v1/system/tenants/{tenantId}/join-domains`, with a system key
+holding `system:join-domains`
+([The operator's keys](../self-hosted/serve-many-tenants/#the-operators-keys)).
+
 ## Make someone a tenant admin
 
 A tenant admin can do everything in the workspace. `grant` makes someone one,
