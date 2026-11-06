@@ -499,10 +499,11 @@ isn't turned on for this workspace yet."
   there: the promotion keeps the mark and checks the signature over it
   again. Turning production on for a project is refused the same way, with
   `409 promote-only-build` naming the deployment, while a promote-only build
-  may still serve it: one with a version still registered or held there, a
-  tool it routes, or one the runtime can't tell about. Put another project
-  after it in its environment order, turn production on there, and promote
-  into it. A runtime that doesn't know the field checks
+  was deployed into it rather than promoted there, whether that build still
+  serves or not: one out of service can be brought back. So a project a
+  promote-only build was deployed into never goes into production. Put
+  another project after it in its environment order, turn production on
+  there, and promote into it. A runtime that doesn't know the field checks
   the signature without it, so a build carrying it deploys only on a runtime
   that knows it.
 

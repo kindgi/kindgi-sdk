@@ -43,8 +43,8 @@ export interface ProjectProductionRouterOptions {
   readonly production?: ProductionGateOptions;
   /**
    * The deployment ledger and the trust list, where the runtime takes
-   * deploys: turning production on is refused while a deployment that may
-   * still serve the project is promote-only.
+   * deploys: turning production on is refused while a promote-only build
+   * was deployed into the project (not promoted there).
    */
   readonly deployments?: {
     readonly ledger: Pick<DeploymentBinding, 'list'>;
@@ -69,10 +69,11 @@ export interface ProjectProductionRouterOptions {
  *   limit, counts and sets in one step, so a limit changed meanwhile is
  *   the one counted against. Taking a project out is never refused.
  * - **A promote-only build:** turning it on is refused with
- *   `409 promote-only-build` while a deployment that may still serve the
- *   project is promote-only (`promote-only-builds.ts`): such a build
- *   reaches a project in production only by promotion. A deployment may
- *   still serve unless the runtime says nothing keeps its build.
+ *   `409 promote-only-build` while a promote-only build was deployed into
+ *   the project rather than promoted there, serving or not
+ *   (`promote-only-builds.ts`): such a build reaches a project in
+ *   production only by promotion, and one out of service can be brought
+ *   back. So a project one was deployed into never goes into production.
  * - **Repeats answer 200 unchanged:** setting what's already set writes
  *   nothing, and keeps the first `productionSince`.
  * - **The answer:** `{ projectId, productionSince }`, `null` when it's out
@@ -133,8 +134,8 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
 
   /**
    * Why the project can't go into production now, or `undefined`: the
-   * gate, then a promote-only build that may still serve it, which would
-   * be in production without a promotion. Read before the binding writes,
+   * gate, then a promote-only build deployed into it (not promoted), which
+   * would be in production without a promotion. Read before the binding writes,
    * so a deploy landing in the same moment isn't seen.
    */
   async function entryRefusal(
@@ -238,7 +239,7 @@ async function readProduction(c: Context<AppEnv>): Promise<boolean | Refusal> {
 function promoteOnlyRefusal(held: Deployment, projectId: ProjectId): Refusal {
   return {
     code: 'promote-only-build',
-    message: `Project "${projectId as unknown as string}" holds deployment ${held.deploymentId}, a build that reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). It can't go into production while that build may still serve it. Put another project after this one in its environment order (a tenant admin makes one), turn production on there, and promote into it.`,
+    message: `Project "${projectId as unknown as string}" holds deployment ${held.deploymentId}, a build that reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). A project a promote-only build was deployed into (not promoted) never goes into production. Put another project after this one in its environment order (a tenant admin makes one), turn production on there, and promote into it.`,
     deploymentId: held.deploymentId,
     signerKeyId: held.signerKeyId as unknown as string,
     projectId: projectId as unknown as string,

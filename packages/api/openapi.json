@@ -65173,7 +65173,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `promote-only-build`: a deployment that may still serve the project is promote-only, so the project can't go into production (`details.deploymentId`, `details.signerKeyId`, `details.projectId`).",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `promote-only-build`: a promote-only build was deployed into the project (not promoted there), so the project can't go into production (`details.deploymentId`, `details.signerKeyId`, `details.projectId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -65223,7 +65223,7 @@
             }
           }
         },
-        "description": "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. Putting a project in production is refused with 409 `promote-only-build` while a deployment that may still serve it is promote-only: such a build reaches a project in production only by promotion. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+        "description": "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. Putting a project in production is refused with 409 `promote-only-build` while a promote-only build was deployed into it (not promoted there), whether it serves or not: such a build reaches a project in production only by promotion, so that project never goes into production. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
         "parameters": [
           {
             "name": "projectId",

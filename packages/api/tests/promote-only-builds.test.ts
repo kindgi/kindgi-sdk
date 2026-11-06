@@ -481,36 +481,56 @@ describe('turning production on for a project that holds a promote-only build', 
     expect(h.projects.switched).toBe(0);
   });
 
-  test('a promote-only build nothing keeps any more no longer holds it', async () => {
+  test('one deployed into it holds it, serving or not', async () => {
+    for (const endpoint of [
+      {
+        status: 'cleared',
+        since: '2026-11-06T11:00:00.000Z',
+        retired: 'superseded',
+        keptFor: [],
+      },
+      {
+        status: 'cleared',
+        since: '2026-11-06T11:00:00.000Z',
+        retired: 'project-suspended',
+        keptFor: [{ kind: 'agent', id: 'acme.helper', version: '1.0.0', registered: true }],
+      },
+    ]) {
+      const h = harness();
+      expect(
+        (await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }))).status,
+      ).toBe(201);
+      (h.deployments.rows[0] as { endpoint?: unknown }).endpoint = endpoint;
+      expect((await h.putProduction(DEV, true)).status).toBe(409);
+      expect(h.projects.switched).toBe(0);
+    }
+  });
+
+  test('one promoted into it lets a project taken out of production back in', async () => {
     const h = harness();
     expect((await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }))).status).toBe(
       201,
     );
-    const row = h.deployments.rows[0] as { endpoint?: unknown };
-    row.endpoint = {
-      status: 'cleared',
-      since: '2026-11-06T11:00:00.000Z',
-      retired: 'superseded',
-      keptFor: [],
-    };
+    (h.deployments.rows[0] as { promotedFromDeploymentId?: string }).promotedFromDeploymentId =
+      'dep-source';
+    expect((await h.putProduction(DEV, true)).status).toBe(200);
+    expect((await h.putProduction(DEV, false)).status).toBe(200);
     const res = await h.putProduction(DEV, true);
     expect(res.status).toBe(200);
     expect(res.body.productionSince).not.toBeNull();
+    expect(h.projects.switched).toBe(3);
   });
 
-  test('one something still keeps holds it, retired or not', async () => {
+  test('turning production off, or on again, asks nothing', async () => {
     const h = harness();
     expect((await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }))).status).toBe(
       201,
     );
-    const row = h.deployments.rows[0] as { endpoint?: unknown };
-    row.endpoint = {
-      status: 'cleared',
-      since: '2026-11-06T11:00:00.000Z',
-      retired: 'project-suspended',
-      keptFor: [{ kind: 'agent', id: 'acme.helper', version: '1.0.0', registered: true }],
-    };
-    expect((await h.putProduction(DEV, true)).status).toBe(409);
+    // Put in production behind the route's back, holding the build.
+    await h.projects.setProduction(tenantId, DEV, true);
+    expect((await h.putProduction(DEV, true)).status).toBe(200);
+    expect((await h.putProduction(DEV, false)).status).toBe(200);
+    expect(h.projects.switched).toBe(3);
   });
 
   test("another project's promote-only build doesn't hold this one", async () => {

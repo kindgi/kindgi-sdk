@@ -9,8 +9,8 @@
  * of such a key the workspace has ever trusted (a revoked entry is kept).
  * So trusting the same key again under another id never lifts it.
  *
- * Asked of one build by `POST /v1/deployments`, and of a project's
- * deployments by `PUT /v1/projects/:projectId/production`.
+ * Asked of one build by `POST /v1/deployments`, and of the builds
+ * deployed into a project by `PUT /v1/projects/:projectId/production`.
  */
 
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
@@ -84,22 +84,22 @@ export async function promoteOnlyBuild(
 }
 
 /**
- * Whether a deployment may still serve its project. It may unless the
- * runtime says nothing keeps its build (`endpoint.keptFor` empty): a
- * version it ships still registered or held, or a tool it routes, keeps
- * it. A runtime that doesn't count builds (one pack service for every
- * build, or before runtime 0.4.0) can't tell, nor can a build with no pack
- * service, so those may.
+ * Whether a deployment was deployed into its project rather than promoted
+ * there. A promotion needs `admin` on the project it enters, the press a
+ * deploy's refusal sends one to, and a registration can't set
+ * `promotedFromDeploymentId`. A binding that doesn't keep the field shows
+ * every deployment as deployed.
  */
-function mayStillServe(deployment: Deployment): boolean {
-  return deployment.endpoint?.keptFor?.length !== 0;
+function deployedInto(deployment: Deployment): boolean {
+  return deployment.promotedFromDeploymentId === undefined;
 }
 
 /**
- * The first deployment that may still serve `projectId` and is
+ * The first deployment deployed into `projectId` (not promoted) that is
  * promote-only, or `undefined` when there's none: what keeps the project
- * out of production. The trust list is read once, at the first deployment
- * whose own fields don't say.
+ * out of production. Whether it still serves doesn't matter, since a build
+ * out of service can be brought back. The trust list is read once, at the
+ * first deployment whose own fields don't say.
  */
 export async function promoteOnlyDeploymentIn(
   deployments: {
@@ -119,7 +119,7 @@ export async function promoteOnlyDeploymentIn(
       ...(cursor !== undefined && { cursor }),
     });
     for (const deployment of page.data) {
-      if (!mayStillServe(deployment)) continue;
+      if (!deployedInto(deployment)) continue;
       const build: PromoteOnlySigner = {
         ...(deployment.productionEntry !== undefined && {
           productionEntry: deployment.productionEntry,
