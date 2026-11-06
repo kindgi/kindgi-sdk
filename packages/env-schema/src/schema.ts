@@ -1603,7 +1603,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS',
     description:
-      'Comma-separated registry hosts reached over plain HTTP instead of HTTPS, e.g. a local `registry:2`. Loopback hosts (`localhost`, `127.0.0.1`) always are.',
+      'Comma-separated registry hosts reached over plain HTTP instead of HTTPS, e.g. a local `registry:2`. Loopback hosts (`localhost`, `127.0.0.1` and `[::1]`, with or without a port) always are.',
     example: 'registry.internal:5000',
     required: false,
     appliesTo: appliesToServer,
