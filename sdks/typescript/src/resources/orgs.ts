@@ -46,7 +46,7 @@ export interface OrgsClient {
     orgId: string,
     input: UpdateOrgInput,
     options?: { readonly idempotencyKey?: string },
-  ): Promise<OrgRecord>;
+  ): Promise<void>;
   /** @wire DELETE /v1/orgs/:orgId */
   delete(orgId: string): Promise<void>;
 }
@@ -79,7 +79,7 @@ export function makeOrgsClient(transport: Transport): OrgsClient {
       });
     },
     async update(orgId, input, options) {
-      return transport.request<OrgRecord>({
+      return transport.request<void>({
         method: 'PATCH',
         path: `/v1/orgs/${seg(orgId)}`,
         body: input,
