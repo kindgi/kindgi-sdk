@@ -630,7 +630,7 @@ const REMOVED_FIELDS: Readonly<Record<string, string>> = {
 
 const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-const JOIN_ROLES: readonly ProviderJoinRole[] = ['viewer', 'member', 'none'];
+const JOIN_ROLES: readonly ProviderJoinRole[] = ['viewer', 'runner', 'none'];
 
 function invalid(message: string): ParsedErr {
   return { kind: 'err', error: { code: 'invalid-provider-config', message } };
@@ -755,7 +755,7 @@ function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedEr
   }
   const joinRole = b.joinRole;
   if (joinRole !== undefined && !JOIN_ROLES.includes(joinRole as ProviderJoinRole)) {
-    r.error ??= invalid('`joinRole` must be `viewer`, `member` or `none`');
+    r.error ??= invalid('`joinRole` must be `viewer`, `runner` or `none`');
   }
   const metadata = r.object('metadata');
   const base = {

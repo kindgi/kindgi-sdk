@@ -206,7 +206,7 @@ describe('refusals', () => {
     [
       'a joinRole outside the set',
       { ...OIDC, join: 'domain', joinRole: 'admin' },
-      '`joinRole` must be `viewer`, `member` or `none`',
+      '`joinRole` must be `viewer`, `runner` or `none`',
     ],
     [
       'allowedRedirectUris, which nothing enforces',
@@ -315,13 +315,13 @@ const patch = (app: ReturnType<typeof makeApp>['app'], body: unknown) =>
 describe('domain join', () => {
   test('where the deployment can: join: domain and joinRole are stored and returned; joinRole needs join: domain', async () => {
     const { app, stored } = makeApp(undefined, false, undefined, true);
-    const res = await register(app, { ...OIDC, join: 'domain', joinRole: 'member' });
+    const res = await register(app, { ...OIDC, join: 'domain', joinRole: 'runner' });
     expect(res.status).toBe(201);
-    expect(stored.get('acme-okta')).toMatchObject({ join: 'domain', joinRole: 'member' });
+    expect(stored.get('acme-okta')).toMatchObject({ join: 'domain', joinRole: 'runner' });
     const got = await app.request('/v1/auth/providers/acme-okta', {
       headers: { authorization: `Bearer ${BEARER}` },
     });
-    expect(await got.json()).toMatchObject({ join: 'domain', joinRole: 'member' });
+    expect(await got.json()).toMatchObject({ join: 'domain', joinRole: 'runner' });
 
     const alone = await register(app, { ...OIDC, providerId: 'acme-2', joinRole: 'viewer' });
     expect(alone.status).toBe(400);
@@ -388,7 +388,7 @@ describe('domain join', () => {
     expect(resent.status).toBe(200);
     expect(stored.get('acme-okta')).toMatchObject({ displayName: 'Acme 2', join: 'domain' });
 
-    const role = await patch(app, { joinRole: 'member' });
+    const role = await patch(app, { joinRole: 'runner' });
     expect(role.status).toBe(409);
     expect((await errorOf(role)).code).toBe('domain-join-needs-authorization');
     expect((await patch(app, { join: 'invite' })).status).toBe(200);

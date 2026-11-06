@@ -66,7 +66,7 @@ const configOptions = {
   'join-role': {
     type: 'string' as const,
     description:
-      'What someone who joins by domain gets: `viewer` (the default) or `member` on the default project, or `none`. Needs `--join=domain`, or a provider already set to it.',
+      'What someone who joins by domain gets: `viewer` (the default) or `runner` (who also runs its agents and flows) on the default project, or `none`. Needs `--join=domain`, or a provider already set to it.',
   },
   issuer: { type: 'string' as const, description: 'OIDC: the issuer URL.' },
   'client-id': { type: 'string' as const, description: 'OIDC: the client ID.' },
@@ -105,8 +105,8 @@ async function configFromFlags(ctx: CommandContext): Promise<Record<string, unkn
     throw new Error('--join must be `invite` or `domain`');
   }
   const joinRole = stringFlag(ctx, 'join-role');
-  if (joinRole !== undefined && !['viewer', 'member', 'none'].includes(joinRole)) {
-    throw new Error('--join-role must be `viewer`, `member` or `none`');
+  if (joinRole !== undefined && !['viewer', 'runner', 'none'].includes(joinRole)) {
+    throw new Error('--join-role must be `viewer`, `runner` or `none`');
   }
   const metadataArg = stringFlag(ctx, 'idp-metadata');
   if (metadataArg !== undefined && !metadataArg.startsWith('@')) {
@@ -202,7 +202,7 @@ const finish: LeafCommand = {
   name: 'finish',
   description: 'Register the provider with what your identity provider gave back.',
   usage:
-    'kindgi sso providers finish <provider-id> --domains=<d> (--kind=oidc --issuer=<url> --client-id=<id> --client-secret-ref=<NAME> | --kind=saml --idp-metadata=@<file>) [--name=<text>] [--join=invite|domain] [--join-role=viewer|member|none] [...]',
+    'kindgi sso providers finish <provider-id> --domains=<d> (--kind=oidc --issuer=<url> --client-id=<id> --client-secret-ref=<NAME> | --kind=saml --idp-metadata=@<file>) [--name=<text>] [--join=invite|domain] [--join-role=viewer|runner|none] [...]',
   optionSpec: configOptions,
   run: (ctx) =>
     runSdk(ctx, 'sso providers finish', async () => {
@@ -229,7 +229,7 @@ const update: LeafCommand = {
   name: 'update',
   description: "Change a provider; its URLs (on your identity provider's side) don't change.",
   usage:
-    'kindgi sso providers update <provider-id> [--client-id=<id>] [--client-secret-ref=<NAME>] [--domains=<d>] [--name=<text>] [--join=invite|domain] [--join-role=viewer|member|none] [--remove=<field>] [...]',
+    'kindgi sso providers update <provider-id> [--client-id=<id>] [--client-secret-ref=<NAME>] [--domains=<d>] [--name=<text>] [--join=invite|domain] [--join-role=viewer|runner|none] [--remove=<field>] [...]',
   optionSpec: {
     ...configOptions,
     remove: {

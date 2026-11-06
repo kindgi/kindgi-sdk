@@ -126,7 +126,7 @@ export type IdentityProviderKind = 'oidc' | 'saml';
 export type ProviderConfig = OidcProviderConfig | SamlProviderConfig;
 
 /** What a provider's domain join gives a new person (`joinRole`). */
-export type ProviderJoinRole = 'viewer' | 'member' | 'none';
+export type ProviderJoinRole = 'viewer' | 'runner' | 'none';
 
 /** What every kind of identity provider has. */
 export interface ProviderConfigBase {
@@ -150,9 +150,10 @@ export interface ProviderConfigBase {
    */
   readonly join?: 'invite' | 'domain';
   /**
-   * What someone who joins by domain gets: `viewer` (default) or `member`
-   * on the tenant's default project, or `none`, a tenant member with no
-   * project. Never tenant admin. It's kept while `join` is `invite`.
+   * What someone who joins by domain gets: `viewer` (default) or `runner`
+   * (who also runs its agents and flows) on the tenant's default project,
+   * or `none`, a tenant member with no project. Never tenant admin. It's
+   * kept while `join` is `invite`.
    */
   readonly joinRole?: ProviderJoinRole;
   /**

@@ -297,7 +297,7 @@ describe('kindgi sso providers finish / update', () => {
       register: rec('register', { providerId: 'acme-okta' }),
       update: rec('update', { providerId: 'acme-okta', provider: {} }),
     };
-    const joined = await run([...finish, '--join=domain', '--join-role=member'], {
+    const joined = await run([...finish, '--join=domain', '--join-role=runner'], {
       auth: { providers },
     });
     expect(joined.exitCode, joined.stderr).toBe(0);
@@ -311,7 +311,7 @@ describe('kindgi sso providers finish / update', () => {
           clientId: 'client-1',
           clientSecretRef: 'ACME_OKTA_SECRET',
           join: 'domain',
-          joinRole: 'member',
+          joinRole: 'runner',
           domains: ['acme.com'],
         },
       ],
@@ -337,7 +337,7 @@ describe('kindgi sso providers finish / update', () => {
       auth: { providers },
     });
     expect(badRole.exitCode).toBe(1);
-    expect(badRole.stderr).toContain('--join-role must be `viewer`, `member` or `none`');
+    expect(badRole.stderr).toContain('--join-role must be `viewer`, `runner` or `none`');
     expect(calls).toHaveLength(2);
   });
 });

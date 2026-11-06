@@ -18373,10 +18373,10 @@
             "type": "string",
             "enum": [
               "viewer",
-              "member",
+              "runner",
               "none"
             ],
-            "description": "What someone who joins by domain gets: `viewer` (default) or `member` on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
+            "description": "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
           },
           "signIn": {
             "$ref": "#/components/schemas/IdentityProviderSignIn"
@@ -18468,10 +18468,10 @@
             "type": "string",
             "enum": [
               "viewer",
-              "member",
+              "runner",
               "none"
             ],
-            "description": "What someone who joins by domain gets: `viewer` (default) or `member` on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
+            "description": "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
           },
           "signIn": {
             "$ref": "#/components/schemas/IdentityProviderSignIn"
@@ -18927,7 +18927,7 @@
                 "type": "string",
                 "enum": [
                   "viewer",
-                  "member",
+                  "runner",
                   "none"
                 ]
               },

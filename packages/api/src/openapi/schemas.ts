@@ -10931,9 +10931,9 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
   },
   joinRole: {
     type: 'string',
-    enum: ['viewer', 'member', 'none'],
+    enum: ['viewer', 'runner', 'none'],
     description:
-      "What someone who joins by domain gets: `viewer` (default) or `member` on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.",
+      "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.",
   },
   signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
   metadata: { type: 'object', additionalProperties: true },
@@ -11317,7 +11317,7 @@ export const UpdateIdentityProviderBodySchema: JsonSchema = {
     domains: NULLABLE_STRINGS,
     join: { oneOf: [{ type: 'string', enum: ['invite', 'domain'] }, { type: 'null' }] },
     joinRole: {
-      oneOf: [{ type: 'string', enum: ['viewer', 'member', 'none'] }, { type: 'null' }],
+      oneOf: [{ type: 'string', enum: ['viewer', 'runner', 'none'] }, { type: 'null' }],
     },
     metadata: { oneOf: [{ type: 'object', additionalProperties: true }, { type: 'null' }] },
     issuer: { type: 'string', format: 'uri' },

@@ -204,9 +204,10 @@ npx --yes @kindgi/cli@0.4 sso providers update acme-kc --join=domain --join-role
 
 - **The first time** someone at one of its domains signs in through it,
   they're added to the workspace with the provider's join role: `viewer`
-  (the default) or `member` on the default project, or `none`, a member
-  with no project yet. Never tenant admin. Their record says the provider
-  added them (`createdBy` is `identity_provider:<provider-id>`).
+  (the default) or `runner` on the default project (a runner also runs its
+  agents and flows), or `none`, a member with no project yet. Never tenant
+  admin. Their record says the provider added them (`createdBy` is
+  `identity_provider:<provider-id>`).
 - **Only through this provider,** with an email it says it verified, at a
   domain that finds this workspace. A runtime that serves one workspace
   finds it by the provider's domains. One that serves several needs its
