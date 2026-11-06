@@ -330,7 +330,10 @@ the workspace's people, whatever its case
 `DELETE …/memberships/<user-id>` removes the member. In the clients, the
 calls are `projects.memberships.add`, `updateRole` and `remove`, with
 `update_role` in Python. Changing members takes `admin` on the project: a
-tenant admin, or the project's own admins.
+tenant admin, or the project's own admins. Giving `owner`, or changing or
+removing a member who holds it, also takes `delete` on the project, which
+an owner of the project, an admin of its org or a tenant admin holds.
+Anyone else gets `403 permission-denied`, and nothing changes.
 
 A project's admins also decide which of its triggers run as the project:
 `--run-as=project` on a schedule, webhook trigger or mail trigger runs it

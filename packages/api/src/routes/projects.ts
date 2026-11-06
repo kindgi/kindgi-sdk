@@ -4,9 +4,10 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import { type Principal, ref } from '@kindgi/authz';
+import { type Principal, denyPayload, ref } from '@kindgi/authz';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
+  MembershipWriteError,
   Project,
   ProjectBinding,
   ProjectMembership,
@@ -16,7 +17,7 @@ import type {
   ProjectRole,
   ProjectSpec,
 } from '@kindgi/platform';
-import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, OrgId, ProjectId, Result, TenantId, UserId } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -107,11 +108,76 @@ export function projectsRouter(
   const r = new Hono<AppEnv>();
 
   /**
+   * With an authorizer, giving `owner`, or changing or removing a member
+   * who holds it, takes `delete` on the project: the one permission
+   * `owner` adds over `admin`. Nothing when the caller holds it (or there
+   * is no authorizer), else the 403, in `message`'s words.
+   */
+  async function ownerDenied(
+    c: Context<AppEnv>,
+    projectId: ProjectId,
+    message: string,
+  ): Promise<Response | undefined> {
+    if (authorizer === undefined) return undefined;
+    const project = ref('project', projectId as unknown as string);
+    const decision = await authorizer.check(c, 'delete', project);
+    if (decision.allowed) return undefined;
+    const deny = denyPayload('delete', project.type, project.id, decision.reason);
+    c.status(403);
+    return c.json(
+      toWireError(
+        {
+          code: deny.code,
+          message,
+          action: deny.action,
+          resource: deny.resource,
+          reason: deny.reason,
+        },
+        c.get('requestId'),
+      ),
+    );
+  }
+
+  /** `ownerDenied` for a request giving `role`: only giving `owner` asks. */
+  async function givingDenied(
+    c: Context<AppEnv>,
+    projectId: ProjectId,
+    role: ProjectRole,
+  ): Promise<Response | undefined> {
+    return role === 'owner' ? ownerDenied(c, projectId, givingOwner(projectId)) : undefined;
+  }
+
+  /**
+   * A change or removal through the tenant-hierarchy binding that, with
+   * `stop`, stops at a member who holds `owner` (`stopAtOwner`). Only then
+   * is `delete` on the project asked (`ownerDenied`): allowed, `call` is
+   * made again without the stop; refused, the 403 to answer. Changing
+   * anyone else asks nothing more.
+   */
+  async function pastOwner<T>(
+    c: Context<AppEnv>,
+    projectId: ProjectId,
+    userId: UserId,
+    stop: boolean,
+    call: (stopAtOwner: boolean) => Promise<Result<T, MembershipWriteError>>,
+  ): Promise<
+    Result<T, MembershipWriteError> | { readonly kind: 'denied'; readonly response: Response }
+  > {
+    const res = await call(stop);
+    if (!stop || res.kind !== 'err' || res.error.code !== 'project-member-holds-owner') return res;
+    const denied = await ownerDenied(c, projectId, changingOwner(projectId, userId));
+    return denied === undefined ? call(false) : { kind: 'denied', response: denied };
+  }
+
+  /**
    * Change a member's role. With an authorizer, the row and its FGA tuple
    * change together through the tenant-hierarchy binding, or the change
-   * is refused; without one, the membership binding alone.
+   * is refused; without one, the membership binding alone. Giving `owner`
+   * asks for `delete` on the project first; any other role stops at a
+   * member who holds `owner` (`pastOwner`).
    */
   async function updateMemberRole(
+    c: Context<AppEnv>,
     tenantId: TenantId,
     projectId: ProjectId,
     userId: UserId,
@@ -122,6 +188,7 @@ export function projectsRouter(
         readonly kind: 'refused';
         readonly error: { readonly code: string; readonly message: string };
       }
+    | { readonly kind: 'denied'; readonly response: Response }
   > {
     if (authorizer === undefined) {
       return {
@@ -129,20 +196,54 @@ export function projectsRouter(
         outcome: await membershipBinding.updateRole(tenantId, projectId, userId, role),
       };
     }
-    if (tenantHierarchy.updateProjectMemberRole === undefined) {
+    const asked = await givingDenied(c, projectId, role);
+    if (asked !== undefined) return { kind: 'denied', response: asked };
+    const update = tenantHierarchy.updateProjectMemberRole?.bind(tenantHierarchy);
+    if (update === undefined) {
       return { kind: 'refused', error: membershipNotKeptInStepError('updateProjectMemberRole') };
     }
-    const res = await tenantHierarchy.updateProjectMemberRole({
-      tenantId,
-      projectId,
-      userId,
-      role,
-    });
+    const res = await pastOwner(c, projectId, userId, role !== 'owner', (stopAtOwner) =>
+      update({ tenantId, projectId, userId, role, ...(stopAtOwner && { stopAtOwner }) }),
+    );
+    if (res.kind === 'denied') return res;
     if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
       return { kind: 'refused', error: { code: res.error.code, message: res.error.message } };
     }
     if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     return { kind: 'done', outcome: res.value };
+  }
+
+  /**
+   * Remove a member, with an authorizer: the row and its FGA tuple go
+   * together through the tenant-hierarchy binding, or not at all, since
+   * removing the row alone would leave the permission in place. A member
+   * who holds `owner` stops it (`pastOwner`). Nothing once removed, else
+   * the answer to give.
+   */
+  async function removeMember(
+    c: Context<AppEnv>,
+    tenantId: TenantId,
+    projectId: ProjectId,
+    userId: UserId,
+  ): Promise<Response | undefined> {
+    const remove = tenantHierarchy.removeProjectMember?.bind(tenantHierarchy);
+    if (remove === undefined) {
+      const refusal = membershipNotKeptInStepError('removeProjectMember');
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, c.get('requestId')));
+    }
+    const res = await pastOwner(c, projectId, userId, true, (stopAtOwner) =>
+      remove({ tenantId, projectId, userId, ...(stopAtOwner && { stopAtOwner }) }),
+    );
+    if (res.kind === 'denied') return res.response;
+    if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+      c.status(statusFor(res.error.code) as never);
+      return c.json(
+        toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
+      );
+    }
+    if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    return undefined;
   }
 
   /**
@@ -261,8 +362,11 @@ export function projectsRouter(
   //   PATCH /:projectId                          → admin on project
   //     and, naming `orgId`, admin on tenant     (the handler checks)
   //   DELETE /:projectId                         → delete on project
-  //   GET /:projectId/memberships[/:userId]      → read on project
+  //   GET /:projectId/memberships[/:userId]      → write on project
   //   other /:projectId/memberships[/:userId]    → admin on project
+  //     and, giving `owner` or changing or
+  //     removing a member who holds it, delete
+  //     on project                               (the handler checks)
   //   GET /                                       → list-filter by can_read
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
@@ -493,6 +597,11 @@ export function projectsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
+    // Giving `owner` takes `delete` on the project. Checked before the
+    // person is looked up, so a caller without it learns nothing of who
+    // the tenant's people are.
+    const denied = await givingDenied(c, projectId, role.value);
+    if (denied !== undefined) return denied;
     const resolved = await resolveMember(tenantId, named);
     if (resolved.kind === 'refused') {
       c.status(statusFor(resolved.error.code) as never);
@@ -559,22 +668,10 @@ export function projectsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const projectId = c.req.param('projectId') as ProjectId;
     const userId = c.req.param('userId') as UserId;
-    // With an authorizer, the row and its FGA tuple go together, or not
-    // at all: removing the row alone would leave the permission in place.
+    // With an authorizer, the row and its FGA tuple go together (`removeMember`).
     if (authorizer !== undefined) {
-      if (tenantHierarchy.removeProjectMember === undefined) {
-        const refusal = membershipNotKeptInStepError('removeProjectMember');
-        c.status(statusFor(refusal.code) as never);
-        return c.json(toWireError(refusal, c.get('requestId')));
-      }
-      const res = await tenantHierarchy.removeProjectMember({ tenantId, projectId, userId });
-      if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
-        c.status(statusFor(res.error.code) as never);
-        return c.json(
-          toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
-        );
-      }
-      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+      const refused = await removeMember(c, tenantId, projectId, userId);
+      if (refused !== undefined) return refused;
     } else {
       await membershipBinding.remove(tenantId, projectId, userId);
     }
@@ -610,7 +707,8 @@ export function projectsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
-    const updated = await updateMemberRole(tenantId, projectId, userId, role.value);
+    const updated = await updateMemberRole(c, tenantId, projectId, userId, role.value);
+    if (updated.kind === 'denied') return updated.response;
     if (updated.kind === 'refused') {
       c.status(statusFor(updated.error.code) as never);
       return c.json(toWireError(updated.error, requestId));
@@ -872,6 +970,16 @@ function parseMemberName(b: Record<string, unknown>): MemberName | string {
     return '`email` must be a non-empty string';
   }
   return { email: b.email.trim() };
+}
+
+/** Why giving `owner` was refused (`ownerDenied`). */
+function givingOwner(projectId: ProjectId): string {
+  return `Permission denied: giving the owner role on project ${projectId as unknown as string} needs delete on it, which an owner of the project, an admin of its org or a tenant admin holds`;
+}
+
+/** Why changing or removing a member who holds `owner` was refused (`ownerDenied`). */
+function changingOwner(projectId: ProjectId, userId: UserId): string {
+  return `Permission denied: user ${userId as unknown as string} holds the owner role on project ${projectId as unknown as string}, and changing or removing an owner needs delete on it`;
 }
 
 function serializeProject(p: Project): Record<string, unknown> {
