@@ -103,7 +103,8 @@ export interface AgentsClient {
   /**
    * Un-tombstone a specific previously-unregistered version.
    *
-   * @deprecated Use `agents.versions.reinstate`; removed in 0.2.
+   * @deprecated Use `agents.versions.reinstate`, which sends the same
+   *   request. A later minor release removes it, announced in advance.
    * @wire POST /v1/agents/:agentId/versions/:version/reinstate
    */
   reinstateVersion(
