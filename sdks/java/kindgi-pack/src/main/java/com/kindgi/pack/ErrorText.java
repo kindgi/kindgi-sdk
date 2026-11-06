@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.UnaryOperator;
@@ -89,7 +90,9 @@ final class ErrorText {
       if (secret instanceof String s && s.length() >= MIN_SECRET_LENGTH) {
         spellings.add(s);
         String written = Json.compactString(s);
-        spellings.add(written.substring(1, written.length() - 1));
+        String escaped = written.substring(1, written.length() - 1);
+        spellings.add(escaped);
+        spellings.add(lowerHex(escaped));
       }
     }
     if (tokens.isEmpty() && spellings.isEmpty()) {
@@ -98,6 +101,28 @@ final class ErrorText {
     List<String> byToken = new ArrayList<>(tokens);
     List<String> bySecret = new ArrayList<>(spellings);
     return text -> masked(tokened(text, byToken), bySecret);
+  }
+
+  /**
+   * A JSON string's escapes with their hex in lowercase. Jackson writes a control character in
+   * uppercase hex, where {@code JSON.stringify} and Python's {@code json.dumps} write it in
+   * lowercase, and a body either wrote can reach the message.
+   */
+  private static String lowerHex(String escaped) {
+    StringBuilder out = new StringBuilder(escaped.length());
+    for (int i = 0; i < escaped.length(); i++) {
+      char ch = escaped.charAt(i);
+      out.append(ch);
+      if (ch == '\\' && i + 1 < escaped.length()) {
+        char next = escaped.charAt(++i);
+        out.append(next);
+        if (next == 'u' && i + 4 < escaped.length()) {
+          out.append(escaped.substring(i + 1, i + 5).toLowerCase(Locale.ROOT));
+          i += 4;
+        }
+      }
+    }
+    return out.toString();
   }
 
   /** {@code text} with every place a token spells replaced. */

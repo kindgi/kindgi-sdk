@@ -11,6 +11,7 @@ import com.kindgi.log.Causes;
 import com.kindgi.log.Redaction;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
@@ -174,6 +175,18 @@ class ErrorTextTest {
         ToolContext.forTest(new ToolContext.Builder().withSecrets(Map.of("NOTE", secret))));
     assertThat(without.apply("body {\"note\":\"line one\\n\\\"quoted\\\"\"} refused"))
         .isEqualTo("body {\"note\":\"[redacted]\"} refused");
+  }
+
+  @Test
+  void aSecretsControlCharacterIsTakenOutInEitherHexCase() {
+    String secret = "acme" + (char) 0x1B + "key-0123";
+    UnaryOperator<String> without = ErrorText.withoutValues(
+        ToolContext.forTest(new ToolContext.Builder().withSecrets(Map.of("KEY", secret))));
+    // Jackson writes the escape in uppercase hex; JSON.stringify and json.dumps, in lowercase.
+    for (String hex : List.of("%04X", "%04x")) {
+      String body = "body {\"key\":\"acme\\u" + String.format(hex, 0x1B) + "key-0123\"} refused";
+      assertThat(without.apply(body)).as(hex).isEqualTo("body {\"key\":\"[redacted]\"} refused");
+    }
   }
 
   @Test
