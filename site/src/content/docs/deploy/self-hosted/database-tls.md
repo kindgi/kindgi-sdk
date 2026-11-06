@@ -196,7 +196,9 @@ Which to use depends on how OpenFGA reaches the server, as for the runtime:
   SANs`.
 
 By an IP address, mount the CA file into OpenFGA's container, and name it in
-the URI. In `openfga.env`, change `OPENFGA_DATASTORE_URI` to the line below,
+the URI. If you have no `openfga.env` yet, write it first as
+[An OpenFGA you already run](../../authorization/#an-openfga-you-already-run)
+says. In `openfga.env`, change `OPENFGA_DATASTORE_URI` to the line below,
 and leave the file's other lines as they are: if you made OpenFGA require a
 key, they carry it.
 

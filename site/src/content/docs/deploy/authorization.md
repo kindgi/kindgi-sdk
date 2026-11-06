@@ -58,8 +58,9 @@ small team that trusts each other. `kindgi dev` runs without it.
 - **A runtime set up as in [Self-host Kindgi](../self-hosted/self-host/),** with its
   `kindgi` Docker network and its `kindgi-db` Postgres container.
   `db.env` holds that Postgres's password. If yours has no `db.env`, make it
-  beside `kindgi.env`, with `POSTGRES_PASSWORD=` and the password from
-  `kindgi.env`'s `KINDGI_DATABASE_URL`, and `chmod 600 db.env`.
+  in an editor, beside `kindgi.env`, with `POSTGRES_PASSWORD=` and the
+  password from `kindgi.env`'s `KINDGI_DATABASE_URL`, and
+  `chmod 600 db.env`.
 - **Runtime 0.1.4.1 or later.** On a managed Postgres whose database user
   has neither `BYPASSRLS` nor superuser, 0.1.6 and 0.1.7 don't start with
   authorization on: use 0.1.8 or later there.
@@ -223,13 +224,17 @@ calls.
 Use OpenFGA 1.14.0 or later with a key, with its playground off: before 1.14.0,
 the playground page shows the key to anyone who opens it
 ([OpenFGA: Playground Preshared Key Exposure](https://github.com/openfga/openfga/security/advisories/GHSA-68m9-983m-f3v5),
-CVE-2026-40293). Add the method and a new key to `openfga.env`, then stop,
-remove and start OpenFGA again with the same `run` command:
+CVE-2026-40293). `openssl rand -hex 32` prints a new key. In `openfga.env`,
+add the method and that key, each on its own line:
 
 ```sh
-echo "OPENFGA_AUTHN_METHOD=preshared" >> openfga.env
-echo "OPENFGA_AUTHN_PRESHARED_KEYS=$(openssl rand -hex 32)" >> openfga.env
+OPENFGA_AUTHN_METHOD=preshared
+OPENFGA_AUTHN_PRESHARED_KEYS=<the key openssl printed>
+```
 
+Then stop, remove and start OpenFGA again with the same `run` command:
+
+```sh
 docker stop kindgi-openfga && docker rm kindgi-openfga
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
   --env-file openfga.env \

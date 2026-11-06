@@ -19,13 +19,13 @@ fresh one, with every erasure still in force.
   where the `kindgi` commands read it.
 - **`db.env`**, the database password's file from
   [Self-host Kindgi](../self-host/#2-start-postgres-and-a-registry). If yours
-  has no `db.env`, make it beside `kindgi.env`, with `POSTGRES_PASSWORD=` and
-  the password from `kindgi.env`'s `KINDGI_DATABASE_URL`, and
-  `chmod 600 db.env`.
+  has no `db.env`, make it in an editor, beside `kindgi.env`, with
+  `POSTGRES_PASSWORD=` and the password from `kindgi.env`'s
+  `KINDGI_DATABASE_URL`, and `chmod 600 db.env`.
 - **With authorization on, `openfga.env`**, OpenFGA's settings file. If you
   have no `openfga.env` yet, write it as
-  [Run OpenFGA next to the runtime](../../authorization/#run-openfga-next-to-the-runtime)
-  shows.
+  [An OpenFGA you already run](../../authorization/#an-openfga-you-already-run)
+  says.
 - **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
