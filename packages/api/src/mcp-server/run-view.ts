@@ -39,7 +39,17 @@ export interface RunViewState {
   readonly truncated?: boolean;
   /** A plain sentence, when failed. */
   readonly failure?: string;
-  readonly files?: readonly { name: string; contentType: string; size: number }[];
+  /**
+   * The files it made. Where the server keeps files, each is as its Latest
+   * is, with its id and version.
+   */
+  readonly files?: readonly {
+    name: string;
+    contentType: string;
+    size: number;
+    fileId?: string;
+    version?: number;
+  }[];
   readonly consoleUrl?: string;
 }
 
