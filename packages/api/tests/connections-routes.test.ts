@@ -681,6 +681,9 @@ describe('/v1/connection-apps', () => {
       const res = await call(app, who, 'POST', '/v1/connection-apps', body);
       expect(res.status).toBe(403);
       expect(res.json.error.code).toBe('permission-denied');
+      expect(res.json.error.message).toBe(
+        "Only a tenant admin reads or changes this workspace-wide setting. This runtime has no authorization store, so a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+      );
     }
     expect(calls.createApp).toBeUndefined();
     const created = await call(app, 'admin', 'POST', '/v1/connection-apps', body);
