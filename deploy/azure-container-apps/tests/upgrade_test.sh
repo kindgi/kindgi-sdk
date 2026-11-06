@@ -1581,6 +1581,8 @@ assert_out "The migrations fill nothing in: each project keeps everyone-can-run"
 assert_out "If a migration stops because another database session holds a lock"
 assert_out "The authorization model gains the runner role and everyone-can-run."
 assert_out "A remote MCP endpoint that redirects to another origin no longer"
+assert_out "kindgi-runtime tenants repair --all"
+assert_out "Give runner roles after it has run"
 assert_out "0.6.0 doesn't change the module."
 if grep -q "STEPS-PENDING" "$OUT"; then fail "0.6.0's steps carry the marker"; else pass; fi
 if grep -q "Two new migrations: three new tables" "$OUT"; then fail "0.5.0's steps printed for a run from 0.5.0"; else pass; fi
