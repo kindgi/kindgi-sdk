@@ -8,4 +8,4 @@
 - **The server's own `readOnlyHint` isn't read.** The list is the registrant's claim.
 - **1 to 256 names, each 1 to 128 characters, no repeats, on any transport.** Any other list is refused with `400 invalid-mcp-endpoint`, reason `invalid-read-only-tools`. `MCP_READ_ONLY_TOOLS_MAX` and `MCP_READ_ONLY_TOOL_NAME_MAX` are exported.
 - **The TypeScript and Python clients** take the field on register and return it on reads.
-- **An older runtime** refuses the field as `unknown-field` and registers nothing.
+- **It needs runtime 0.7.0 or later.** An older runtime refuses the field as `unknown-field` and registers nothing.

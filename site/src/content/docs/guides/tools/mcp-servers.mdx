@@ -922,8 +922,9 @@ The list takes 1 to 256 names, each 1 to 128 characters, with no repeats,
 and works on every transport. Any other list is refused with
 `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. To change it,
 unregister the endpoint and register it again with the new list
-([When the server changes](#when-the-server-changes)). A runtime without the
-field refuses it as `unknown-field` and registers nothing.
+([When the server changes](#when-the-server-changes)). It needs runtime
+0.7.0 or later: an older runtime refuses the field as `unknown-field` and
+registers nothing.
 
 ## Make a write happen once
 
