@@ -454,6 +454,11 @@ export type {
   ToolFileStoreInput,
   ToolFilesRefusal,
 } from './tool-files-binding.js';
+export type {
+  VersionLock,
+  VersionLocksBinding,
+  VersionLocksInput,
+} from './version-locks-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {
   CompleteWaitTokenInput,

@@ -51,6 +51,7 @@ import {
 import { refuseReadOnly, refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import type { VersionLocksBinding } from '../version-locks-binding.js';
 import { type WhatRunsInProject, whatRunsByProject } from '../what-runs.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import {
@@ -70,6 +71,7 @@ import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+import { lockedByField } from './version-locks.js';
 
 /**
  * Agents resource routes.
@@ -117,6 +119,8 @@ export function agentsRouter(
   pinnedVersions?: PinnedVersionBinding,
   /** Who an owner is (`owner.name`), and that a new owner is a person of the tenant; absent → the id alone. */
   identityDirectory?: Pick<IdentityDirectoryBinding, 'getUser'>,
+  /** What can still run a version, for the unregister answer's `lockedBy`; absent → no `lockedBy`. */
+  versionLocks?: VersionLocksBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -771,10 +775,21 @@ export function agentsRouter(
         ),
       );
     }
+    const locks = await lockedByField(
+      c,
+      { versionLocks: versionLocks, authorizer, itemRights },
+      {
+        tenantId,
+        kind: 'agent',
+        id: agentId as unknown as string,
+        version: version as unknown as string,
+      },
+    );
     return c.json({
       agentId: agentId as unknown as string,
       version: version as unknown as string,
       unregistered: true,
+      ...locks,
     });
   });
 

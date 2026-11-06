@@ -3921,6 +3921,32 @@ export const SetAgentOwnerResultSchema: JsonSchema = {
   },
 };
 
+export const VersionLockSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'An agent or flow version that locks an unregistered tool or agent version.',
+  required: ['kind', 'id', 'version'],
+  properties: {
+    kind: { type: 'string', enum: ['agent', 'flow'] },
+    id: { type: 'string' },
+    version: { type: 'string' },
+    unregistered: {
+      type: 'boolean',
+      const: true,
+      description:
+        'Present (true) when this agent version is unregistered: a registered flow version still runs it.',
+    },
+  },
+};
+
+/** The unregister answers' `lockedBy`. */
+const LOCKED_BY_PROPERTY: JsonSchema = {
+  type: 'array',
+  items: { $ref: '#/components/schemas/VersionLock' },
+  description:
+    'What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.',
+};
+
 export const UnregisterAgentResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3929,6 +3955,7 @@ export const UnregisterAgentResultSchema: JsonSchema = {
     agentId: { type: 'string' },
     version: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+    lockedBy: LOCKED_BY_PROPERTY,
   },
 };
 
@@ -4559,6 +4586,7 @@ export const UnregisterToolResultSchema: JsonSchema = {
     toolId: { type: 'string' },
     version: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+    lockedBy: LOCKED_BY_PROPERTY,
   },
 };
 
@@ -18179,6 +18207,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentOwner', AgentOwnerSchema],
   ['SetAgentOwnerBody', SetAgentOwnerBodySchema],
   ['SetAgentOwnerResult', SetAgentOwnerResultSchema],
+  ['VersionLock', VersionLockSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],
   ['ReinstateAgentVersionResult', ReinstateAgentVersionResultSchema],
   ['AgentCollectionPage', AgentCollectionPageSchema],

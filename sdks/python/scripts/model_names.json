@@ -1213,6 +1213,7 @@
   "VerifyFactBody": ["VerifyFactBody"],
   "Version": ["CorrectedComparisonSummaryBaselineRecorded.versions"],
   "VersionDerivation": ["VersionDerivation"],
+  "VersionLock": ["VersionLock"],
   "WaitTokenAccepted": ["WaitTokenAccepted"],
   "WaitingForConnection": ["WaitingForConnection"],
   "WaitingOn": ["MemoryErasure.waitingOn"],

@@ -248,6 +248,7 @@ import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
+import type { VersionLocksBinding } from './version-locks-binding.js';
 import type { WaitTokenBinding } from './wait-token-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
@@ -982,6 +983,12 @@ export interface CreateAppInput {
    * Absent: it isn't checked so.
    */
   readonly blockUse?: BlockUseBinding;
+  /**
+   * What can still run a tool or agent version (a deployment's registries
+   * answer it): the unregister answers of both list it as `lockedBy`.
+   * Absent: they answer without `lockedBy`.
+   */
+  readonly versionLocks?: VersionLocksBinding;
   /**
    * The pull requests opened to bring block versions back into a pack's
    * files: `GET /v1/blocks/:blockId/runs-in` reads them for each row's
@@ -1857,6 +1864,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
+        input.versionLocks,
       ),
     );
   }
@@ -1954,6 +1962,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(itemServing !== undefined && { itemServing }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
+        ...(input.versionLocks !== undefined && { versionLocks: input.versionLocks }),
       }),
     );
   }
