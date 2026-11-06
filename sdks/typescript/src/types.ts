@@ -2136,6 +2136,12 @@ export interface InviteRenewed {
 export interface UnregisterUserResult {
   readonly user: User;
   readonly keysRevoked: number;
+  /**
+   * The keys minted with theirs, and with those in turn, revoked with
+   * them, whoever they act for. Not in `keysRevoked`. Absent from a
+   * runtime whose key store doesn't record which key minted which.
+   */
+  readonly mintedKeysRevoked?: number;
   readonly sessionsRevoked: number;
   readonly grantsRemoved: number;
 }
@@ -2368,6 +2374,12 @@ export interface ApiToken {
   readonly lastUsedAt?: import('@kindgi/types').Timestamp;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
   readonly revokedAt?: import('@kindgi/types').Timestamp;
+  /**
+   * The key it was minted with: the minter's key, or the key a token
+   * sign-in session was opened with. It stops when that key is revoked.
+   * Absent when none was, and for a key minted before keys recorded it.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 export interface ApiTokenSpec {
