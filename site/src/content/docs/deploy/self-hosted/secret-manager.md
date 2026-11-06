@@ -284,7 +284,7 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
     capabilities = ["create", "read", "update"]
   }
   path "kindgi/metadata/*" {
-    capabilities = ["read", "delete", "list"]
+    capabilities = ["read", "patch", "delete", "list"]
   }
   path "kindgi/delete/*" {
     capabilities = ["update"]
@@ -293,6 +293,11 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
     capabilities = ["update"]
   }
   ```
+
+  `patch` on the metadata lets the runtime keep the number a secret's
+  versions start from in its custom metadata, so a secret revoked for good,
+  set again and then revoked can be set again by its name; without it, the
+  runtime logs a `secrets` warning that names the capability.
 
 - **Revoking** a secret soft-deletes every one of its versions in Vault.
   With `--hard`, see [Revoking for good](#revoking-for-good).
