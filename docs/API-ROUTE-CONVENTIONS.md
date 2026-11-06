@@ -184,6 +184,8 @@ The OpenAPI document declares this `503` on every served `GET` and `HEAD`, injec
 
 A write that takes an `Idempotency-Key` (§3.1) gets the same treatment for its `503 idempotency-store-unavailable`: the generator injects it on every served `POST`, `PUT`, `PATCH` or `DELETE` that declares the `Idempotency-Key` header (`answersIdempotencyStoreUnavailable`), and one that declares its own `503` names `idempotency-store-unavailable` in it as well.
 
+Every operation that declares a `401` can answer `503 authz-backend-unavailable` (`answersAuthzUnavailable`): the spec can't tell which handlers check, and any authenticated request can be checked when the runtime runs with an authorization store. So for these the generator's shared `503` names it beside `database-busy` or `idempotency-store-unavailable`, an operation with neither gets a shared `503` of its own for it, and one that declares its own `503` names `authz-backend-unavailable` in it as well. An operation that declares no `401`, such as `GET /v1/auth/sign-in-options`, keeps the shared `503` without it.
+
 ---
 
 ## 5. Pagination
