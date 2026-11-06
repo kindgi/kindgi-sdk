@@ -200,7 +200,6 @@ import type { TurnEvent } from '@kindgi/agents';
  * `GET /v1/runs/{runId}/journal` for callers that want the full record.
  */
 export type RunEventKind =
-  | 'run.queued'
   | 'run.started'
   | 'run.step-started'
   | 'run.step-completed'
@@ -208,15 +207,8 @@ export type RunEventKind =
   | 'run.step-retry-scheduled'
   | 'run.iteration-started'
   | 'run.iteration-completed'
-  | 'run.tool-invoked'
-  | 'run.tool-result'
-  | 'run.model-token'
-  | 'run.artifact-produced'
-  | 'run.guardrail-violated'
   | 'run.wait-suspended'
   | 'run.wait-resumed'
-  | 'run.approval-requested'
-  | 'run.approval-completed'
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled';
@@ -247,7 +239,7 @@ export interface RunEvent {
   readonly kind: RunEventKind;
   /** Monotonic within-run sequence. */
   readonly sequence?: number;
-  /** For step-scoped events (`run.step-*`, `run.tool-invoked`, …). */
+  /** For step-scoped events (`run.step-*`, `run.iteration-*`, …). */
   readonly nodeId?: string;
   /** Kind-specific opaque JSON payload; shape mirrors `@kindgi/specs/run-event.schema.json` by kind. */
   readonly payload?: unknown;

@@ -84,6 +84,7 @@ import {
   PACK_ENV_PLATFORM_HOLDS,
   PACK_ENV_PROBLEM_CODES,
 } from '../pack-env.js';
+import { RUN_EVENT_KINDS } from '../routes/sse.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
@@ -1519,28 +1520,7 @@ export const RunEventSchema: JsonSchema = {
     timestamp: { type: 'string', format: 'date-time' },
     kind: {
       type: 'string',
-      enum: [
-        'run.queued',
-        'run.started',
-        'run.step-started',
-        'run.step-completed',
-        'run.step-failed',
-        'run.step-retry-scheduled',
-        'run.iteration-started',
-        'run.iteration-completed',
-        'run.tool-invoked',
-        'run.tool-result',
-        'run.model-token',
-        'run.artifact-produced',
-        'run.guardrail-violated',
-        'run.wait-suspended',
-        'run.wait-resumed',
-        'run.approval-requested',
-        'run.approval-completed',
-        'run.completed',
-        'run.failed',
-        'run.cancelled',
-      ],
+      enum: [...RUN_EVENT_KINDS],
     },
     sequence: { type: 'integer', minimum: 0 },
     nodeId: { type: 'string' },
