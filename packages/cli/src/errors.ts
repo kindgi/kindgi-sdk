@@ -71,7 +71,8 @@ export function formatThrown(
       : formatValidationDetail(wire) +
         formatRecordState(wire) +
         formatNotReady(wire) +
-        formatStopsLatest(wire, options.commandLabel);
+        formatStopsLatest(wire, options.commandLabel) +
+        formatJoinDomainAllow(wire, options.commandLabel);
     return cliError(`Error [${errorTag(wire)}]: ${wire.message}${detail}`, 1);
   }
   if (thrown instanceof Error) {
@@ -157,6 +158,25 @@ function formatStopsLatest(wire: KindgiError, commandLabel: string): string {
   if (wire.code !== 'conflict' || wire.serverCode !== 'pin-stops-latest') return '';
   const card = commandLabel.replace(/^kindgi /, '') === 'suggested-changes pin';
   return `\nRun it again with --stop-following-latest to pin anyway${card ? ', or `kindgi suggested-changes add-as-latest` to add it as the Latest instead' : ''}.`;
+}
+
+/**
+ * A domain the CLI's key may not allow (`join-domain-not-yours`,
+ * `join-domains-operator-managed`): the CLI signs in with an API key,
+ * which proves no email, so allowing from it takes the operator's key.
+ */
+function formatJoinDomainAllow(wire: KindgiError, commandLabel: string): string {
+  if (wire.code !== 'auth') return '';
+  if (commandLabel.replace(/^kindgi /, '') !== 'sign-in join-domains allow') return '';
+  const operatorKey =
+    "the deployment operator's key: on a runtime serving one tenant, make one with the deployment's own token (`kindgi tokens create --role=admin --capability=kindgi:system`) and sign in with it (`kindgi auth login --token`)";
+  if (wire.serverCode === 'join-domain-not-yours') {
+    return `\nFrom the CLI, allowing a domain takes ${operatorKey}. A tenant admin allows their own email's domain from the console's Sign-in page instead.`;
+  }
+  if (wire.serverCode === 'join-domains-operator-managed') {
+    return `\nAllowing a domain here takes ${operatorKey}.`;
+  }
+  return '';
 }
 
 /**

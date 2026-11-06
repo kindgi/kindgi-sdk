@@ -340,6 +340,22 @@ A domain is stored lower case, as its A-label: `bücher.de` is
 `list()`, `allow({ domain, role })`, `update(domain, { role })` and
 `unregister(domain)`.
 
+From the CLI:
+
+```sh
+kindgi sign-in join-domains list --table
+kindgi sign-in join-domains allow acme.com --role=runner
+kindgi sign-in join-domains remove acme.com
+```
+
+The CLI signs in with an API key, which proves no email, so `allow` takes
+the operator's key. On a runtime serving one tenant, make one with the
+deployment's own token,
+`kindgi tokens create --role=admin --capability=kindgi:system`, and sign in
+with it (`kindgi auth login --token`). A tenant admin allows their own
+domain from the console's **Sign-in** page instead. Anyone's key in the
+workspace can `list`, and any tenant admin's can `remove`.
+
 Where the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`),
 allowing a domain or giving joiners more takes the operator's credential,
 and a tenant admin's is refused with `403 join-domains-operator-managed`.
