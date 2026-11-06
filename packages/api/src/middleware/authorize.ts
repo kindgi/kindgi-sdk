@@ -300,9 +300,10 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
           decision = await checkInternal(c, action, resource);
         } catch (err) {
           // The handler hasn't run (asked inside one, with `deniedBy`, it
-          // hasn't written yet), and the resource getter only reads: a store
-          // that couldn't be reached answers 503 on any method, as nothing
-          // ran. Anything else is the error handler's.
+          // hasn't written yet; one that asks after a write throws on this
+          // answer), and the resource getter only reads: a store that
+          // couldn't be reached answers 503 on any method, as nothing ran.
+          // Anything else is the error handler's.
           const unavailable = authzUnavailableAnswer(err, c);
           if (unavailable !== undefined) return unavailable;
           throw err;

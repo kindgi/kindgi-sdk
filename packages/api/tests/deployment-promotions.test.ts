@@ -455,6 +455,8 @@ function harness(
     readonly promotes?: boolean;
     /** `<action> <type>:<id>`; absent: no authorization. */
     readonly grants?: readonly string[];
+    /** Checks (`<action> <type>:<id>`) the authorization store can't be reached for. */
+    readonly unreachable?: readonly string[];
     readonly orders?: readonly (readonly ProjectId[])[];
     /** The agent's versions, which the carried versions are read from. */
     readonly versions?: Row[];
@@ -539,6 +541,14 @@ function harness(
     },
   };
   const grants = opts.grants;
+  const decide = (granted: readonly string[], action: Action, resource: ResourceRef): Decision => {
+    if (opts.unreachable?.includes(`${action} ${resource.type}:${resource.id}`)) {
+      throw Object.assign(new Error("the authorization store couldn't be reached"), {
+        code: 'authz-backend-unavailable',
+      });
+    }
+    return decision(granted, action, resource);
+  };
   const agentPins =
     opts.agentPins === true || opts.cards !== undefined
       ? agentPinBinding({
@@ -601,9 +611,9 @@ function harness(
       authz: {
         fgaApiUrl: 'http://fga.invalid',
         authzCheckBinding: {
-          check: async (_p, action, resource) => decision(grants, action, resource),
+          check: async (_p, action, resource) => decide(grants, action, resource),
           checkBatch: async (_p, action, resources) =>
-            resources.map((resource) => decision(grants, action, resource)),
+            resources.map((resource) => decide(grants, action, resource)),
         } satisfies AuthzCheckBinding,
       },
     }),
@@ -1269,6 +1279,21 @@ describe('pinning the carried agents in the target (pin)', () => {
     const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
     expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `agent:${AGENT}` });
+    // The promotion committed (the move isn't undone); nothing was pinned.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
+  });
+
+  test("a pin check the authorization store can't be reached for: 500, not the 503 that says nothing ran, as the build has already moved", async () => {
+    const h = harness({
+      agentPins: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`],
+      unreachable: [`pin agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('internal-server-error');
     // The promotion committed (the move isn't undone); nothing was pinned.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
