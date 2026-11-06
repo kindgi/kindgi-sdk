@@ -4,8 +4,7 @@
 import type { AgentPinScope, OrgId, ProjectId } from '@kindgi/types';
 
 import { parseSegmentsBody } from './segments.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from './uuid-param.js';
 
 /** A pinned scope on the wire: `{kind}` plus the id or path it needs. */
 export type WireAgentPinScope =

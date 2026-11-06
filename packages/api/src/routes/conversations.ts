@@ -32,9 +32,7 @@ import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './paginati
 import { participantRefusal } from './participant-access.js';
 import { parseListScope } from './scope-params.js';
 import { conversationNotFound, hiddenOr, unreadable } from './turn-access.js';
-import { refuseMalformedUuidParam } from './uuid-param.js';
-
-const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 /**
  * Conversations resource routes. All storage access goes through the
@@ -689,7 +687,7 @@ function parseOpenBody(
   const projectIdRaw = b.projectId;
   if (
     projectIdRaw !== undefined &&
-    (typeof projectIdRaw !== 'string' || !PROJECT_ID_RE.test(projectIdRaw))
+    (typeof projectIdRaw !== 'string' || !UUID_RE.test(projectIdRaw))
   ) {
     return {
       kind: 'err',
