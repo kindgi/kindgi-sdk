@@ -96,20 +96,7 @@ export function connectionAppsRouter(
   const r = new Hono<AppEnv>();
   // A tenant admin's: `admin` on the tenant, or without an authorizer the
   // key's `tenant-admin` scope, as the connections routes check it.
-  r.use(
-    '*',
-    authorizer !== undefined
-      ? tenantAdminAccess(authorizer)
-      : async (c, next) => {
-          if (await isTenantAdmin(c, undefined)) return next();
-          return refused(c, undefined, {
-            action: 'admin',
-            resource: ref('tenant', c.get('tenantId') as unknown as string),
-            message: "Only a tenant admin reads or changes the company's app registrations",
-            failing: 'actor',
-          });
-        },
-  );
+  r.use('*', tenantAdminAccess(authorizer));
   r.use('/:appId', refuseMalformedUuidParam('appId', 'a connection app id'));
 
   // A reserved `kindgi.` name or a model provider's key is never an app's

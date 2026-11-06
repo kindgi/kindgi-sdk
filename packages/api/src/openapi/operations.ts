@@ -1647,8 +1647,8 @@ const WITHOUT_STORE_ADMIN =
 /**
  * A change to a tenant-wide setting (`tenantResourceAccess`), and every
  * call to one only a tenant admin uses (`tenantAdminAccess`: webhook
- * endpoints, compliance): a tenant admin's, with an authorization store or
- * without one.
+ * endpoints, compliance, connection apps): a tenant admin's, with an
+ * authorization store or without one.
  */
 const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
   '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
@@ -12281,7 +12281,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of registrations.', schema: ref('ConnectionAppPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('An `includeRemoved` other than `true` or `false` (`bad-input`).'),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
     },
   },
   {
@@ -12302,7 +12302,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
   },
@@ -12319,7 +12319,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The registration.', schema: ref('ConnectionApp') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`appId` is not a UUID (`bad-input`).'),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
     },
   },
@@ -12341,7 +12341,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
@@ -12373,7 +12373,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         '`appId` is not a UUID, or `withConnections` is not a boolean (`bad-input`).',
       ),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
       '409': ErrorResponse(
         'Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).',
