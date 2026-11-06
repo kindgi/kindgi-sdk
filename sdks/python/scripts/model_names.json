@@ -818,6 +818,7 @@
   "QueueRuleUnregisterResult": ["QueueRuleUnregisterResult"],
   "QueueRuleWhen": ["QueueRuleWhen"],
   "RawUsage": ["CostRecord.rawUsage"],
+  "ReadOnlyTool": ["MCPEndpoint.readOnlyTools", "RegisterMCPEndpointBody.readOnlyTools"],
   "Reason": ["CorrectedItemSummary.reasons"],
   "RecordDeploymentProblemBody": ["RecordDeploymentProblemBody"],
   "RecordPackEnvBody": ["RecordPackEnvBody"],

@@ -855,6 +855,57 @@ default, and HTTP transports only. A `stdio` server gets no headers, so `true`
 there is refused with `invalid-mcp-endpoint`, reason
 `invalid-send-traceparent`.
 
+## Name its read-only tools
+
+An MCP tool counts as one that may change things, whatever the server says
+about it. Ask your coding agent: "My inventory MCP server's `stock_level`
+tool only reads. Let my agents call it the way they call a read-only tool."
+For reference, it adds the tool to the registration by the name the server's
+`tools/list` gives it, not by its tool id:
+
+```json
+"readOnlyTools": ["stock_level"]
+```
+
+`inventory.stock_level` is then published with `mutating: false`, and
+`inventory.reserve`, which isn't listed, still counts as one that may change
+things. A listed tool does what a [read-only tool](../read-only-tools/) does:
+
+- **In a dry run,** it runs.
+- **Behind an approval gate,** with no rule for it, it runs without asking
+  ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
+- **In a step that asks for several calls,** it runs alongside the other
+  read-only calls ([Calls that run together](../read-only-tools/#calls-that-run-together)).
+- **In a run a mail started,** it doesn't wait for a yes the way a change
+  does ([What waits for a yes](../../runs/start-runs-from-new-mail/#what-waits-for-a-yes)).
+- **In an Ask from someone a site signs in,** it runs as the agent's and the
+  workspace's rules say, where an unlisted tool waits for a yes on each call
+  ([What an Ask may do](../../../sites/wordpress/#what-an-ask-may-do)).
+- **In a replay,** it gets the past run's result for the same call, or is
+  refused. It reaches outside, so it never runs live
+  ([What a replay does](../../improve/compare-an-agent-version/#what-a-replay-does)).
+
+A tool's newest version decides for every version of it, pinned ones
+included. A version is only the schema the model sees: every call goes to the
+server as it is now. So when you take a tool off the list, the runtime
+publishes a new version without `mutating: false`, and from then on every
+version of it counts as one that may change things, the one a published flow
+or agent holds too. When the endpoint is unregistered, so do all its tools'
+versions.
+
+List only tools that never change anything. The list is your claim, the way a
+pack tool's own `mutating: false` is: a listed tool that changes things does
+so without anyone being asked. The server's own `readOnlyHint` annotation
+isn't read, since it's the server's word about itself. A name the server
+doesn't serve changes nothing, so a misspelt one leaves that tool as it was.
+
+The list takes 1 to 256 names, each 1 to 128 characters, with no repeats,
+and works on every transport. Any other list is refused with
+`invalid-mcp-endpoint`, reason `invalid-read-only-tools`. To change it,
+unregister the endpoint and register it again with the new list
+([When the server changes](#when-the-server-changes)). A runtime without the
+field refuses it as `unknown-field` and registers nothing.
+
 ## Make a write happen once
 
 Each tool call a run makes sends an idempotency key in the request's `_meta`,
@@ -983,7 +1034,10 @@ curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
 ```
 
 Unregistering retires the endpoint's tools. Registering it again brings them
-back.
+back. Registering it with another `readOnlyTools` list publishes a new
+version of each tool the change lists or takes off, and that version decides
+for every version of the tool
+([Name its read-only tools](#name-its-read-only-tools)).
 
 With more than one replica, another replica's sync can hold one of the
 endpoint's tools when you unregister it. The unregister then answers first,
@@ -1124,9 +1178,10 @@ above.
 
 ## Good to know
 
-- An MCP tool always counts as one that changes things: it doesn't run in a
-  [dry run](../read-only-tools/#dry-runs), and an approval gate asks before
-  it.
+- An MCP tool counts as one that may change things, unless its endpoint
+  lists it in `readOnlyTools` ([Name its read-only tools](#name-its-read-only-tools)).
+  Unlisted, it doesn't run in a [dry run](../read-only-tools/#dry-runs), and
+  an approval gate asks before it.
 - A tool's schemas are read in the JSON Schema dialect their `"$schema"`
   declares: draft-06, draft-07, 2019-09 or 2020-12. Servers built with the
   TypeScript MCP SDK declare draft-07. 2020-12 is the default when they

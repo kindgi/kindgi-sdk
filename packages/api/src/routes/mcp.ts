@@ -26,6 +26,8 @@ import {
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_READ_ONLY_TOOLS_MAX,
+  MCP_READ_ONLY_TOOL_NAME_MAX,
   MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
   REDACTED_ENV_VALUE,
@@ -701,6 +703,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
+    ...(e.readOnlyTools !== undefined && { readOnlyTools: e.readOnlyTools }),
     ...(e.secretScopes !== undefined && { secretScopes: e.secretScopes }),
   };
 }
@@ -750,6 +753,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'instructions',
   'metadata',
   'sendTraceparent',
+  'readOnlyTools',
   'scopeKind',
   'scopeId',
 ]);
@@ -905,6 +909,9 @@ function validateMCPEndpoint(
       },
     };
   }
+  const readOnlyTools =
+    b.readOnlyTools === undefined ? undefined : parseReadOnlyTools(b.endpointId, b.readOnlyTools);
+  if (readOnlyTools?.kind === 'err') return readOnlyTools;
 
   const value: MCPEndpoint = {
     endpointId: b.endpointId,
@@ -919,8 +926,43 @@ function validateMCPEndpoint(
       metadata: b.metadata as Readonly<Record<string, unknown>>,
     }),
     ...(b.sendTraceparent !== undefined && { sendTraceparent: b.sendTraceparent }),
+    ...(readOnlyTools !== undefined && { readOnlyTools: readOnlyTools.value }),
   };
   return { kind: 'ok', value };
+}
+
+/**
+ * `readOnlyTools`: the server's tool names, as its `tools/list` gives them,
+ * 1 to `MCP_READ_ONLY_TOOLS_MAX`, each 1 to `MCP_READ_ONLY_TOOL_NAME_MAX`
+ * characters, no repeats. Any transport: a tool only reads whatever way the
+ * runtime reaches its server.
+ */
+function parseReadOnlyTools(
+  endpointId: string,
+  raw: unknown,
+):
+  | { kind: 'ok'; value: readonly string[] }
+  | { kind: 'err'; error: { message: string; reason: string } } {
+  const bad = (message: string) => ({
+    kind: 'err' as const,
+    error: { message: `endpoint "${endpointId}" ${message}`, reason: 'invalid-read-only-tools' },
+  });
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MCP_READ_ONLY_TOOLS_MAX) {
+    return bad(
+      `readOnlyTools must be a list of 1 to ${MCP_READ_ONLY_TOOLS_MAX} tool names, as the server's tools/list gives them`,
+    );
+  }
+  const seen = new Set<string>();
+  for (const name of raw) {
+    if (!boundedString(name, MCP_READ_ONLY_TOOL_NAME_MAX)) {
+      return bad(
+        `readOnlyTools: each tool name must be a string of 1 to ${MCP_READ_ONLY_TOOL_NAME_MAX} characters`,
+      );
+    }
+    if (seen.has(name)) return bad(`readOnlyTools names "${name}" twice`);
+    seen.add(name);
+  }
+  return { kind: 'ok', value: [...seen] };
 }
 
 /** `auth`, parsed and checked against the rest of the endpoint. */

@@ -9,7 +9,12 @@ import { type Cursor, type EnvName, type TenantId, makeEnvName } from '@kindgi/t
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { type TenantHostAccess, createApp } from '../src/index.js';
+import {
+  MCP_READ_ONLY_TOOLS_MAX,
+  MCP_READ_ONLY_TOOL_NAME_MAX,
+  type TenantHostAccess,
+  createApp,
+} from '../src/index.js';
 import type {
   MCPClientProbeBinding,
   MCPEndpoint,
@@ -400,6 +405,80 @@ describe('API — mcp endpoints register + get', () => {
           'invalid-mcp-endpoint',
           'invalid-send-traceparent',
         ]);
+      }
+    });
+  });
+
+  describe('readOnlyTools', () => {
+    const http = {
+      endpointId: 'acme-shop',
+      name: 'Shop',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://mcp.acme.test/mcp' },
+      scopeKind: 'tenant',
+    };
+    const post = (app: ReturnType<typeof makeApp>['app'], body: Record<string, unknown>) =>
+      app.request('/v1/mcp/endpoints', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const read = async (app: ReturnType<typeof makeApp>['app'], endpointId: string) => {
+      const res = await app.request(`/v1/mcp/endpoints/${endpointId}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      return { status: res.status, endpoint: (await res.json()) as MCPEndpoint };
+    };
+
+    test('on an HTTP or a stdio endpoint it is stored and read back as given; absent, it is not there', async () => {
+      const { app } = makeApp();
+      const tools = ['acme-order-lookup', 'acme-product-search'];
+      expect((await post(app, { ...http, readOnlyTools: tools })).status).toBe(201);
+      expect((await read(app, 'acme-shop')).endpoint.readOnlyTools).toEqual(tools);
+
+      const stdio = { ...stdioEndpoint({ endpointId: 'acme-legal' }), scopeKind: 'tenant' };
+      expect((await post(app, { ...stdio, readOnlyTools: ['legal-search'] })).status).toBe(201);
+      expect((await read(app, 'acme-legal')).endpoint.readOnlyTools).toEqual(['legal-search']);
+
+      expect((await post(app, { ...http, endpointId: 'acme-plain' })).status).toBe(201);
+      expect((await read(app, 'acme-plain')).endpoint).not.toHaveProperty('readOnlyTools');
+    });
+
+    test('the most names, each of the longest length, are taken', async () => {
+      const { app } = makeApp();
+      const tools = Array.from({ length: MCP_READ_ONLY_TOOLS_MAX }, (_, i) =>
+        `${i}-`.padEnd(MCP_READ_ONLY_TOOL_NAME_MAX, 'x'),
+      );
+      expect((await post(app, { ...http, readOnlyTools: tools })).status).toBe(201);
+      expect((await read(app, 'acme-shop')).endpoint.readOnlyTools).toEqual(tools);
+    });
+
+    test('a bad list → 400 invalid-mcp-endpoint, reason invalid-read-only-tools, and nothing is stored', async () => {
+      const { app } = makeApp();
+      for (const readOnlyTools of [
+        'acme-order-lookup',
+        { 'acme-order-lookup': true },
+        null,
+        [],
+        [42],
+        [''],
+        ['x'.repeat(MCP_READ_ONLY_TOOL_NAME_MAX + 1)],
+        ['acme-order-lookup', 'acme-order-lookup'],
+        Array.from({ length: MCP_READ_ONLY_TOOLS_MAX + 1 }, (_, i) => `tool-${i}`),
+      ]) {
+        const res = await post(app, { ...http, readOnlyTools });
+        expect(res.status, JSON.stringify(readOnlyTools).slice(0, 40)).toBe(400);
+        const error = (
+          (await res.json()) as {
+            error: { code: string; message: string; details?: { reason?: string } };
+          }
+        ).error;
+        expect([error.code, error.details?.reason]).toEqual([
+          'invalid-mcp-endpoint',
+          'invalid-read-only-tools',
+        ]);
+        expect(error.message).toContain('readOnlyTools');
+        expect((await read(app, 'acme-shop')).status).toBe(404);
       }
     });
   });
