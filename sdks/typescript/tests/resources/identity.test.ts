@@ -150,7 +150,7 @@ describe("identity — a person's grants", () => {
     );
   });
 
-  it('a receiver who is not a tenant admin is a typed 409; a runtime without the routes a server error', async () => {
+  it("a receiver who is not a tenant admin is a typed 409; a runtime that doesn't give or take back capabilities a server error", async () => {
     const refused = errorFetch(409, {
       code: 'receiver-not-tenant-admin',
       message: 'make them one first',

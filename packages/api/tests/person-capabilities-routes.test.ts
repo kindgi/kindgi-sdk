@@ -39,6 +39,12 @@ const TOKENS: Readonly<Record<string, Omit<TokenResolution, 'tenantId'>>> = {
   'alice-project': { userId: alice, scopes: ['tenant-admin'], tokenProjectId: 'p-1' },
   'bob-key': { userId: bob, scopes: [] },
   'bob-member': { userId: bob, scopes: [], tokenRole: 'member' },
+  'bob-member-session': {
+    userId: bob,
+    scopes: [],
+    tokenRole: 'member',
+    sessionId: 'session-bob-member' as SessionId,
+  },
   'bob-project': { userId: bob, scopes: [], tokenProjectId: 'p-1' },
   'bob-project-session': {
     userId: bob,
@@ -239,6 +245,7 @@ describe('taking back a capability', () => {
     ]);
     const limited: [string, string, string][] = [
       ['bob', 'bob-member', 'a member API key'],
+      ['bob', 'bob-member-session', 'a member session'],
       ['bob', 'bob-project', 'an API key limited to project p-1'],
       ['bob', 'bob-project-session', 'a session limited to project p-1'],
       // A tenant admin's own, with a limited key: it isn't a tenant admin's either.
@@ -307,14 +314,24 @@ describe('the binding, and a runtime without it', () => {
     expect((await h.give('bob', 'bob-key', { capabilities: ['env:write'] })).status).toBe(403);
   });
 
-  test("without a person's grants: 501 person-grants-unsupported, as the read", async () => {
-    const h = harness({ grants: false });
-    const given = await h.give('bob', 'alice-key', { capabilities: ['env:write'] });
-    expect([given.status, code(given)]).toEqual([501, 'person-grants-unsupported']);
-    const taken = await h.takeBack('bob', 'env:write', 'alice-key');
-    expect([taken.status, code(taken)]).toEqual([501, 'person-grants-unsupported']);
-    expect(h.gives).toEqual([]);
-    expect(h.takeBacks).toEqual([]);
+  test("without a person's grants: 501 person-grants-unsupported, as the read, with or without give and take back", async () => {
+    for (const changes of [true, false]) {
+      const h = harness({ grants: false, changes });
+      const given = await h.give('bob', 'alice-key', { capabilities: ['env:write'] });
+      expect([changes, given.status, code(given)]).toEqual([
+        changes,
+        501,
+        'person-grants-unsupported',
+      ]);
+      const taken = await h.takeBack('bob', 'env:write', 'alice-key');
+      expect([changes, taken.status, code(taken)]).toEqual([
+        changes,
+        501,
+        'person-grants-unsupported',
+      ]);
+      expect(h.gives).toEqual([]);
+      expect(h.takeBacks).toEqual([]);
+    }
   });
 });
 

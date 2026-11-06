@@ -387,8 +387,11 @@ drop their own capability with a full API key or session, but not with a
 too, so before you take back the last one, give it to someone else first.
 One the person doesn't hold is left as it is.
 
-Giving is refused in these cases, and nothing changes:
+Giving or taking back is refused in these cases, and nothing changes:
 
+- `403 permission-denied`: you aren't a tenant admin. Taking back your own
+  needs no admin, but it does need a full API key or session: a `member`
+  one, or one limited to a project, is refused, and the message names which.
 - `403 capability-not-held`: your own person doesn't hold one of them now.
   The message names the ones you lack. Taking back one you don't hold is
   refused the same way, unless it's your own.
