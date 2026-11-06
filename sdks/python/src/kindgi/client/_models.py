@@ -11563,6 +11563,10 @@ class MailTriggerRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the mail trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.
+    """
 
 
 class RegisterMailTriggerBodyConfig(BaseModel):
@@ -11818,6 +11822,10 @@ class MailTriggerVersion(BaseModel):
     ]
     """
     What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
     """
     definition: MailTriggerDefinition
 
@@ -17912,6 +17920,10 @@ class ScheduleRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the schedule was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.
+    """
 
 
 class ScheduleCollectionPage(BaseModel):
@@ -18141,6 +18153,10 @@ class WebhookTriggerRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`.
+    """
 
 
 class WebhookTriggerCollectionPage(BaseModel):
@@ -18362,6 +18378,10 @@ class ScheduleVersion(BaseModel):
     """
     What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
     """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
+    """
     definition: ScheduleDefinition
 
 
@@ -18476,6 +18496,10 @@ class WebhookTriggerVersion(BaseModel):
     ]
     """
     What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
     """
     definition: WebhookTriggerDefinition
 
