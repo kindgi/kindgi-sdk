@@ -37,6 +37,15 @@ export interface FileValue {
   readonly type: 'kindgi.file';
   /** The stored file. Only the id is trusted: the rest comes from the file's checks. */
   readonly artifactId: string;
+  /**
+   * The file these bytes are a version of, when they're one (on a runtime
+   * that keeps file versions). With `version`, it names `artifactId`'s
+   * bytes another way: a runtime admits the value only when both name
+   * the same bytes.
+   */
+  readonly fileId?: string;
+  /** Which version of `fileId` these bytes are, from 1. Set with `fileId`. */
+  readonly version?: number;
   readonly name?: string;
   /** Its type, as checked from its bytes. */
   readonly contentType: string;
@@ -62,7 +71,8 @@ export interface FileValue {
 
 /**
  * Whether `value` has a file value's shape: each field of the right type,
- * a whole size, a lowercase hex sha256, a whole page count from 1, and a
+ * a whole size, a lowercase hex sha256, a whole page count from 1, a
+ * `fileId` and a whole `version` from 1 set together or not at all, and a
  * known `notShown` reason. Its fields aren't checked against anything.
  */
 export function isFileValue(value: unknown): value is FileValue {
@@ -88,8 +98,31 @@ function hasFileFields(v: Readonly<Record<string, unknown>>): boolean {
 function hasOptionalFileFields(v: Readonly<Record<string, unknown>>): boolean {
   return (
     (v.name === undefined || typeof v.name === 'string') &&
+    hasVersionFields(v) &&
     (v.pages === undefined || (Number.isSafeInteger(v.pages) && (v.pages as number) >= 1)) &&
     (v.notShown === undefined ||
       (FILE_NOT_SHOWN_REASONS as readonly unknown[]).includes(v.notShown))
   );
+}
+
+/** `fileId` and `version` together, or neither: one names nothing on its own. */
+function hasVersionFields(v: Readonly<Record<string, unknown>>): boolean {
+  if (v.fileId === undefined && v.version === undefined) return true;
+  return (
+    typeof v.fileId === 'string' &&
+    v.fileId.length > 0 &&
+    Number.isSafeInteger(v.version) &&
+    (v.version as number) >= 1
+  );
+}
+
+/**
+ * A file named by its id, where a caller passes one (a run's input, the
+ * files routes): its latest version, or a fixed one. `latest` is read
+ * once, when the file is taken, and the exact version is kept from then.
+ */
+export interface FileRef {
+  readonly fileId: string;
+  /** A version from 1, or `latest` (the default). */
+  readonly version?: number | 'latest';
 }
