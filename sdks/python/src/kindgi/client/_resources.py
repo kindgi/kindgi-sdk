@@ -9762,7 +9762,7 @@ class TenantConfigResource:
     ) -> _models.UpsertTenantConfigResult:
         """Upsert a workspace config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -20116,7 +20116,7 @@ class AsyncTenantConfigResource:
     ) -> _models.UpsertTenantConfigResult:
         """Upsert a workspace config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.upsert"],

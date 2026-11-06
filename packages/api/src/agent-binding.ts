@@ -364,7 +364,27 @@ export type AgentPublishOutcome =
       readonly version: Semver;
       /** The project the agent belongs to. */
       readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * A tool version the new version pins was removed while it was
+       * published: a registry that removes unregistered versions locks,
+       * in the publish's transaction, every version the new one holds,
+       * and found these gone. Nothing is written (the route answers
+       * `400 reference-out-of-scope`, at the paths that name each).
+       */
+      readonly kind: 'held-version-gone';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+      readonly gone: readonly GoneVersion[];
     };
+
+/** A version a new agent or flow version holds that was removed while it was published (`held-version-gone`). */
+export interface GoneVersion {
+  readonly kind: 'agent' | 'tool';
+  readonly id: string;
+  readonly version: string;
+}
 
 export type AgentUnregisterOutcome = {
   readonly unregistered: boolean;

@@ -13,7 +13,11 @@ import {
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
-import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
+import type {
+  AgentPublishOutcome,
+  AgentRegistryBinding,
+  AgentVersionRecord,
+} from '../agent-binding.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
@@ -40,6 +44,7 @@ import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
+  heldVersionsGone,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
@@ -715,28 +720,8 @@ export function agentsRouter(
           creatorUserId,
         ),
     });
-    if (outcome.kind === 'already-registered') {
-      return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
-    }
-    if (outcome.kind === 'project-mismatch') {
-      return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
-    }
-    if (outcome.kind === 'project-not-found') {
-      // Caller supplied a `projectId` that does not resolve within
-      // this tenant. Distinct signal from `already-registered` so the
-      // client can prompt for a valid project rather than assume the
-      // version was already used. Answered as `400 bad-input`; the
-      // caller learns from the message which field was invalid.
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
-          },
-          requestId,
-        ),
-      );
+    if (outcome.kind !== 'ok') {
+      return publishRefusedResponse(c, { binding, tenantId, agent }, outcome);
     }
     const warnings = publishWarnings(defined.value, capabilities);
     c.status(201);
@@ -972,6 +957,50 @@ async function alreadyRegistered(
         agentId: agentId as unknown as string,
         version: version as unknown as string,
         ...(next !== undefined && { nextFreeVersion: next }),
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+/** The answer to a `POST /v1/agents` its registry refused. */
+async function publishRefusedResponse(
+  c: Context<AppEnv>,
+  {
+    binding,
+    tenantId,
+    agent,
+  }: { readonly binding: AgentRegistryBinding; readonly tenantId: TenantId; readonly agent: Agent },
+  outcome: Exclude<AgentPublishOutcome, { readonly kind: 'ok' }>,
+): Promise<Response> {
+  if (outcome.kind === 'already-registered') {
+    return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
+  }
+  if (outcome.kind === 'held-version-gone') {
+    // A tool version it pins, removed since it was pinned: refused as reach
+    // refuses it, at the paths that name it.
+    const item = { kind: 'agent', id: agent.id, version: agent.version } as const;
+    return outOfScopeResponse(
+      c,
+      c.get('requestId'),
+      heldVersionsGone(item, outcome.gone, agentReferences(agent)),
+    );
+  }
+  // Caller supplied a `projectId` that does not resolve within
+  // this tenant (`project-not-found`). Distinct signal from
+  // `already-registered` so the client can prompt for a valid project
+  // rather than assume the version was already used. Answered as
+  // `400 bad-input`; the caller learns from the message which field was
+  // invalid.
+  c.status(statusFor('bad-input') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'bad-input',
+        message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
       },
       c.get('requestId'),
     ),
