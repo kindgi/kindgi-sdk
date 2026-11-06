@@ -28,8 +28,10 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
 
 - **The runtime** (`kindgi-server`): Kindgi's server, on Cloud Run with its
   own service account and one instance. It has public ingress on port 4000,
-  which Cloud Run passes as `PORT`. Its CPU is always allocated, so a run
-  started in the background keeps running after its answer.
+  which Cloud Run passes as `PORT`. By default its CPU is always allocated,
+  so a run started in the background keeps running after its answer. To pay
+  only while it's working, it can
+  [scale to zero](#scale-the-server-to-zero) instead (runtime 0.7.0 or later).
 - **The pack orchestrator** (`kindgi-pack-orchestrator`): a Cloud Run Job
   from the runtime's image, which Cloud Scheduler runs once a minute. Each
   pass makes a Cloud Run service for each deployment of your pack that needs
@@ -980,6 +982,55 @@ Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"
 ```
 
 A new grant can take a minute or two to apply.
+
+## Scale the server to zero
+
+By default the runtime keeps one instance with its CPU always allocated,
+billed around the clock. With runtime 0.7.0 or later, it can run on Cloud
+Run's request-based billing instead: its CPU is allocated, and billed, only
+while a request is in flight, and it can scale to zero. In your var file:
+
+```hcl
+server_billing       = "request"
+server_min_instances = 0
+```
+
+Then apply. From then on:
+
+- **Cloud Scheduler calls the runtime's tick each minute**
+  (`POST /internal/tick`) from the job `kindgi-server-tick`, with a
+  Google-signed ID token of the tick's own service account, `kindgi-tick`.
+  The tick runs the background work that's due inside its request:
+  schedules and mail polls, webhook deliveries, sending permission changes
+  to OpenFGA, erasures and the sweeps. The runtime checks the token itself:
+  it must be for the tick's URL, from the tick's account. The module sets
+  both, as `KINDGI_SERVICE_URL` and `KINDGI_TICK_CALLER`.
+- **While it has work in flight,** such as a run started without waiting, a
+  webhook delivery or an erasure, the runtime keeps a request to its own
+  `run.app` URL open, so its CPU stays allocated until the work is done.
+- **The first request after a quiet spell** waits for an instance to start.
+- **A schedule can fire up to about a minute late,** since between requests
+  its times are checked when the tick comes. With `--catch-up=skip`, keep
+  `--starting-deadline` at 90 seconds or more
+  ([Each time it fires](../../../guides/runs/run-on-a-schedule/#each-time-it-fires)).
+
+It needs three settings, each at its default. The plan refuses
+`server_billing = "request"` without them, and `server_min_instances = 0`
+without `"request"`:
+
+- `server_ingress = "INGRESS_TRAFFIC_ALL"`: the request to itself goes to
+  its `run.app` URL.
+- `server_max_instances = 1`: that request must reach the instance that sent
+  it.
+- `server_public`, or `server_invoker_iam_disabled`: the request to itself
+  carries no Google ID token, so Cloud Run IAM would refuse it.
+
+With `server_min_instances = 1`, an instance stays warm, so no request waits
+for one to start, and it's billed while idle too.
+
+The tick logs under `tick`, and the request to itself under `tick.hold`
+([Logs](../logs/)). A tick that's refused is logged at most once a minute,
+since anyone can call its URL.
 
 ## Staging and production
 
