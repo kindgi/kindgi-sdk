@@ -38,6 +38,12 @@ import org.jspecify.annotations.Nullable;
  *       kgi_pt_…}) keeps its prefix and its last four characters; {@code Bearer <anything>} becomes
  *       {@code Bearer [redacted]}; a URL's password ({@code postgres://user:pass@}) becomes {@code
  *       user:***@}.
+ *   <li><b>The full mask,</b> for text more people read than a log's: a tool's error, on a run's
+ *       record, in the console and in the model's view ({@link #scrubText(String, boolean)}). A
+ *       Kindgi token becomes {@code [redacted]} whole, with no prefix and no last four, and a URL's
+ *       query or fragment value whose name looks secret becomes {@code [redacted]}, its name kept
+ *       ({@code ?token=}, {@code #access_token=}, {@code X-Amz-Signature=}, a SAS {@code sig=},
+ *       {@code ?key=}). A record is never written with it.
  * </ol>
  *
  * The first rule is the code rule's net: secret values are never fields to begin with (pass a
@@ -61,6 +67,14 @@ public final class Redaction {
   private static final Pattern BEARER = Pattern.compile("\\b(Bearer)\\s+[^\\s\"',;]+", Pattern.CASE_INSENSITIVE);
   private static final Pattern URL_PASSWORD =
       Pattern.compile("\\b([a-z][a-z0-9+.-]*://[^\\s:/@]+):[^\\s@/]+@", Pattern.CASE_INSENSITIVE);
+  /** A URL's query or fragment parameter: {@code ?}, {@code &} or {@code #}, its name, {@code =}, its value. */
+  private static final Pattern URL_PARAM = Pattern.compile("([?&#])([^\\s=&#\"'<>]+)=([^\\s&#\"'<>]*)");
+
+  /**
+   * More endings that make a parameter's name secret, on top of rule 1's: a signed URL's signature
+   * ({@code X-Amz-Signature}, {@code X-Goog-Signature}, a SAS {@code sig}).
+   */
+  private static final List<String> PARAM_SECRET_ENDINGS = List.of("signature", "sig");
 
   private static final int MAX_DEPTH = 8;
 
@@ -89,18 +103,48 @@ public final class Redaction {
   }
 
   /**
+   * Whether a URL parameter's name looks secret: rule 1's endings and a signature's, or exactly
+   * {@code key} (an API key, {@code ?key=…}). Only exactly: {@code sort_key} and {@code
+   * idempotency_key} are ids.
+   */
+  private static boolean isSecretParam(String name) {
+    return normalize(name).equals("key") || isSecretKey(name, PARAM_SECRET_ENDINGS);
+  }
+
+  /**
    * @param text a string
    * @return the string with known secret shapes masked (see rule 2)
    */
   public static String scrubText(String text) {
+    return scrubText(text, false);
+  }
+
+  /**
+   * @param text a string
+   * @param fullMask whether to apply rule 3's full mask too: a Kindgi token whole, and a URL's
+   *     secret parameters
+   * @return the string with known secret shapes masked (see rule 2, and rule 3 with {@code
+   *     fullMask})
+   */
+  public static String scrubText(String text, boolean fullMask) {
     Matcher token = KINDGI_TOKEN.matcher(text);
     String out = token.replaceAll(m -> {
+      if (fullMask) {
+        return Matcher.quoteReplacement(REDACTED);
+      }
       String body = m.group(2);
       String tail = body.length() >= 16 ? body.substring(body.length() - 4) : "";
       return Matcher.quoteReplacement("kgi_" + m.group(1) + "_…" + tail);
     });
     out = BEARER.matcher(out).replaceAll("$1 [redacted]");
-    return URL_PASSWORD.matcher(out).replaceAll("$1:***@");
+    out = URL_PASSWORD.matcher(out).replaceAll("$1:***@");
+    if (!fullMask) {
+      return out;
+    }
+    return URL_PARAM.matcher(out).replaceAll(m -> {
+      boolean secret = !m.group(3).isEmpty() && isSecretParam(m.group(2));
+      return Matcher.quoteReplacement(secret ? m.group(1) + m.group(2) + "=" + REDACTED : m.group());
+    });
   }
 
   /**
