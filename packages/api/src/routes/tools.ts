@@ -621,14 +621,14 @@ export function toolsRouter(
       }
     }
     const locks = await lockedByField(
-      options.versionLocks,
+      c,
+      { versionLocks: options.versionLocks, authorizer, itemRights },
       {
         tenantId,
         kind: 'tool',
         id: toolId as unknown as string,
         version: version as unknown as string,
       },
-      c.get('log'),
     );
     return c.json({
       toolId: toolId as unknown as string,

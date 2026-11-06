@@ -3409,7 +3409,7 @@ class UnregisterAgentResult(BaseModel):
     unregistered: Literal[True]
     locked_by: Annotated[list[VersionLock] | None, Field(alias="lockedBy")] = None
     """
-    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one, sorted by kind, id, then version; `[]` when nothing locks it. Absent from older servers, and when the server cannot tell.
+    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.
     """
 
 
@@ -3739,7 +3739,7 @@ class UnregisterToolResult(BaseModel):
     unregistered: Literal[True]
     locked_by: Annotated[list[VersionLock] | None, Field(alias="lockedBy")] = None
     """
-    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one, sorted by kind, id, then version; `[]` when nothing locks it. Absent from older servers, and when the server cannot tell.
+    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.
     """
 
 

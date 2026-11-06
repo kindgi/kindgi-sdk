@@ -776,14 +776,14 @@ export function agentsRouter(
       );
     }
     const locks = await lockedByField(
-      versionLocks,
+      c,
+      { versionLocks: versionLocks, authorizer, itemRights },
       {
         tenantId,
         kind: 'agent',
         id: agentId as unknown as string,
         version: version as unknown as string,
       },
-      c.get('log'),
     );
     return c.json({
       agentId: agentId as unknown as string,

@@ -6,8 +6,9 @@ import type { TenantId } from '@kindgi/types';
 /**
  * What can still run a tool or agent version: the agent and flow versions
  * that lock it. `POST /v1/tools/:toolId/versions/:version/unregister` and
- * `POST /v1/agents/:agentId/versions/:version/unregister` answer it as
- * `lockedBy`. A separate surface, so a registry fake needn't answer it; a
+ * `POST /v1/agents/:agentId/versions/:version/unregister` answer the ones
+ * the caller may read as `lockedBy`, as the lists leave out the rest. A
+ * separate surface, so a registry fake needn't answer it; a
  * deployment answers it from its stored versions.
  */
 export interface VersionLocksBinding {

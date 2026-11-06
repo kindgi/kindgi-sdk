@@ -5,7 +5,8 @@
  * The tool and agent unregister answers' `lockedBy`: what can still run the
  * version, when the deployment wires `versionLocks`. Without it, or when
  * its read fails, the answer has no `lockedBy`, and the version is
- * unregistered either way.
+ * unregistered either way. With an authorizer, it names only the locks
+ * the caller may read, as the lists do.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -14,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 
 import { createLogger } from '@kindgi/log';
-import type { TenantId } from '@kindgi/types';
+import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -29,6 +30,7 @@ import type {
   VersionLocksInput,
 } from '../src/index.js';
 import { validateAgainst } from './support/openapi-schema.js';
+import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'unregister-locked-by-token';
@@ -170,6 +172,85 @@ describe('POST /v1/agents/:agentId/versions/:version/unregister: lockedBy', () =
     const { status, body } = await harness(failing).unregister(path);
     expect(status).toBe(200);
     expect(body).toEqual({ agentId: 'acme.triage', version: '1.2.0', unregistered: true });
+  });
+});
+
+describe('lockedBy names only what the caller may read', () => {
+  const STAGING = randomUUID() as ProjectId;
+  const PROD = randomUUID() as ProjectId;
+  const SCORE_ADMIN: readonly Grant[] = ['admin tool:acme.score', 'read agent:acme.triage'];
+  const PEOPLE: Record<string, readonly Grant[]> = {
+    /** acme.score's admin, granted on the tool alone: reads the agent, not the flow. */
+    'score-admin': SCORE_ADMIN,
+    /** acme.triage's admin, granted on the agent alone: reads no flow. */
+    'triage-admin': ['admin agent:acme.triage'],
+    /** Reads staging, which serves acme.desk, not prod, where its 2.0.0 runs. */
+    'staging-reader': [...SCORE_ADMIN, `read project:${STAGING}`],
+    /** Reads prod, where acme.desk 2.0.0 runs. */
+    'prod-reader': [...SCORE_ADMIN, `read project:${PROD}`],
+  };
+  /** acme.desk is served by staging and prod; its 2.0.0 runs in prod only. */
+  const SERVED: ItemRow[] = [
+    {
+      kind: 'flow',
+      id: 'acme.desk',
+      projects: [STAGING, PROD],
+      versions: [
+        { version: '1.0.0', projects: [STAGING] },
+        { version: '2.0.0', projects: [PROD] },
+      ],
+    },
+  ];
+
+  function readHarness(served?: ItemRow[]) {
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) =>
+        token in PEOPLE ? { tenantId, userId: token as UserId } : null,
+      runHandler,
+      toolRegistry: tools,
+      agentRegistry: agents,
+      versionLocks: recording(LOCKS).binding,
+      authz: grantsAuthz(PEOPLE).authz,
+      ...(served !== undefined && { itemProjects: itemProjects(served) }),
+    });
+    return async (who: string, path: string) => {
+      const res = await app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${who}` },
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+  }
+
+  test("a tool's admin is not shown the flow they cannot read", async () => {
+    const { status, body } = await readHarness()(
+      'score-admin',
+      '/v1/tools/acme.score/versions/1.0.0/unregister',
+    );
+    expect(status).toBe(200);
+    expect(body.lockedBy).toEqual(LOCKS.filter((lock) => lock.kind === 'agent'));
+    expect(validateAgainst('UnregisterToolResult', body)).toEqual([]);
+  });
+
+  test("an agent's admin who reads none of its lockers is told []", async () => {
+    const { status, body } = await readHarness()(
+      'triage-admin',
+      '/v1/agents/acme.triage/versions/1.2.0/unregister',
+    );
+    expect(status).toBe(200);
+    expect(body.lockedBy).toEqual([]);
+  });
+
+  test('a flow more than one project serves is read at the locking version', async () => {
+    const unregister = readHarness(SERVED);
+    const path = '/v1/tools/acme.score/versions/1.0.0/unregister';
+    const staging = await unregister('staging-reader', path);
+    expect(staging.status).toBe(200);
+    expect(staging.body.lockedBy).toEqual(LOCKS.filter((lock) => lock.kind === 'agent'));
+    const prod = await unregister('prod-reader', path);
+    expect(prod.status).toBe(200);
+    expect(prod.body.lockedBy).toEqual(LOCKS);
   });
 });
 

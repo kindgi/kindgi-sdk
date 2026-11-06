@@ -534,10 +534,11 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   runs as before.
 - **The answer names what can still run it** (runtime X.Y.Z or later).
   Unregistering a tool or agent version answers `lockedBy`: each agent and
-  flow version that locks it, as `{ kind, id, version }`, sorted by kind, id,
-  then version. An unregistered agent version that a registered flow
+  flow version you can read that locks it, as `{ kind, id, version }`,
+  sorted by kind, id, then version. One you can't read isn't listed, as the
+  agent and flow lists leave it out. An unregistered agent version that a registered flow
   version still runs is listed too, with `unregistered: true`. `[]` says
-  nothing locks it. Runs in flight aren't listed: they finish on the
+  nothing you can read locks it. Runs in flight aren't listed: they finish on the
   version they started. `kindgi tools unregister` and
   `kindgi agents unregister` print it in the JSON they print. An older
   runtime's answer has no `lockedBy`:

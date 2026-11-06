@@ -205,8 +205,9 @@ export interface UnregisterToolVersionResult {
   /**
    * What can still run the version: the agent and flow versions that lock
    * it, and the unregistered agent versions a registered flow version still
-   * runs (`unregistered: true`). `[]` when nothing locks it. Absent from
-   * older servers, and when the server can't tell.
+   * runs (`unregistered: true`). Only the ones you can read; `[]` when
+   * nothing you can read locks it. Absent from older servers, and when
+   * the server can't tell.
    */
   readonly lockedBy?: readonly VersionLock[];
 }

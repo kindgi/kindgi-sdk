@@ -3944,7 +3944,7 @@ const LOCKED_BY_PROPERTY: JsonSchema = {
   type: 'array',
   items: { $ref: '#/components/schemas/VersionLock' },
   description:
-    'What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one, sorted by kind, id, then version; `[]` when nothing locks it. Absent from older servers, and when the server cannot tell.',
+    'What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.',
 };
 
 export const UnregisterAgentResultSchema: JsonSchema = {

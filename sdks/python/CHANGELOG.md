@@ -15,10 +15,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 - `kindgi`: **unregistering a tool or agent version can say what can still
   run it.** `UnregisterToolResult.locked_by` and
-  `UnregisterAgentResult.locked_by` list each agent and flow version that
-  locks it, as the new `VersionLock` model (`kind`, `id`, `version`, and
+  `UnregisterAgentResult.locked_by` list each agent and flow version you
+  can read that locks it, as the new `VersionLock` model (`kind`, `id`, `version`, and
   `unregistered` for an unregistered agent version a registered flow version
-  still runs). `[]` says nothing locks it. They're `None` when the runtime
+  still runs). `[]` says nothing you can read locks it. They're `None` when the runtime
   doesn't send it.
 
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
