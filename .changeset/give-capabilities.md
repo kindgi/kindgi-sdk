@@ -1,6 +1,6 @@
 ---
-"@kindgi/api": minor
-"@kindgi/client": minor
+"@kindgi/api": patch
+"@kindgi/client": patch
 "@kindgi/cli": patch
 ---
 
