@@ -140,12 +140,12 @@ Two helper types:
 
 ## Test approach
 
-Type-only tests via vitest typecheck mode (`vitest run --typecheck`):
+Type tests in vitest typecheck mode, and runtime tests for the few runtime exports, both run by `vitest run --typecheck`:
 
 - `.test-d.ts` files under `src/` are compiled by TS in typecheck mode.
 - Use `expectTypeOf(x).toEqualTypeOf<T>()` for positive assertions.
 - Use `// @ts-expect-error` immediately above lines that MUST fail compilation.
-- No runtime assertions in this package — its runtime exports are small checks with no dependency. `makeEnvName` is exercised by the `@kindgi/env-inmemory` tests, and `UUID_RE` and `isFileValue` by this package's own.
+- Runtime tests live in `tests/*.test.ts`: `uuid.test.ts` pins what `UUID_RE` takes and refuses, and `file.test.ts` covers `isFileValue`. `makeEnvName` is exercised by the `@kindgi/env-inmemory` tests.
 
 Coverage includes:
 - ID nominal distinctness (positive + negative).
