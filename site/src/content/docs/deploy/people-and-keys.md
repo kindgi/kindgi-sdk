@@ -343,9 +343,9 @@ A domain is stored lower case, as its A-label: `bücher.de` is
 From the CLI:
 
 ```sh
-kindgi sign-in join-domains list --table
-kindgi sign-in join-domains allow acme.com --role=runner
-kindgi sign-in join-domains remove acme.com
+pnpm exec kindgi sign-in join-domains list --table
+pnpm exec kindgi sign-in join-domains allow acme.com --role=runner
+pnpm exec kindgi sign-in join-domains remove acme.com
 ```
 
 The CLI signs in with an API key, which proves no email, so `allow` takes
