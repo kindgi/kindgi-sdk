@@ -11,11 +11,11 @@
  * The reads are found, not listed: each string literal in a test source that
  * is a path starting with `../`, resolved against the directory the test runs
  * in. Any other `..` in a literal is a path this check can't follow, so it's
- * refused however it's spelled (`".."`, `".." + "/x"`, `"x/../y"`), unless its
- * line ends with `// not-a-repo-read: <why>`: a path inside the test's own
- * files, a temporary directory say. A marked path starting with `../` that
- * names something in the repository is refused too, so the marker can't hide a
- * read.
+ * refused however it's spelled (`".."`, `".." + "/x"`, `"x/../y"`), unless the
+ * line it starts or ends on ends with `// not-a-repo-read: <why>`: a path
+ * inside the test's own files, a temporary directory say. A marked path
+ * starting with `../` that names something in the repository is refused too,
+ * so the marker can't hide a read.
  */
 
 import assert from 'node:assert/strict';
@@ -401,6 +401,7 @@ describe('the JVM workflows run when a file their tests read changes', () => {
         [{ literal: '../a', path: 'sdks/scala/a' }],
         [],
       ],
+      ['String j = """\n  ../a\n  """; // not-a-repo-read: x', java, [], []],
     ];
     for (const [source, file, reads, problems] of rows) {
       assert.deepEqual(readsOf(source, file), { reads, problems }, source);
