@@ -121,6 +121,7 @@ export function createStubKernelBinding(): KernelBinding {
       failureGroups: true,
     }),
     scheduler: createStubBinding<SchedulerBinding>('kernelBinding.scheduler', {
+      // Deprecated: nothing calls it (see `SchedulerBinding`).
       startCronScheduler: true,
       startEventTriggerScheduler: true,
       initialNextFireAt: true,

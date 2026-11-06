@@ -175,8 +175,14 @@ export interface RunBinding {
 export interface SchedulerBinding {
   /**
    * Start the cron scheduler process. Returns a handle whose
-   * `stop()` cleanly shuts it down. Deployments call this once at
-   * boot and hold the handle for graceful-shutdown wiring.
+   * `stop()` cleanly shuts it down.
+   *
+   * @deprecated A deployment fires its schedules itself, and nothing
+   * calls this. To schedule runs, register a `cron` trigger with
+   * `TriggerRegistryBinding.register` (`KernelBinding.triggers`, what
+   * the schedules routes use); `initialNextFireAt` works out its first
+   * fire. Removed in the next minor release, with
+   * `CronSchedulerOptions` and `CronSchedulerHandle`.
    */
   startCronScheduler(options: CronSchedulerOptions): CronSchedulerHandle;
 
@@ -194,12 +200,14 @@ export interface SchedulerBinding {
   ): Date;
 }
 
+/** @deprecated With `SchedulerBinding.startCronScheduler`, which nothing calls. */
 export interface CronSchedulerOptions {
   readonly runFlowBinding: unknown; // caller-supplied RunFlowBinding; see @kindgi/runtime.RunFlowBinding
   readonly pollIntervalMs?: number;
   readonly logger?: (msg: string, ctx?: Record<string, unknown>) => void;
 }
 
+/** @deprecated With `SchedulerBinding.startCronScheduler`, which nothing calls. */
 export interface CronSchedulerHandle {
   stop(): Promise<void>;
 }
