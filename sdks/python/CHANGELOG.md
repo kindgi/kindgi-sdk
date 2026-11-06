@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`python -m kindgi.pack index --strict` exits 1 when a file
+  fails to index**, printing each file error, as `kindgi-index --strict`
+  does for a TypeScript pack. When a module imports a package that isn't
+  installed, it also says that a pack's image installs the main dependencies
+  only, so a package that only a dev group lists belongs in
+  `[project].dependencies`. A helper module (`tools/_db.py`) that won't
+  import doesn't count on its own: a module that imports it fails too. If it
+  defines tools itself, it says they're left out of the index. A pack image's
+  build runs it with `--strict`. Without the flag, nothing changes.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

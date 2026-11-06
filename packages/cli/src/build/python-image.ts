@@ -14,7 +14,12 @@
  * `python -m kindgi.pack index` and the pinned artifact version and
  * publish time — byte-identical to the CLI's local index, so the
  * integrity gate holds; the image runs the pack service,
- * `python -m kindgi.pack serve`, on `PORT` (8080).
+ * `python -m kindgi.pack serve`, on `PORT` (8080). The indexer runs with
+ * `--strict` where the pack's own `kindgi` has it: a module that won't
+ * import in the image (a package only a dev group lists isn't installed
+ * there) then fails the build, saying which and why, instead of leaving its
+ * tools out of the index. The image's `kindgi` is the one the pack locks, so
+ * an older one indexes as before.
  *
  * The build context is the pack root as it is — Python code imports the
  * application beside it, so there is no closure to compute — minus what
@@ -109,10 +114,16 @@ ARG SOURCE_DATE_EPOCH=0
 ARG KINDGI_BUILD_TARGET=${buildTarget}
 ARG KINDGI_ARTIFACT_VERSION=${artifactVersion}
 ARG KINDGI_PUBLISHED_AT=${publishedAt}
-RUN /app/.venv/bin/python -m kindgi.pack index \\
+# --strict where the pack's kindgi has it: a module that won't import here
+# (a package only a dev group lists isn't installed) fails the build, saying
+# which and why. An older kindgi indexes as before.
+RUN strict=; \\
+    if /app/.venv/bin/python -m kindgi.pack index --help | grep -q -e --strict; then strict=--strict; fi; \\
+    /app/.venv/bin/python -m kindgi.pack index \\
       --pack-dir /app \\
       --artifact-version "\${KINDGI_ARTIFACT_VERSION}" \\
       --published-at "\${KINDGI_PUBLISHED_AT}" \\
+      \${strict} \\
       --output /app/index.json
 
 # --- stage: final — the pack service ---
