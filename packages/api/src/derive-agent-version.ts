@@ -13,7 +13,7 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import { highestVersion, nextVersion } from '@kindgi/tools';
 import type { ProjectId, Semver, TenantId } from '@kindgi/types';
 
-import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
+import type { AgentRegistryBinding, AgentVersionRecord, GoneVersion } from './agent-binding.js';
 import { activeAgentVersions } from './agent-pins.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import { definitionKey, withoutRecordFields } from './deploy-versions.js';
@@ -80,7 +80,12 @@ export type DeriveAgentVersionOutcome =
   /** The agent belongs to another project (`projectId`, its own) than the one given: nothing is written. */
   | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId }
   /** The project given is a later environment of its order: nothing is written. */
-  | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment };
+  | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment }
+  /**
+   * A tool version the new version pins (the one it's derived from pins it)
+   * was removed while it was published (`AgentPublishOutcome`): nothing is written.
+   */
+  | { readonly kind: 'held-version-gone'; readonly gone: readonly GoneVersion[] };
 
 /** How many numbers after the highest a derive tries before it gives up. */
 const MAX_TRIES = 100;
@@ -194,6 +199,8 @@ async function publishNextFree(
     if (outcome.kind === 'project-mismatch') {
       return { kind: 'project-mismatch', projectId: outcome.projectId };
     }
+    if (outcome.kind === 'held-version-gone')
+      return { kind: 'held-version-gone', gone: outcome.gone };
     candidate = nextVersion(candidate);
   }
   throw new Error(`agent "${agentId as unknown as string}": no free version after ${highest}`);

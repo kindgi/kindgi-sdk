@@ -4991,6 +4991,179 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     expect(tools.versions('acme.score')).toEqual([]);
   });
 
+  /** A pack whose flow's agent step names `named`, a version of the pack's own agent (1.4.0). */
+  function packNamingAgentVersion(named: string): SignedDeploy {
+    const artifactVersion = '20261011.2';
+    const publishedAt = '2026-10-11T00:00:00.000Z';
+    return buildSignedDeploy({
+      artifactVersion,
+      publishedAt,
+      index: {
+        v: 1,
+        artifactVersion,
+        publishedAt,
+        tools: [
+          {
+            id: 'acme.score',
+            description: 'Scores a match.',
+            version: '1.0.0',
+            input: { type: 'object', properties: { q: { type: 'string' } } },
+            output: { type: 'object', properties: { score: { type: 'number' } } },
+            modulePath: './tools/score-1.0.0.js',
+          },
+        ],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.matcher',
+            version: '1.4.0',
+            name: 'Matcher',
+            instructions: 'Match the request.',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [{ id: 'acme.score', version: '^1.0.0' }],
+          },
+        ],
+        flows: [
+          {
+            id: 'acme.route',
+            version: '1.0.0',
+            nodes: [
+              { id: 'match', kind: 'agent', ref: 'acme.matcher', config: { version: named } },
+            ],
+            edges: [
+              { id: 'e0', from: '$start', to: 'match' },
+              { id: 'e1', from: 'match', to: '$end' },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  for (const [named, refused] of [
+    ['1.3.0', true],
+    ['1.4.0', false],
+  ] as const) {
+    test(`a flow step naming ${refused ? "another version of the pack's agent is asked of reach, and refused at the step" : "the pack's own agent version is not asked"}`, async () => {
+      const pack = packNamingAgentVersion(named);
+      const asked: unknown[] = [];
+      const agents = makeVersionedAgentRegistry();
+      const { app } = makeApp({
+        toolRegistry: makeVersionedToolRegistry(),
+        agentRegistry: agents,
+        flowRegistry: makeVersionedFlowRegistry(),
+        extra: {
+          referenceScope: {
+            reachable: async ({ ref }) => {
+              asked.push(ref);
+              return ref.version !== '1.3.0';
+            },
+          },
+        },
+        extraTrust: [trustOf(pack)],
+        extraImages: [imageOf(pack)],
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      const body = (await res.json()) as Record<string, any>;
+      if (refused) {
+        expect(res.status).toBe(400);
+        expect(body.error.code).toBe('reference-out-of-scope');
+        expect(body.error.details.issues).toEqual([
+          expect.objectContaining({
+            path: '/flows/0/nodes/match',
+            kind: 'agent',
+            id: 'acme.matcher',
+          }),
+        ]);
+        expect(asked).toEqual([{ kind: 'agent', id: 'acme.matcher', version: '1.3.0' }]);
+        expect(agents.versions()).toEqual([]);
+      } else {
+        expect(res.status).toBe(201);
+        expect(asked).toEqual([]);
+      }
+    });
+  }
+
+  test("a flow whose registry found a tool version it pins removed is refused at the tool's step, and the deploy rolls back", async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0', flowVersion: '1.0.0' });
+    const agents = makeVersionedAgentRegistry();
+    const flows = makeVersionedFlowRegistry();
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: agents,
+      flowRegistry: {
+        ...flows,
+        publish: async ({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) => ({
+          kind: 'held-version-gone',
+          flowId: flow.id,
+          version: flow.version,
+          gone: [{ kind: 'tool', id: 'acme.score', version: '1.0.0' }],
+        }),
+      },
+      extraTrust: [trustOf(pack)],
+      extraImages: [imageOf(pack)],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(pack.wire),
+    });
+    const body = (await res.json()) as Record<string, any>;
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      {
+        path: '/flows/0/nodes/score',
+        kind: 'tool',
+        id: 'acme.score',
+        message: 'tool "acme.score" 1.0.0 was removed while this flow was published',
+      },
+    ]);
+    // The agent the deploy registered before is rolled back.
+    expect(agents.versions()).toEqual([]);
+    expect(flows.versions()).toEqual([]);
+  });
+
+  test('an agent whose registry found a tool version it pins removed is refused at the tool', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0' });
+    const agents = makeVersionedAgentRegistry();
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: {
+        ...agents,
+        publish: async ({ agent }: Parameters<AgentRegistryBinding['publish']>[0]) => ({
+          kind: 'held-version-gone',
+          agentId: agent.id,
+          version: agent.version,
+          gone: [{ kind: 'tool', id: 'acme.score', version: '1.0.0' }],
+        }),
+      },
+      flowRegistry: makeVersionedFlowRegistry(),
+      extraTrust: [trustOf(pack)],
+      extraImages: [imageOf(pack)],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(pack.wire),
+    });
+    const body = (await res.json()) as Record<string, any>;
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      {
+        path: '/agents/0/tools/0',
+        kind: 'tool',
+        id: 'acme.score',
+        message: 'tool "acme.score" 1.0.0 was removed while this agent was published',
+      },
+    ]);
+  });
+
   test('a deploy into a named project is checked against what that project reaches', async () => {
     const pack = packNamingAnOutsideTool();
     const tools = makeVersionedToolRegistry();
