@@ -2,13 +2,13 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * T247: a write whose body names a project it can't use is refused before
+ * A write whose body names a project it can't use is refused before
  * any binding sees it, `400 bad-input` for a `projectId` that isn't a UUID
  * and `404 project-not-found` for one that names no project. Before, the
  * runtime's insert failed an unknown one as a 500 naming a table and a
  * foreign key. The guarded routes are held to the OpenAPI spec: every
  * operation whose body has a `projectId` is guarded, or is
- * `POST /v1/conversations`, which keeps its own documented check (T223).
+ * `POST /v1/conversations`, which keeps its own documented check.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -70,7 +70,7 @@ function specRoutesWithProjectId(): string[] {
   return routes.sort();
 }
 
-describe('the routes that take a projectId (T247)', () => {
+describe('the routes that take a projectId', () => {
   test('every operation whose body has a projectId is guarded, or is POST /v1/conversations', () => {
     expect(specRoutesWithProjectId()).toEqual([...PROJECT_REF_ROUTES, '/conversations'].sort());
   });
@@ -114,7 +114,7 @@ const concrete = (route: string): string =>
     .replace(':testSetId', 'acme.testSet')
     .replace(':serviceAccountId', 'acme-ci');
 
-describe('a projectId the route cannot use (T247)', () => {
+describe('a projectId the route cannot use', () => {
   test.each(PROJECT_REF_ROUTES.map((route) => [methodOf(route), concrete(route)]))(
     '%s %s: not a UUID → 400 bad-input; no such project → 404 project-not-found',
     async (method, path) => {
@@ -160,7 +160,7 @@ describe('a projectId the route cannot use (T247)', () => {
     );
   });
 
-  test('POST /v1/conversations keeps its own documented 400 for an unknown project (T223)', async () => {
+  test('POST /v1/conversations keeps its own documented 400 for an unknown project', async () => {
     const h = await harness();
     const unknown = randomUUID();
     const answer = await h.post('/conversations', {

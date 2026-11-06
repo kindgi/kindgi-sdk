@@ -1680,7 +1680,7 @@ describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {
   });
 });
 
-describe('kindgi dev — a stop before the runtime serves (T176)', () => {
+describe('kindgi dev — a stop before the runtime serves', () => {
   test('Ctrl+C while it waits for the runtime: it stops at once, exit 130, not an error', async () => {
     const controller = new AbortController();
     const fixtures = makeFixtures();
@@ -3143,7 +3143,7 @@ describe('kindgi dev — flag precedence', () => {
   });
 });
 
-describe("kindgi dev — the runtime's port (T218)", () => {
+describe("kindgi dev — the runtime's port", () => {
   /** The fixture's runners, with `taken` ports in use and the bundled Postgres counted. */
   function withPorts(taken: readonly number[]) {
     const fixtures = makeFixtures();
@@ -3264,7 +3264,7 @@ describe("kindgi dev — the runtime's port (T218)", () => {
   });
 });
 
-describe('kindgi dev — the console (T374)', () => {
+describe('kindgi dev — the console', () => {
   test('the ready block leads with the console and how to sign in; the exit banner and --json name it', async () => {
     const fixtures = makeFixtures({ consoleMounted: true });
     const err = captureStderr();

@@ -64,7 +64,7 @@ const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
  */
 export function observationsRouter(
   binding: SupervisorBinding,
-  /** With one (T243 A): only observations of agents the caller may read. */
+  /** With one: only observations of agents the caller may read. */
   authorizer?: Authorizer,
   /** Rights on an agent more than one project serves. Absent: one project each. */
   itemRights?: ItemRights,

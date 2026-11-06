@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The built-in `remember` tool (T273 M-3): an agent that declares
+ * The built-in `remember` tool: an agent that declares
  * `memory.remember` gets `kindgi_remember`; the fact's scope,
  * subjects, attribution and expiry come from the declaration and the run,
  * never from the model; wide scopes and instruction-like text wait for a

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `scripts/pack-tarball.mjs`: packs of one package at once never meet (T395: two
+ * `scripts/pack-tarball.mjs`: packs of one package at once never meet (two
  * `attw --pack` runs on a package shared one tarball in its folder, and one deleted it under the
  * other), and nothing is left behind.
  */

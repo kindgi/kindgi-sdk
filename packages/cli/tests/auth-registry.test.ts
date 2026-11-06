@@ -691,7 +691,7 @@ describe("Kindgi's registry: the license key logs in", () => {
   });
 });
 
-describe("a credential helper Docker can't run (T276)", () => {
+describe("a credential helper Docker can't run", () => {
   const HELPER: DockerOutcome = {
     code: 1,
     stdout: '',

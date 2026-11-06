@@ -1456,7 +1456,7 @@ describe('POST /v1/deployments — happy path', () => {
     expect(writes).toHaveLength(2);
   });
 
-  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId, its configSchema kept (T338)', async () => {
+  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId, its configSchema kept', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -2701,7 +2701,7 @@ describe('POST /v1/deployments — rollback', () => {
     expect(inv).toBeNull();
   });
 
-  test("a primitive refused with a typed outcome (project-not-found) → that outcome's 404, rolled back, no deployment (T205)", async () => {
+  test("a primitive refused with a typed outcome (project-not-found) → that outcome's 404, rolled back, no deployment", async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -2912,7 +2912,7 @@ describe('POST /v1/deployments — rollback', () => {
     },
   );
 
-  test('a flow refused with a typed outcome → its 404, the tool it shipped with rolled back (T205)', async () => {
+  test('a flow refused with a typed outcome → its 404, the tool it shipped with rolled back', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -5246,7 +5246,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     expect(agents.versions()).toEqual([]);
   });
 
-  test("with pinned versions, a deployed flow's agent pins to what's pinned for the project, not the version this deploy registered (T268)", async () => {
+  test("with pinned versions, a deployed flow's agent pins to what's pinned for the project, not the version this deploy registered", async () => {
     const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
     const asked: AgentPinResolveInput[] = [];
     const pinStore = {

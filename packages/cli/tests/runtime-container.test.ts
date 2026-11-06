@@ -103,7 +103,7 @@ describe('databaseUrlFrom', () => {
   });
 });
 
-describe('a stop while kindgi dev waits for its runtime (T176)', () => {
+describe('a stop while kindgi dev waits for its runtime', () => {
   test('pauseUnlessStopped ends early when the stop comes', async () => {
     const controller = new AbortController();
     const started = Date.now();
@@ -355,7 +355,7 @@ describe('readStoppedLog: a stopped container log, both streams, as text', () =>
   });
 });
 
-describe("dockerFailureDetail: why docker failed, without a pull's progress (T230)", () => {
+describe("dockerFailureDetail: why docker failed, without a pull's progress", () => {
   const DIGEST = 'sha256:0f73770b2d1a00fa47492a86b194f70b4f3e855f5c5ef5680993b742453792a9';
   const IMAGE = `quay.io/kindgi/runtime@${DIGEST}`;
   // The shape of rc.0's amd64 proof: the error, then the pull's progress went on.

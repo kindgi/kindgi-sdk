@@ -101,7 +101,7 @@ export function correctionsRouter(
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
   flows?: FlowRegistryBinding,
-  /** Whose reviewer role an expert group checks (T200). */
+  /** Whose reviewer role an expert group checks. */
   reviewers?: ReviewerBinding,
   /** Resolves a corrected agent version's tools, so a correction can only name tools it has. */
   agents?: AgentRegistryBinding,
@@ -916,7 +916,7 @@ export function unfinishedRun(
   run: CorrectedRun,
   runId: string,
 ): { readonly code: string; readonly message: string } | undefined {
-  // An erasure cleared its content: there's nothing to correct (T273 M-5).
+  // An erasure cleared its content: there's nothing to correct.
   if (run.contentErasedAt !== undefined) {
     return {
       code: 'run-erased',

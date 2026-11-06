@@ -281,7 +281,7 @@ export function agentsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...includeRetiredOf(c),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks; an
+    // Only what the caller may read, as `GET …/:id` asks; an
     // agent more than one project serves at its newest version the caller
     // can see (`item-rights.ts`).
     const visible =
