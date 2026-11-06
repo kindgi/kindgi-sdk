@@ -26,8 +26,9 @@ import type {
  * An API key acts for one principal, a person or a service account, with
  * that principal's grants: its role (`admin` | `member`) is a ceiling
  * under them, and its project a limit. Anyone manages their own keys; a
- * tenant admin manages everyone's. `create` is the only place a secret
- * ever leaves the server: persist it immediately.
+ * tenant admin manages everyone's; a key or session limited to a project,
+ * only its own keys limited to that project. `create` is the only place a
+ * secret ever leaves the server: persist it immediately.
  */
 export interface TokensClient {
   /**
@@ -47,7 +48,8 @@ export interface TokensClient {
   /**
    * List API keys, newest first, revoked ones included: a tenant admin's
    * list has every key (`filter.principal` for one principal's), anyone
-   * else's their own. Never returns secrets.
+   * else's their own, and a key or session limited to a project's only its
+   * own limited to that project. Never returns secrets.
    *
    * @wire `GET /v1/tokens` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens/get`.

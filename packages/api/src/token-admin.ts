@@ -123,6 +123,13 @@ export interface TokenListInput {
   readonly limit: number;
   /** Only the keys that act for this principal (a person sees only their own). */
   readonly principal?: TokenPrincipal;
+  /**
+   * Only the keys limited to this project: the route sets it for a caller
+   * whose key or session is limited to one. The route also leaves out any
+   * other key the store returns, so a store that doesn't apply it shows
+   * shorter pages, never another project's keys.
+   */
+  readonly projectId?: ProjectId;
   /** The last record of the previous page. */
   readonly after?: { readonly createdAt: Date; readonly tokenId: ApiTokenId };
 }

@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`tokens.list`, `tokens.get` and `tokens.revoke` say what a key
+  limited to a project sees:** only its person's keys limited to that same
+  project. Another reads as missing to it, so it can't revoke it. What you
+  pass or read doesn't change.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

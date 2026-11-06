@@ -33,6 +33,7 @@ import type {
   ServiceAccount,
   ServiceAccountBinding,
   TokenAdmin,
+  TokenListInput,
   TokenMintInput,
   TokenMintRefusal,
   TokenPrincipal,
@@ -74,6 +75,8 @@ function harness(
   );
   const accounts = new Map<string, ServiceAccount>();
   const keys = new Map<string, StoredKey>();
+  /** What each list asked the store; it applies only `principal` and `limit`. */
+  const listInputs: TokenListInput[] = [];
   /** Who each change was made by, as the routes pass it to the stores. */
   const changedBy: string[] = [];
   /** Each person's read, and each batch read, of grants. */
@@ -120,7 +123,9 @@ function harness(
       keys.set(tokenId as unknown as string, record);
       return { record, token: secret };
     },
-    async list({ limit, principal }) {
+    async list(input) {
+      listInputs.push(input);
+      const { limit, principal } = input;
       return [...keys.values()]
         .filter(
           (k) =>
@@ -381,7 +386,7 @@ function harness(
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return { token: r.body.token as string, tokenId: r.body.tokenId as string, body: r.body };
   };
-  return { app, call, code, mint, checked, changedBy, grantReads, batchReads };
+  return { app, call, code, mint, checked, changedBy, grantReads, batchReads, listInputs };
 }
 
 describe('a new key and an Idempotency-Key (T392)', () => {
@@ -550,6 +555,60 @@ describe('a key limited to a project', () => {
     const other = await h.call(key.token, 'POST', '/v1/tokens', { projectId: P2 });
     expect(h.code(other)).toBe('key-project-mismatch');
     expect((await h.mint(key.token, { projectId: P1 })).body.projectId).toBe(P1);
+  });
+
+  test("lists, reads and revokes only its person's keys limited to the same project", async () => {
+    const h = harness();
+    const everywhere = await h.mint(BOB);
+    const inP1 = await h.mint(BOB, { projectId: P1 });
+    const inP2 = await h.mint(BOB, { projectId: P2 });
+    const alicesInP1 = await h.mint(ALICE, { projectId: P1 });
+    const key = await h.mint(inP1.token, { projectId: P1 });
+
+    // The store is asked for the project's keys; one that doesn't apply it
+    // (this one) still shows no other project's.
+    const listed = await h.call(key.token, 'GET', '/v1/tokens');
+    expect(listed.status).toBe(200);
+    expect(h.listInputs.at(-1)).toMatchObject({
+      principal: { kind: 'user', userId: 'bob' },
+      projectId: P1,
+    });
+    expect((listed.body.data as { tokenId: string }[]).map((k) => k.tokenId).sort()).toEqual(
+      [inP1.tokenId, key.tokenId].sort(),
+    );
+
+    for (const other of [everywhere, inP2, alicesInP1]) {
+      expect((await h.call(key.token, 'GET', `/v1/tokens/${other.tokenId}`)).status).toBe(404);
+      const revoke = await h.call(key.token, 'POST', `/v1/tokens/${other.tokenId}/revoke`);
+      expect(revoke.status).toBe(404);
+      expect(h.code(revoke)).toBe('not-found');
+      expect((await h.call(other.token, 'GET', '/v1/identity/whoami')).status).toBe(200);
+    }
+    expect((await h.call(key.token, 'GET', `/v1/tokens/${inP1.tokenId}`)).status).toBe(200);
+    expect((await h.call(key.token, 'POST', `/v1/tokens/${inP1.tokenId}/revoke`)).status).toBe(200);
+    expect((await h.call(inP1.token, 'GET', '/v1/identity/whoami')).status).toBe(401);
+
+    // Its person, signed in without a limit, still sees every key of theirs.
+    const all = await h.call(BOB, 'GET', '/v1/tokens');
+    expect((all.body.data as unknown[]).length).toBe(4);
+    expect(h.listInputs.at(-1)).not.toHaveProperty('projectId');
+  });
+
+  test("a tenant admin's admin key limited to a project sees only their own keys there", async () => {
+    const h = harness();
+    const bobsInP1 = await h.mint(BOB, { projectId: P1 });
+    const alicesEverywhere = await h.mint(ALICE);
+    const key = await h.mint(ALICE, { role: 'admin', projectId: P1 });
+    const listed = await h.call(key.token, 'GET', '/v1/tokens?principal=user:bob');
+    expect((listed.body.data as { tokenId: string }[]).map((k) => k.tokenId)).toEqual([
+      key.tokenId,
+    ]);
+    for (const other of [bobsInP1, alicesEverywhere]) {
+      expect((await h.call(key.token, 'GET', `/v1/tokens/${other.tokenId}`)).status).toBe(404);
+      expect((await h.call(key.token, 'POST', `/v1/tokens/${other.tokenId}/revoke`)).status).toBe(
+        404,
+      );
+    }
   });
 
   test("takes no admin action on the tenant, even an admin's admin key", async () => {
