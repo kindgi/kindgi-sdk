@@ -692,7 +692,7 @@ function homeOf(ctx: CommandContext): string {
     ...(typeof ctx.env.HOME === 'string' && ctx.env.HOME !== '' ? { envHome: ctx.env.HOME } : {}),
   });
   if (home === undefined) {
-    throw new UsageError(
+    throw new Error(
       'Found no home folder for .kindgi/feedback/, since HOME is empty. Set HOME and run it again.',
     );
   }

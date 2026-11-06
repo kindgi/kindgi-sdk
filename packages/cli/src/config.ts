@@ -4,7 +4,6 @@
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isLocalAddress, sameAddress, storedKeyFor } from './api-address.js';
-import { UsageError } from './errors.js';
 import { homeFolder } from './home.js';
 import { writePrivateFile } from './private-file.js';
 
@@ -304,7 +303,7 @@ const HOME_DIR_MODE = 0o700;
 function homeConfigPath(home: string | undefined): string {
   const folder = homeFolder(home);
   if (folder === undefined) {
-    throw new UsageError(
+    throw new Error(
       'Found no home folder for .kindgi/config.json, since HOME is empty. Set HOME and run it again.',
     );
   }

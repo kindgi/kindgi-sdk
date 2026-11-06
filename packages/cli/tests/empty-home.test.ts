@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, test, vi } from 'vitest';
 
 import { loadConfig } from '../src/config.js';
+import { resolveDevSandbox } from '../src/dev/sandbox/notices.js';
 import { homeFolder } from '../src/home.js';
 import { agentAccessRows, patchAgentAccess } from '../src/init/agent-access.js';
 import type { GeneratedKeyPair, KeyRunners } from '../src/key/runners.js';
@@ -123,22 +124,39 @@ describe('kindgi key, with HOME set but empty', () => {
 });
 
 describe('kindgi feedback, with HOME set but empty', () => {
-  test('status refuses, and writes nothing under the pack', async () => {
+  test.each([
+    ['submit', ['feedback', 'submit']],
+    ['status', ['feedback', 'status']],
+    ['withdraw', ['feedback', 'withdraw', 'fbr_acme0000report01']],
+  ])('%s refuses, sends nothing, and writes nothing under the pack', async (subcommand, argv) => {
     const pack = await tempDir('acme-feedback-pack-');
-    const out = await runCli({
-      argv: ['feedback', 'status'],
-      env: { HOME: '' },
-      cwd: pack,
-      configReadFile: async () => null,
-      fetchImpl: (async () => {
-        throw new Error('no request is made');
-      }) as typeof fetch,
-    });
-    expect(out.exitCode).toBe(2);
+    const cli = (args: string[]) =>
+      runCli({
+        argv: args,
+        env: { HOME: '' },
+        cwd: pack,
+        configReadFile: async () => null,
+        fetchImpl: (async () => {
+          throw new Error('no request is made');
+        }) as typeof fetch,
+      });
+    if (subcommand === 'submit') {
+      const written = await cli([
+        'feedback',
+        'write',
+        '--kind=bug',
+        '--title=A bug',
+        '--body=Body.',
+        '--authored-by=claude-code',
+      ]);
+      expect(written.exitCode).toBe(0);
+    }
+    const out = await cli(argv);
+    expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
       'Found no home folder for .kindgi/feedback/, since HOME is empty. Set HOME and run it again.',
     );
-    expect(await readdir(pack)).toEqual([]);
+    expect(await readdir(pack)).not.toContain('.kindgi');
   });
 });
 
@@ -163,7 +181,7 @@ describe('the config, with HOME set but empty', () => {
       cwd: '/tmp/acme-pack',
       configReadFile: async () => null,
     });
-    expect(out.exitCode).toBe(2);
+    expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
       'Found no home folder for .kindgi/config.json, since HOME is empty. Set HOME and run it again.',
     );
@@ -172,17 +190,32 @@ describe('the config, with HOME set but empty', () => {
 });
 
 describe('kindgi dev, with HOME set but empty', () => {
-  test('refuses before anything starts: the dev sandbox keeps the home closed', async () => {
-    const out = await runCli({
-      argv: ['dev'],
-      env: { HOME: '' },
-      cwd: '/tmp/acme-pack',
-      configReadFile: async () => null,
+  const base = { config: undefined, packDir: '/work/acme-pack', home: homeFolder() };
+  const available = async () => ({ kind: 'available', engine: 'bwrap' }) as const;
+  const missing = async () =>
+    ({
+      kind: 'unavailable',
+      reason: "bubblewrap (bwrap) isn't installed",
+      fix: 'Install bubblewrap.',
+    }) as const;
+
+  test('the sandbox, which keeps the home closed, refuses before it starts', async () => {
+    expect(await resolveDevSandbox({ ...base, env: {}, detect: available })).toEqual({
+      kind: 'error',
+      message:
+        'found no home folder for the dev sandbox to keep closed, since HOME is empty. Set HOME and run it again.',
     });
-    expect(out.exitCode).toBe(1);
-    expect(out.stderr).toBe(
-      'kindgi dev: found no home folder for the dev sandbox to keep closed, since HOME is empty. Set HOME and run it again.\n',
-    );
+  });
+
+  test.each([
+    ['KINDGI_DEV_SANDBOX=off', { env: { KINDGI_DEV_SANDBOX: 'off' }, detect: available }],
+    ['dev.sandbox: false', { config: { dev: { sandbox: false } }, env: {}, detect: available }],
+    ['no sandbox on this system', { env: {}, detect: missing }],
+  ])('with no sandbox (%s), it runs as before', async (_why, over) => {
+    expect(await resolveDevSandbox({ ...base, ...over })).toMatchObject({
+      kind: 'ok',
+      sandbox: undefined,
+    });
   });
 });
 
