@@ -1865,6 +1865,7 @@ class TokensResource:
         cursor: str | None = None,
         limit: int | None = None,
         principal: str | None = None,
+        minted_with: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
@@ -1874,7 +1875,12 @@ class TokensResource:
         return self._client._request(
             _OPERATIONS["tokens.list"],
             path={},
-            query={"cursor": cursor, "limit": limit, "principal": principal},
+            query={
+                "cursor": cursor,
+                "limit": limit,
+                "principal": principal,
+                "mintedWith": minted_with,
+            },
             headers={},
             response=_models.ApiTokenPage,
             timeout=timeout,
@@ -1891,7 +1897,7 @@ class TokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. A key minted with a key (`mintedWith`: the caller's, or the one a token sign-in session was opened with) stops when that key is revoked. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -1927,7 +1933,7 @@ class TokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
+        Takes effect on the next request. Every key minted with it, and with those in turn, is revoked with it, whoever it acts for (`alsoRevoked`), and their sessions end. Revoking a revoked key keeps the first time, and revokes any key minted with it that isn't revoked yet. A tenant admin revokes any key; anyone else only their own.
         """
         return self._client._request(
             _OPERATIONS["tokens.revoke"],
@@ -12193,6 +12199,7 @@ class AsyncTokensResource:
         cursor: str | None = None,
         limit: int | None = None,
         principal: str | None = None,
+        minted_with: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
@@ -12202,7 +12209,12 @@ class AsyncTokensResource:
         return await self._client._request(
             _OPERATIONS["tokens.list"],
             path={},
-            query={"cursor": cursor, "limit": limit, "principal": principal},
+            query={
+                "cursor": cursor,
+                "limit": limit,
+                "principal": principal,
+                "mintedWith": minted_with,
+            },
             headers={},
             response=_models.ApiTokenPage,
             timeout=timeout,
@@ -12219,7 +12231,7 @@ class AsyncTokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. A key minted with a key (`mintedWith`: the caller's, or the one a token sign-in session was opened with) stops when that key is revoked. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return await self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -12257,7 +12269,7 @@ class AsyncTokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
+        Takes effect on the next request. Every key minted with it, and with those in turn, is revoked with it, whoever it acts for (`alsoRevoked`), and their sessions end. Revoking a revoked key keeps the first time, and revokes any key minted with it that isn't revoked yet. A tenant admin revokes any key; anyone else only their own.
         """
         return await self._client._request(
             _OPERATIONS["tokens.revoke"],

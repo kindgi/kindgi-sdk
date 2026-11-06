@@ -73,6 +73,8 @@ const SETTINGS = { required: false, onPreviousSecret: 0, unusable: 0 };
 /** What `users.*` answers, where a test needs another answer. */
 interface UsersAnswers {
   readonly accounts?: unknown;
+  readonly revoke?: unknown;
+  readonly unregister?: unknown;
   readonly create?: unknown;
   readonly list?: unknown;
   readonly resendInvite?: unknown;
@@ -103,7 +105,7 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
           create: rec('tokens.create', { meta: META, secret: 'kgi_ak_secret' }),
           list: rec('tokens.list', { data: [META], hasMore: false }),
           get: rec('tokens.get', META),
-          revoke: rec('tokens.revoke', undefined),
+          revoke: rec('tokens.revoke', answers.revoke ?? { id: 'tok-1' }),
         },
         auth: {
           settings: {
@@ -144,17 +146,20 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
           grants: rec('users.grants', GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
           ungrant: rec('users.ungrant', GRANTS),
-          unregister: rec('users.unregister', {
-            user: {
-              userId: 'u-9',
-              displayName: 'Carol',
-              createdAt: '2026-10-06T12:00:00Z',
-              unregisteredAt: '2026-10-07T12:00:00Z',
+          unregister: rec(
+            'users.unregister',
+            answers.unregister ?? {
+              user: {
+                userId: 'u-9',
+                displayName: 'Carol',
+                createdAt: '2026-10-06T12:00:00Z',
+                unregisteredAt: '2026-10-07T12:00:00Z',
+              },
+              keysRevoked: 2,
+              sessionsRevoked: 1,
+              grantsRemoved: 3,
             },
-            keysRevoked: 2,
-            sessionsRevoked: 1,
-            grantsRemoved: 3,
-          }),
+          ),
         },
       }) as never,
   });
@@ -234,8 +239,27 @@ describe('kindgi tokens', () => {
   });
 
   test('revoke names the key', async () => {
-    const { calls } = await run(['tokens', 'revoke', 'tok-1']);
+    const { out, calls } = await run(['tokens', 'revoke', 'tok-1']);
     expect(calls).toEqual([['tokens.revoke', 'tok-1']]);
+    expect(JSON.parse(out.stdout)).toEqual({ tokenId: 'tok-1', revoked: true });
+    expect(out.stderr).toBe('');
+  });
+
+  test('revoke: the keys minted with it go too, and it says how many', async () => {
+    const { out } = await run(['tokens', 'revoke', 'tok-1'], {
+      revoke: { id: 'tok-1', alsoRevoked: ['tok-2', 'tok-3'] },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({
+      tokenId: 'tok-1',
+      revoked: true,
+      alsoRevoked: ['tok-2', 'tok-3'],
+    });
+    expect(out.stderr).toBe('Also revoked 2 keys minted with it.\n');
+    const one = await run(['tokens', 'revoke', 'tok-1'], {
+      revoke: { id: 'tok-1', alsoRevoked: ['tok-2'] },
+    });
+    expect(one.out.stderr).toBe('Also revoked 1 key minted with it.\n');
   });
 });
 
@@ -474,6 +498,19 @@ describe('kindgi people', () => {
     });
     expect(out.stderr).toBe(
       'Removed Carol: 2 key(s) and 1 session(s) revoked, 3 role(s) and membership(s) taken away.\n',
+    );
+    // The keys minted with theirs, said apart.
+    const minted = await run(['people', 'remove', 'u-9'], {
+      unregister: {
+        user: { userId: 'u-9', displayName: 'Carol', createdAt: '2026-10-06T12:00:00Z' },
+        keysRevoked: 2,
+        mintedKeysRevoked: 4,
+        sessionsRevoked: 1,
+        grantsRemoved: 3,
+      },
+    });
+    expect(minted.out.stderr).toBe(
+      'Removed Carol: 2 key(s) and 1 session(s) revoked, 3 role(s) and membership(s) taken away.\nAlso revoked 4 key(s) minted with theirs, whoever they act for.\n',
     );
     // A missing argument is a usage error.
     const missing = await run(['people', 'remove']);

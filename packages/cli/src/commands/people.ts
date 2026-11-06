@@ -302,7 +302,11 @@ const remove: LeafCommand = {
         stdout: renderJson(removed, ctx.globals.format).stdout,
         stderr: successNote(
           ctx.globals.format,
-          `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n`,
+          `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n${
+            (removed.mintedKeysRevoked ?? 0) > 0
+              ? `Also revoked ${removed.mintedKeysRevoked} key(s) minted with theirs, whoever they act for.\n`
+              : ''
+          }`,
         ),
       };
     }),
