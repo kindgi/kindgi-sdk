@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { PackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
+import type { PackIdentity, PackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { NODE_PACK_CODE } from '../src/dev/pack-code.js';
@@ -88,6 +88,9 @@ function harness(
       return opts.boot === 'fail'
         ? { kind: 'err', error: { problems: ['p.a: boom'] } }
         : { kind: 'ok', value: { port: 1 } };
+    },
+    serveEmpty: (pack: PackIdentity) => {
+      steps.push(`serve empty ${pack.packId}@${pack.packVersion}`);
     },
   } as unknown as PackServiceSupervisor;
   const builder: PackBuilder = {
@@ -325,6 +328,44 @@ describe('createPackRefresher — the last primitives deleted', () => {
     await publishedBefore({ v: 1, packId: 'p', tools: [], guardrails: [], agents: [], flows: [] });
     await refresher.refresh();
     expect(h.steps).not.toContain('publish');
+  });
+});
+
+describe('createPackRefresher — a pack with no primitives', () => {
+  const empty = (): IndexResult => ({
+    kind: 'err',
+    code: 'discovery-empty',
+    message: 'no primitives',
+  });
+  const identity = { packId: 'p', packVersion: '0.1.0' };
+
+  test('the pack service answers for the pack, with nothing in it, and no child starts', async () => {
+    const h = harness({ index: empty });
+    const r = await createPackRefresher({
+      ...h,
+      packDir,
+      env,
+      code: NODE_PACK_CODE,
+      identity,
+    }).refresh();
+    expect(r).toMatchObject({ kind: 'err', code: 'discovery-empty' });
+    expect(h.steps).toEqual(['build', 'index staged', 'serve empty p@0.1.0']);
+  });
+
+  test('a pack with primitives starts its child, and nothing answers for it empty', async () => {
+    const h = harness();
+    await createPackRefresher({ ...h, packDir, env, code: NODE_PACK_CODE, identity }).refresh();
+    expect(h.steps).toEqual(['build', 'index staged', 'start pack-index', 'publish']);
+  });
+
+  test('a code or load failure is not an empty pack', async () => {
+    for (const h of [
+      harness({ index: () => ({ kind: 'err', code: 'config-invalid', message: 'bad config' }) }),
+      harness({ boot: 'fail' }),
+    ]) {
+      await createPackRefresher({ ...h, packDir, env, code: NODE_PACK_CODE, identity }).refresh();
+      expect(h.steps.filter((s) => s.startsWith('serve empty'))).toEqual([]);
+    }
   });
 });
 
