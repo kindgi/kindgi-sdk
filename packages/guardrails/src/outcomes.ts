@@ -76,7 +76,9 @@ export interface GuardrailOutcomeRecord {
  * before it acts on the outcomes (a blocked turn is recorded before it
  * fails), and a `record` that throws fails the step: outcomes aren't left
  * unrecorded. Recording the same run's step again replaces what that step
- * recorded. Replays and dry runs aren't recorded.
+ * recorded, and a record with no `checks` leaves it none: a retried step
+ * whose checks came to none sends one, so an earlier attempt's outcomes
+ * aren't counted. Replays and dry runs aren't recorded.
  */
 export interface GuardrailOutcomeSink {
   record(outcomes: GuardrailOutcomeRecord): Promise<void>;
