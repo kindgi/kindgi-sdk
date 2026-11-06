@@ -66570,6 +66570,16 @@
               }
             }
           },
+          "403": {
+            "description": "With an authorization store, not a tenant admin; with a store or without one, bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`ifRevision` was set and did not match the stored revision.",
             "content": {
@@ -66631,7 +66641,7 @@
             }
           }
         },
-        "description": "Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.",
+        "description": "Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.",
         "parameters": [
           {
             "name": "Idempotency-Key",

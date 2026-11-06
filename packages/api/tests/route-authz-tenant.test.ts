@@ -17,6 +17,8 @@
  * of the `read` every `/v1/tenant` route needs, as `/v1/env` and
  * `/v1/secrets` ask for the same values; a member key, or a key limited
  * to a project, takes no `admin` action on the tenant, so neither reads it.
+ * Changing it still takes the capability of the binding it writes
+ * (tenant-config-routes.test.ts).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -36,9 +38,11 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  EnvBinding,
   IdentityProviderBinding,
   ProviderConfig,
   RunHandlerBinding,
+  SecretBinding,
   TokenResolver,
 } from '../src/index.js';
 
@@ -68,11 +72,16 @@ const unreached = () =>
 
 /**
  * `granted`: the pairs (`read tenant`) the caller holds; none by default.
- * `bindings`: bindings a test reaches past the check (the rest are `unreached`).
+ * `bindings`: bindings a test reaches past the check, or mounts a route
+ * with (the rest are `unreached`, and `/v1/tenant/config` isn't mounted).
  */
 function harness(
   granted: readonly string[] = [],
-  bindings: { readonly identityProvider?: IdentityProviderBinding } = {},
+  bindings: {
+    readonly identityProvider?: IdentityProviderBinding;
+    readonly envBinding?: EnvBinding;
+    readonly secretsBinding?: SecretBinding;
+  } = {},
 ) {
   const asked: string[] = [];
   const decide = (action: Action, resource: ResourceRef): Decision => {
@@ -106,6 +115,8 @@ function harness(
     complianceGenerator: unreached(),
     sessionStore: unreached(),
     identityProvider: bindings.identityProvider ?? unreached(),
+    ...(bindings.envBinding !== undefined && { envBinding: bindings.envBinding }),
+    ...(bindings.secretsBinding !== undefined && { secretsBinding: bindings.secretsBinding }),
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {
@@ -278,5 +289,23 @@ describe("the tenant's config: reading or changing it needs `admin`", () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: { details: { reason: string } } };
     expect(body.error.details.reason).toBe(reason);
+  });
+
+  test('PATCH with `admin` still needs the capability of the binding it writes', async () => {
+    // TOKEN carries no capability: `admin` on the tenant isn't `env:write`.
+    const { app, asked } = harness([READ, ADMIN], {
+      envBinding: unreached(),
+      secretsBinding: unreached(),
+    });
+    const res = await app.request('/v1/tenant/config', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'env', key: 'ACME_URL', value: 'v' }),
+    });
+    expect(res.status).toBe(403);
+    const { error } = (await res.json()) as { error: { code: string; message: string } };
+    expect(error.code).toBe('permission-denied');
+    expect(error.message).toContain('`env:write`');
+    expect(asked).toEqual([READ, ADMIN]);
   });
 });

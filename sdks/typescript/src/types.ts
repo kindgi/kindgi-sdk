@@ -1737,44 +1737,27 @@ export interface RouteResult {
   }[];
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#ProviderMetadata`:
- * `{ id, model, region, contextWindow, features[], cost, p95LatencyMs?,
- * attributes?[], description?, capabilityKind? }`. One row per
- * endpoint (a specific `model` at a specific `region`); there is no
- * enable/disable state or vendor-with-N-models aggregation.
- *
- * Per-workspace policy filters provider candidates before selection.
- */
-// Provider shape used by the `client.capabilities.providers` sub-client.
-// Named to avoid colliding with the `Provider` re-exported from
-// `./resources/providers.js` (aliased from generated `ProviderMetadata`).
-// Not re-exported from index.ts.
-export interface LegacyCapabilitiesProvider {
-  readonly id: string;
-  /** Human-readable model id (e.g. `acme-llm/acme-large`). */
-  readonly model: string;
-  /** Region the provider dispatches to. `'unspecified'` when not region-scoped. */
-  readonly region: string;
-  readonly contextWindow: number;
-  readonly features: readonly string[];
-  readonly cost: {
-    readonly promptUsdPer1kTokens: number;
-    readonly completionUsdPer1kTokens: number;
-  };
-  readonly p95LatencyMs?: number;
-  readonly attributes?: readonly string[];
-  readonly description?: string;
-  readonly capabilityKind?: string;
-}
+// The provider as the API sends it (generated `ProviderMetadata`), for the
+// deprecated alias below.
+import type { Provider } from './resources/providers.js';
 
 /**
- * Body for `POST /v1/providers` — matches
- * `@kindgi/api/openapi.json#RegisterProviderBody` (same shape as
- * `ProviderMetadata`). Credentials are deployment-config concerns
- * (bound at boot in the caller-plugged `ProviderRegistryBinding` in
- * `@kindgi/api`); the register-provider wire body carries only
- * routing-relevant metadata.
+ * The provider the deprecated `client.capabilities.providers` sub-client
+ * returns: the API's own (`@kindgi/api/openapi.json#ProviderMetadata`),
+ * with its models under `models[]`.
+ *
+ * @deprecated Use `Provider`, as `client.providers` returns it.
+ */
+export type LegacyCapabilitiesProvider = Provider;
+
+/**
+ * A flat provider shape (`model`, `contextWindow`, `features[]` and
+ * `cost` on the provider itself) that no API has taken or sent.
+ *
+ * @deprecated Not the API's register body: that is
+ *   `RegisterProviderInput` (`{ metadata, adapter_id, … }`, with the
+ *   models under `metadata.models[]`), which `client.providers.register`
+ *   takes. Nothing in the client takes this shape.
  */
 export interface ProviderSpec {
   readonly id: string;

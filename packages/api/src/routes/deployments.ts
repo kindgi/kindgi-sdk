@@ -76,7 +76,7 @@ import {
   parseReplace,
 } from '../deploy-check.js';
 import { type PlannedTool, keepPublishedTool, planPackTools } from '../deploy-tools.js';
-import type { DeployedVersionOutcome } from '../deploy-versions.js';
+import { type DeployedVersionOutcome, refusedPublish } from '../deploy-versions.js';
 import {
   type DeployedAgent,
   type DeployedFlow,
@@ -104,10 +104,14 @@ import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
-import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
+import {
+  PROJECT_MISMATCH,
+  PublishRefused,
+  ReferencesRefused,
+  projectMismatchFix,
+} from '../publish-refused.js';
 import {
   type ItemReference,
-  type ReferenceOutOfScopeError,
   type ReferenceScopeBinding,
   agentReferences,
   flowReferences,
@@ -1168,6 +1172,8 @@ export function deploymentsRouter(
       const brought = new Set([
         ...validated.tools.map((t) => `tool:${t.id as unknown as string}`),
         ...validated.agents.map((a) => `agent:${a.id as unknown as string}`),
+        // An agent step naming a version of the pack's agent: brought only when it's the pack's version.
+        ...validated.agents.map((a) => `agent:${a.id as unknown as string}@${a.version}`),
         ...validated.flows.map((f) => `flow:${f.id as unknown as string}`),
         ...validated.guardrails.map((g) => `guardrail:${g.id as unknown as string}`),
         // Published into this project, or refused as another project's.
@@ -1180,7 +1186,14 @@ export function deploymentsRouter(
         ...validated.flows.flatMap((flow, i) =>
           flowReferences(flow).map((ref) => ({ ...ref, path: `/flows/${i}${ref.path}` })),
         ),
-      ].filter((ref) => !brought.has(`${ref.kind}:${ref.id}`));
+      ].filter(
+        (ref) =>
+          !brought.has(
+            ref.version === undefined
+              ? `${ref.kind}:${ref.id}`
+              : `${ref.kind}:${ref.id}@${ref.version}`,
+          ),
+      );
       const outOfScope = await referencesOutOfScope(
         bindings.referenceScope,
         tenantId,
@@ -1463,8 +1476,10 @@ export function deploymentsRouter(
       }
       if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
       // An unregistered agent or flow version naming what its project doesn't
-      // reach: refused as the pack's own references are, before any write.
-      if (cause instanceof RetiredVersionOutOfScope) {
+      // reach (`RetiredVersionOutOfScope`), or one whose registry removed a
+      // version it holds while it was published (`refusedPublish`): refused
+      // as the pack's own references are.
+      if (cause instanceof ReferencesRefused) {
         return outOfScopeResponse(c, requestId, cause.refusal);
       }
       // Not a mapped outcome: to the central error handler (a 500 for this
@@ -3095,11 +3110,7 @@ class UnpinnableDeploy extends Error {
 }
 
 /** An agent or flow version a deploy found unregistered and may not reinstate (`reinstateRetiredVersion`). */
-class RetiredVersionOutOfScope extends Error {
-  constructor(readonly refusal: ReferenceOutOfScopeError) {
-    super(refusal.message);
-  }
-}
+class RetiredVersionOutOfScope extends ReferencesRefused {}
 
 /** A deployed agent or flow registered under its definition's version. */
 function deployedPrimitive(definition: { readonly id: string; readonly version: string }): {
@@ -3194,7 +3205,12 @@ async function registerAgents(input: {
         });
         if (reinstated) written(agentId, version);
       } else {
-        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome);
+        throw refusedPublish(
+          `/agents/${index}`,
+          { kind: 'agent', id: agent.id, version: agent.version },
+          outcome,
+          agentReferences(agent),
+        );
       }
     }
     return input.defined.map(deployedPrimitive);
@@ -3211,6 +3227,7 @@ async function registerAgents(input: {
       agent,
       pins,
       enqueueTuples,
+      path: `/agents/${i}`,
     });
     if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
       written(agent.id, outcome.version as unknown as Semver);
@@ -3283,7 +3300,12 @@ async function registerFlows(input: {
         });
         if (reinstated) written(flowId, version);
       } else {
-        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome);
+        throw refusedPublish(
+          `/flows/${index}`,
+          { kind: 'flow', id: flow.id, version: flow.version },
+          outcome,
+          flowReferences(flow),
+        );
       }
     }
     return input.defined.map(deployedPrimitive);
@@ -3306,6 +3328,7 @@ async function registerFlows(input: {
       flow,
       pins: pinsOf[i] as FlowPins,
       enqueueTuples,
+      path: `/flows/${i}`,
     });
     if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
       written(flow.id, outcome.version);
