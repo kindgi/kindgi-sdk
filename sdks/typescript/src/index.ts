@@ -23,6 +23,7 @@ export type {
   ListPinHistoryFilter,
   AgentPinnedWhere,
   AgentPinInput,
+  AgentVersionsClient,
   ReinstateAgentVersionResult,
 } from './resources/agents.js';
 export type {
@@ -91,13 +92,18 @@ export type {
   FlowValidateResult,
   FlowVersionFilter,
   FlowVersionRow,
+  FlowVersionsClient,
   PageFilter,
+  ReinstateFlowVersionResult,
+  UnregisterFlowVersionResult,
 } from './resources/flows.js';
 export type {
   ReinstateToolVersionResult,
   ToolFilter,
   ToolVersionFilter,
+  ToolVersionsClient,
   ToolsClient,
+  UnregisterToolVersionResult,
 } from './resources/tools.js';
 export type {
   EnvClient,
@@ -137,6 +143,7 @@ export type {
   SecretSetOutcome,
   SecretVersionPage,
   SecretVersionRecord,
+  SecretVersionsClient,
   SecretsClient,
 } from './resources/secrets.js';
 export type {
@@ -191,7 +198,10 @@ export type {
   PoliciesClient,
   PolicyListFilter,
   PolicyVersionRow,
+  PolicyVersionsClient,
   PolicyVersionsFilter,
+  ReinstatePolicyVersionResult,
+  UnregisterPolicyVersionResult,
 } from './resources/policies.js';
 export type {
   RetentionClient,
@@ -258,6 +268,7 @@ export type {
   QueueRulePreviewInput,
   QueueRuleResults,
   QueueRuleSpec,
+  QueueRuleVersionsClient,
   QueueRulesClient,
   QueueRuleWhen,
 } from './resources/expert-queue.js';
@@ -325,6 +336,7 @@ export type {
   PinTestRun,
   RunProgress,
   ScopeSegment,
+  UnregisterAgentResult,
 } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { CorrectorGroupFilter, CorrectorGroupsClient } from './resources/corrector-groups.js';
@@ -359,6 +371,7 @@ export type {
   SchedulePage,
   ScheduleVersion,
   ScheduleVersionPage,
+  ScheduleVersionsClient,
   SchedulesClient,
   UnregisterScheduleResult,
   UpdateScheduleInput,
@@ -432,6 +445,7 @@ export type {
   WebhookTriggerPage,
   WebhookTriggerVersion,
   WebhookTriggerVersionPage,
+  WebhookTriggerVersionsClient,
   WebhooksClient,
 } from './resources/webhooks.js';
 export type {
@@ -445,6 +459,7 @@ export type {
   MailTriggerPage,
   MailTriggerVersion,
   MailTriggerVersionPage,
+  MailTriggerVersionsClient,
   MailTriggersClient,
   RegisterMailTriggerInput,
   UnregisterMailTriggerResult,

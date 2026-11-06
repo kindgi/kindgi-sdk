@@ -300,7 +300,7 @@ const get: LeafCommand = {
       const schedulesClient = ctx.client().schedules;
       return version === undefined
         ? await schedulesClient.get(id, upcoming !== undefined ? { upcoming } : undefined)
-        : await schedulesClient.getVersion(id, version);
+        : await schedulesClient.versions.get(id, version);
     }),
 };
 
@@ -473,7 +473,9 @@ const versions: LeafCommand = {
       ctx,
       'schedules versions',
       async () =>
-        await ctx.client().schedules.versions(requiredPositional(ctx, 0, 'schedule-id'), page(ctx)),
+        await ctx
+          .client()
+          .schedules.versions.list(requiredPositional(ctx, 0, 'schedule-id'), page(ctx)),
       TRIGGER_VERSIONS_TABLE,
     ),
 };
