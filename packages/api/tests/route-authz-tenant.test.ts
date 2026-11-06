@@ -12,9 +12,11 @@
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
  * every pair asked is one the authorization model defines
- * (`OBJECT_ACTIONS`: the tenant has no `write`). Changing the tenant's
- * config (its secrets and env) needs `admin`, on top of the `read` every
- * `/v1/tenant` route needs.
+ * (`OBJECT_ACTIONS`: the tenant has no `write`). Reading or changing the
+ * tenant's config (its env values and secret names) needs `admin`, on top
+ * of the `read` every `/v1/tenant` route needs, as `/v1/env` and
+ * `/v1/secrets` ask for the same values; a member key, or a key limited
+ * to a project, takes no `admin` action on the tenant, so neither reads it.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -42,8 +44,16 @@ import type {
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'route-authz-token';
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+/** The same person's member key, and a key of theirs limited to a project. */
+const MEMBER_KEY = 'route-authz-member-key';
+const PROJECT_KEY = 'route-authz-project-key';
+const resolveToken: TokenResolver = async (token) => {
+  const caller = { tenantId, userId: 'user-1' as UserId };
+  if (token === TOKEN) return caller;
+  if (token === MEMBER_KEY) return { ...caller, tokenRole: 'member' };
+  if (token === PROJECT_KEY) return { ...caller, tokenProjectId: 'project-1' };
+  return null;
+};
 
 /** A binding whose every method fails: a refused request never reaches it. */
 const unreached = () =>
@@ -232,31 +242,41 @@ describe('the sign-in provider catalog: any GET needs `read`, any change `admin`
   });
 });
 
-describe("the tenant's config: reading it needs `read`, changing it `admin`", () => {
-  const patch = (app: ReturnType<typeof harness>['app']) =>
+describe("the tenant's config: reading or changing it needs `admin`", () => {
+  const config = (app: ReturnType<typeof harness>['app'], method: 'GET' | 'PATCH', token = TOKEN) =>
     app.request('/v1/tenant/config', {
-      method: 'PATCH',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: '{}',
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(method === 'PATCH' && { 'content-type': 'application/json' }),
+      },
+      ...(method === 'PATCH' && { body: '{}' }),
     });
 
-  test('PATCH with only `read` is refused (403), having asked for `admin`', async () => {
-    const { app, asked } = harness([READ]);
-    const res = await patch(app);
-    expect(res.status).toBe(403);
+  test.each(['GET', 'PATCH'] as const)(
+    '%s with only `read` is refused (403), having asked for `admin`',
+    async (method) => {
+      const { app, asked } = harness([READ]);
+      const res = await config(app, method);
+      expect(res.status).toBe(403);
+      expect(asked).toEqual([READ, ADMIN]);
+    },
+  );
+
+  test.each(['GET', 'PATCH'] as const)('%s with `admin` passes the check', async (method) => {
+    const { app, asked } = harness([READ, ADMIN]);
+    expect((await config(app, method)).status).not.toBe(403);
     expect(asked).toEqual([READ, ADMIN]);
   });
 
-  test('PATCH with `admin` passes the check; GET needs only `read`', async () => {
-    const admin = harness([READ, ADMIN]);
-    expect((await patch(admin.app)).status).not.toBe(403);
-    expect(admin.asked).toEqual([READ, ADMIN]);
-
-    const reader = harness([READ]);
-    const res = await reader.app.request('/v1/tenant/config', {
-      headers: { authorization: `Bearer ${TOKEN}` },
-    });
-    expect(res.status).not.toBe(403);
-    expect(reader.asked).toEqual([READ]);
+  test.each([
+    ['a member key', MEMBER_KEY, 'a member API key takes no admin action on the workspace'],
+    ['a key limited to a project', PROJECT_KEY, 'the API key is limited to project project-1'],
+  ])("%s is refused GET (403), though the key's holder is an admin", async (_, token, reason) => {
+    const { app } = harness([READ, ADMIN]);
+    const res = await config(app, 'GET', token);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { details: { reason: string } } };
+    expect(body.error.details.reason).toBe(reason);
   });
 });
