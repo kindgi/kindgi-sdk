@@ -33,6 +33,7 @@
     "@kindgi/adapter-model-shared": "workspace:*",
     "@kindgi/capabilities": "workspace:*",
     "@kindgi/embedding": "workspace:*",
+    "@kindgi/log": "workspace:*",
     "@kindgi/types": "workspace:*",
     "openai": "^7.17.0"
   },

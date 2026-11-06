@@ -59,6 +59,7 @@ import type {
 } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
+import { describeCauses } from '@kindgi/log';
 
 import { ModelProviderError, modelProviderError } from '../errors.js';
 import { type RetryableFailure, isTransport, refusedConnection, withRetries } from '../retries.js';
@@ -682,6 +683,17 @@ interface DescribedFailure extends RetryableFailure {
   readonly unrecognized?: true;
 }
 
+/**
+ * A call's words when nothing came back, with what its causes add (`; caused by …`, masked):
+ * the library's message alone says `fetch failed`, or `Cannot connect to API: ` with nothing
+ * after it when Node's refused connection has an empty message. A dangling `:` or `.` goes
+ * before the causes.
+ */
+function withCauses(words: string, error: unknown): string {
+  const causes = describeCauses(error);
+  return causes === '' ? words : `${words.replace(/[:.]\s*$/, '')}${causes}`;
+}
+
 /** An AI SDK failure as the retry policy and the typed error need it. */
 function describeFailure(error: unknown): DescribedFailure {
   const words = error instanceof Error ? error.message : String(error);
@@ -697,15 +709,18 @@ function describeFailure(error: unknown): DescribedFailure {
   const refused = refusedConnection(error);
   if (refused !== undefined) return { ...refused, retryable: false };
   if (APICallError.isInstance(error)) {
+    const answer = error.responseBody?.trim() || error.message;
     return {
       ...(error.statusCode !== undefined && { status: error.statusCode }),
-      words: error.responseBody?.trim() || error.message,
+      // No status: nothing came back (the library's "Cannot connect to API"), so the reason is in
+      // its causes. A vendor's answer is said as it came.
+      words: error.statusCode === undefined ? withCauses(answer, error) : answer,
       retryable: error.isRetryable,
       ...(error.responseHeaders !== undefined && { headers: error.responseHeaders }),
     };
   }
-  // No response at all: a dropped connection, DNS, TLS.
-  if (isTransport(error)) return { words, retryable: true };
+  // No response at all: a dropped connection, DNS, TLS. The reason is in its causes.
+  if (isTransport(error)) return { words: withCauses(words, error), retryable: true };
   // The vendor answered, and we couldn't read it. Once more, in case it was a bad gateway's
   // page; not again, since each answer may be billed.
   if (isUnreadableAnswer(error)) {

@@ -10,6 +10,7 @@ import {
   refusedConnection,
   withRetries,
 } from '@kindgi/adapter-model-shared';
+import { describeCauses } from '@kindgi/log';
 
 /**
  * The adapter owns the retry policy on every OpenAI-compatible call (chat,
@@ -60,6 +61,17 @@ function apiErrorWords(error: APIError): string {
   return error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message;
 }
 
+/**
+ * A failure's words when nothing came back, with what its causes add (`; caused by …`, masked):
+ * the SDK's "Connection error." holds the failed fetch, and that holds the reason. A dangling
+ * `:` or `.` goes before the causes.
+ */
+function withCauses(error: unknown): string {
+  const words = error instanceof Error ? error.message : String(error);
+  const causes = describeCauses(error);
+  return causes === '' ? words : `${words.replace(/[:.]\s*$/, '')}${causes}`;
+}
+
 /** The `retry-after(-ms)` headers the policy reads, from the response's `Headers`. */
 function retryAfterHeaders(headers: Headers | undefined): Record<string, string> | undefined {
   if (headers === undefined) return undefined;
@@ -86,9 +98,10 @@ export function describeOpenAIFailure(error: unknown): OpenAIFailure {
       ...(headers !== undefined && { headers }),
     };
   }
-  // No response reached the endpoint: a dropped connection, DNS, TLS. Retried.
+  // No response reached the endpoint: a dropped connection, DNS, TLS. Retried. The SDK's
+  // "Connection error." doesn't say why; its causes do.
   if (error instanceof APIConnectionError || isTransport(error)) {
-    return { words: error instanceof Error ? error.message : String(error), retryable: true };
+    return { words: withCauses(error), retryable: true };
   }
   return {
     words: error instanceof Error ? error.message : String(error),

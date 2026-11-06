@@ -318,6 +318,9 @@ importers:
       '@kindgi/embedding':
         specifier: workspace:*
         version: link:../../embedding
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../../log
       '@kindgi/types':
         specifier: workspace:*
         version: link:../../types
@@ -343,6 +346,9 @@ importers:
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../../log
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
