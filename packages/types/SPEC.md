@@ -140,12 +140,12 @@ Two helper types:
 
 ## Test approach
 
-Type tests in vitest typecheck mode, and runtime tests for the few runtime exports, both run by `vitest run --typecheck`:
+Type tests in vitest typecheck mode, and runtime tests for two of the runtime exports, both run by `vitest run --typecheck`:
 
 - `.test-d.ts` files under `src/` are compiled by TS in typecheck mode.
 - Use `expectTypeOf(x).toEqualTypeOf<T>()` for positive assertions.
 - Use `// @ts-expect-error` immediately above lines that MUST fail compilation.
-- Runtime tests live in `tests/*.test.ts`: `uuid.test.ts` pins what `UUID_RE` takes and refuses, and `file.test.ts` covers `isFileValue`. `makeEnvName` is exercised by the `@kindgi/env-inmemory` tests.
+- Runtime tests live in `tests/*.test.ts`: `uuid.test.ts` pins what `UUID_RE` takes and refuses, and `file.test.ts` covers `isFileValue`. The other runtime exports have no test here: `makeEnvName` is exercised by the `@kindgi/env-inmemory` tests, and `parseCloudSecretVersion`, `CLOUD_SECRET_FORM` and `CORRECTION_ITEM` by `@kindgi/api`'s.
 
 Coverage includes:
 - ID nominal distinctness (positive + negative).
