@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in the SDK, the CLI or the docs doesn't do what it says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A security vulnerability doesn't go here.** Report it privately through GitHub's
+        [private vulnerability reporting](https://github.com/kindgi/kindgi-sdk/security/advisories/new),
+        as [SECURITY.md](https://github.com/kindgi/kindgi-sdk/blob/main/SECURITY.md) says.
+
+        An issue is public: leave out keys, tokens, passwords, and any personal or customer data.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the bug?
+      options:
+        - The CLI (@kindgi/cli or kindgi-cli)
+        - A TypeScript package (@kindgi/*)
+        - The Python SDK (kindgi)
+        - The Java SDK (kindgi-client or kindgi-pack)
+        - The Scala SDK (kindgi-pack-scala)
+        - The docs (docs.kindgi.com)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The package's version, or the CLI's (`kindgi --version`). For the docs, the page's URL.
+    validations:
+      required: true
+  - type: dropdown
+    id: runs-on
+    attributes:
+      label: Where does it run?
+      options:
+        - kindgi dev
+        - Self-hosted
+        - Kindgi Cloud
+        - It doesn't run (a build, the docs)
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest pack, command or code that shows it.
+      placeholder: |
+        1. npx @kindgi/cli init my-pack
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: The error or the log lines around it. Leave out keys and tokens.
+      render: text
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Your OS, and the Node, Python or Java version.
+      placeholder: macOS 15, Node 22.12

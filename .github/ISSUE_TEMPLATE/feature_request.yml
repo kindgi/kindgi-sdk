@@ -1,0 +1,44 @@
+name: Feature request
+description: Something the SDK, the CLI or the docs could do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The SDK is in preview: its APIs may change between `0.x` releases.
+        [CONTRIBUTING.md](https://github.com/kindgi/kindgi-sdk/blob/main/CONTRIBUTING.md) says how the repository works.
+
+        A security concern doesn't go here: report it privately, as
+        [SECURITY.md](https://github.com/kindgi/kindgi-sdk/blob/main/SECURITY.md) says.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where would it go?
+      options:
+        - The CLI (@kindgi/cli or kindgi-cli)
+        - A TypeScript package (@kindgi/*)
+        - The Python SDK (kindgi)
+        - The Java SDK (kindgi-client or kindgi-pack)
+        - The Scala SDK (kindgi-pack-scala)
+        - The docs (docs.kindgi.com)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The problem or the use case, in your own words, and how you work around it, if you do.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: The change you have in mind (an API, a command, a page). A code sketch helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways you considered
