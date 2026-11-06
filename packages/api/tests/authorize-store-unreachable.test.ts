@@ -7,18 +7,28 @@
  * (`AuthzCheckBinding`'s contract). Before the handler, in `authorize`,
  * it answers `503 authz-backend-unavailable` with `Retry-After` on any
  * method; inside a handler, on a GET or HEAD only. Any other throw is a
- * 500, as before.
+ * 500, as before. A route that reads an in-handler `authorize` (`deniedBy`)
+ * as yes or no returns that 503, never a refusal of its own.
  */
 
 import { type Context, Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
-import { type AuthzCheckBinding, ref, userPrincipal } from '@kindgi/authz';
+import {
+  type Action,
+  type AuthzCheckBinding,
+  type Decision,
+  ref,
+  userPrincipal,
+} from '@kindgi/authz';
 import { type Logger, noopLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 
-import { createAuthorizer } from '../src/middleware/authorize.js';
+import { type Authorizer, createAuthorizer } from '../src/middleware/authorize.js';
 import { mapThrownError } from '../src/middleware/error-mapper.js';
+import { deniedBy } from '../src/routes/denied.js';
+import { resolveTriggerOwner, triggerOwnerDeps } from '../src/routes/trigger-owners.js';
+import { hiddenOr } from '../src/routes/turn-access.js';
 import type { AppEnv } from '../src/types.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000ab' as TenantId;
@@ -168,5 +178,71 @@ describe('a check inside a handler, when the store can not be reached', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       'internal-server-error',
     );
+  });
+});
+
+/**
+ * POST `/do`, answered by `answer` with the API's own authorizer, over a
+ * store that can't be reached for the checks `unreachableOn` names
+ * (`<action> <type>`) and allows every other.
+ */
+function routeAnswering(
+  unreachableOn: readonly string[],
+  answer: (c: Context<AppEnv>, authorizer: Authorizer) => Promise<Response>,
+) {
+  const decide = (action: Action, r: { type: string; id: string }): Decision => {
+    if (unreachableOn.includes(`${action} ${r.type}`)) throw unreachable();
+    return {
+      allowed: true,
+      reason: 'test: allowed',
+      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+    };
+  };
+  const authorizer = createAuthorizer({
+    check: async (_p, action, r) => decide(action, r),
+    checkBatch: async (_p, action, rs) => rs.map((r) => decide(action, r)),
+  });
+  const r = new Hono<AppEnv>();
+  r.use('*', async (c, next) => {
+    c.set('log', noopLogger);
+    c.set('tenantId' as never, tenantId as never);
+    c.set('requestId' as never, 'req-authz-9' as never);
+    c.set('principal' as never, userPrincipal('u-1' as UserId, tenantId) as never);
+    return next();
+  });
+  r.post('/do', (c) => answer(c, authorizer));
+  r.onError(mapThrownError);
+  return r;
+}
+
+describe('a check a route reads as yes or no, when the store can not be reached', () => {
+  test("naming a service account as a trigger's owner answers the act_as check's 503, not a 403", async () => {
+    const accounts = { get: async () => ({ serviceAccountId: 'sa-1', name: 'Nightly', tenantId }) };
+    const r = routeAnswering(['act_as service_account'], async (c, authorizer) => {
+      const owner = await resolveTriggerOwner(
+        c,
+        { runAsServiceAccountId: 'sa-1' },
+        { kind: 'agent', agentId: 'acme.drafter' },
+        triggerOwnerDeps(c, authorizer, accounts as never),
+      );
+      return owner.kind === 'refused' ? owner.response : c.json({ ok: true });
+    });
+    const res = await r.request('/do', { method: 'POST' });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    expect(await res.json()).toEqual(UNAVAILABLE);
+  });
+
+  test("a refusal a conversation route hides as one that isn't there: the 503 goes back as is", async () => {
+    const r = routeAnswering(['execute agent', 'read project'], async (c, authorizer) => {
+      const refusal = await deniedBy(authorizer, c, 'execute', ref('agent', 'acme.drafter'));
+      if (refusal === undefined) return c.json({ ok: true });
+      const conversation = { agentId: 'acme.drafter', projectId: 'p-1' };
+      return hiddenOr(c, authorizer, 'conv-1', conversation, refusal);
+    });
+    const res = await r.request('/do', { method: 'POST' });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    expect(await res.json()).toEqual(UNAVAILABLE);
   });
 });

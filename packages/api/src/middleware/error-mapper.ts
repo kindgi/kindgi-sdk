@@ -158,16 +158,16 @@ function isDatabaseBusy(err: unknown): boolean {
  * the caller to answer as it would.
  *
  * The caller has decided that sending the request again is safe: the
- * `authorize` middleware, before the handler runs, on any method, and
- * `mapThrownError`, on a GET or HEAD.
+ * `authorize` middleware, before the handler runs (or, asked inside one,
+ * before it writes), on any method, and `mapThrownError`, on a GET or HEAD.
+ * The status and `Retry-After` are the answer's, not set on the request, as
+ * the authorizer's 403 is: a handler may go on past it.
  */
 export function authzUnavailableAnswer(err: unknown, c: Context): Response | undefined {
   if (!isAuthzUnavailable(err)) return undefined;
   (c.get('log') as Logger | undefined)?.error('authorization store unreachable', {
     err: loggable(err),
   });
-  c.header('Retry-After', String(AUTHZ_UNAVAILABLE_RETRY_AFTER_S));
-  c.status(statusFor('authz-backend-unavailable') as never);
   return c.json(
     toWireError(
       {
@@ -177,6 +177,8 @@ export function authzUnavailableAnswer(err: unknown, c: Context): Response | und
       },
       (c.get('requestId') as string | undefined) ?? 'req-unknown',
     ),
+    statusFor('authz-backend-unavailable') as never,
+    { 'Retry-After': String(AUTHZ_UNAVAILABLE_RETRY_AFTER_S) },
   );
 }
 

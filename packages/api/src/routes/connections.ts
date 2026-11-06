@@ -40,7 +40,7 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { deniedBy, refused } from './denied.js';
+import { deniedBy, refused, refuses } from './denied.js';
 import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE } from './hooks.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -783,10 +783,10 @@ export function connectionChoicesRouter(
     }
     const projectId = choice.projectId as unknown as string;
     // One in a project the caller can't read isn't found either, so an id
-    // never tells it's there.
-    if ((await deniedBy(authorizer, c, 'read', ref('project', projectId))) !== undefined) {
-      return choiceNotFound(c, choiceId);
-    }
+    // never tells it's there. A store that couldn't be reached isn't a
+    // "can't read": its 503 goes back as is.
+    const unread = await deniedBy(authorizer, c, 'read', ref('project', projectId));
+    if (unread !== undefined) return refuses(unread) ? choiceNotFound(c, choiceId) : unread;
     const notAllowed = await notAllowedToRemove(c, choice, choiceId);
     if (notAllowed !== undefined) return notAllowed;
     const outcome = await binding.removeChoice({ tenantId, choiceId, by });
