@@ -636,6 +636,25 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: cursor,
     bytes: { route: '/v1/artifacts/{blobId}', params: { blobId: 'blobId' }, dir: 'artifacts' },
   },
+  {
+    name: 'files',
+    route: '/v1/files',
+    paging: cursor,
+    covers: ['/v1/files/{fileId}'],
+  },
+  {
+    name: 'file-versions',
+    route: '/v1/files/{fileId}/versions',
+    paging: cursor,
+    parent: { kind: 'files', params: { fileId: 'fileId' } },
+    covers: ['/v1/files/{fileId}/versions/{version}'],
+  },
+  {
+    name: 'file-pin-history',
+    route: '/v1/files/{fileId}/pin-history',
+    paging: cursor,
+    parent: { kind: 'files', params: { fileId: 'fileId' } },
+  },
   { name: 'export-signing-keys', route: '/v1/export-signing-keys', paging: whole },
 ];
 
@@ -705,6 +724,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/tool-files/{artifactId}':
     "the same bytes as artifacts, read by a pack tool's call with the call's own token",
+  '/v1/files/{fileId}/versions/{version}/content':
+    "the same bytes as artifacts, under the version's blobId",
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
   '/v1/deployments/{deploymentId}/values':
     'computed from deployments, tools, agents, providers, secrets and env values',
