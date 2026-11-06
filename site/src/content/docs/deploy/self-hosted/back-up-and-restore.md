@@ -16,8 +16,16 @@ fresh one, with every erasure still in force.
   `kindgi-openfga` container.
 - **Docker**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
-  where the `kindgi` commands read it, and **`DB_PASSWORD`** set to the
-  database password from `kindgi.env`.
+  where the `kindgi` commands read it.
+- **`db.env`**, the database password's file from
+  [Self-host Kindgi](../self-host/#2-start-postgres-and-a-registry). If yours
+  has no `db.env`, make it in an editor, beside `kindgi.env`, with
+  `POSTGRES_PASSWORD=` and the password from `kindgi.env`'s
+  `KINDGI_DATABASE_URL`, and `chmod 600 db.env`.
+- **With authorization on, `openfga.env`**, OpenFGA's settings file. If you
+  have no `openfga.env` yet, write it as
+  [An OpenFGA you already run](../../authorization/#an-openfga-you-already-run)
+  says.
 - **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
@@ -89,8 +97,8 @@ Start a new Postgres, and restore the backup into it once it accepts
 connections:
 
 ```sh
-docker run -d --name kindgi-db-restored --network kindgi \
-  -e POSTGRES_USER=kindgi -e POSTGRES_PASSWORD="$DB_PASSWORD" -e POSTGRES_DB=kindgi \
+docker run -d --name kindgi-db-restored --network kindgi --env-file db.env \
+  -e POSTGRES_USER=kindgi -e POSTGRES_DB=kindgi \
   -v kindgi-db-restored:/var/lib/postgresql/data \
   pgvector/pgvector:pg16
 
@@ -100,6 +108,8 @@ docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges
 
 - `kindgi-db-restored` is the new database's container, with a volume of the
   same name for its data.
+- `--env-file db.env` gives it the same password as the old database, so the
+  password is never on a command line.
 - `pgvector/pgvector:pg16` is Postgres 16 with the `vector` extension the
   runtime needs.
 - The `until` loop runs `pg_isready` each second until the new Postgres
@@ -132,28 +142,37 @@ restored. The runtime makes the role, and that policy, when it starts on the
 new database.
 
 Point the runtime at the new database in `kindgi.env`, where `<DB_PASSWORD>`
-is the database password:
+is `db.env`'s `POSTGRES_PASSWORD`:
 
 ```sh
 KINDGI_DATABASE_URL=postgres://kindgi:<DB_PASSWORD>@kindgi-db-restored:5432/kindgi
 ```
 
 With authorization on, restore `openfga` into the new Postgres too, and move
-OpenFGA onto it, before the runtime starts on the new database:
+OpenFGA onto it, before the runtime starts on the new database. In
+`openfga.env`, change `OPENFGA_DATASTORE_URI` to the line below, and leave the
+file's other lines as they are: if you made OpenFGA require a key, they carry
+it.
+
+```sh
+OPENFGA_DATASTORE_URI=postgres://kindgi:<DB_PASSWORD>@kindgi-db-restored:5432/openfga?sslmode=disable
+```
+
+Then:
 
 ```sh
 docker exec kindgi-db-restored psql -U kindgi -c 'CREATE DATABASE openfga'
 docker exec -i kindgi-db-restored pg_restore -U kindgi -d openfga --no-privileges < openfga-backup.dump
-docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
-  --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db-restored:5432/openfga?sslmode=disable"
+docker run --rm --network kindgi --env-file openfga.env \
+  openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres
 
 docker stop -t 30 kindgi-server
 docker stop kindgi-openfga && docker rm kindgi-openfga
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  --env-file openfga.env \
   openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db-restored:5432/openfga?sslmode=disable" \
   --playground-enabled=false
 ```
 
@@ -170,9 +189,9 @@ docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
   new database has no record of them.
 - `run` is the one from
   [Run OpenFGA next to the runtime](../../authorization/#run-openfga-next-to-the-runtime),
-  with `kindgi-db-restored` in `--datastore-uri`. If OpenFGA requires a key,
-  keep its `--authn-method` and `--authn-preshared-keys` flags
-  ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)).
+  unchanged, since `openfga.env` names `kindgi-db-restored`. Docker reads
+  `openfga.env` only when it creates the container, so OpenFGA is stopped,
+  removed and started again, not restarted.
 - The container keeps its name, so `KINDGI_OPENFGA_API_URL` in `kindgi.env`
   stays as it is.
 
