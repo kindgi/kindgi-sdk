@@ -15,7 +15,7 @@ body:
     id: page
     attributes:
       label: Page
-      description: The page's URL.
+      description: The page's URL, or the nearest page's for one that's missing.
       placeholder: https://docs.kindgi.com/
     validations:
       required: true

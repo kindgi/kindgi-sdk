@@ -11,7 +11,8 @@ body:
 
         An issue is public: leave out keys, tokens, passwords, and any personal or customer data.
 
-        A docs page that's wrong or missing something has a form of its own: Docs problem.
+        A docs page that's wrong or missing something has a form of its own:
+        [Docs problem](https://github.com/kindgi/kindgi-sdk/issues/new?template=docs_problem.yml).
   - type: dropdown
     id: area
     attributes:

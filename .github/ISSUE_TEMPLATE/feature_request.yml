@@ -9,7 +9,7 @@ body:
         outside contributions aren't accepted, as
         [CONTRIBUTING.md](https://github.com/kindgi/kindgi-sdk/blob/main/CONTRIBUTING.md) says.
 
-        A page the docs are missing goes in the Docs problem form.
+        A page the docs are missing goes in the [Docs problem](https://github.com/kindgi/kindgi-sdk/issues/new?template=docs_problem.yml) form.
 
         A security concern doesn't go here: report it privately, as
         [SECURITY.md](https://github.com/kindgi/kindgi-sdk/blob/main/SECURITY.md) says.
