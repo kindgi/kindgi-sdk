@@ -15,7 +15,8 @@ import type { Result, TenantId } from '@kindgi/types';
  * What a team's or an org's grants imply is not expanded. Project and
  * team roles keep their own membership routes; only tenant admin is
  * granted here, written before the call answers so the person's next
- * request already holds it.
+ * request already holds it. Capabilities are given and taken back at
+ * `/capabilities` (`PersonCapabilitiesBinding`), and read here.
  */
 export interface PersonGrants {
   readonly userId: string;
@@ -33,6 +34,11 @@ export interface PersonGrants {
   readonly teams: readonly { readonly teamId: string; readonly role: TeamRole }[];
   /** The person's active entry on the reviewer roster. */
   readonly reviewer?: { readonly role: ReviewerRole };
+  /**
+   * The capabilities the person holds (`env:write`, `signing-keys:write`,
+   * …). Absent when the runtime doesn't report them: unknown, not none.
+   */
+  readonly capabilities?: readonly string[];
 }
 
 /** What `grant` and `ungrant` take: tenant admin (project and team roles have membership routes). */

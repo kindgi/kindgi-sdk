@@ -22,6 +22,7 @@ import {
   type TokenPrincipal,
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
+import { MAX_CAPABILITY_LENGTH, isCapabilityName } from './capability-name.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
@@ -433,8 +434,6 @@ type ParsedMintBody = {
 
 type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; error: WireError };
 
-const MAX_CAPABILITY_LENGTH = 100;
-
 function badInput(message: string): { kind: 'err'; error: WireError } {
   return { kind: 'err', error: { code: 'bad-input', message } };
 }
@@ -505,7 +504,7 @@ function parseCapabilities(raw: unknown): Parsed<readonly string[]> {
   if (!Array.isArray(raw)) return badInput('`capabilities` must be an array of strings');
   const out: string[] = [];
   for (const cap of raw) {
-    if (typeof cap !== 'string' || cap.length === 0 || cap.length > MAX_CAPABILITY_LENGTH) {
+    if (!isCapabilityName(cap)) {
       return badInput(
         `\`capabilities\` must hold non-empty strings of at most ${MAX_CAPABILITY_LENGTH} characters`,
       );

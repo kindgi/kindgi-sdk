@@ -37,11 +37,22 @@ export async function isTenantAdmin(
     const tenantId = c.get('tenantId') as unknown as string;
     return authorizer.can(c, 'admin', ref('tenant', tenantId));
   }
-  return (
-    (c.get('scopes') ?? []).includes('tenant-admin') &&
-    c.get('tokenRole') !== 'member' &&
-    c.get('tokenProjectId') === undefined
-  );
+  return (c.get('scopes') ?? []).includes('tenant-admin') && credentialLimit(c) === undefined;
+}
+
+/**
+ * What holds the caller's key or session to less than its principal may
+ * do across the tenant: `member` (`a member API key`), or a project
+ * (`a session limited to project <id>`). `undefined` for a full one. A
+ * limited credential is never a tenant admin, and doesn't take back its
+ * own person's capabilities either: they are tenant-wide.
+ */
+export function credentialLimit(c: Context<AppEnv>): string | undefined {
+  const session = c.get('sessionId') !== undefined;
+  if (c.get('tokenRole') === 'member') return `a member ${session ? 'session' : 'API key'}`;
+  const project = c.get('tokenProjectId');
+  if (project === undefined) return undefined;
+  return `${session ? 'a session' : 'an API key'} limited to project ${project}`;
 }
 
 /**

@@ -128,6 +128,43 @@ describe("identity — a person's grants", () => {
       client(stub).users.ungrant('u-1' as UserId, { kind: 'tenant-admin' }),
     ).rejects.toMatchObject({ error: { code: 'conflict', reason: 'last-tenant-admin' } });
   });
+
+  it('giveCapabilities POSTs the names; takeBackCapability DELETEs one, its name encoded', async () => {
+    const body = JSON.stringify({ ...GRANTS, tenantAdmin: true, capabilities: ['env:write'] });
+    const stub = recordingFetch([
+      { status: 200, body },
+      { status: 200, body },
+    ]);
+    const after = await client(stub).users.giveCapabilities('u-1' as UserId, ['env:write'], {
+      idempotencyKey: 'idem-c',
+    });
+    expect(after.capabilities).toEqual(['env:write']);
+    expect(stub.calls[0]?.method).toBe('POST');
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/users/u-1/capabilities');
+    expect(stub.calls[0]?.headers['idempotency-key']).toBe('idem-c');
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({ capabilities: ['env:write'] });
+    await client(stub).users.takeBackCapability('u-1' as UserId, 'env:write');
+    expect(stub.calls[1]?.method).toBe('DELETE');
+    expect(stub.calls[1]?.url).toBe(
+      'https://api.example.com/v1/identity/users/u-1/capabilities/env%3Awrite',
+    );
+  });
+
+  it('a receiver who is not a tenant admin is a typed 409; a runtime without the routes a server error', async () => {
+    const refused = errorFetch(409, {
+      code: 'receiver-not-tenant-admin',
+      message: 'make them one first',
+    });
+    await expect(
+      client(refused).users.giveCapabilities('u-1' as UserId, ['env:write']),
+    ).rejects.toMatchObject({ error: { code: 'conflict', reason: 'receiver-not-tenant-admin' } });
+    const older = errorFetch(501, { code: 'person-capabilities-unsupported', message: 'none' });
+    await expect(
+      client(older).users.takeBackCapability('u-1' as UserId, 'env:write'),
+    ).rejects.toMatchObject({
+      error: { code: 'server', serverCode: 'person-capabilities-unsupported' },
+    });
+  });
 });
 
 describe('identity — your second factor', () => {

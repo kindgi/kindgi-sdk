@@ -445,6 +445,9 @@ export interface CreateAppInput {
    * writes that need one, and for the keys they mint (`POST /v1/tokens`
    * grants only what the minter holds). Read on each session request.
    * Without it a session carries none, and only API keys hold capabilities.
+   * Its optional `give` and `takeBack` serve `POST` and `DELETE
+   * /v1/identity/users/:userId/capabilities`, which also need
+   * `personGrants`.
    */
   readonly personCapabilities?: PersonCapabilitiesBinding;
   /**
@@ -2223,6 +2226,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.personCapabilities !== undefined && {
+        personCapabilities: input.personCapabilities,
+      }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
       ...(input.license !== undefined && { license: input.license }),
