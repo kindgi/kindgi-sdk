@@ -7,7 +7,8 @@
  * the local one, and the image serves the pack's tool — a TypeScript
  * tool that imports a module of the app, bundled. Once with npm, once
  * with a pnpm workspace whose pack sits in a member folder. And a Python
- * pack, from its `uv.lock`, with a tool that imports a module beside it.
+ * pack, from its `uv.lock`, with a tool that imports a module beside it,
+ * and one whose tool imports a package only its dev group lists.
  *
  * Gated: `KINDGI_DOCKER_TESTS=1` (needs Docker, and the network for the
  * base image and corepack's pnpm).
@@ -24,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
 
 import { REAL_BUILD_RUNNERS } from '../src/build/defaults.js';
-import { runCli } from '../src/main.js';
+import { type CliOutcome, runCli } from '../src/main.js';
 
 const gated = process.env.KINDGI_DOCKER_TESTS !== '1';
 const TOKEN = 'docker-test-token';
@@ -108,8 +109,10 @@ def echo(input: GreetInput) -> Greeting:
  * A Python pack: a tool and the module of the app it imports, with the
  * Python SDK as a wheel inside the pack (the image builds from the pack
  * root), locked and synced with uv: the local indexer runs in its `.venv`.
+ * With `devOnly`, the tool also imports that package, which only the dev
+ * group lists: `uv sync` installs it here, the image doesn't.
  */
-async function writePythonPack(packDir: string): Promise<void> {
+async function writePythonPack(packDir: string, devOnly?: string): Promise<void> {
   execFileSync('uv', [
     'build',
     '--wheel',
@@ -127,7 +130,7 @@ name = "smoke-py"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = ["kindgi"]
-
+${devOnly === undefined ? '' : `\n[dependency-groups]\ndev = ["${devOnly}"]\n`}
 [tool.uv.sources]
 kindgi = { path = "wheels/${wheel}" }
 
@@ -141,16 +144,20 @@ version = "0.1.0"
     'lib/greet.py',
     'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n',
   );
-  await put(packDir, 'tools/echo.py', PYTHON_ECHO_TOOL);
+  await put(
+    packDir,
+    'tools/echo.py',
+    devOnly === undefined ? PYTHON_ECHO_TOOL : `import ${devOnly}\n${PYTHON_ECHO_TOOL}`,
+  );
   execFileSync('uv', ['sync', '--quiet'], { cwd: packDir });
 }
 
-async function buildLocal(
+async function runBuildLocal(
   packDir: string,
   artifactVersion: string,
   extraArgs: readonly string[] = [],
-): Promise<{ readonly imageRef: string; readonly log: string }> {
-  const out = await runCli({
+): Promise<CliOutcome> {
+  return runCli({
     argv: [
       'build',
       '--local',
@@ -163,6 +170,14 @@ async function buildLocal(
     home: await mkdtemp(join(tmpdir(), 'kindgi-docker-home-')),
     buildRunners: REAL_BUILD_RUNNERS,
   });
+}
+
+async function buildLocal(
+  packDir: string,
+  artifactVersion: string,
+  extraArgs: readonly string[] = [],
+): Promise<{ readonly imageRef: string; readonly log: string }> {
+  const out = await runBuildLocal(packDir, artifactVersion, extraArgs);
   expect(out.exitCode, out.stderr).toBe(0);
   expect(out.stderr).toContain('matches the local index byte for byte');
   return { imageRef: (JSON.parse(out.stdout) as { imageRef: string }).imageRef, log: out.stderr };
@@ -375,6 +390,24 @@ fs.writeFileSync('generated/marker.json', JSON.stringify({ input: fs.readFileSyn
       kind: 'result',
       output: { greeting: 'Hello, Ada!' },
     });
+  }, 600_000);
+
+  test("Python: a tool that imports a package only the dev group lists fails the image's build, saying which and why", async () => {
+    const packDir = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-docker-python-dev-')));
+    dirs.push(packDir);
+    // Not one of kindgi's own dependencies, so only the dev group brings it.
+    await writePythonPack(packDir, 'iniconfig');
+
+    const out = await runBuildLocal(packDir, '20261004.2');
+    // The local index has the tool (uv sync installed the dev group); the image's indexer doesn't.
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('Image build failed');
+    expect(out.stderr).toContain(
+      "kindgi.pack index: file-import-failed: Failed to import tools/echo.py: ModuleNotFoundError: No module named 'iniconfig'",
+    );
+    expect(out.stderr).toContain(
+      'if pyproject.toml lists the package only in a dev group, move it to',
+    );
   }, 600_000);
 
   test('--push: builds for linux/amd64, pushes to the registry, and writes a signed envelope', async () => {

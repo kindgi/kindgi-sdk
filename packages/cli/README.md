@@ -685,7 +685,11 @@ digest, and the pack's dependencies come from its lockfile (`uv.lock`, or a
 Poetry app's `poetry.lock`; one is required). Debian packages the code needs
 go in `[tool.kindgi.image] system-packages = ["tesseract-ocr"]`. The image's
 uv version must be in the pack's `[tool.uv] required-version`; `kindgi
-build` stops before building when it isn't.
+build` stops before building when it isn't. The image installs the main
+dependencies only (`uv sync --no-dev`, or Poetry's main group), so a package
+a tool imports must not be only in a dev group: the image's indexer stops
+the build at such a module, naming it and the missing package (with a
+`kindgi` whose `python -m kindgi.pack index` has `--strict`).
 
 **Versions and reproducible builds:** the artifact version
 (`--artifact-version`) and the publish time (`--published-at`) default to

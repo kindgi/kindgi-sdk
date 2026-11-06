@@ -9,10 +9,12 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 USAGE = """usage:
   python -m kindgi.pack index --pack-dir <path> [--config <pyproject.toml>] [--output <index.json>]
                               [--artifact-version <str>] [--published-at <iso>] [--json]
+                              [--strict]
   python -m kindgi.pack serve [--index <path>] [--module-root <dir>] [--host <address>]"""
 
 
@@ -22,11 +24,15 @@ def _index(argv: Sequence[str]) -> int:
     options: dict[str, str] = {}
     flags = {"--pack-dir", "--config", "--output", "--artifact-version", "--published-at"}
     as_json = False
+    strict = False
     i = 0
     while i < len(argv):
         arg = argv[i]
         if arg == "--json":
             as_json = True
+            i += 1
+        elif arg == "--strict":
+            strict = True
             i += 1
         elif arg in ("-h", "--help"):
             print(USAGE)
@@ -50,13 +56,39 @@ def _index(argv: Sequence[str]) -> int:
     if as_json:
         # One line, the shape `kindgi dev` reads from its indexer child.
         print(json.dumps(outcome, separators=(",", ":")))
-        return 0 if outcome["kind"] == "ok" else 1
-    if outcome["kind"] == "err":
+        if outcome["kind"] != "ok":
+            return 1
+    elif outcome["kind"] == "err":
         error = outcome["error"]
         print(f"kindgi.pack index: {error['code']}: {error['message']}", file=sys.stderr)
         return 1
-    print(json.dumps(outcome["value"], indent=2))
+    else:
+        print(json.dumps(outcome["value"], indent=2))
+    file_errors = outcome["value"]["fileErrors"]
+    if strict and file_errors:
+        _print_file_errors(file_errors)
+        return 1
     return 0
+
+
+def _print_file_errors(file_errors: Sequence[dict[str, Any]]) -> None:
+    """`--strict`'s report: each file error, then the likely fix for a missing package.
+
+    A pack image's build runs the indexer with `--strict`, after the CLI's own index of the same
+    files had no file errors. So a module that won't import there most likely imports a package
+    the image doesn't install.
+    """
+    for error in file_errors:
+        print(f"kindgi.pack index: {error['code']}: {error['message']}", file=sys.stderr)
+    if any(e.get("cause", {}).get("name") == "ModuleNotFoundError" for e in file_errors):
+        print(
+            "kindgi.pack index: a package a module imports isn't installed here. A pack's image "
+            "installs its main dependencies only (uv sync --no-dev, or Poetry's main group): if "
+            "pyproject.toml lists the package only in a dev group, move it to "
+            "[project].dependencies (in a Poetry 1 app, [tool.poetry.dependencies]) and lock "
+            "again.",
+            file=sys.stderr,
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

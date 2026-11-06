@@ -266,6 +266,11 @@ python -m kindgi.pack index --pack-dir .                         # → index.jso
 KINDGI_PACK_SERVICE_TOKEN=… python -m kindgi.pack serve --index index.json
 ```
 
+`index` writes the index even when a file fails to index (a module that
+won't import, or defines nothing), and lists those file errors in what it
+prints. With `--strict` it then exits 1, printing each one; a pack image's
+build runs it that way.
+
 `serve` has the Node pack service's process contract: `--index`,
 `--module-root` and `--host`; `KINDGI_PACK_SERVICE_TOKEN`, `PORT`,
 `KINDGI_PACK_SERVICE_MAX_CONCURRENCY`, `KINDGI_PACK_ENV_CHECK` and

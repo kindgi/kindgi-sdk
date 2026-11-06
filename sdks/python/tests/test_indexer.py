@@ -8,7 +8,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from kindgi._json import stable_dumps
+from kindgi.pack.__main__ import main
 from kindgi.pack.index import _spec, run_indexer
 
 PINS = {"artifact_version": "20261001.3", "published_at": "2026-10-01T00:00:00.000Z"}
@@ -146,6 +149,60 @@ def test_one_bad_file_does_not_stop_the_rest(make_pack: Callable[..., Path]) -> 
         "tools/nothing.py": "no-primitives",
     }
     assert [t["id"] for t in index["tools"]] == ["acme.shout", "acme.whisper"]
+
+
+def _index_args(root: Path) -> list[str]:
+    return [
+        "index",
+        "--pack-dir",
+        str(root),
+        "--artifact-version",
+        PINS["artifact_version"],
+        "--published-at",
+        PINS["published_at"],
+    ]
+
+
+def test_strict_exits_1_on_a_missing_package_naming_it_and_the_dev_group_fix(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A package the image doesn't install: one only a dev group lists.
+    root = full_pack(make_pack, **{"tools/needs.py": "import acme_package_not_installed\n"})
+    # Without --strict the index is written without the module, and the command succeeds.
+    assert main(_index_args(root)) == 0
+    capsys.readouterr()
+    assert main([*_index_args(root), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert (
+        "kindgi.pack index: file-import-failed: Failed to import tools/needs.py: "
+        "ModuleNotFoundError: No module named 'acme_package_not_installed'"
+    ) in err
+    assert "if pyproject.toml lists the package only in a dev group, move it to" in err
+    assert "[project].dependencies" in err
+
+
+def test_strict_exits_1_on_any_file_error_with_the_package_hint_only_for_a_missing_one(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = full_pack(make_pack, **{"tools/nothing.py": "VALUE = 1\n"})
+    assert main([*_index_args(root), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert "kindgi.pack index: no-primitives: File tools/nothing.py defines no tool" in err
+    assert "dev group" not in err
+    # --json keeps its one line on stdout; --strict still decides the exit code.
+    assert main([*_index_args(root), "--json", "--strict"]) == 1
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1 and json.loads(out[0])["value"]["fileErrors"][0]["code"] == "no-primitives"
+
+
+def test_strict_passes_a_pack_without_file_errors_and_the_help_names_it(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([*_index_args(full_pack(make_pack)), "--strict"]) == 0
+    capsys.readouterr()
+    # A pack image's build looks for --strict in the help, as an older kindgi has none.
+    assert main(["index", "--help"]) == 0
+    assert "[--strict]" in capsys.readouterr().out
 
 
 def test_a_duplicate_id_is_a_file_error(make_pack: Callable[..., Path]) -> None:
