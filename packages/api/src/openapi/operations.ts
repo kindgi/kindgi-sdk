@@ -12450,6 +12450,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'An unknown `app`, `owner`, `ownerKind` or `state`, or an `includeRemoved` other than `true` or `false` (`bad-input`).',
       ),
+      '403': ErrorResponse(
+        'A key or session limited to a project, with another `projectId` (`key-project-mismatch`).',
+      ),
     },
   },
   {
@@ -12592,7 +12595,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.choices',
     summary: "List a connection's choices",
     description:
-      "The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project, and sees only the choices in that project.",
+      "The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project, and sees only the choices in that project: its page can hold fewer than `limit`, or none, with `hasMore` still true.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam, LimitQueryParam, CursorQueryParam],

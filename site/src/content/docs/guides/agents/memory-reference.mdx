@@ -155,9 +155,9 @@ A write is checked against the scope it names, and answers
 `403 permission-denied` otherwise.
 
 A key or session limited to a project writes only in that project or one of
-its conversations. A fact in any other scope is refused, made, changed,
-verified or deleted, its person's own included, since their runs read those
-in every project. It still reads workspace-wide facts, its project's and its
+its conversations. A fact in any other scope, its person's own included, is
+refused, whether made, changed, verified or deleted, since their runs read
+those in every project. It still reads workspace-wide facts, its project's and its
 org's, and its person's own.
 
 An end user is `participantId` on a conversation or a fact. Give an id your
