@@ -4,6 +4,7 @@
 import type { Cursor, ToolId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { VersionLock } from '../generated/api.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { GetLatestOptions, Tool } from '../types.js';
@@ -201,6 +202,13 @@ export interface UnregisterToolVersionResult {
   readonly toolId: ToolId;
   readonly version: string;
   readonly unregistered: boolean;
+  /**
+   * What can still run the version: the agent and flow versions that lock
+   * it, and the unregistered agent versions a registered flow version still
+   * runs (`unregistered: true`). `[]` when nothing locks it. Absent from
+   * older servers, and when the server can't tell.
+   */
+  readonly lockedBy?: readonly VersionLock[];
 }
 
 interface ReinstateToolVersionWire {
@@ -251,6 +259,7 @@ export function makeToolsClient(transport: Transport): ToolsClient {
         readonly toolId: string;
         readonly version: string;
         readonly unregistered: boolean;
+        readonly lockedBy?: readonly VersionLock[];
       }>({
         method: 'POST',
         path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
@@ -262,6 +271,7 @@ export function makeToolsClient(transport: Transport): ToolsClient {
         toolId: wire.toolId as unknown as ToolId,
         version: wire.version,
         unregistered: wire.unregistered,
+        ...(wire.lockedBy !== undefined && { lockedBy: wire.lockedBy }),
       };
     },
   };
