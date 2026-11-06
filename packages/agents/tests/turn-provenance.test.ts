@@ -14,12 +14,21 @@ import { describe, expect, test } from 'vitest';
 
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
+import { WaitpointCancelledError } from '@kindgi/handler';
 import type { NodeContext } from '@kindgi/handler';
 import { type Provenance, type ProvenanceBuilder, newBuilder } from '@kindgi/provenance';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
-import type { ProvenanceId, RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
+import type {
+  NodeId,
+  ProvenanceId,
+  RunId,
+  Semver,
+  TenantId,
+  Timestamp,
+  ToolId,
+} from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
@@ -507,8 +516,8 @@ describe("a tool call's approval in provenance", () => {
   });
 });
 
-/** The turn's setup at a conversation past its `afterTurns`, the reviewer answering `answer`. */
-async function sessionGateDag(answer: unknown): Promise<Provenance> {
+/** The turn's setup at a conversation past its `afterTurns`, its wait ending as `wait` does. */
+async function sessionGateDag(wait: () => Promise<unknown>): Promise<Provenance> {
   const a = { ...agent(), conversationPolicy: { hitl: { afterTurns: 2 } } } as Agent;
   const provenance = builder();
   const ctx = {
@@ -525,17 +534,17 @@ async function sessionGateDag(answer: unknown): Promise<Provenance> {
       provenance: { newBuilder: () => provenance },
     },
   } as unknown as TurnContext;
-  // A rejection ends the turn at the gate, its wait and resume nodes added.
+  // A rejection or a cancel ends the turn at the gate, its wait and resume nodes added.
   await buildSetupHandler(ctx)(
     {},
-    testNodeContext({ runId, waitForToken: (async () => answer) as NodeContext['waitForToken'] }),
+    testNodeContext({ runId, waitForToken: wait as NodeContext['waitForToken'] }),
   ).catch(() => undefined);
   return provenance.snapshot();
 }
 
 describe("a session gate's approval in provenance", () => {
   test('its wait names the agent and its version; its resume, whoever decided', async () => {
-    const dag = await sessionGateDag({ decided: 'reject', decidedBy: 'user:u-1' });
+    const dag = await sessionGateDag(async () => ({ decided: 'reject', decidedBy: 'user:u-1' }));
     expect(dag.nodes.find((n) => n.id === 'session-hitl-gate-wait:3')).toMatchObject({
       kind: 'wait',
       actor: 'agent:pack.agent@1.0.0',
@@ -547,11 +556,23 @@ describe("a session gate's approval in provenance", () => {
     });
   });
 
-  test('a decision recorded before it named the decider: its resume names the agent the same way', async () => {
-    const dag = await sessionGateDag({ decided: 'reject' });
-    expect(dag.nodes.find((n) => n.id === 'session-hitl-gate-resume:3')?.actor).toBe(
-      'agent:pack.agent@1.0.0',
-    );
+  test('a decision recorded before it named the decider: its resume names no one, as a tool gate’s', async () => {
+    const dag = await sessionGateDag(async () => ({ decided: 'reject' }));
+    const resume = dag.nodes.find((n) => n.id === 'session-hitl-gate-resume:3');
+    expect(resume).toMatchObject({ kind: 'resume', attributes: { decision: 'reject' } });
+    expect(resume).not.toHaveProperty('actor');
+  });
+
+  test('a cancelled wait: its resume names no one', async () => {
+    const dag = await sessionGateDag(async () => {
+      throw new WaitpointCancelledError('tok-1', 'n' as NodeId, 'run-cancelled');
+    });
+    const resume = dag.nodes.find((n) => n.id === 'session-hitl-gate-resume:3');
+    expect(resume).toMatchObject({
+      kind: 'resume',
+      attributes: { gate: 'session-hitl', decision: 'cancelled', reason: 'run-cancelled' },
+    });
+    expect(resume).not.toHaveProperty('actor');
   });
 });
 

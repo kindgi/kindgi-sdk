@@ -222,8 +222,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             id: resumeNodeId,
             kind: 'resume',
             timestamp: new Date().toISOString() as never,
-            // Whoever decided; a decision recorded before it named them, the agent.
-            actor: decision.decidedBy ?? agentActor(ctx.input.agent),
+            // Whoever decided; a decision recorded before it named them, no one.
+            ...(decision.decidedBy !== undefined && { actor: decision.decidedBy }),
             attributes: {
               gate: 'session-hitl',
               decision: decisionOf(decision),
@@ -259,7 +259,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               id: resumeNodeId,
               kind: 'resume',
               timestamp: new Date().toISOString() as never,
-              actor: agentActor(ctx.input.agent),
+              // No one decided: the wait was cancelled.
               attributes: {
                 gate: 'session-hitl',
                 decision: 'cancelled',

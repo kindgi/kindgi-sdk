@@ -119,8 +119,10 @@ Read it from the answer backwards:
 
 The nodes of the agent's own acts name it as their `actor`, as
 `agent:<id>@<version>`: its model calls, the tool calls they made, its
-answer, and the `wait` of an approval it waited for. A `tool-result` node has
-no `actor`: the result is the tool's.
+answer, what it remembered (a `memory-write` node), and the `wait` of an
+approval it waited for. A `tool-result` node has no `actor`: the result is the
+tool's. A `resume` node names who decided, and no one when the decision
+doesn't say or the wait was cancelled.
 
 Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`,
 and `influenced-by` from a model call to each tool result it read.
