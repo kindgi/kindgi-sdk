@@ -42,7 +42,7 @@ export const OBJECT_TYPES = [
   'secret',
   'env',
   'mcp_endpoint',
-  // Runtime. Deprecated, with its actions (`OBJECT_ACTIONS.run`).
+  // Runtime
   'run',
 ] as const;
 
@@ -58,7 +58,6 @@ export const ACTIONS = [
   'publish',
   'rotate',
   'fire',
-  // Only `run` lists it, and it's deprecated with `run`.
   'cancel',
   // Pinning an agent, flow or tool version for a scope (the version in use there).
   'pin',
@@ -112,11 +111,6 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   env: ['read', 'write', 'delete', 'admin'],
   mcp_endpoint: ['read', 'write', 'delete', 'admin'],
 
-  // Deprecated: nothing writes a run's tuple, so FGA denies a check of
-  // one of these on `run:<id>` for everyone. A run is checked on its
-  // project instead: reading one takes `read` there, cancelling or
-  // resuming one `write`. The role capabilities the API reports list
-  // `run` too, so removing it waits for the next minor release.
   run: ['read', 'cancel', 'delete'],
 };
 

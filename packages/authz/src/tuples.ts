@@ -98,11 +98,6 @@ export function mcpEndpointObject(id: McpEndpointId): string {
   return `mcp_endpoint:${id}`;
 }
 
-/**
- * @deprecated Nothing writes a run's tuple, so FGA denies a check on
- * `run:<id>` for everyone: a run is checked on its project. Removed in
- * the next minor release.
- */
 export function runObject(id: RunId): string {
   return `run:${id}`;
 }
@@ -200,12 +195,8 @@ export type EntityRef =
       readonly tenantId: TenantId;
       readonly scope: Scope;
     }
-  // Runtime. Deprecated (see `runObject`).
+  // Runtime
   | {
-      /**
-       * @deprecated Nothing writes a run's tuple: a run is checked on its
-       * project. Removed in the next minor release.
-       */
       readonly kind: 'run';
       readonly id: RunId;
       readonly tenantId: TenantId;
@@ -329,8 +320,8 @@ export function tuplesForCreate(entity: EntityRef, creatorUserId?: UserId): Tupl
     }
 
     case 'run':
-      // Deprecated (see `runObject`): nothing calls this for a run, so
-      // no run has this tuple, and a run is checked on its project.
+      // Runs are system-created; no `owner` role (read access comes
+      // through the parent project).
       return [
         {
           operation: 'write',
@@ -402,7 +393,6 @@ export function tuplesForDelete(entity: EntityRef): TupleIntent[] {
         },
       ];
     case 'run':
-      // Deprecated (see `runObject`).
       return [
         {
           operation: 'delete',
