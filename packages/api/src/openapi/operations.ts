@@ -10068,7 +10068,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.production.set',
     summary: 'Put a project in production, or take it out',
     description:
-      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. Putting a project in production is refused with 409 `promote-only-build` while a deployment that may still serve it is promote-only: such a build reaches a project in production only by promotion. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
@@ -10079,6 +10079,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ProjectProduction'),
       },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `promote-only-build`: a deployment that may still serve the project is promote-only, so the project can't go into production (`details.deploymentId`, `details.signerKeyId`, `details.projectId`).",
+      ),
       '403': ErrorResponse(
         "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
       ),

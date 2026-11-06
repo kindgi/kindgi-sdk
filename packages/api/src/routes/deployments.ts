@@ -157,6 +157,7 @@ import {
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { promoteOnlyBuild } from './promote-only-builds.js';
 import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
@@ -902,7 +903,7 @@ export function deploymentsRouter(
           {
             code: 'signature-invalid',
             message:
-              'Ed25519 signature does not match canonical envelope { imageDigest, artifactVersion, indexHash, tenantId, publishedAt }',
+              'Ed25519 signature does not match canonical envelope { imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, and productionEntry when it has one',
           },
           requestId,
         ),
@@ -1177,14 +1178,18 @@ export function deploymentsRouter(
     // read) is refused. The project is the one the order check reads.
     if (
       (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId)) &&
-      (await promoteOnlyBuild(bindings.signingKeyRegistry, tenantId, wire, publicKeyBase64))
+      (await promoteOnlyBuild(bindings.signingKeyRegistry, tenantId, {
+        ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+        signerKeyId: wire.signerKeyId as unknown as string,
+        publicKey: publicKeyBase64,
+      }))
     ) {
       c.status(statusFor('promote-only-build') as never);
       return c.json(
         toWireError(
           {
             code: 'promote-only-build',
-            message: `This build reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). Deploy it into a project before this one in its environment order and promote it from there; nothing was deployed.`,
+            message: `This build reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). Deploy it into a project before this one in its environment order (a tenant admin makes one when there's none) and promote it from there; nothing was deployed.`,
             signerKeyId: wire.signerKeyId as unknown as string,
             ...(entryProjectId !== undefined && {
               projectId: entryProjectId as unknown as string,
@@ -1945,40 +1950,6 @@ async function mayBeInProduction(
   if (projects === undefined || projectId === undefined) return true;
   const project = await projects.get(tenantId, projectId);
   return project === undefined || project.productionSince !== undefined;
-}
-
-/**
- * Whether the build is promote-only: its envelope says so, or its key does.
- * A key whose id starts with `PROMOTE_ONLY_KEY_PREFIX` signs only such
- * builds, and so does any key with the public key of one the workspace has
- * ever trusted (a revoked entry is kept), so trusting the same key again
- * under another id never lifts it.
- */
-async function promoteOnlyBuild(
-  keys: SigningKeyRegistryBinding,
-  tenantId: TenantId,
-  wire: WireBody,
-  publicKey: string,
-): Promise<boolean> {
-  if (wire.productionEntry === 'promote-only') return true;
-  if ((wire.signerKeyId as unknown as string).startsWith(PROMOTE_ONLY_KEY_PREFIX)) return true;
-  let cursor: Cursor | undefined;
-  do {
-    const page = await keys.listTrusted({
-      tenantId,
-      limit: 100,
-      includeRevoked: true,
-      ...(cursor !== undefined && { cursor }),
-    });
-    const marked = page.data.some(
-      (key) =>
-        (key.keyId as unknown as string).startsWith(PROMOTE_ONLY_KEY_PREFIX) &&
-        key.publicKey === publicKey,
-    );
-    if (marked) return true;
-    cursor = page.nextCursor;
-  } while (cursor !== undefined);
-  return false;
 }
 
 // ------------------------------------------------------------

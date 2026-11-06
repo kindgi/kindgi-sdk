@@ -8,7 +8,8 @@
  * @generated Wire shapes from `../generated/api.js`.
  *
  * Register a deployment by handing in a signed Ed25519 envelope over
- * `{ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }`.
+ * `{ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }`, and
+ * `productionEntry` when it has one.
  * Server verifies signature against the workspace trust-list, pulls the
  * image, validates + upserts every packed primitive (tools, guardrails,
  * agents, flows), and appends an immutable ledger row. All-or-nothing.

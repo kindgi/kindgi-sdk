@@ -14,7 +14,12 @@
  *   - into a project not in production it registers, and keeps the mark;
  *   - a `productionEntry` the runtime doesn't know is `400`, and the field
  *     is signed: sent without being signed, or signed without being sent,
- *     the signature doesn't verify.
+ *     the signature doesn't verify;
+ *   - a public key compares by its bytes, so the trust list's spelling of
+ *     it (padded or not) doesn't matter;
+ *   - `PUT /v1/projects/:projectId/production` refuses to put a project in
+ *     production with the same `409` while a deployment that may still
+ *     serve it is promote-only, by any of the three tests.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -60,7 +65,10 @@ const DEV = randomUUID() as ProjectId;
 /** In production, and the workspace's default. */
 const PROD = randomUUID() as ProjectId;
 
-function projects(): ProjectBinding {
+/** The projects; `setProduction` puts DEV in production, and counts its calls. */
+function projects(): ProjectBinding & { readonly switched: number } {
+  let devSince: Timestamp | undefined;
+  let switched = 0;
   const row = (id: ProjectId): Project =>
     ({
       id,
@@ -71,16 +79,25 @@ function projects(): ProjectBinding {
       createdAt: '2026-11-01T00:00:00.000Z',
       updatedAt: '2026-11-01T00:00:00.000Z',
       ...(id === PROD && { productionSince: '2026-11-02T00:00:00.000Z' as Timestamp }),
+      ...(id === DEV && devSince !== undefined && { productionSince: devSince }),
     }) as Project;
   return {
+    get switched() {
+      return switched;
+    },
     getDefault: async () => row(PROD),
     get: async (t: TenantId, id: ProjectId) =>
       t === tenantId && (id === DEV || id === PROD) ? row(id) : undefined,
+    setProduction: async (_t: TenantId, id: ProjectId, on: boolean) => {
+      switched += 1;
+      if (id === DEV) devSince = on ? ('2026-11-06T12:00:00.000Z' as Timestamp) : undefined;
+      return { kind: 'ok', productionSince: row(id).productionSince ?? null, changed: true };
+    },
     create: notUsed,
     list: notUsed,
     update: notUsed,
     delete: notUsed,
-  } as unknown as ProjectBinding;
+  } as unknown as ProjectBinding & { readonly switched: number };
 }
 
 interface Trust {
@@ -149,7 +166,21 @@ function ledger(): DeploymentBinding & { readonly rows: Deployment[] } {
     get: async ({ deploymentId }) => rows.find((d) => d.deploymentId === deploymentId) ?? null,
     getByImageDigest: async ({ imageDigest, projectId }) =>
       rows.find((d) => d.imageDigest === imageDigest && d.projectId === projectId) ?? null,
-    list: async () => ({ data: rows }),
+    // One a page, so a match on a later page needs every page read. The
+    // default project also lists the deployments that name none.
+    async list({ projectId, cursor }) {
+      const listed = rows.filter(
+        (d) =>
+          projectId === undefined ||
+          d.projectId === projectId ||
+          (projectId === PROD && d.projectId === undefined),
+      );
+      const from = cursor === undefined ? 0 : Number(cursor);
+      return {
+        data: listed.slice(from, from + 1),
+        ...(from + 1 < listed.length && { nextCursor: String(from + 1) as Cursor }),
+      };
+    },
   };
 }
 
@@ -225,6 +256,7 @@ function deploy(opts: {
 
 function harness(opts: { readonly trust?: readonly Trust[]; readonly noProjects?: boolean } = {}) {
   const deployments = ledger();
+  const projectBinding = projects();
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -232,7 +264,7 @@ function harness(opts: { readonly trust?: readonly Trust[]; readonly noProjects?
     deploymentRegistry: deployments,
     signingKeyRegistry: trustList(opts.trust ?? [{ keyId: RELEASE_KEY, publicKey: PUBLIC_KEY }]),
     imageRegistry: images,
-    ...(opts.noProjects !== true && { projectBinding: projects() }),
+    ...(opts.noProjects !== true && { projectBinding }),
   });
   const post = async (body: Record<string, unknown>) => {
     const res = await app.request('/v1/deployments', {
@@ -242,8 +274,19 @@ function harness(opts: { readonly trust?: readonly Trust[]; readonly noProjects?
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { deployments, post };
+  const putProduction = async (projectId: ProjectId, production: boolean) => {
+    const res = await app.request(`/v1/projects/${projectId}/production`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ production }),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  return { deployments, projects: projectBinding, post, putProduction };
 }
+
+/** A key's base64 without its padding, as `POST /v1/signing-keys` takes it. */
+const unpadded = (base64: string) => base64.replace(/=+$/, '');
 
 describe('the envelope signs productionEntry only when it is there', () => {
   const fields = {
@@ -326,6 +369,20 @@ describe('a promote-only build reaches a project in production only by promotion
     expect(h.deployments.rows).toHaveLength(0);
   });
 
+  test("the prefixed key trusted without its padding still marks the same key's other id", async () => {
+    expect(unpadded(PUBLIC_KEY)).not.toBe(PUBLIC_KEY);
+    const h = harness({
+      trust: [
+        { keyId: `${PROMOTE_ONLY_KEY_PREFIX}acme`, publicKey: unpadded(PUBLIC_KEY) },
+        { keyId: RELEASE_KEY, publicKey: PUBLIC_KEY },
+      ],
+    });
+    const res = await h.post(deploy({ projectId: PROD }));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('promote-only-build');
+    expect(h.deployments.rows).toHaveLength(0);
+  });
+
   test('a build that is none of these deploys into production as before', async () => {
     const h = harness();
     const res = await h.post(deploy({ projectId: PROD }));
@@ -371,5 +428,106 @@ describe('productionEntry on the wire', () => {
     expect(signedOnly.status).toBe(400);
     expect(signedOnly.body.error.code).toBe('signature-invalid');
     expect(h.deployments.rows).toHaveLength(0);
+  });
+});
+
+describe('turning production on for a project that holds a promote-only build', () => {
+  test('its envelope says so: 409 promote-only-build naming it, and the project stays out', async () => {
+    const h = harness();
+    const marked = await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }));
+    expect(marked.status).toBe(201);
+    // An unmarked one listed first, so the marked one is on the second page.
+    const unmarked = Object.fromEntries(
+      Object.entries(h.deployments.rows[0] as Deployment).filter(([k]) => k !== 'productionEntry'),
+    ) as unknown as Deployment;
+    h.deployments.rows.unshift({ ...unmarked, deploymentId: 'dep-unmarked' });
+    const res = await h.putProduction(DEV, true);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'promote-only-build',
+      details: {
+        deploymentId: marked.body.deploymentId,
+        signerKeyId: RELEASE_KEY,
+        projectId: DEV,
+      },
+    });
+    expect(h.projects.switched).toBe(0);
+  });
+
+  test('its key id has the prefix: refused', async () => {
+    const keyId = `${PROMOTE_ONLY_KEY_PREFIX}acme`;
+    const h = harness({ trust: [{ keyId, publicKey: PUBLIC_KEY }] });
+    expect((await h.post(deploy({ keyId, projectId: DEV }))).status).toBe(201);
+    const res = await h.putProduction(DEV, true);
+    expect(res.status).toBe(409);
+    expect(res.body.error.details).toMatchObject({ signerKeyId: keyId, projectId: DEV });
+  });
+
+  test("its public key is a prefixed key's, trusted revoked and unpadded: refused", async () => {
+    const h = harness({
+      trust: [
+        { keyId: RELEASE_KEY, publicKey: PUBLIC_KEY },
+        {
+          keyId: `${PROMOTE_ONLY_KEY_PREFIX}acme`,
+          publicKey: unpadded(PUBLIC_KEY),
+          revoked: true,
+        },
+      ],
+    });
+    expect((await h.post(deploy({ projectId: DEV }))).status).toBe(201);
+    const res = await h.putProduction(DEV, true);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('promote-only-build');
+    expect(h.projects.switched).toBe(0);
+  });
+
+  test('a promote-only build nothing keeps any more no longer holds it', async () => {
+    const h = harness();
+    expect((await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }))).status).toBe(
+      201,
+    );
+    const row = h.deployments.rows[0] as { endpoint?: unknown };
+    row.endpoint = {
+      status: 'cleared',
+      since: '2026-11-06T11:00:00.000Z',
+      retired: 'superseded',
+      keptFor: [],
+    };
+    const res = await h.putProduction(DEV, true);
+    expect(res.status).toBe(200);
+    expect(res.body.productionSince).not.toBeNull();
+  });
+
+  test('one something still keeps holds it, retired or not', async () => {
+    const h = harness();
+    expect((await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }))).status).toBe(
+      201,
+    );
+    const row = h.deployments.rows[0] as { endpoint?: unknown };
+    row.endpoint = {
+      status: 'cleared',
+      since: '2026-11-06T11:00:00.000Z',
+      retired: 'project-suspended',
+      keptFor: [{ kind: 'agent', id: 'acme.helper', version: '1.0.0', registered: true }],
+    };
+    expect((await h.putProduction(DEV, true)).status).toBe(409);
+  });
+
+  test("another project's promote-only build doesn't hold this one", async () => {
+    const h = harness();
+    expect((await h.post(deploy({ productionEntry: 'promote-only', projectId: DEV }))).status).toBe(
+      201,
+    );
+    (h.deployments.rows[0] as { projectId?: ProjectId }).projectId = randomUUID() as ProjectId;
+    expect((await h.putProduction(DEV, true)).status).toBe(200);
+  });
+
+  test('a project with only builds that are none of these goes into production as before', async () => {
+    const h = harness();
+    expect((await h.post(deploy({ projectId: DEV }))).status).toBe(201);
+    const res = await h.putProduction(DEV, true);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ projectId: DEV, productionSince: '2026-11-06T12:00:00.000Z' });
+    expect(h.projects.switched).toBe(1);
   });
 });

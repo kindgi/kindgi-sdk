@@ -739,7 +739,7 @@ export const ERROR_ENTRIES = {
   },
   'promote-only-build': {
     description:
-      "The build is promote-only, so it reaches a project in production only by promotion, never by a deploy. Its envelope says `productionEntry: 'promote-only'`, or the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted. The project you named (or the default project, when you named none) is in production, or this runtime can't read whether it is. Deploy the build into a project that isn't in production and comes before this one in its environment order, then promote it from there. Nothing is deployed.",
+      "The build is promote-only, so it reaches a project in production only by promotion, never by a deploy. Its envelope says `productionEntry: 'promote-only'`, or the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted. At a deploy: the project you named (or the default project, when you named none) is in production, or this runtime can't read whether it is. Deploy the build into a project that isn't in production and comes before this one in its environment order (a tenant admin makes one when there's none), then promote it from there. Nothing is deployed. At `PUT /v1/projects/{projectId}/production`: the project holds a deployment of such a build that may still serve it, so it can't go into production. Put another project after it in its environment order, turn production on there, and promote into it. Nothing changes.",
     details: [
       {
         key: 'signerKeyId',
@@ -747,7 +747,12 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'projectId',
-        meaning: 'the project the deploy was aimed at; absent when no project could be read',
+        meaning:
+          'the project the deploy was aimed at, or the one put in production; absent when no project could be read',
+      },
+      {
+        key: 'deploymentId',
+        meaning: 'at the production switch: the promote-only deployment the project holds',
       },
     ],
   },
