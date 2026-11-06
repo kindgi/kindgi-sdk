@@ -16,8 +16,9 @@
  *      process rule numbers, release batches), and none of the names the
  *      repository doesn't use (`text-scan.mjs`), in the text of tracked
  *      docs, manifests, source, tests and templates in any of the
- *      repository's languages (`PUBLIC_TEXT_FILE`), or in any tracked path.
- *      A changelog keeps what its releases said (`fileTextProblems`).
+ *      repository's languages (`PUBLIC_TEXT_FILE`); and none of the names
+ *      in any tracked path. A changelog keeps what its releases said
+ *      (`fileTextProblems`).
  *   3. Every path a skill's frontmatter lists under `sources:` (repository-
  *      relative) is a tracked file or directory.
  *   4. A skill's links to docs.kindgi.com name this release line's docs

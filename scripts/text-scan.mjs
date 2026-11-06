@@ -102,11 +102,18 @@ function withoutAllowed(line, allowed) {
 /**
  * The tracked files the file rules read (`check-refs.mjs`): docs,
  * manifests, and the source, tests and templates of each of the
- * repository's languages. Not an ignore list, which names what's kept out,
- * nor a binary.
+ * repository's languages, those with no extension of their own among them
+ * (the git hooks, the wrappers `init` copies into a project, the Java
+ * pack's launcher). Not an ignore list, which names what's kept out, nor a
+ * binary, nor Maven's own wrapper (`mvnw`).
  */
-export const PUBLIC_TEXT_FILE =
-  /\.(ts|tsx|mts|cts|js|mjs|cjs|md|mdx|json|ya?ml|py|java|scala|sbt|php|sh|sql|tf|tfvars|hcl|astro|tmpl|liquid|css|xml|properties)$/;
+export const PUBLIC_TEXT_FILE = new RegExp(
+  [
+    /\.(ts|tsx|mts|cts|js|mjs|cjs|md|mdx|json|jsonc|ya?ml|toml|py|java|scala|sbt|php|sh|sql|tf|tfvars|hcl|astro|tmpl|liquid|css|xml|properties|txt)$/
+      .source,
+    /(^|\/)(scripts\/hooks\/[^/]+|kindgiw|kindgiw\.cmd|kindgi-pack-java)$/.source,
+  ].join('|'),
+);
 
 /**
  * A changelog records what releases said, so it keeps the names and

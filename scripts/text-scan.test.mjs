@@ -243,15 +243,40 @@ describe("internal tracking references, in a repository file's text", () => {
       changeset,
       'site/src/content/docs/guides/a.mdx',
       'sdks/python/tests/test_client.py',
+      'sdks/python/pyproject.toml',
       'sdks/java/kindgi-client/src/main/java/com/kindgi/A.java',
       'sdks/scala/build.sbt',
       'packages/cli/src/templates/java/pom.xml.tmpl',
+      'packages/cli/tests/__snapshots__/a.txt',
+      'integrations/wordpress/kindgi/readme.txt',
       'deploy/gcp-cloud-run/main.tf',
+      'site/wrangler.jsonc',
       '.github/workflows/ci.yml',
     ]) {
       assert.ok(PUBLIC_TEXT_FILE.test(file), file);
     }
-    for (const file of ['.gitignore', 'site/public/favicon.png', 'LICENSE']) {
+    for (const file of [
+      '.gitignore',
+      'site/public/favicon.png',
+      'LICENSE',
+      'sdks/java/mvnw',
+      'sdks/java/mvnw.cmd',
+    ]) {
+      assert.ok(!PUBLIC_TEXT_FILE.test(file), file);
+    }
+  });
+
+  test('the files read with no extension of their own: the git hooks and the wrappers', () => {
+    for (const file of [
+      'scripts/hooks/commit-msg',
+      'scripts/hooks/pre-push',
+      'packages/cli/src/templates/java/kindgiw',
+      'packages/cli/src/templates/java/kindgiw.cmd',
+      'sdks/java/kindgi-pack/src/main/resources/com/kindgi/pack/kindgi-pack-java',
+    ]) {
+      assert.ok(PUBLIC_TEXT_FILE.test(file), file);
+    }
+    for (const file of ['packages/cli/src/templates/java/mvnw', 'scripts/hooks', 'kindgiwrapper']) {
       assert.ok(!PUBLIC_TEXT_FILE.test(file), file);
     }
   });
