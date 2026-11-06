@@ -6155,7 +6155,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'files.create',
     summary: 'Create a file',
     description:
-      "Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`.",
+      "Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
     tags: ['files'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6175,7 +6175,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed multipart body, bad tag JSON, hash mismatch (`blob-hash-mismatch`), declared size mismatch (`blob-size-mismatch`), or a `projectId` that isn't the owner run's.",
       ),
       '403': ErrorResponse(
-        "No `write` on the project, and no `run` there for a file of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
+        "No `write` on the project, and no `run` there for a file of the caller's own that names no run (`permission-denied`); the caller's API key is limited to another project (`key-project-mismatch`); or the workspace's storage limit has no room for the file (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
       ),
       '404': ErrorResponse('No such owner run (`run-not-found`).'),
       '413': ErrorResponse(
@@ -6247,7 +6247,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'files.versions.add',
     summary: 'Add a version',
     description:
-      "Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`.",
+      "Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`. A version the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
     tags: ['files'],
     security: 'bearer',
     parameters: [FileIdPathParam, IdempotencyKeyParam],
@@ -6270,7 +6270,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed multipart body, bad tag JSON, an `expectedVersion` that is not a version number, an `ownerRunId` or `projectId` (a version stays in its file's project), hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).",
       ),
-      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '403': ErrorResponse(
+        "No `write` on its project (`permission-denied`), or the workspace's storage limit has no room for the version (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
+      ),
       '404': FileNotFound,
       '409': FileVersionConflict,
       '413': ErrorResponse(
