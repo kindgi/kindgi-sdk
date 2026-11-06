@@ -124,6 +124,14 @@ from **Connections**, or from a run that's waiting for you. If LinkedIn
 gives your app refresh tokens, as it does for partners it approves, Kindgi
 renews the access as it does for other apps.
 
+Seven days before the access ends, the connection says so: "Ends on *date*.
+Connect it again to keep posting." It shows on **Connections** and on the
+connection's own page, with **Reconnect** for whoever can reconnect it.
+Where the deployment sends mail, they also get one email
+([The heads-up before a connection's access ends](../../../deploy/self-hosted/sign-in/#the-heads-up-before-a-connections-access-ends)).
+Reconnecting while you're signed in at LinkedIn skips LinkedIn's consent
+page.
+
 If you turn it down on LinkedIn's page, the connect is declined. If a
 tool's call asked you to connect, that call fails with
 `connection-declined`.
