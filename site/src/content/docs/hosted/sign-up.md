@@ -1,6 +1,6 @@
 ---
 title: Sign up for Kindgi Cloud
-description: Create a Kindgi Cloud workspace for your organization: the form, the email link, your organization's details and the terms, and signing in for the first time.
+description: "Create a Kindgi Cloud workspace for your organization: the form, the email link, your organization's details and the terms, and signing in for the first time."
 sidebar:
   order: 2
 ---
