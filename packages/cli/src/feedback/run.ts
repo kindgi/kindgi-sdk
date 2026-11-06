@@ -687,10 +687,16 @@ function packDirOf(ctx: CommandContext): string {
 }
 
 function homeOf(ctx: CommandContext): string {
-  return pickHome({
+  const home = pickHome({
     ...(ctx.home !== undefined ? { ctxHome: ctx.home } : {}),
     ...(typeof ctx.env.HOME === 'string' && ctx.env.HOME !== '' ? { envHome: ctx.env.HOME } : {}),
   });
+  if (home === undefined) {
+    throw new UsageError(
+      'Found no home folder for .kindgi/feedback/, since HOME is empty. Set HOME and run it again.',
+    );
+  }
+  return home;
 }
 
 function isoNow(ctx: CommandContext): string {
