@@ -285,6 +285,67 @@ describe('matchTuples — tenant policy layering', () => {
     if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
     expect(r.value.map((t) => t.provider.metadata.id)).toEqual(['openai', 'anthropic']);
   });
+
+  test('tenant maxTokensPerCall is the smallest context window: a model below it is not picked', () => {
+    const providers = providersOf(
+      meta('small', { model: { contextWindow: 8_192 } }),
+      meta('exact', { model: { contextWindow: 100_000 } }),
+      meta('large', { model: { contextWindow: 200_000 } }),
+    );
+    const cap: Capability = { needs: [{ feature: 'tool-use' }] };
+    const policy: TenantPolicy = { tenantId: TENANT_A, maxTokensPerCall: 100_000 };
+    const r = matchTuples({ capability: cap, providers, tenantPolicy: policy });
+    if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
+    expect(r.value.map((t) => t.provider.metadata.id)).toEqual(['exact', 'large']);
+  });
+
+  test('tenant maxCostPerCallUsd is the highest prompt price per 1K tokens', () => {
+    const providers = providersOf(
+      meta('cheap', {
+        model: { cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 } },
+      }),
+      meta('dear', {
+        model: { cost: { promptUsdPer1kTokens: 0.015, completionUsdPer1kTokens: 0.075 } },
+      }),
+    );
+    const cap: Capability = { needs: [{ feature: 'tool-use' }] };
+    const policy: TenantPolicy = { tenantId: TENANT_A, maxCostPerCallUsd: 0.003 };
+    const r = matchTuples({ capability: cap, providers, tenantPolicy: policy });
+    if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
+    expect(r.value.map((t) => t.provider.metadata.id)).toEqual(['cheap']);
+  });
+
+  test('a refusal by either names what it checks', () => {
+    const providers = providersOf(
+      meta('small', {
+        model: {
+          contextWindow: 8_192,
+          cost: { promptUsdPer1kTokens: 0.015, completionUsdPer1kTokens: 0.075 },
+        },
+      }),
+    );
+    const cap: Capability = { needs: [{ feature: 'tool-use' }] };
+    const policy: TenantPolicy = {
+      tenantId: TENANT_A,
+      maxCostPerCallUsd: 0.003,
+      maxTokensPerCall: 100_000,
+    };
+    const r = matchTuples({ capability: cap, providers, tenantPolicy: policy });
+    if (r.kind !== 'err' || r.error.code !== 'capability-unsatisfiable') {
+      throw new Error(JSON.stringify(r));
+    }
+    expect(r.error.reasons.map((x) => x.requirement)).toEqual([
+      'tenant.maxCostPerCallUsd: promptUsdPer1kTokens<=0.003',
+      'tenant.maxTokensPerCall: contextWindow>=100000',
+    ]);
+    expect(r.error.reasons[1]?.rejectingProviders[0]?.reason).toEqual({
+      code: 'context-window-mismatch',
+      message: 'contextWindow=8192 < workspace minimum 100000',
+      observed: 8_192,
+      op: '>=',
+      wanted: 100_000,
+    });
+  });
 });
 
 describe('route — preference ranking', () => {
