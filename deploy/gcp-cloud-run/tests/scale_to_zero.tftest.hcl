@@ -84,7 +84,7 @@ run "request_billing_at_zero_ticks_each_minute" {
       google_cloud_scheduler_job.tick[0].schedule == "* * * * *" &&
       google_cloud_scheduler_job.tick[0].time_zone == "Etc/UTC" &&
       google_cloud_scheduler_job.tick[0].attempt_deadline == "1800s" &&
-      google_cloud_scheduler_job.tick[0].retry_config[0].retry_count == 0 &&
+      length(google_cloud_scheduler_job.tick[0].retry_config) == 0 &&
       google_cloud_scheduler_job.tick[0].http_target[0].http_method == "POST" &&
       google_cloud_scheduler_job.tick[0].http_target[0].uri == "https://kindgi-dev-server-123456789012.northamerica-northeast2.run.app/internal/tick"
     )

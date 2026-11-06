@@ -42,9 +42,8 @@ resource "google_cloud_scheduler_job" "tick" {
   time_zone        = "Etc/UTC"
   attempt_deadline = "1800s"
 
-  retry_config {
-    retry_count = 0
-  }
+  # No retry_config: Cloud Scheduler's default is no retries. A block that
+  # sets only the default reads back as none, so every plan shows it again.
 
   http_target {
     http_method = "POST"
