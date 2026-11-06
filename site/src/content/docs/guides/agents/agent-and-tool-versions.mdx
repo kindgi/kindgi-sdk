@@ -71,6 +71,12 @@ published, so a version can't be published with a tool it can't run:
 }
 ```
 
+A runtime that removes unregistered versions may remove a tool version
+while an agent version that pins it is being published. The publish then
+writes nothing and answers `400 reference-out-of-scope`, with an issue at the
+tool (`/tools/0`) that names the version removed. Publishing again pins the
+tool afresh.
+
 **Under `kindgi dev`,** agents aren't published: each turn resolves its
 ranges when it starts, so a tool you save is used at the next turn. An agent
 version published without pins resolves its ranges per run too.

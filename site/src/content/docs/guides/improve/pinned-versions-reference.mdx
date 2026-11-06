@@ -108,6 +108,17 @@ is published: the pinned version, from the project, then the org, then the
 workspace, or the project's Latest when none is pinned. Its turns say
 `"via": "flow-pin"`, and pinning another version doesn't change them.
 
+A version a step names is checked the way its runs check it. Publishing,
+reinstating or deploying a flow version whose step names an agent version
+that doesn't exist, or one the flow's project doesn't run, answers
+`400 reference-out-of-scope` with an issue at the step's path
+(`/nodes/<id>`), and nothing is published. An unregistered version is
+accepted, since its runs still take it. A runtime that removes unregistered
+versions may remove one that a flow version names or pins while that version
+is being published. The answer is then the same, with an issue at each path
+that names the removed version. Publishing again refuses a named version
+that's gone, and pins a pinned one afresh.
+
 Here `acme.order-flow` 1.0.0 was published while 1.3.0 was pinned. After the
 workspace pinned 1.0.0, its step still ran 1.3.0:
 
