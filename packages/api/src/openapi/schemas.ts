@@ -8620,7 +8620,7 @@ export const MCPAuthHeaderSchema: JsonSchema = {
       maxLength: 256,
       pattern: "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
       description:
-        'An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.',
+        'An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, any `Mcp-Param-…`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.',
     },
     secretRef: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
     prefix: {
@@ -8673,7 +8673,7 @@ const MCP_CONFIG_HEADERS: JsonSchema = {
   type: 'object',
   additionalProperties: { type: 'string' },
   description:
-    'Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.',
+    "Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`. Nor one of MCP's own headers, whatever its case: `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` or any `Mcp-Param-…` is refused (`invalid-mcp-endpoint`, reason `transport-header-in-config`). The MCP client sets them itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments.",
 };
 
 /** A stdio endpoint's `config.env`: plain variables, never a credential. */

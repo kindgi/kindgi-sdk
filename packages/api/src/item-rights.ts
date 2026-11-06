@@ -53,6 +53,7 @@ import type {
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
 import { isReadMethod } from './read-method.js';
+import { UUID_RE } from './routes/uuid-param.js';
 import type { AppEnv } from './types.js';
 
 type Ctx = Context<AppEnv>;
@@ -1075,8 +1076,6 @@ export type ShownLatest<T> =
   | { readonly kind: 'ok'; readonly row: T }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'bad-input'; readonly message: string };
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Which version `GET /:id` answers, given the item's newest active one.

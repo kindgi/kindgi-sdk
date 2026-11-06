@@ -1,6 +1,6 @@
 # `@kindgi/types`
 
-Foundational TypeScript types shared across Kindgi. Almost entirely type-only: the runtime exports are small helpers with no dependencies, `makeEnvName` (the validated constructor for `EnvName`), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS`.
+Foundational TypeScript types shared across Kindgi. Almost entirely type-only: the runtime exports are small helpers with no dependencies, `makeEnvName` (the validated constructor for `EnvName`), `UUID_RE` (the one check of a UUID id's shape), `isCredentialName`, `headerValueProblem` and `bearerValueProblem`, `parseCloudSecretVersion` with `CLOUD_SECRET_FORM`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS` and `FILE_NOT_READ_REASONS`.
 
 ## Purpose
 
@@ -10,6 +10,7 @@ Provide the canonical, branded ID types and reference shapes used across Kindgi,
 
 - **Branded IDs** — `TenantId`, `UserId`, `OrgId`, `TeamId`, `ProjectId`, `ThreadId`, `ConversationId`, `SessionId`, `RunId`, `FlowId`, `NodeId`, `EdgeId`, `AgentId`, `ToolId`, `GuardrailId`, `PolicyId`, `PackId`, `EventId`, `FactId`, `LogEntryId`, `ArtifactId`, `ProvenanceId`, `SubscriptionId`, `ApprovalId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `SuggestedChangeId`, `AuditBundleId`, `ComplianceEvidenceId`, `WaitTokenId`, `DatasetId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`.
 - **Environment names** — `EnvName` (`[a-z][a-z0-9-]{0,62}`) and `makeEnvName(raw)`, which returns the branded value or `null` on a grammar violation.
+- **UUIDs** — `UUID_RE`, the one pattern every UUID id is checked against: 8-4-4-4-12 hex digits, any version, either case.
 - **Brand utility** — `Brand<T, B>` for constructing pack-scoped IDs (e.g. a `MatterId` in a pack that tracks legal matters).
 - **Temporal** — `Timestamp` (ISO 8601 UTC branded string), `DurationMs`, `IsoDuration`.
 - **Hash & signature** — `ContentHash` (`sha256:<hex>`), `SignatureValue` (base64 Ed25519), `KeyId`.
@@ -36,6 +37,6 @@ const hash: ContentHash = 'sha256:abc123...' as ContentHash;
 
 ## Non-goals
 
-- **No runtime validation.** Branded types are compile-time only. Validation of wire payloads lives in `@kindgi/schema`; `makeEnvName` and `isFileValue` are the exceptions, each a check with no dependency.
+- **No runtime validation.** Branded types are compile-time only. Validation of wire payloads lives in `@kindgi/schema`; the runtime exports above (`makeEnvName`, `UUID_RE`, `isFileValue` and the rest) are the exceptions, each a check with no dependency.
 - **No constructors.** Construction is by `as` cast, except `makeEnvName` for `EnvName`.
 - **No business logic.** Only types that are used by two or more packages belong here. Package-scoped types stay in that package.
