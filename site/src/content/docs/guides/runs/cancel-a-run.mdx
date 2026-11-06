@@ -97,8 +97,7 @@ A cancel ends the run at once, wherever the run is:
   - With more than one instance, when another one runs it, that instance
     stops the step at its next check for ended runs, every
     [`KINDGI_RUN_ENDED_CHECK_MS`](../../../reference/env-vars/#kindgi_run_ended_check_ms)
-    (5 s by default), or at the step's next journal write if that comes
-    first. Until then, a model call in flight goes on.
+    (5 s by default). Until then, a model call in flight goes on.
 - **A step that ends as it lands keeps its end.** Its `step.completed` comes
   after `run.cancelled` in the journal: it did finish.
 

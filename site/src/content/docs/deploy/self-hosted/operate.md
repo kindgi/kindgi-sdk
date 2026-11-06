@@ -68,7 +68,7 @@ Up to 0.1.7, they're on this page, from
 
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says which set of migrations it was applying, such as `the storage migrations`, and why: `kindgi-runtime: fatal: Error: migration failed in the <name> migrations: …`.
 
-A migration that adds an index to a large table builds it during that start, before the runtime serves, so the more rows the table has, the longer the start takes. The build doesn't block writes to the table, and it first waits for every transaction already open on the database to end. Let the start finish: a restart in the middle throws the build away, and the next start builds that index again from the beginning.
+A migration that adds an index to a large table builds it during that start, before the runtime serves, so the more rows the table has, the longer the start takes. Some of these builds don't block writes to the table. Each of those first waits for every transaction already open on the database to end, so a long one, such as a backup still running, holds the start until it ends. Let the start finish: a restart in the middle throws the build away, and the next start builds that index again from the beginning.
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](../back-up-and-restore/#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
@@ -532,10 +532,10 @@ What to check before you upgrade, and what's different after:
   Every secret and env write through the API is in the audit log too,
   never with a value.
 - **A turn stops when its run is stopped:** a model or tool call in flight
-  is aborted at once on a shutdown, and on a cancel taken by the instance
-  running the run. With more than one instance, a cancel another instance
-  takes stops it within `KINDGI_RUN_ENDED_CHECK_MS` (5 s by default), or at
-  the step's next journal write if that comes first.
+  is aborted on a shutdown once the runs executing have had their 7 s to
+  finish, and at once on a cancel taken by the instance running the run.
+  With more than one instance, a cancel another instance takes stops it
+  within `KINDGI_RUN_ENDED_CHECK_MS` (5 s by default).
 - **Cancelling a flow while it runs a loop stops the loop:** no more of its
   steps start after the cancel.
 - **Two runtime instances starting at once no longer deadlock or race each
