@@ -265,9 +265,15 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         c.status(statusFor(parsed.error.code) as never);
         return c.json(toWireError(parsed.error, requestId));
       }
+      // A field sent back at its stored value leaves it alone, so the edit that
+      // reads a provider and sends it back with one change goes through.
+      const body = parsedJson.value as Record<string, unknown>;
       const refused = joinRefusal(
         identityProvider,
-        parsedJson.value as Record<string, unknown>,
+        {
+          join: body.join !== existing.join ? body.join : undefined,
+          joinRole: body.joinRole !== existing.joinRole ? body.joinRole : undefined,
+        },
         parsed.value,
       );
       if (refused !== undefined) {
@@ -433,7 +439,8 @@ function providerNotFound(c: Context<AppEnv>, providerId: string): Response {
 
 /**
  * Refuses a registration or change that sets `join: domain` or `joinRole`
- * (`set`, the body) on a deployment that can't join by domain, and a
+ * (`set`: a registration's body, or what a change's body changes from the
+ * stored provider) on a deployment that can't join by domain, and a
  * `joinRole` the provider wouldn't use (`result`, the provider after the
  * change, isn't `join: domain`). A change that leaves both alone goes
  * through, so a provider stored with them keeps them, and `join: invite`

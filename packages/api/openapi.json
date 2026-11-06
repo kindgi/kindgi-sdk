@@ -56905,7 +56905,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets `join: domain` or `joinRole` where the deployment has no authorization store (`domain-join-needs-authorization`, `KINDGI_OPENFGA_API_URL`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57252,7 +57252,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets `join: domain` or `joinRole` where the deployment has no authorization store (`domain-join-needs-authorization`, `KINDGI_OPENFGA_API_URL`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.",
             "content": {
               "application/json": {
                 "schema": {

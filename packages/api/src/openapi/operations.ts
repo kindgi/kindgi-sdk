@@ -1763,10 +1763,13 @@ export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
   );
 }
 
-/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+/**
+ * Adding or changing a provider: the usual conflicts, a deployment without a
+ * secrets store, or domain join where there's no authorization store.
+ */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
-    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets \`join: domain\` or \`joinRole\` where the deployment has no authorization store (\`domain-join-needs-authorization\`, \`KINDGI_OPENFGA_API_URL\`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.`,
   );
 }
 

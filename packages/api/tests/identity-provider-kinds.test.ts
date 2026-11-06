@@ -340,6 +340,11 @@ describe('domain join', () => {
     expect(renamed.status).toBe(200);
     expect(stored.get('acme-okta')?.joinRole).toBe('none');
 
+    // Sent back as stored, with one change: the role isn't set, so it's not refused.
+    const resent = await patch(app, { join: 'invite', joinRole: 'none', displayName: 'Acme 2' });
+    expect(resent.status).toBe(200);
+    expect(stored.get('acme-okta')).toMatchObject({ displayName: 'Acme 2', joinRole: 'none' });
+
     const role = await patch(app, { joinRole: 'viewer' });
     expect(role.status).toBe(400);
     expect((await errorOf(role)).message).toContain('`joinRole` needs `join: domain`');
@@ -378,12 +383,19 @@ describe('domain join', () => {
       join: 'domain',
       joinRole: 'viewer',
     });
-    for (const body of [{ join: 'domain' }, { joinRole: 'member' }]) {
-      const res = await patch(app, body);
-      expect(res.status).toBe(409);
-      expect((await errorOf(res)).code).toBe('domain-join-needs-authorization');
-    }
+    // Sent back as stored, with one change, they're left alone.
+    const resent = await patch(app, { join: 'domain', joinRole: 'viewer', displayName: 'Acme 2' });
+    expect(resent.status).toBe(200);
+    expect(stored.get('acme-okta')).toMatchObject({ displayName: 'Acme 2', join: 'domain' });
+
+    const role = await patch(app, { joinRole: 'member' });
+    expect(role.status).toBe(409);
+    expect((await errorOf(role)).code).toBe('domain-join-needs-authorization');
     expect((await patch(app, { join: 'invite' })).status).toBe(200);
+    const join = await patch(app, { join: 'domain' });
+    expect(join.status).toBe(409);
+    expect((await errorOf(join)).code).toBe('domain-join-needs-authorization');
+    expect(stored.get('acme-okta')?.join).toBe('invite');
   });
 });
 
