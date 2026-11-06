@@ -151,8 +151,13 @@ On `/v1/memory`, a tenant admin reads every fact. Anyone else reads:
 - the facts of every end user and conversation in the projects they may
   write: an app's own key, acting for its users.
 
+A key limited to a project reads the above for its project and that
+project's org only. It also reads its person's own facts that name no other
+project or org: what the runs it starts there may recall for that person.
+
 A write is checked against the scope it names, and answers
-`403 permission-denied` otherwise.
+`403 permission-denied` otherwise. A key limited to a project writes,
+changes, verifies and deletes its person's facts only in that project.
 
 An end user is `participantId` on a conversation or a fact. Give an id your
 app uses for the person, never their email or name: ids stay on records an

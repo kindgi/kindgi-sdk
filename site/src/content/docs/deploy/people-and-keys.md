@@ -403,9 +403,11 @@ a role.
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
   most 280 characters.
 
-A key limited to a project sees that project alone. A `member` key is never
-a tenant admin. You see only what you may read: no project you can't read,
-and no one else's role.
+A key limited to a project sees that project alone (in memory, it also reads
+its person's own facts that name no other project:
+[Who sees what](../../guides/agents/memory-reference/#who-sees-what)). A
+`member` key is never a tenant admin. You see only what you may read: no
+project you can't read, and no one else's role.
 
 The console hides actions by it
 ([The console, by role](../authorization/#the-console-by-role)). The server
