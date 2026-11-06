@@ -861,6 +861,43 @@ describe("a key limited to a project reaches only that project's resources", () 
     expect(got).toEqual([P1]);
   });
 
+  test("a lookup that fails, by rejecting or by throwing: the key's own org is refused 403, once per request", async () => {
+    for (const fails of ['rejects', 'throws'] as const) {
+      const got: string[] = [];
+      const projects = {
+        get: (_t: TenantId, id: string) => {
+          got.push(id);
+          if (fails === 'throws') throw new Error('the projects store is down');
+          return Promise.reject(new Error('the projects store is down'));
+        },
+      } as unknown as NonNullable<AuthorizerOptions['projects']>;
+      const { authorizer } = authorizerWith(true, { projects });
+      expect(
+        await limitedTo(authorizer, [
+          ['read', ref('org', 'o1')],
+          ['read', ref('org', 'o1')],
+        ]),
+      ).toEqual([false, false]);
+      // The failed lookup is held for the request: the second check doesn't ask again.
+      expect(got).toEqual([P1]);
+
+      const r = new Hono<AppEnv>();
+      r.get(
+        '/',
+        async (c, next) => {
+          c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+          c.set('tokenProjectId', P1);
+          await next();
+        },
+        authorizer.authorize('read', () => ref('org', 'o1')),
+        (c) => c.json({ ok: true }),
+      );
+      const res = await r.request('/');
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ error: { code: 'permission-denied' } });
+    }
+  });
+
   test('a project in no org, or no projects to look it up in: the key reads no org', async () => {
     const none = authorizerWith(true, { projects: projectsWith(undefined).projects });
     expect(await limitedTo(none.authorizer, [['read', ref('org', 'o1')]])).toEqual([false]);

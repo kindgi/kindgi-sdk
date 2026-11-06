@@ -607,7 +607,7 @@ describe('a TypeScript project', () => {
       status: 'skip',
       message:
         "Not checked: the key in .kindgirc.json can't list the providers (Permission denied: the API key is limited to project prj_acme).",
-      fix: "The providers are the workspace's, which a key limited to a project doesn't read: check them with a key that isn't.",
+      fix: "Check them with a key that reads the workspace's settings: a key limited to a project, say, doesn't.",
     });
     expect(out.exitCode).toBe(0);
   });

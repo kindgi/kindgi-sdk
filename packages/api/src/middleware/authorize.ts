@@ -146,8 +146,9 @@ export function createAuthorizer(
 ): Authorizer {
   /**
    * The org of the project the caller's key is limited to, once per
-   * request. None without a project binding, for a project in no org, or
-   * for one the binding doesn't find: the key then reads no org.
+   * request. None without a project binding, for a project in no org, for
+   * one the binding doesn't find, or when the lookup fails, however it
+   * fails: the key then reads no org.
    */
   const keyProjectOrgs = new WeakMap<Context<AppEnv>, Promise<string | undefined>>();
   function orgOfKeyProject(c: Context<AppEnv>, keyProject: string): Promise<string | undefined> {
@@ -157,8 +158,8 @@ export function createAuthorizer(
       org =
         projects === undefined
           ? Promise.resolve(undefined)
-          : projects
-              .get(c.get('tenantId') as TenantId, keyProject as ProjectId)
+          : Promise.resolve()
+              .then(() => projects.get(c.get('tenantId') as TenantId, keyProject as ProjectId))
               .then((p) => p?.orgId as string | undefined)
               .catch(() => undefined);
       keyProjectOrgs.set(c, org);
