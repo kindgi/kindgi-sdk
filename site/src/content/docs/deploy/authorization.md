@@ -187,7 +187,8 @@ token and no `KINDGI_SEED_USER_ID` says so when it starts:
 :::
 
 **When OpenFGA can't be reached,** a request that needs a check answers
-`503 authz-backend-unavailable` with `Retry-After: 5`: the request wasn't
+`503 authz-backend-unavailable` with `Retry-After: 5` (runtime X.Y.Z or
+later; earlier ones answer `500 internal-server-error`): the request wasn't
 run, so sending it again after that wait is safe. OpenFGA can't be reached
 when it gives no answer, or answers `429` or a `5xx` other than `501`, after
 the runtime's one retry. With `KINDGI_OPENFGA_AUTH=google-id-token`, it also
