@@ -394,7 +394,7 @@ directory is watched, never the whole app. The dev index lives at
 
 - An empty pack is not an error: the output says where to add the first
   primitive. Its pack service starts with the first primitive; until then
-  the runtime may warn once that the pack service isn't answering.
+  the runtime's boot line names the pack with 0 tools and 0 checks.
 - A file that fails to index or build (a bad schema, a missing default
   export, a syntax error) is reported with its path and the error, and the
   previous code keeps serving until you fix it and save.
