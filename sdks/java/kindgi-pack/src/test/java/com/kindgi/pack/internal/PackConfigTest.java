@@ -66,6 +66,7 @@ class PackConfigTest {
     "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"\"}} | config-parse-failed | 'pack.version' is missing",
     "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"1\"}} | config-parse-failed | 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '1'",
     "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"1.0.0-rc.1\"}} | config-parse-failed | got '1.0.0-rc.1'",
+    "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"01.0.0\"}} | config-parse-failed | got '01.0.0'",
     "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"1.0.0\"}, \"discovery\": {\"tools\": 1}} | config-parse-failed | 'discovery' must map",
     "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"1.0.0\"}, \"env\": [\"A\"]} | config-invalid | `env` must be an object",
     "{\"language\": \"java\", \"pack\": {\"id\": \"a\", \"version\": \"1.0.0\"}, \"env\": {\"needed\": []}} | config-invalid | not `needed`",
