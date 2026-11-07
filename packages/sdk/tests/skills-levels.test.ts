@@ -42,7 +42,6 @@ const CONTENTS_FROM_LINES = 100;
 const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-authoring-agents': { bytes: 18_434 },
   'kindgi-authoring-flows': { bytes: 13_272 },
-  'kindgi-authoring-guardrails': { bytes: 25_914 },
   'kindgi-getting-started': { bytes: 19_460 },
   'kindgi-java-authoring-agents': { bytes: 14_780 },
   'kindgi-java-authoring-flows': { bytes: 18_629 },
