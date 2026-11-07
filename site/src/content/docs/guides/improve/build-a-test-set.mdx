@@ -19,8 +19,8 @@ nothing to build or copy.
 
 ## Before you start
 
-- **An agent with finished runs** in a project, on a runtime such as
-  `kindgi dev`, with Kindgi 0.4's CLI.
+- **An agent with runs that completed with an output** in a project, on a
+  runtime such as `kindgi dev`, with Kindgi 0.4's CLI.
 - **`read` on the project** to read the test set, when authorization is on.
   To add or retire cases, `publish` on the agent as well, or, for an agent
   more than one project serves, `write` on the case's project.
@@ -95,7 +95,7 @@ Each call adds the article to your one correction of the run, as one of its
 The clients' `corrections.create` takes the whole list at once:
 `items: [{ key: 'kb-101', pointer: '/output/articles/0', rank: 0, verdict: 'right' }, …]`.
 
-In the console, a finished run's **Correct this run** opens its Corrections
+In the console, a completed run's **Correct this run** opens its Corrections
 page. It lists the answer, and each element of a list in the output, each with
 **Yes** and **No**. [Correct a run's output](../correct-a-runs-output/) has the
 rest: reasons, your users' corrections, and corrector groups.
@@ -240,9 +240,9 @@ verdict on:
 ## Add a case by hand
 
 A case added by hand takes a correction's body on one of the agent's
-finished runs: what it should have done, said, or ranked. It has no status,
-isn't sorted, and nothing that counts corrections counts it, so it doesn't
-start Improve or count toward the expert queue.
+runs that completed with an output: what it should have done, said, or
+ranked. It has no status, isn't sorted, and nothing that counts corrections
+counts it, so it doesn't start Improve or count toward the expert queue.
 
 ```ts excerpt
 await kindgi.agents.testSet.addCase('acme-ops.article-picker', {
