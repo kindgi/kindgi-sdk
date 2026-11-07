@@ -69,17 +69,29 @@ export interface ToolsClient {
   /** A tool's versions: list, get, unregister and reinstate. */
   readonly versions: ToolVersionsClient;
 
-  /** @deprecated Use `tools.versions.list`; removed in 0.2. */
+  /**
+   * @deprecated Use `tools.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   listVersions(id: ToolId, filter?: ToolVersionFilter): Promise<ListPage<ToolVersionRow>>;
-  /** @deprecated Use `tools.versions.get`; removed in 0.2. */
+  /**
+   * @deprecated Use `tools.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   getVersion(id: ToolId, version: string): Promise<Tool>;
-  /** @deprecated Use `tools.versions.reinstate`; removed in 0.2. */
+  /**
+   * @deprecated Use `tools.versions.reinstate`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   reinstateVersion(
     id: ToolId,
     version: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ReinstateToolVersionResult>;
-  /** @deprecated Use `tools.versions.unregister`; removed in 0.2. */
+  /**
+   * @deprecated Use `tools.versions.unregister`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   unregisterVersion(
     id: ToolId,
     version: string,
@@ -182,7 +194,7 @@ export interface ToolVersionFilter {
 }
 
 /**
- * A row in a `listVersions` response — the standard `Tool` fields plus
+ * A row in a `tools.versions.list` response — the standard `Tool` fields plus
  * an optional `unregisteredAt` timestamp, present iff the version has
  * been soft-tombstoned. Callers can ignore the extra field and treat
  * the row as a plain `Tool`.

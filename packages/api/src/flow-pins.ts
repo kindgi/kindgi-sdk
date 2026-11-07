@@ -15,9 +15,10 @@ import {
   activeToolVersions,
   pinnedToolVersion,
 } from './agent-pins.js';
-import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
+import { type DeployedVersionOutcome, deployVersion, refusedPublish } from './deploy-versions.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from './flow-binding.js';
 import { PublishRefused } from './publish-refused.js';
+import { flowReferences } from './reference-scope.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import { whatRuns } from './what-runs.js';
 
@@ -121,6 +122,8 @@ export interface PublishDeployedFlowInput {
   readonly flow: Flow;
   readonly pins: FlowPins;
   readonly enqueueTuples: TupleEnqueueHook;
+  /** Where the pack names it (`/flows/0`), for a refusal's issues. */
+  readonly path: string;
 }
 
 /** Register a deployed flow with its pins, by the deploy rule (`deployVersion`). */
@@ -154,7 +157,12 @@ export async function publishDeployedFlow(
       const outcome = await flows.publish({ tenantId, projectId, flow: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
       if (outcome.kind === 'already-registered') return 'taken';
-      throw new PublishRefused('flow', `${flow.id}@${version.version}`, outcome);
+      throw refusedPublish(
+        input.path,
+        { kind: 'flow', id: flow.id, version: version.version },
+        outcome,
+        flowReferences(version),
+      );
     },
   });
 }

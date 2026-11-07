@@ -98,6 +98,13 @@ A cancel ends the run at once, wherever the run is:
     stops the step at its next check for ended runs, every
     [`KINDGI_RUN_ENDED_CHECK_MS`](../../../reference/env-vars/#kindgi_run_ended_check_ms)
     (5 s by default). Until then, a model call in flight goes on.
+  - On either instance (runtime 0.7.0 or later), when it can't read which
+    of a tenant's runs ended, its log says
+    `could not check which of a tenant's runs ended: <cause>`
+    at `warn` on the `leases`
+    [subsystem](../../../deploy/self-hosted/logs/#the-subsystems), with
+    `tenantId`. That tenant's steps stop at the next check that succeeds, and
+    the other tenants' runs are checked as usual.
 - **A step that ends as it lands keeps its end.** Its `step.completed` comes
   after `run.cancelled` in the journal: it did finish.
 

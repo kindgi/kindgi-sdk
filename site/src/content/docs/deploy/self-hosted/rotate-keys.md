@@ -133,7 +133,10 @@ A new signing key replaces the one your pack's releases are signed with, and
 the old one is revoked.
 
 Rotate under a new key id. A key id stays bound to its public key, and a
-revoked id can't be trusted again.
+revoked id can't be trusted again. Don't start the id with
+`kindgi-promote-only:`: a key with such an id, and any key with its public
+key, signs builds that reach a project in production only by promotion
+([Put a project in production](../../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)).
 
 1. Create a key:
 

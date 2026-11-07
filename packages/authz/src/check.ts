@@ -67,6 +67,11 @@ export interface AuthzCheckContext {
  * Policy Decision Point binding. Every enforcement site that wants
  * to check authz (for example the @kindgi/api middleware) goes
  * through this contract. The deployment supplies the implementation.
+ *
+ * A store that can't be reached throws an error carrying `code:
+ * 'authz-backend-unavailable'`, on it or down its `cause` chain, which
+ * @kindgi/api answers `503` with `Retry-After` where sending the request
+ * again is safe; it answers anything else as any other thrown error.
  */
 export interface AuthzCheckBinding {
   /**

@@ -22,11 +22,11 @@
  */
 
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { KINDGI_SECRETS_FILE } from '@kindgi/secrets-dotenv';
 
+import { homeFolder } from '../home.js';
 import { type SaidLine, note, warning } from '../progress-lines.js';
 import { type PatchResult, patchIgnoreFile } from './gitignore-patcher.js';
 
@@ -232,7 +232,12 @@ export interface AgentAccessResult {
      * its `.claude/settings.json` is Claude Code's user-wide settings, so
      * nothing is written there, and init says so.
      */
-    | { readonly dir: string; readonly prefix: string; readonly skipped: 'home' };
+    | { readonly dir: string; readonly prefix: string; readonly skipped: 'home' }
+    /**
+     * With no home folder (HOME set but empty), init can't tell whether the
+     * root is the home, so it writes nothing there either.
+     */
+    | { readonly dir: string; readonly prefix: string; readonly skipped: 'no-home' };
 }
 
 export interface PatchAgentAccessOptions {
@@ -251,7 +256,11 @@ export async function patchAgentAccess(
   const root = await gitRootOf(packDir);
   if (root === undefined || root === packDir) return { claude, others };
   const prefix = relative(root, packDir).split(sep).join('/');
-  if (await samePlace(root, options.home ?? homedir())) {
+  const home = homeFolder(options.home);
+  if (home === undefined) {
+    return { claude, others, repoRoot: { dir: root, prefix, skipped: 'no-home' } };
+  }
+  if (await samePlace(root, home)) {
     return { claude, others, repoRoot: { dir: root, prefix, skipped: 'home' } };
   }
   const literal = globLiteral(prefix);
@@ -338,15 +347,26 @@ export function agentAccessRows(projectDir: string, result: AgentAccessResult): 
   return { created, skipped, warnings, outside };
 }
 
-/** Why nothing went into a repository root that is the home folder, and what to add there by hand. */
-function homeRootWarning(root: { readonly dir: string; readonly prefix: string }): string {
+/**
+ * Why nothing went into a repository root that is the home folder, or may
+ * be (no home folder to tell), and what to add there by hand.
+ */
+function homeRootWarning(root: {
+  readonly dir: string;
+  readonly prefix: string;
+  readonly skipped: 'home' | 'no-home';
+}): string {
   const rules = claudeReadDenyRules(globLiteral(root.prefix));
-  return `${join(root.dir, '.claude', 'settings.json')} not written: the repo root is your home folder; add the rules yourself if you want them there: ${rules.map((r) => JSON.stringify(r)).join(', ')}.`;
+  const why =
+    root.skipped === 'home'
+      ? 'the repo root is your home folder'
+      : "HOME is empty, so init can't tell whether the repo root is your home folder";
+  return `${join(root.dir, '.claude', 'settings.json')} not written: ${why}; add the rules yourself if you want them there: ${rules.map((r) => JSON.stringify(r)).join(', ')}.`;
 }
 
 /** `agentAccessRows`' rows for the repository root's files, each saying why init wrote outside the pack's folder. */
 function repoRootRows(
-  root: Exclude<NonNullable<AgentAccessResult['repoRoot']>, { readonly skipped: 'home' }>,
+  root: Exclude<NonNullable<AgentAccessResult['repoRoot']>, { readonly skipped: string }>,
   rows: { created: string[]; skipped: string[]; warnings: string[]; outside: string[] },
 ): void {
   const { created, skipped, warnings, outside } = rows;
