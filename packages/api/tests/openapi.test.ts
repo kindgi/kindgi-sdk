@@ -13,7 +13,7 @@ import {
   READS_WITHOUT_STORAGE,
   answersAuthzUnavailable,
   answersDatabaseBusy,
-  answersIdempotencyStoreUnavailable,
+  takesIdempotencyKey,
 } from '../src/openapi/operations.js';
 import { RunEventSchema } from '../src/openapi/schemas.js';
 
@@ -173,9 +173,7 @@ describe('OpenAPI — generated document', () => {
         Record<string, { responses: Record<string, { description?: string }> }>
       >;
     };
-    const writes = OPERATIONS.filter(
-      (o) => o.unserved === undefined && answersIdempotencyStoreUnavailable(o),
-    );
+    const writes = OPERATIONS.filter((o) => o.unserved === undefined && takesIdempotencyKey(o));
     // Guard against a filter that selects nothing (which would pass vacuously):
     // well over a hundred writes take the key.
     expect(writes.length).toBeGreaterThan(100);
@@ -200,9 +198,7 @@ describe('OpenAPI — generated document', () => {
         Record<string, { responses: Record<string, { description?: string }> }>
       >;
     };
-    const others = OPERATIONS.filter(
-      (o) => o.unserved === undefined && !answersIdempotencyStoreUnavailable(o),
-    );
+    const others = OPERATIONS.filter((o) => o.unserved === undefined && !takesIdempotencyKey(o));
     // Both kinds are there, so neither half passes vacuously.
     expect(others.some((o) => o.method === 'get')).toBe(true);
     expect(others.some((o) => o.method === 'post')).toBe(true);
@@ -316,18 +312,18 @@ describe('OpenAPI — generated document', () => {
     expect(stream?.responses['200']?.content).toHaveProperty('text/event-stream');
   });
 
-  test('every $ref target exists under components.schemas', () => {
+  test('every $ref target exists under components.schemas or components.headers', () => {
     const doc = generateOpenApiDocument() as {
-      components: { schemas: Record<string, unknown> };
+      components: { schemas: Record<string, unknown>; headers: Record<string, unknown> };
       paths: Record<string, unknown>;
     };
-    const known = new Set(Object.keys(doc.components.schemas));
+    const known = new Set([
+      ...Object.keys(doc.components.schemas).map((name) => `#/components/schemas/${name}`),
+      ...Object.keys(doc.components.headers).map((name) => `#/components/headers/${name}`),
+    ]);
     const refs: string[] = [];
     collectRefs(doc.paths, refs);
-    for (const ref of refs) {
-      const name = ref.replace('#/components/schemas/', '');
-      expect(known.has(name), `dangling $ref: ${ref}`).toBe(true);
-    }
+    for (const ref of refs) expect(known.has(ref), `dangling $ref: ${ref}`).toBe(true);
   });
 
   // Without a `mapping`, a generator may take each member's schema name as
