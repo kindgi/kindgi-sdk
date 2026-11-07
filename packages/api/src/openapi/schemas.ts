@@ -3279,7 +3279,7 @@ export const LicenseStatusSchema: JsonSchema = {
       type: 'string',
       enum: ['development', 'licensed'],
       description:
-        "`development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.",
+        "`development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.",
     },
     name: { type: 'string', description: 'Whose key: the name the banner prints.' },
     use: { type: 'string', enum: ['production', 'non-production'] },

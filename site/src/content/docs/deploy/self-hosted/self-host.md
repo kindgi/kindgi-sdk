@@ -43,10 +43,10 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
 
   `init` lists the files it made, and `pnpm install` its packages.
 
-- **A license key.** Outside development mode, the runtime needs one, and
-  pulling its image needs one too. A free non-production key covers staging
-  and CI: get one at [access.kindgi.com](https://access.kindgi.com). A
-  production key comes with a commercial license from contact@kindgi.com.
+- **A license key.** The runtime needs one, and pulling its image needs one
+  too. A free non-production key covers development, staging and CI: get one
+  at [access.kindgi.com](https://access.kindgi.com). A production key comes
+  with a commercial license from contact@kindgi.com.
   [Licensing](../../../concepts/licensing/) explains the keys.
 
 ## 1. Pull the runtime image
@@ -355,7 +355,7 @@ Kindgi API server listening on http://localhost:4000 (local to this host or cont
 Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 and says:
 
 ```text
-KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs a license key: a production key comes with a commercial license, and a free non-production key covers staging and CI. To get one: contact@kindgi.com. Local development needs none: `kindgi dev` runs the runtime with KINDGI_DEV=true.
+KINDGI_LICENSE_KEY is not set. Every Kindgi runtime needs a license key, in development mode too: a production key comes with a commercial license, and a free non-production key covers development, staging and CI. Get a non-production key at https://access.kindgi.com; a production key: contact@kindgi.com. With `kindgi dev`, run `kindgi auth registry` with your key: it keeps the key for `kindgi dev`.
 ```
 
 A key within 30 days of expiry adds a warning under the license line:

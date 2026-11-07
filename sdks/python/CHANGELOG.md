@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
+  runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
+  runtime has a license key too, and answers `licensed`. What you pass or
+  read doesn't change.
 - `kindgi`: **a person's own test project.** `projects.create` takes
   `test_for`, the caller's own user id, and `Project` and `ProjectSpec` gain
   `test_for`. A test project's refusals, `project-test-already-exists` and

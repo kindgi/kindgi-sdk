@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -55,7 +56,9 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>Fails loud, but per file: a class that fails to load, defines a primitive of the wrong kind
  * for its package, or (a public class) defines nothing is a file error, and the rest of the pack
- * still indexes. A helper class is package-private, or a record, an enum or an interface.
+ * still indexes. So is an agent, a flow or a tool whose own version breaks its kind's rule: an
+ * agent's and a flow's is an exact semver with no build metadata, and a tool's is
+ * MAJOR.MINOR.PATCH. A helper class is package-private, or a record, an enum or an interface.
  */
 final class Indexer {
   static final int INDEX_ENVELOPE_VERSION = 1;
@@ -72,6 +75,20 @@ final class Indexer {
 
   private static final DateTimeFormatter PUBLISHED_AT =
       DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+
+  /** MAJOR.MINOR.PATCH, each with no leading zero. */
+  private static final String CORE = "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)";
+
+  /**
+   * An agent's or a flow's version: an exact semver 2.0 version with no build metadata ({@code
+   * 1.2.3}, {@code 1.2.3-rc.1}), the Python SDK's {@code SEMVER} less its {@code +build}, which a
+   * deploy refuses.
+   */
+  private static final Pattern VERSION = Pattern.compile(CORE
+      + "(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?");
+
+  /** A tool's version: MAJOR.MINOR.PATCH only ({@code 1.2.3}). A deploy's tool manifest takes no more. */
+  private static final Pattern TOOL_VERSION = Pattern.compile(CORE);
 
   private final PackConfig config;
   private final ClassLoader loader;
@@ -215,6 +232,17 @@ final class Indexer {
           entry = build(primitive, rel);
         } catch (EntryException e) {
           fileErrors.add(manifestError(rel, e.getMessage()));
+          continue;
+        }
+        // An agent's and a flow's own version is an exact semver with no build metadata, and a
+        // tool's is MAJOR.MINOR.PATCH: a deploy refuses build metadata, and a tool's prerelease. A
+        // tool with none takes the pack's, from kindgi.config.json, which isn't this file's.
+        boolean tool = primitive instanceof Tool;
+        String own = tool ? ((Tool<?, ?>) primitive).version() : (String) entry.get("version");
+        if (own != null && !(tool ? TOOL_VERSION : VERSION).matcher(own).matches()) {
+          fileErrors.add(manifestError(rel, kind + " '" + id + "': version must be "
+              + (tool ? "MAJOR.MINOR.PATCH (e.g. 1.2.3)" : "an exact semver with no build metadata (e.g. 1.2.3 or 1.2.3-rc.1)")
+              + ", got '" + own + "'"));
           continue;
         }
         // Several versions of one primitive may sit side by side (an agent version pins the one
