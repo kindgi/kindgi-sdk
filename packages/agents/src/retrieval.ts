@@ -61,6 +61,13 @@ export interface RetrievalRun {
   readonly projectId?: ProjectId;
   /** The org of the run's project. */
   readonly orgId?: OrgId;
+  /**
+   * `true` when the run's project is a person's own test project
+   * (`Project.testFor`), which the runtime resolves from the project. Its
+   * runs see only what's in it: no fact without a project
+   * (`MemoryReaders.projectFactsOnly`).
+   */
+  readonly projectIsTest?: boolean;
   /** The Kindgi user the run acts for, when it acts for one. */
   readonly userId?: UserId;
   /** The turn's end user (the app's own id for them), when the conversation names none. */
@@ -106,7 +113,9 @@ const HYBRID_CANDIDATES = 50;
  * from the model or the intent: workspace-wide facts, its project's and its
  * org's, the user it acts for, its conversation's end user, and its own
  * conversation. Another conversation's or another end user's facts are
- * never visible, whatever an intent asks for.
+ * never visible, whatever an intent asks for. In a person's own test
+ * project (`projectIsTest`), no fact without a project is visible either,
+ * workspace-wide or not.
  */
 export function runMemoryReaders(
   conversation: Conversation,
@@ -120,6 +129,7 @@ export function runMemoryReaders(
   const participantId = runParticipantId(conversation, run);
   return {
     ...(projectId !== undefined && { projectIds: [projectId] }),
+    ...(run.projectIsTest === true && { projectFactsOnly: true }),
     ...(orgId !== undefined && { orgIds: [orgId] }),
     ...(userId !== undefined && { userIds: [userId] }),
     ...(participantId !== undefined && { participantIds: [participantId] }),

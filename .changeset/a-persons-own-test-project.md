@@ -20,4 +20,4 @@
 - **Its person writes its secrets** without `secrets:write`.
 - **What's made elsewhere stays out.**
   - A key or session limited to a test project reads only the facts in it. `MemoryReaders.projectFactsOnly` leaves out every fact with no project, and every conversation with none: `isReadableBy` and `isRecallReadableBy` honour it.
-  - A run whose `InvokeAgentInput.projectIsTest` is set doesn't remember a fact for the whole workspace (`scope: 'tenant'`).
+  - A run whose `InvokeAgentInput.projectIsTest` is set recalls only the facts in its project: the turn's retrieval passes it on (`RetrievalRun.projectIsTest`), and `runMemoryReaders` sets `projectFactsOnly`. It doesn't remember a fact for the whole workspace (`scope: 'tenant'`).

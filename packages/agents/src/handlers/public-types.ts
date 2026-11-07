@@ -68,8 +68,9 @@ export interface InvokeAgentInput {
   /**
    * `true` when the project is a person's own test project
    * (`Project.testFor`): the runtime resolves it from the project, never
-   * from input. Its runs reach only what's made in it, so the `remember`
-   * tool refuses a workspace-wide fact there.
+   * from input. Its runs reach only what's made in it, so its turns
+   * recall no fact without a project (`RetrievalRun.projectIsTest`), and
+   * the `remember` tool refuses a workspace-wide fact there.
    */
   readonly projectIsTest?: boolean;
   readonly agent: Agent;

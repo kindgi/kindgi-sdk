@@ -103,6 +103,7 @@ async function retrieveLive(ctx: TurnContext): Promise<RetrievalPass> {
     {
       projectId: ctx.input.projectId,
       ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+      ...(ctx.input.projectIsTest === true && { projectIsTest: true }),
       ...(ctx.input.participantId !== undefined && { participantId: ctx.input.participantId }),
       ...(userId !== undefined && { userId }),
       ...(ctx.input.segments !== undefined && { segments: ctx.input.segments }),
