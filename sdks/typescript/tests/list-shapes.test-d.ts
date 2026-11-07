@@ -4,6 +4,8 @@
 /**
  * Every list call answers in one shape: the wire's page, `data`,
  * `hasMore` and `nextCursor`, as the API and the Python client have it.
+ * And a `versions` that is still callable, deprecated, takes and answers
+ * what it did before its `versions.list` came.
  *
  * Not here: `retention.scheduled`, a report capped at `limit` with no
  * cursor, that can't yet say whether it was cut short.
@@ -11,7 +13,20 @@
 
 import { describe, expectTypeOf, test } from 'vitest';
 
-import type { KindgiClient } from '../src/index.js';
+import type {
+  KindgiClient,
+  ListMailTriggerVersionsFilter,
+  ListPage,
+  ListScheduleVersionsFilter,
+  ListWebhookTriggerVersionsFilter,
+  MailTriggerVersionPage,
+  PolicyId,
+  PolicyVersionRow,
+  PolicyVersionsFilter,
+  QueueRulePage,
+  ScheduleVersionPage,
+  WebhookTriggerVersionPage,
+} from '../src/index.js';
 
 /** The wire's page. */
 interface WirePage {
@@ -22,6 +37,9 @@ interface WirePage {
 
 /** What a call answers. */
 type Answer<F> = F extends (...args: never[]) => Promise<infer R> ? R : never;
+
+/** What a call takes. */
+type Takes<F> = F extends (...args: infer A) => Promise<unknown> ? A : never;
 
 describe('every list call answers with data, hasMore and nextCursor', () => {
   test('adapters.list', () => {
@@ -168,6 +186,11 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('orgs.list', () => {
     expectTypeOf<Answer<KindgiClient['orgs']['list']>>().toMatchTypeOf<WirePage>();
   });
+  test('mailTriggers.versions.list', () => {
+    expectTypeOf<
+      Answer<KindgiClient['mailTriggers']['versions']['list']>
+    >().toMatchTypeOf<WirePage>();
+  });
   test('packs.installed', () => {
     expectTypeOf<Answer<KindgiClient['packs']['installed']>>().toMatchTypeOf<WirePage>();
   });
@@ -188,8 +211,16 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('policies.versions', () => {
     expectTypeOf<Answer<KindgiClient['policies']['versions']>>().toMatchTypeOf<WirePage>();
   });
+  test('policies.versions.list', () => {
+    expectTypeOf<Answer<KindgiClient['policies']['versions']['list']>>().toMatchTypeOf<WirePage>();
+  });
   test('projects.list', () => {
     expectTypeOf<Answer<KindgiClient['projects']['list']>>().toMatchTypeOf<WirePage>();
+  });
+  test('projects.queueRules.versions.list', () => {
+    expectTypeOf<
+      Answer<KindgiClient['projects']['queueRules']['versions']['list']>
+    >().toMatchTypeOf<WirePage>();
   });
   test('projects.memberships.list', () => {
     expectTypeOf<
@@ -211,11 +242,17 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('schedules.list', () => {
     expectTypeOf<Answer<KindgiClient['schedules']['list']>>().toMatchTypeOf<WirePage>();
   });
+  test('schedules.versions.list', () => {
+    expectTypeOf<Answer<KindgiClient['schedules']['versions']['list']>>().toMatchTypeOf<WirePage>();
+  });
   test('secrets.list', () => {
     expectTypeOf<Answer<KindgiClient['secrets']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('secrets.listVersions', () => {
     expectTypeOf<Answer<KindgiClient['secrets']['listVersions']>>().toMatchTypeOf<WirePage>();
+  });
+  test('secrets.versions.list', () => {
+    expectTypeOf<Answer<KindgiClient['secrets']['versions']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('signingKeys.list', () => {
     expectTypeOf<Answer<KindgiClient['signingKeys']['list']>>().toMatchTypeOf<WirePage>();
@@ -256,7 +293,50 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('webhooks.fires', () => {
     expectTypeOf<Answer<KindgiClient['webhooks']['fires']>>().toMatchTypeOf<WirePage>();
   });
+  test('webhooks.versions.list', () => {
+    expectTypeOf<Answer<KindgiClient['webhooks']['versions']['list']>>().toMatchTypeOf<WirePage>();
+  });
   test('webhookEndpoints.list', () => {
     expectTypeOf<Answer<KindgiClient['webhookEndpoints']['list']>>().toMatchTypeOf<WirePage>();
+  });
+});
+
+describe('a deprecated versions callable takes and answers what it did', () => {
+  test('policies.versions(id, filter)', () => {
+    type Versions = KindgiClient['policies']['versions'];
+    expectTypeOf<Takes<Versions>>().toEqualTypeOf<[id: PolicyId, filter?: PolicyVersionsFilter]>();
+    expectTypeOf<Answer<Versions>>().toEqualTypeOf<ListPage<PolicyVersionRow>>();
+  });
+  test('schedules.versions(triggerId, filter)', () => {
+    type Versions = KindgiClient['schedules']['versions'];
+    expectTypeOf<Takes<Versions>>().toEqualTypeOf<
+      [triggerId: string, filter?: ListScheduleVersionsFilter]
+    >();
+    expectTypeOf<Answer<Versions>>().toEqualTypeOf<ScheduleVersionPage>();
+  });
+  test('webhooks.versions(triggerId, filter)', () => {
+    type Versions = KindgiClient['webhooks']['versions'];
+    expectTypeOf<Takes<Versions>>().toEqualTypeOf<
+      [triggerId: string, filter?: ListWebhookTriggerVersionsFilter]
+    >();
+    expectTypeOf<Answer<Versions>>().toEqualTypeOf<WebhookTriggerVersionPage>();
+  });
+  test('mailTriggers.versions(triggerId, filter)', () => {
+    type Versions = KindgiClient['mailTriggers']['versions'];
+    expectTypeOf<Takes<Versions>>().toEqualTypeOf<
+      [triggerId: string, filter?: ListMailTriggerVersionsFilter]
+    >();
+    expectTypeOf<Answer<Versions>>().toEqualTypeOf<MailTriggerVersionPage>();
+  });
+  test('projects.queueRules.versions(projectId, ruleId, filter)', () => {
+    type Versions = KindgiClient['projects']['queueRules']['versions'];
+    expectTypeOf<Takes<Versions>>().toEqualTypeOf<
+      [
+        projectId: string,
+        ruleId: string,
+        filter?: { readonly limit?: number; readonly cursor?: string },
+      ]
+    >();
+    expectTypeOf<Answer<Versions>>().toEqualTypeOf<QueueRulePage>();
   });
 });

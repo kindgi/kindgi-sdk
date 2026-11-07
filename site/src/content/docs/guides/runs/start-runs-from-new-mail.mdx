@@ -583,11 +583,11 @@ take-over reaches the next run that starts, never a run already going.
 From your app, newest first:
 
 - `GET /v1/mail-triggers/{triggerId}/versions` pages them
-  (`mailTriggers.versions` in TypeScript, `mail_triggers.list_versions` in
-  Python);
+  (`mailTriggers.versions.list` in TypeScript, `mail_triggers.list_versions`
+  in Python);
 - `GET /v1/mail-triggers/{triggerId}/versions/{version}` reads one
-  (`getVersion`, `get_version`). A version the trigger doesn't have is
-  `404 trigger-version-not-found`.
+  (`mailTriggers.versions.get`, `get_version`). A version the trigger doesn't
+  have is `404 trigger-version-not-found`.
 
 From the CLI:
 

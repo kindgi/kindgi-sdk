@@ -300,7 +300,7 @@ A rule only lists runs: it never runs a model or spends anything.
 - **`queueRules.update`** writes a new version of the rule. Runs queued
   from then on count toward the new version. `null` removes `maxOpen` or
   `correctorGroupId`.
-- **`queueRules.versions`** lists every version, newest first, with who
+- **`queueRules.versions.list`** lists every version, newest first, with who
   wrote each and when.
 - **`queueRules.unregister`** stops a rule. It queues nothing more. Its
   versions and the runs it queued stay.

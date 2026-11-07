@@ -604,11 +604,11 @@ going.
 
 From your app, newest first:
 
-- `GET /v1/webhooks/{triggerId}/versions` pages them (`webhooks.versions`
-  in TypeScript, `list_versions` in Python);
+- `GET /v1/webhooks/{triggerId}/versions` pages them
+  (`webhooks.versions.list` in TypeScript, `list_versions` in Python);
 - `GET /v1/webhooks/{triggerId}/versions/{version}` reads one
-  (`getVersion`, `get_version`). A version the trigger doesn't have is
-  `404 trigger-version-not-found`.
+  (`webhooks.versions.get`, `get_version`). A version the trigger doesn't
+  have is `404 trigger-version-not-found`.
 
 From the CLI:
 

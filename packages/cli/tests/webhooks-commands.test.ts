@@ -102,8 +102,10 @@ async function webhooks(
         webhooks: {
           list: record('list', { data: [trigger], hasMore: false }),
           get: record('get', trigger),
-          getVersion: record('getVersion', VERSIONS.data[0]),
-          versions: record('versions', VERSIONS),
+          versions: {
+            get: record('versions.get', VERSIONS.data[0]),
+            list: record('versions.list', VERSIONS),
+          },
           register: record('register', trigger),
           update: record('update', trigger),
           pause: record('pause', { ...trigger, status: 'paused' }),
@@ -534,7 +536,7 @@ describe('kindgi webhooks: versions', () => {
   test("versions: a trigger's versions, paged; the table names who made each, or Kindgi", async () => {
     const { out, calls } = await webhooks(['versions', ID, '--limit=2', '--cursor=c-1']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(calls).toEqual([['versions.list', ID, { limit: 2, cursor: 'c-1' }]]);
     expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
     const table = await webhooks(['versions', ID, '--table']);
     expect(table.out.exitCode, table.out.stderr).toBe(0);
@@ -547,7 +549,7 @@ describe('kindgi webhooks: versions', () => {
   test('get <trigger-id> <version> reads that version, without the receive URL', async () => {
     const { out, calls } = await webhooks(['get', ID, '2']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(calls).toEqual([['versions.get', ID, 2]]);
     expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
     expect(out.stderr).not.toContain(RECEIVE_URL);
     const quiet = await webhooks(['get', ID, '2', '--quiet']);
