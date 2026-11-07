@@ -183,7 +183,10 @@ where Vertex AI serves Gemini 3.8 Flash, which isn't served from
   `totalCostUsd` still uses the price the provider was registered with.
 - **Cached prompt tokens bill at a tenth of the input price,** for both
   models (Google's Vertex AI pricing page, checked on 2026-11-07). The
-  preset prices them so, with `cachedPromptMultiplier: 0.1`.
+  preset prices them so, with `cachedPromptMultiplier: 0.1`. A provider
+  registered by hand without it bills cached input at the adapter's
+  default, a quarter of the input price (Gemini 2.5's discount), so the
+  example below sets it.
 
 To send an agent to Gemini when other providers are registered too, set
 `preferredProvider: 'gemini'`, or `preferred_provider="gemini"` in Python.

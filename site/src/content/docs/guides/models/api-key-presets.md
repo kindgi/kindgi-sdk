@@ -113,11 +113,14 @@ mid-priced model, not the dearest. Register only the model you want, with
 
 The prices are the presets' own, checked against the providers on
 2026-10-07, and the two Gemini presets' on 2026-11-07. `kindgi providers
-presets` shows that date as `pricesCheckedAt`. Google bills a Gemini
-model's cached prompt tokens at a tenth of its input price, and the Gemini
-presets price them so (`cachedPromptMultiplier: 0.1`).
+presets` shows each preset's date as `pricesCheckedAt`.
 A turn's `totalCostUsd` uses them. A prompt over a model's long-context
-threshold prices the whole call at the higher rates.
+threshold prices the whole call at the higher rates. Google bills a Gemini
+model's cached prompt tokens at a tenth of its input price, and the Gemini
+presets price them so (`cachedPromptMultiplier: 0.1`). A provider keeps
+the prices it was registered with. To take a preset's current ones,
+unregister it, then register the preset. For one the pack's config
+declares, restart `kindgi dev`.
 [Temperature and thinking](../#temperature-and-thinking) says which of these
 models take a temperature, which think, and the thinking levels each takes.
 The presets register those levels, so an agent's level goes to the model as
