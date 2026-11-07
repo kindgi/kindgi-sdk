@@ -35,6 +35,8 @@ import {
   AgentSchema,
   CodeArtifactRefSchema,
   ComplianceEvidenceSchema,
+  ConversationHitlPolicySchema,
+  ConversationPolicySchema,
   FlowSchema,
   GuardrailSchema,
   HttpAuthSpecSchema,
@@ -42,9 +44,14 @@ import {
   HttpRequestBodySpecSchema,
   HttpToolSpecSchema,
   NetworkPolicySchema,
+  ReviewerRoleSchema,
   RuntimeLimitsSchema,
   SandboxModeSchema,
+  SeparateApproverPolicySchema,
   TestSetSchema,
+  ToolHitlModeSchema,
+  ToolHitlPolicySchema,
+  ToolHitlRuleSchema,
   ToolSchema,
   ToolSecretRefSchema,
   ToolSpecSchema,
@@ -180,6 +187,26 @@ describe('OpenAPI ↔ specs drift — Tool carries the whole manifest', () => {
     ['HttpToolSpec', HttpToolSpecSchema],
   ] as const)("component %s is the spec's $defs entry", async (name, wire) => {
     const spec = await loadSpec('tool');
+    expect(wire).toEqual(asWire(spec.$defs?.[name]));
+  });
+});
+
+/**
+ * ConversationPolicy: an agent's approval rules (`hitl`) are on the wire as
+ * the agent spec declares them, so what a published agent sets reads back
+ * in every client.
+ */
+describe('OpenAPI ↔ specs drift — ConversationPolicy carries hitl', () => {
+  test.each([
+    ['ConversationPolicy', ConversationPolicySchema],
+    ['ConversationHitlPolicy', ConversationHitlPolicySchema],
+    ['ToolHitlPolicy', ToolHitlPolicySchema],
+    ['ToolHitlMode', ToolHitlModeSchema],
+    ['ToolHitlRule', ToolHitlRuleSchema],
+    ['SeparateApproverPolicy', SeparateApproverPolicySchema],
+    ['ReviewerRole', ReviewerRoleSchema],
+  ] as const)("component %s is the agent spec's $defs entry", async (name, wire) => {
+    const spec = await loadSpec('agent');
     expect(wire).toEqual(asWire(spec.$defs?.[name]));
   });
 });
