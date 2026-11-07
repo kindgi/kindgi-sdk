@@ -26,7 +26,7 @@
  */
 
 import { _ } from 'ajv';
-import type { CodeKeywordDefinition, KeywordCxt } from 'ajv';
+import type { Ajv, CodeKeywordDefinition, KeywordCxt } from 'ajv';
 import { getSchemaTypes } from 'ajv/dist/compile/validate/dataType.js';
 import * as equalModule from 'ajv/dist/runtime/equal.js';
 import * as uniqueItemsModule from 'ajv/dist/vocabularies/validation/uniqueItems.js';
@@ -70,9 +70,27 @@ function unwrapDefault<T>(module: unknown, is: (value: unknown) => value is T): 
   return value;
 }
 
-/** The keyword: `ajv.removeKeyword('uniqueItems')`, then `ajv.addKeyword(linearUniqueItems())`. */
+/** The keyword: Ajv's own, with this code. An Ajv takes it through `useLinearUniqueItems`. */
 export function linearUniqueItems(): CodeKeywordDefinition {
   return { ...ajvKeyword(), code: linearCode };
+}
+
+/**
+ * `ajv`'s own `uniqueItems` rule takes this code, and keeps its place. Ajv
+ * walks the keywords in the order they were added, strict mode for the
+ * first problem it names and validation for the order of the errors, so a
+ * `uniqueItems` removed and added again would come after all the others: a
+ * schema with `uniqueItems` and `properties` and no `type` would be refused
+ * for `properties` on RE2, and for `uniqueItems` on V8.
+ */
+export function useLinearUniqueItems(ajv: Pick<Ajv, 'RULES'>): void {
+  const rule = ajv.RULES.all.uniqueItems;
+  const arrays = ajv.RULES.types.array;
+  // One rule is what strict mode walks and what writes an array's code.
+  if (typeof rule !== 'object' || typeof arrays !== 'object' || !arrays.rules.includes(rule)) {
+    throw new Error("Ajv's uniqueItems rule isn't the shape @kindgi/schema expects.");
+  }
+  rule.definition = { ...rule.definition, code: linearCode };
 }
 
 function linearCode(cxt: KeywordCxt): void {
