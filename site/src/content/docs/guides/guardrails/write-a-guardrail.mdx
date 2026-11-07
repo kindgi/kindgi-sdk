@@ -451,6 +451,92 @@ method for the points a check runs at, or for a guardrail's `at`, and
 </TabItem>
 </Tabs>
 
+## See the earlier turns
+
+A check sees the turn it judges. A guardrail with `sees: 'conversation'`
+gets the conversation's earlier turns too: the ones the model was given for
+this turn. That's all of them, or the last `historyLimit` messages when the
+agent sets one
+([Limit what the model sees](../../agents/conversations/#limit-what-the-model-sees)).
+Its check can then compare an answer with what the user said, or a tool
+returned, in an earlier turn.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+This check fails an answer that quotes a figure no message and no tool
+result of the conversation holds:
+
+```ts
+// guardrails/grounded-figures/index.ts
+import { defineCheck } from '@kindgi/sdk/define';
+
+const figuresIn = (text: string): string[] => text.match(/\d+(?:\.\d+)?/g) ?? [];
+
+export const check = defineCheck({
+  id: 'my-pack.checks.grounded-figures',
+  kind: 'zero-llm',
+  evaluate: async (_config, trace) => {
+    const turns = [...(trace.earlier ?? []), trace];
+    const known = new Set(
+      turns.flatMap((turn) => [
+        ...figuresIn(turn.userInput ?? ''),
+        ...turn.toolResults.flatMap((r) => figuresIn(JSON.stringify(r.output))),
+      ]),
+    );
+    const unknown = figuresIn(trace.output ?? '').filter((figure) => !known.has(figure));
+    if (unknown.length > 0) {
+      return {
+        passed: false,
+        reason: `No message or tool result holds ${unknown.join(', ')}.`,
+      };
+    }
+    return { passed: true };
+  },
+});
+
+export default {
+  id: 'my-pack.grounded-figures',
+  name: 'Figures come from the conversation',
+  kind: 'zero-llm',
+  check,
+  sees: 'conversation',
+  action: { 'on-violation': 'retry' },
+  severity: 'error',
+};
+```
+
+`trace.earlier` holds the earlier turns, oldest first, in the trace's own
+field names: each turn's `userInput`, its `toolCalls` and `toolResults`,
+and its answer, `output`. A turn the history limit cut short has no
+`userInput`. On a conversation's first turn, `trace.earlier` is empty; with
+`sees: 'turn'`, the default, it's absent. A guardrail at a tool call or a
+model reply gets it as well.
+
+An `llm-judge` guardrail with `sees: 'conversation'` sends its judge the
+earlier turns too ([Have a model judge](#have-a-model-judge)).
+
+</TabItem>
+<TabItem label="Python">
+
+A Python check sees one turn. `@guardrail` has no field for `sees`, and
+`RunTrace` has no `earlier`.
+
+</TabItem>
+<TabItem label="Java">
+
+A Java check sees one turn. `Guardrail.define` has no method for `sees`,
+and `RunTrace` has no typed accessor for `earlier`.
+
+</TabItem>
+<TabItem label="Scala">
+
+A Scala check sees one turn. `Guardrail[Config](…)` has no method for
+`sees`, and `RunTrace` has no typed accessor for `earlier`.
+
+</TabItem>
+</Tabs>
+
 ## Test the check
 
 The check is a function of the config and the trace, so a unit test calls it
@@ -743,7 +829,11 @@ object ProfessionalTone {
 - **What the judge sees:** the rubric, the turn's final answer, and its
   tool calls with their arguments. It doesn't see the user's message or the
   tools' results, so write a rubric that the answer and the calls are enough
-  to judge.
+  to judge. A guardrail with `sees: 'conversation'` also shows it the
+  earlier turns, each one's user message, tool calls and answer, and then
+  this turn's user message
+  ([See the earlier turns](#see-the-earlier-turns)). The tools' results
+  stay out.
 - **`config`** is what it judges by:
   - `rubric`: what should hold.
   - `responseFormat`: `pass-fail`, the default, has the judge answer PASS

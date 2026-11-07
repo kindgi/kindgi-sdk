@@ -20,6 +20,7 @@ import {
   type TraceCall,
   type TraceCallResult,
   type TraceStep,
+  type TraceTurn,
   evaluateAll,
 } from '@kindgi/guardrails';
 import type {
@@ -98,6 +99,12 @@ export function buildRunTrace(input: {
   /** The parsed answer, when the agent declares `output`. */
   readonly structuredOutput?: unknown;
   readonly appended: readonly ConversationMessage[];
+  /**
+   * When a guardrail sees the conversation (`Guardrail.sees`): the earlier
+   * messages the model was given for the turn, oldest first. The trace
+   * carries them as its `earlier` turns (`traceTurnsOf`).
+   */
+  readonly earlier?: readonly ConversationMessage[];
   /** The answer as it would be stored. Absent at a point inside the loop, where there's none yet. */
   readonly finalResponse?: ConversationMessage;
   /** When the gate runs: the time of the approximate model-call record without a final response. */
@@ -209,7 +216,78 @@ export function buildRunTrace(input: {
       ...(point.result !== undefined && { result: point.result }),
       ...(point.step !== undefined && { step: point.step }),
     }),
+    ...(input.earlier !== undefined && { earlier: traceTurnsOf(input.earlier) }),
   };
+}
+
+/**
+ * Earlier messages of a conversation, oldest first, as the trace's
+ * earlier turns (`TraceTurn`), in its own field names. A person's message
+ * opens a turn. The first messages may belong to a turn that opened
+ * before them, as a history limit can cut one: that turn has no
+ * `userInput`. A turn's `output` is its stored answer; a reply that asks
+ * for calls adds them to `toolCalls`, and a tool's message adds its result.
+ */
+export function traceTurnsOf(messages: readonly ConversationMessage[]): readonly TraceTurn[] {
+  const turns: TurnSoFar[] = [];
+  for (const msg of messages) {
+    if (msg.role === 'system') continue;
+    if (msg.role === 'user') {
+      turns.push({ userInput: textOf(msg.content), toolCalls: [], toolResults: [] });
+      continue;
+    }
+    let turn = turns.at(-1);
+    if (turn === undefined) {
+      turn = { toolCalls: [], toolResults: [] };
+      turns.push(turn);
+    }
+    addToTurn(turn, msg);
+  }
+  return turns;
+}
+
+interface TurnSoFar {
+  userInput?: string;
+  output?: string;
+  readonly toolCalls: ToolCallRecord[];
+  readonly toolResults: ToolResultRecord[];
+}
+
+/** A tool's result, the answer, or the calls a reply asks for, added to its turn. */
+function addToTurn(turn: TurnSoFar, msg: ConversationMessage): void {
+  if (msg.role === 'tool') {
+    if (msg.toolCall !== undefined) {
+      turn.toolResults.push({
+        toolCallId: msg.toolCall.invocationId,
+        output: msg.content,
+        at: msg.createdAt,
+      });
+    }
+    return;
+  }
+  if (typeof msg.content === 'string') {
+    turn.output = msg.content;
+    return;
+  }
+  // A reply that asks for calls is kept as `{ text, toolCalls }`.
+  const structured = msg.content as {
+    readonly toolCalls?: readonly {
+      readonly name: string;
+      readonly arguments: Readonly<Record<string, unknown>>;
+    }[];
+  };
+  for (const call of structured.toolCalls ?? []) {
+    turn.toolCalls.push({
+      toolId: call.name as never,
+      toolName: call.name,
+      arguments: call.arguments,
+      at: msg.createdAt,
+    });
+  }
+}
+
+function textOf(content: ConversationMessage['content']): string {
+  return typeof content === 'string' ? content : JSON.stringify(content);
 }
 
 /**
