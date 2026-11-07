@@ -2218,6 +2218,120 @@
           }
         }
       }
+    },
+    "lone surrogate name: a property's schema": {
+      "type": "object",
+      "properties": {
+        "\ud835": {
+          "type": "string"
+        }
+      }
+    },
+    "lone surrogate name: a property's false schema": {
+      "type": "object",
+      "properties": {
+        "\ud835": false
+      }
+    },
+    "lone surrogate name: a property any data passes": {
+      "type": "object",
+      "properties": {
+        "\ud835": {}
+      }
+    },
+    "lone surrogate name: a low surrogate alone": {
+      "type": "object",
+      "properties": {
+        "\udc00": {
+          "type": "string"
+        }
+      }
+    },
+    "lone surrogate name: a surrogate pair is a name like any other": {
+      "type": "object",
+      "properties": {
+        "\ud835\udc00": {
+          "type": "string"
+        }
+      }
+    },
+    "lone surrogate name: an unknown keyword under it comes first": {
+      "type": "object",
+      "properties": {
+        "\ud835": {
+          "type": "string",
+          "minLenght": 1
+        }
+      }
+    },
+    "lone surrogate name: a property compiled before it comes first": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "type": "string",
+          "minimum": 1
+        },
+        "\ud835": {
+          "type": "string"
+        }
+      }
+    },
+    "lone surrogate name: required names it": {
+      "type": "object",
+      "properties": {
+        "\ud835": {}
+      },
+      "required": ["\ud835"]
+    },
+    "lone surrogate name: a pattern's schema": {
+      "type": "object",
+      "patternProperties": {
+        "\ud835": {
+          "type": "string"
+        }
+      }
+    },
+    "lone surrogate name: a pattern any data passes": {
+      "type": "object",
+      "patternProperties": {
+        "\ud835": {}
+      }
+    },
+    "lone surrogate name: a dependent schema": {
+      "type": "object",
+      "dependentSchemas": {
+        "\ud835": {
+          "minProperties": 1
+        }
+      }
+    },
+    "lone surrogate name: a dependent schema any data passes": {
+      "type": "object",
+      "dependentSchemas": {
+        "\ud835": {}
+      }
+    },
+    "lone surrogate name: an unknown keyword in a dependent schema any data passes": {
+      "type": "object",
+      "dependentSchemas": {
+        "\ud835": {
+          "minLenght": 1
+        }
+      }
+    },
+    "lone surrogate name: a dependencies schema": {
+      "type": "object",
+      "dependencies": {
+        "\ud835": {
+          "minProperties": 1
+        }
+      }
+    },
+    "lone surrogate name: a dependencies list": {
+      "type": "object",
+      "dependencies": {
+        "\ud835": ["a"]
+      }
     }
   },
   "unchecked": {

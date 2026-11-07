@@ -241,7 +241,22 @@
     "patternProperties syntax: every property evaluated, a pattern with a schema still compiles": "Invalid regular expression: /(/u: Unterminated group",
     "pattern syntax: the message has the source as written": "Invalid regular expression: /a/(/u: Unterminated group",
     "pattern syntax: in an allOf member": "Invalid regular expression: /[z-a]/u: Range out of order in character class",
-    "pattern syntax: a group name that can't start a name, in a dependent schema": "Invalid regular expression: /(?<1a>x)/u: Invalid capture group name"
+    "pattern syntax: a group name that can't start a name, in a dependent schema": "Invalid regular expression: /(?<1a>x)/u: Invalid capture group name",
+    "lone surrogate name: a property's schema": "URI malformed",
+    "lone surrogate name: a property's false schema": "URI malformed",
+    "lone surrogate name: a property any data passes": null,
+    "lone surrogate name: a low surrogate alone": "URI malformed",
+    "lone surrogate name: a surrogate pair is a name like any other": null,
+    "lone surrogate name: an unknown keyword under it comes first": "strict mode: unknown keyword: \"minLenght\"",
+    "lone surrogate name: a property compiled before it comes first": "strict mode: missing type \"number\" for keyword \"minimum\" at \"#/properties/a\" (strictTypes)",
+    "lone surrogate name: required names it": null,
+    "lone surrogate name: a pattern's schema": "URI malformed",
+    "lone surrogate name: a pattern any data passes": null,
+    "lone surrogate name: a dependent schema": "URI malformed",
+    "lone surrogate name: a dependent schema any data passes": null,
+    "lone surrogate name: an unknown keyword in a dependent schema any data passes": "strict mode: unknown keyword: \"minLenght\"",
+    "lone surrogate name: a dependencies schema": "URI malformed",
+    "lone surrogate name: a dependencies list": null
   },
   "unchecked": {
     "ref: a pointer into a meta-schema": "can't resolve reference https://json-schema.org/draft/2020-12/schema#/$defs/nope from id #",
