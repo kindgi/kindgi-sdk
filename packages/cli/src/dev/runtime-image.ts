@@ -14,7 +14,7 @@
  * password: `docker login registry.kindgi.com --username kindgi`.
  */
 export const DEFAULT_RUNTIME_IMAGE =
-  'registry.kindgi.com/kindgi/runtime:0.5.0-rc.0@sha256:caea8e3e015e1a70d9953cf208793351fe8dddbe66d753f32bb795bb4bd37244';
+  'registry.kindgi.com/kindgi/runtime:0.5.0@sha256:e9590fa40e82d5dadefaa58b4f1d4ac9f2c65494bc71a081499e3c1d15b6c6cd';
 
 /** Docker Hub, the registry of a reference that names none (`busybox`, `library/busybox`). */
 const DOCKER_HUB = 'docker.io';
