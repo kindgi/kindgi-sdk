@@ -25,11 +25,10 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class PackBlocksTest {
   private static final String BLOCKS = "blocks/**/*.json";
-  // The folder above a block's, for the templates a block names outside its own folder. The paths
-  // start from UP rather than being string literals starting with ../, which
-  // scripts/jvm-test-reads.test.mjs takes for repository files a test reads: these are paths inside
-  // the test's own pack.
-  private static final String UP = "..";
+  // The folder above a block's, for the templates a block names outside its own folder. These are
+  // paths inside the test's own pack, not repository files, so UP's line says so for
+  // scripts/jvm-test-reads.test.mjs.
+  private static final String UP = ".."; // not-a-repo-read: inside the test's own @TempDir pack
 
   @TempDir Path root;
 
