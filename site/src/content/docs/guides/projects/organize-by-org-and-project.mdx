@@ -376,8 +376,8 @@ val mine = kindgi.projects().create(
   limited to a project makes none: `403 project-test-not-yours`. Any member
   makes their own; making any other project takes admin on the workspace.
 - **Nobody else is in it.** Its person is its `admin`, never its owner.
-  Adding a member or a team, or changing or removing its person, answers
-  `409 project-is-a-test-project`.
+  Adding a member or a team, giving a service account a role on it, or
+  changing or removing its person, answers `409 project-is-a-test-project`.
 - **It stays a test project.** It's in no org and isn't the default. It
   never goes into production, into an environment order or onto a repo
   connection: each answers `409 project-is-a-test-project`. Its work goes

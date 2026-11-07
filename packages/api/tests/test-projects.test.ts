@@ -19,7 +19,7 @@ import {
   makeInMemoryProjectBinding,
   makeInMemoryTeamBinding,
 } from '@kindgi/platform';
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -30,6 +30,9 @@ import type {
   RunHandlerBinding,
   SecretBinding,
   SecretRecord,
+  ServiceAccount,
+  ServiceAccountBinding,
+  ServiceAccountGrant,
   TenantHostAccess,
   TokenResolver,
 } from '../src/index.js';
@@ -39,10 +42,10 @@ import { inMemoryMemory } from './support/in-memory-memory.js';
  * A person's own test project (`Project.testFor`): any member of the
  * workspace makes their own, one each, on a runtime that holds them
  * (`isolated`). It's theirs alone: they're its `admin`, nobody else joins
- * it, no team is given it, and it never goes into production, into an
- * environment order or onto a repo connection. Its person writes its
- * secrets without `secrets:write`, and a key limited to it reads only its
- * own facts.
+ * it, no team or service account is given it, and it never goes into
+ * production, into an environment order or onto a repo connection. Its
+ * person writes its secrets without `secrets:write`, and a key limited to
+ * it reads only its own facts.
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -191,9 +194,36 @@ function makeApp(
     return null;
   };
 
+  // Service accounts as a store keeps them: each grant taken as given.
+  const account = (name: string, grants: readonly ServiceAccountGrant[]): ServiceAccount => ({
+    serviceAccountId: `sa-${name}`,
+    tenantId,
+    name,
+    grants,
+    createdAt: '2026-11-01T00:00:00.000Z' as Timestamp,
+  });
+  const serviceAccountBinding: ServiceAccountBinding = {
+    create: async (input) => ({ kind: 'ok', value: account(input.name, input.grants) }),
+    get: async () => null,
+    list: async () => ({ data: [] }),
+    grant: async (input) => ({
+      kind: 'ok',
+      value: account(input.serviceAccountId.replace(/^sa-/, ''), [input.grant]),
+    }),
+    ungrant: async () => ({
+      kind: 'err',
+      error: { code: 'service-account-not-found', message: 'gone' },
+    }),
+    unregister: async () => ({
+      kind: 'err',
+      error: { code: 'service-account-not-found', message: 'gone' },
+    }),
+  };
+
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
+    serviceAccountBinding,
     runHandler,
     tenantHostAccess: hostAccess,
     tenantHierarchyBinding: tenantHierarchy as TenantHierarchyBinding,
@@ -484,6 +514,38 @@ describe('a test project stays its person’s', () => {
       409,
       'project-is-a-test-project',
     );
+  });
+
+  test('no service account is given it, at create or after', async () => {
+    const h = makeApp();
+    const { testId, sharedId } = await h.seed();
+    const onTest = { kind: 'project', projectId: testId, role: 'viewer' };
+    const made = await h.call('POST', '/v1/service-accounts', ADMIN_TOKEN, {
+      name: 'acme-bot',
+      grants: [onTest],
+    });
+    refused(made, 409, 'project-is-a-test-project');
+    expect(made.body.error.message).toBe("A test project is one person's: nobody else joins it");
+    expect(made.body.error.details).toMatchObject({ projectId: testId });
+    refused(
+      await h.call('POST', '/v1/service-accounts/sa-acme-bot/grant', ADMIN_TOKEN, onTest),
+      409,
+      'project-is-a-test-project',
+    );
+    // Any other project takes one, at create and after.
+    const onShared = { kind: 'project', projectId: sharedId, role: 'viewer' };
+    expect(
+      (
+        await h.call('POST', '/v1/service-accounts', ADMIN_TOKEN, {
+          name: 'acme-bot',
+          grants: [onShared],
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (await h.call('POST', '/v1/service-accounts/sa-acme-bot/grant', ADMIN_TOKEN, onShared))
+        .status,
+    ).toBe(200);
   });
 
   test('it never goes into production; taking it out is still answered', async () => {

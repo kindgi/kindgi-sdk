@@ -1789,7 +1789,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.serviceAccountBinding !== undefined) {
-    v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
+    v1.route(
+      '/service-accounts',
+      serviceAccountsRouter(input.serviceAccountBinding, authorizer, {
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   // Mount the reviewer roster sub-resource BEFORE the approvals router
   // so `/v1/approvals/reviewers/*` resolves here rather than being

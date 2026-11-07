@@ -36355,7 +36355,7 @@
             }
           },
           "409": {
-            "description": "An active service account has the name (`service-account-name-taken`), or an idempotency conflict.",
+            "description": "An active service account has the name (`service-account-name-taken`), a grant names a person's own test project, which nobody else joins (`project-is-a-test-project`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36653,7 +36653,7 @@
             }
           },
           "409": {
-            "description": "The account is unregistered (`service-account-unregistered`), or a project's own account, whose grant is fixed (`service-account-project-owned`), or an idempotency conflict.",
+            "description": "The account is unregistered (`service-account-unregistered`), or a project's own account, whose grant is fixed (`service-account-project-owned`), or the project is a person's own test project, which nobody else joins (`project-is-a-test-project`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {

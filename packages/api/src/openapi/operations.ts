@@ -3591,7 +3591,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse('Not a tenant admin.'),
       '404': ErrorResponse('A grant names no project of this workspace (`project-not-found`).'),
       '409': ErrorResponse(
-        'An active service account has the name (`service-account-name-taken`), or an idempotency conflict.',
+        "An active service account has the name (`service-account-name-taken`), a grant names a person's own test project, which nobody else joins (`project-is-a-test-project`), or an idempotency conflict.",
       ),
     },
   },
@@ -3659,7 +3659,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such service account (`service-account-not-found`), or no such project (`project-not-found`).',
       ),
       '409': ErrorResponse(
-        "The account is unregistered (`service-account-unregistered`), or a project's own account, whose grant is fixed (`service-account-project-owned`), or an idempotency conflict.",
+        "The account is unregistered (`service-account-unregistered`), or a project's own account, whose grant is fixed (`service-account-project-owned`), or the project is a person's own test project, which nobody else joins (`project-is-a-test-project`), or an idempotency conflict.",
       ),
     },
   },
