@@ -64,7 +64,7 @@ conformance suites in `tests/` pin every outcome.
 
 `project-test-already-exists` comes from a binding that keeps test
 projects (`ProjectBinding.keepsTestProjects`): a second test project for
-the same person in the workspace. A binding without the marker isn't
+the same person in the workspace, whatever its slug. A binding without the marker isn't
 given one: the API answers `501 project-test-unsupported` first.
 
 ## Design directives

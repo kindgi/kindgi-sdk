@@ -347,7 +347,7 @@ mine = kindgi.projects.create(slug="mine", name="Mine", test_for=me.user_id)
 </Tabs>
 
 - **One each.** A second for the same person answers
-  `409 project-test-already-exists`. The workspace's admins delete one, and
+  `409 project-test-already-exists`, whatever its slug. The workspace's admins delete one, and
   then its person can make another.
 - **Only by its person.** `testFor` must be the caller's own user id, so
   nobody makes one for someone else, a workspace admin included, and a key

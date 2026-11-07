@@ -11,7 +11,7 @@
 
 **A person's own test project.** Anyone in the workspace can make one test project of their own: `POST /v1/projects` (`client.projects.create`) takes an optional `testFor`, their own user id, and the project carries it. It's set only when the project is made, so `PATCH /v1/projects/{projectId}` refuses it with `400 bad-input`. A test project follows these rules:
 
-- **One per person per workspace.** A second is `409 project-test-already-exists`. `ProjectCreateOutcome` gains that kind, `CreateProjectError` gains `test-conflict`, and the project binding conformance suite checks it.
+- **One per person per workspace.** A second is `409 project-test-already-exists`, whatever its slug. `ProjectCreateOutcome` gains that kind, `CreateProjectError` gains `test-conflict`, and the project binding conformance suite checks it.
 - **Only its person makes it.** Any member may, without admin on the workspace, but `testFor` must be their own user id. Someone else's id, or a key limited to a project, gets `403 project-test-not-yours`. It's refused together with `orgId` or `isDefault` (`400 bad-input`).
 - **Only an isolated runtime holds them** (`KINDGI_TENANT_HOST_ACCESS=isolated`). On any other runtime, the create gets `409 project-test-needs-isolated-runtime`.
 - **Only where the store keeps them.** `ProjectBinding` and `TenantHierarchyBinding` gain an optional `keepsTestProjects: true`, which the in-memory project binding sets. The store that makes the project (the hierarchy binding with an authorizer, else the project binding) needs it. Without it, `testFor` gets `501 project-test-unsupported`, and making any project takes admin. `StubMethods` lists a binding's methods only, so a stub leaves the marker out.

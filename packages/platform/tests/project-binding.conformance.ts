@@ -16,7 +16,8 @@
  * - With `testProjects`, a binding that keeps them
  *   (`keepsTestProjects`): one test project per person per tenant
  *   (`testFor`), a second for the same person in the same tenant, or two
- *   at once, resolving to `project-test-already-exists`; another person,
+ *   at once, resolving to `project-test-already-exists` whatever their
+ *   slugs, never `slug-conflict`; another person,
  *   another tenant, or the same person once theirs is deleted, may make
  *   one.
  * - Slug uniqueness within an org (and, for projects without an org,
@@ -601,6 +602,14 @@ export function runProjectBindingConformance(
         });
       });
 
+      it('a second with the same slug → project-test-already-exists, never slug-conflict', async () => {
+        const { projects } = makeBinding();
+        await createProject(projects, T1, { name: 'Mine', slug: 'mine', testFor: U1 });
+        expect(await projects.create(T1, { name: 'Mine', slug: 'mine', testFor: U1 })).toEqual({
+          kind: 'project-test-already-exists',
+        });
+      });
+
       it('another person, another tenant, or the same person after a delete may make one', async () => {
         const { projects } = makeBinding();
         const first = await createProject(projects, T1, {
@@ -619,6 +628,15 @@ export function runProjectBindingConformance(
         const both = await Promise.all([
           projects.create(T1, { name: 'Mine', slug: 'mine', testFor: U1 }),
           projects.create(T1, { name: 'Mine 2', slug: 'mine-2', testFor: U1 }),
+        ]);
+        expect(both.map((o) => o.kind).sort()).toEqual(['ok', 'project-test-already-exists']);
+      });
+
+      it('two at once with the same slug: one is made, the other is project-test-already-exists', async () => {
+        const { projects } = makeBinding();
+        const both = await Promise.all([
+          projects.create(T1, { name: 'Mine', slug: 'mine', testFor: U1 }),
+          projects.create(T1, { name: 'Mine', slug: 'mine', testFor: U1 }),
         ]);
         expect(both.map((o) => o.kind).sort()).toEqual(['ok', 'project-test-already-exists']);
       });

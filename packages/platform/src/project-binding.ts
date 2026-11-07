@@ -74,9 +74,9 @@ export interface ProjectBinding {
    * `project-default-already-exists` — the isDefault-uniqueness
    * guardrail is enforced at write time. When `spec.testFor` is set and
    * the workspace already has a test project for that person, it
-   * resolves to `project-test-already-exists`: one per person per
-   * workspace, enforced at write time too, so two creates at once can't
-   * both pass.
+   * resolves to `project-test-already-exists`, never `slug-conflict`,
+   * whatever the slug: one per person per workspace, enforced at write
+   * time too, so two creates at once can't both pass.
    */
   create(tenantId: TenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome>;
   /**
