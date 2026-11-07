@@ -314,6 +314,16 @@ export type RenameTenantOutcome =
  * Deployments supply the implementation; tests can substitute a mock.
  */
 export interface TenantHierarchyBinding {
+  /**
+   * `true` when `createProject` keeps `spec.testFor`: the project as
+   * `ProjectBinding.keepsTestProjects` keeps it, its person made its
+   * `admin` and never its `owner`, with the tuples to match
+   * (`tuplesForCreate`), and a second for the same person refused
+   * (`test-conflict`). Absent: the API makes no test project through it
+   * (`501 project-test-unsupported`), and making any project takes
+   * `admin` on the workspace.
+   */
+  readonly keepsTestProjects?: true;
   createOrg(params: CreateOrgParams): Promise<Result<{ readonly orgId: OrgId }, CreateOrgError>>;
   createTeam(
     params: CreateTeamParams,

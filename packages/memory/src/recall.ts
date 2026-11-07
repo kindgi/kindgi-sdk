@@ -90,7 +90,8 @@ export interface RecallRow {
  * (`isReadableBy`): a conversation is always someone's.
  *   - **Its project:** one the readers have, or act in for every end user
  *     (`onBehalfOfProjectIds`). A conversation without a project passes
- *     only by its person or the conversation itself.
+ *     only by its person or the conversation itself, and never for readers
+ *     limited to their project's own (`projectFactsOnly`).
  *   - **Its person:** its end user when it has one, else the Kindgi user
  *     its turns acted for. The readers must be that person
  *     (`participantIds`, or `userIds` for a conversation without an end
@@ -102,6 +103,7 @@ export interface RecallRow {
  */
 export function isRecallReadableBy(row: RecallRow, readers: MemoryReaders): boolean {
   if (readers.all === true) return true;
+  if (readers.projectFactsOnly === true && row.projectId === undefined) return false;
   const has = <T>(ids: readonly T[] | undefined, id: T | undefined) =>
     id !== undefined && ids?.includes(id) === true;
   const project = row.projectId;

@@ -3640,6 +3640,12 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/projects'],
   },
+  'project-test-unsupported': {
+    description:
+      "This runtime's project store doesn't keep test projects, so it makes none. A runtime whose store keeps them makes one for any member; here, making a project takes admin on the workspace, with `testFor` or without.",
+    details: [],
+    seeAlso: ['POST /v1/projects'],
+  },
   'project-test-needs-isolated-runtime': {
     description:
       "This runtime doesn't hold test projects. They need `KINDGI_TENANT_HOST_ACCESS=isolated`, which refuses tenants the private networks and the server's own credentials.",

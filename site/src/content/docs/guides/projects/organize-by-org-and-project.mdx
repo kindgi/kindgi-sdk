@@ -367,6 +367,8 @@ mine = kindgi.projects.create(slug="mine", name="Mine", test_for=me.user_id)
   ([Who sees what](../../agents/memory-reference/#who-sees-what)).
 - **Only an isolated runtime holds them** (`KINDGI_TENANT_HOST_ACCESS=isolated`).
   Anywhere else, making one answers `409 project-test-needs-isolated-runtime`.
+  A runtime whose project store doesn't keep them answers
+  `501 project-test-unsupported`, and there making any project takes admin.
 
 ## Read a customer's work
 

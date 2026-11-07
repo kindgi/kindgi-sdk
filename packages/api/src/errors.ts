@@ -640,6 +640,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-default-already-exists': 409,
   // A person's second test project in the workspace.
   'project-test-already-exists': 409,
+  // A test project, on a runtime whose project store doesn't keep them.
+  'project-test-unsupported': 501,
   // A test project made for someone else, or by a key limited to a project.
   'project-test-not-yours': 403,
   // A test project on a runtime that isn't `KINDGI_TENANT_HOST_ACCESS=isolated`.

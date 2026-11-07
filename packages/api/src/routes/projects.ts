@@ -129,6 +129,14 @@ export function projectsRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const hostAccess = options.hostAccess ?? 'deployed';
+  // Whether the store that makes a project keeps `testFor`: the hierarchy
+  // binding with an authorizer, else the project binding. One that doesn't
+  // would make an ordinary project its creator owns, so without it a test
+  // project is refused, and the create's gate stays `admin`.
+  const keepsTestProjects =
+    authorizer !== undefined
+      ? tenantHierarchy.keepsTestProjects === true
+      : binding.keepsTestProjects === true;
 
   /** A 409 `project-is-a-test-project` for `projectId`, saying `why`. */
   function testProjectRefused(c: Context<AppEnv>, projectId: ProjectId, why: string) {
@@ -141,22 +149,18 @@ export function projectsRouter(
    * Why a create with `testFor` is refused, or `undefined`. A person makes
    * their own test project, themselves: not for someone else, not with a
    * key limited to a project, not in an org, not as the default, and only
-   * on a runtime that holds test projects.
+   * on a runtime that holds test projects, whose store keeps them.
    */
   function testCreateRefusal(
     c: Context<AppEnv>,
     b: Record<string, unknown>,
   ): { readonly code: string; readonly message: string } | undefined {
-    if (typeof b.testFor !== 'string' || b.testFor.length === 0) {
-      return { code: 'bad-input', message: '`testFor` must be a non-empty string when present' };
-    }
-    if (b.orgId !== undefined) {
-      return { code: 'bad-input', message: 'A test project is in no org: leave out `orgId`' };
-    }
-    if (b.isDefault === true) {
+    const shape = testShapeRefusal(b);
+    if (shape !== undefined) return shape;
+    if (!keepsTestProjects) {
       return {
-        code: 'bad-input',
-        message: "A test project isn't the workspace's default: leave out `isDefault`",
+        code: 'project-test-unsupported',
+        message: "This runtime's project store doesn't keep test projects, so it makes none",
       };
     }
     const principal = c.get('principal') as Principal | undefined;
@@ -335,13 +339,14 @@ export function projectsRouter(
   //   GET /                                       → list-filter by can_read
   if (authorizer !== undefined) {
     // Making a project takes admin on the workspace, except a person's own
-    // test project (`testFor`): any member of the workspace makes their
-    // own, and the handler checks it's theirs. A body that isn't JSON takes
-    // admin.
+    // test project (`testFor`) where the store keeps them: any member of
+    // the workspace makes their own, and the handler checks it's theirs. A
+    // body that isn't JSON takes admin.
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
       const peek: unknown = await c.req.json().catch(() => undefined);
       const forTest =
+        keepsTestProjects &&
         peek !== null &&
         typeof peek === 'object' &&
         (peek as Record<string, unknown>).testFor !== undefined;
@@ -977,6 +982,29 @@ async function unregisterProjectAccount(
   } catch (err) {
     failed(err instanceof Error ? err.message : String(err));
   }
+}
+
+/**
+ * Why a create's test project has a shape it never may (`400`), or
+ * `undefined`: `testFor` is a non-empty string, with no org and not the
+ * default.
+ */
+function testShapeRefusal(
+  b: Record<string, unknown>,
+): { readonly code: string; readonly message: string } | undefined {
+  if (typeof b.testFor !== 'string' || b.testFor.length === 0) {
+    return { code: 'bad-input', message: '`testFor` must be a non-empty string when present' };
+  }
+  if (b.orgId !== undefined) {
+    return { code: 'bad-input', message: 'A test project is in no org: leave out `orgId`' };
+  }
+  if (b.isDefault === true) {
+    return {
+      code: 'bad-input',
+      message: "A test project isn't the workspace's default: leave out `isDefault`",
+    };
+  }
+  return undefined;
 }
 
 /** Who a new member is: exactly one of `userId` and `email`. */

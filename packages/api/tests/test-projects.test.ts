@@ -105,8 +105,22 @@ function secretsBinding(): { readonly names: string[]; readonly binding: SecretB
   return { names, binding: binding as SecretBinding };
 }
 
-function makeApp(hostAccess: TenantHostAccess = 'isolated') {
+/**
+ * The app over in-memory stores. `hierarchyKeeps: false` or
+ * `bindingKeeps: false` leaves that store's `keepsTestProjects` out;
+ * `authz: false` is a runtime with no authorizer, where the project
+ * binding makes each project.
+ */
+function makeApp(
+  hostAccess: TenantHostAccess = 'isolated',
+  opts: {
+    readonly hierarchyKeeps?: boolean;
+    readonly bindingKeeps?: boolean;
+    readonly authz?: boolean;
+  } = {},
+) {
   const trio = makeInMemoryProjectBinding();
+  const { keepsTestProjects: _kept, ...projectsKeepingNone } = trio.projects;
   const teams = makeInMemoryTeamBinding();
   const memory = inMemoryMemory();
   const secrets = secretsBinding();
@@ -128,12 +142,14 @@ function makeApp(hostAccess: TenantHostAccess = 'isolated') {
   // The binding's own refusals, as a runtime's hierarchy binding gives them.
   const tenantHierarchy: Pick<
     TenantHierarchyBinding,
+    | 'keepsTestProjects'
     | 'createProject'
     | 'addProjectMember'
     | 'removeProjectMember'
     | 'updateProjectMemberRole'
     | 'getTenant'
   > = {
+    ...(opts.hierarchyKeeps !== false && { keepsTestProjects: true as const }),
     async createProject({ tenantId: t, spec }) {
       const outcome = await trio.projects.create(t, spec);
       if (outcome.kind === 'ok') return { kind: 'ok', value: { projectId: outcome.projectId } };
@@ -181,7 +197,7 @@ function makeApp(hostAccess: TenantHostAccess = 'isolated') {
     runHandler,
     tenantHostAccess: hostAccess,
     tenantHierarchyBinding: tenantHierarchy as TenantHierarchyBinding,
-    projectBinding: trio.projects,
+    projectBinding: opts.bindingKeeps !== false ? trio.projects : projectsKeepingNone,
     projectMembershipBinding: trio.memberships,
     teamBinding: teams.teams,
     teamMembershipBinding: teams.memberships,
@@ -191,7 +207,9 @@ function makeApp(hostAccess: TenantHostAccess = 'isolated') {
     environmentOrders,
     connections,
     envName: 'local' as never,
-    authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
+    ...(opts.authz !== false && {
+      authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
+    }),
   });
 
   const call = async (method: string, path: string, token: string, body?: unknown) => {
@@ -277,6 +295,60 @@ describe('making a test project', () => {
       testFor: OTHER,
     });
     expect(theirs.status).toBe(201);
+  });
+
+  test('two at once for one person: one is made, the other refused', async () => {
+    const h = makeApp();
+    const mine = (slug: string) =>
+      h.call('POST', '/v1/projects', PERSON_TOKEN, { name: slug, slug, testFor: PERSON });
+    const both = await Promise.all([mine('mine'), mine('mine-2')]);
+    expect(both.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(both.find((r) => r.status === 409)?.body.error.code).toBe('project-test-already-exists');
+  });
+
+  test("where the project store doesn't keep them, none is made and making a project takes admin", async () => {
+    // With an authorizer, the hierarchy binding makes the project: its marker decides.
+    const h = makeApp('isolated', { hierarchyKeeps: false });
+    const mine = { name: 'Mine', slug: 'mine', testFor: PERSON };
+    // `testFor` lowers no gate: a member is refused as for any project.
+    refused(await h.call('POST', '/v1/projects', PERSON_TOKEN, mine), 403, 'permission-denied');
+    const admins = await h.call('POST', '/v1/projects', ADMIN_TOKEN, { ...mine, testFor: ADMIN });
+    refused(admins, 501, 'project-test-unsupported');
+    // An ordinary project is made as before.
+    const shop = await h.call('POST', '/v1/projects', ADMIN_TOKEN, { name: 'Shop', slug: 'shop' });
+    expect(shop.status).toBe(201);
+  });
+
+  test("without an authorizer, the project binding's own marker decides", async () => {
+    const mine = { name: 'Mine', slug: 'mine', testFor: PERSON };
+    const none = makeApp('isolated', { bindingKeeps: false, authz: false });
+    refused(
+      await none.call('POST', '/v1/projects', PERSON_TOKEN, mine),
+      501,
+      'project-test-unsupported',
+    );
+    const kept = makeApp('isolated', { hierarchyKeeps: false, authz: false });
+    expect((await kept.call('POST', '/v1/projects', PERSON_TOKEN, mine)).status).toBe(201);
+  });
+
+  test("with an authorizer, the project binding's marker alone lets nothing through", async () => {
+    const h = makeApp('isolated', { hierarchyKeeps: false, bindingKeeps: true });
+    const r = await h.call('POST', '/v1/projects', ADMIN_TOKEN, {
+      name: 'Mine',
+      slug: 'mine',
+      testFor: ADMIN,
+    });
+    refused(r, 501, 'project-test-unsupported');
+    const kept = makeApp('isolated', { bindingKeeps: false });
+    expect(
+      (
+        await kept.call('POST', '/v1/projects', PERSON_TOKEN, {
+          name: 'M',
+          slug: 'm',
+          testFor: PERSON,
+        })
+      ).status,
+    ).toBe(201);
   });
 
   test("nobody makes one for someone else, not even the workspace's admin", async () => {

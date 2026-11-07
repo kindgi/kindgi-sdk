@@ -9655,7 +9655,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`. Making a project takes admin on the workspace, except a person's own test project (`testFor`, your own user id): any member makes one, once (`409 project-test-already-exists`), and only for themselves (`403 project-test-not-yours`), with no `orgId` and not as the default, on a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` (`409 project-test-needs-isolated-runtime`). Its person becomes its admin.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`. Making a project takes admin on the workspace, except a person's own test project (`testFor`, your own user id): any member makes one, once (`409 project-test-already-exists`), and only for themselves (`403 project-test-not-yours`), with no `orgId` and not as the default, on a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` (`409 project-test-needs-isolated-runtime`) whose project store keeps them. Its person becomes its admin. Where the store doesn't keep them, a test project answers `501 project-test-unsupported`, and making any project takes admin.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -20007,7 +20007,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`. Making a project takes admin on the workspace, except a person's own test project (`testFor`, your own user id): any member makes one, once (`409 project-test-already-exists`), and only for themselves (`403 project-test-not-yours`), with no `orgId` and not as the default, on a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` (`409 project-test-needs-isolated-runtime`). Its person becomes its admin.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`. Making a project takes admin on the workspace, except a person's own test project (`testFor`, your own user id): any member makes one, once (`409 project-test-already-exists`), and only for themselves (`403 project-test-not-yours`), with no `orgId` and not as the default, on a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` (`409 project-test-needs-isolated-runtime`) whose project store keeps them. Its person becomes its admin. Where the store doesn't keep them, a test project answers `501 project-test-unsupported`, and making any project takes admin.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],

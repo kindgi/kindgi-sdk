@@ -174,11 +174,16 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     return false;
   }
 
-  /** Why `create` refuses `spec`, or `undefined` when it doesn't. */
-  async function createRefusal(
+  /**
+   * Why `create` refuses `spec`, or `undefined` when it doesn't, with
+   * `orgMissing` already read. It doesn't yield, so `create` checks and
+   * inserts in one step: two creates at once can't both pass.
+   */
+  function createRefusal(
     tenantId: TenantId,
     spec: ProjectSpec,
-  ): Promise<ProjectCreateOutcome | undefined> {
+    orgMissing: boolean,
+  ): ProjectCreateOutcome | undefined {
     // The isDefault guardrail first: a caller asking for the default
     // wants to hear that one exists, whatever its slug.
     if (spec.isDefault === true && tenantAlreadyHasDefault(tenantId)) {
@@ -187,9 +192,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     if (spec.testFor !== undefined && personAlreadyHasTestProject(tenantId, spec.testFor)) {
       return { kind: 'project-test-already-exists' };
     }
-    if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
-      return { kind: 'org-not-found', orgId: spec.orgId };
-    }
+    if (spec.orgId !== undefined && orgMissing) return { kind: 'org-not-found', orgId: spec.orgId };
     if (slugTaken(tenantId, spec.orgId, spec.slug)) {
       return { kind: 'slug-conflict', slug: spec.slug };
     }
@@ -197,8 +200,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   }
 
   const projects: ProjectBinding = {
+    keepsTestProjects: true,
     async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
-      const refused = await createRefusal(tenantId, spec);
+      // The org is read first, the one read that waits: the rest is
+      // checked and the row inserted with no wait between.
+      const orgMissing =
+        spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false;
+      const refused = createRefusal(tenantId, spec, orgMissing);
       if (refused !== undefined) return refused;
       const isDefault = spec.isDefault === true;
       const id = nextProjectId();

@@ -25,8 +25,15 @@ export class StubBindingError extends Error {
  * One `true` entry per method of `T`. Typed as a complete mapping, so a
  * method added to the interface (or a stale one left behind) fails to
  * compile at the stub definition instead of slipping through at runtime.
+ * A member that isn't a method (a marker such as
+ * `TenantHierarchyBinding.keepsTestProjects`) isn't listed: a stub leaves
+ * it out.
  */
-export type StubMethods<T> = { readonly [K in keyof T]-?: true };
+export type StubMethods<T> = {
+  readonly [K in keyof T as NonNullable<T[K]> extends (...args: never[]) => unknown
+    ? K
+    : never]-?: true;
+};
 
 /**
  * Build a stub implementation of the binding interface `T`: every method

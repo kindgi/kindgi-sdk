@@ -92,6 +92,23 @@ describe('isRecallReadableBy', () => {
     ).toBe(false);
   });
 
+  test("readers limited to their project's own recall no conversation without a project", () => {
+    const limited: MemoryReaders = {
+      projectIds: [p1],
+      userIds: ['alice' as never],
+      projectFactsOnly: true,
+    };
+    const { projectFactsOnly: _only, ...unlimited } = limited;
+    const elsewhere = { conversationId: 'c-8', userId: 'alice' };
+    expect(isRecallReadableBy(elsewhere, unlimited)).toBe(true);
+    expect(isRecallReadableBy(elsewhere, limited)).toBe(false);
+    // Not even from inside that conversation.
+    expect(isRecallReadableBy(elsewhere, { ...limited, threadIds: ['c-8' as never] })).toBe(false);
+    expect(
+      isRecallReadableBy({ conversationId: 'c-9', projectId: 'p-1', userId: 'alice' }, limited),
+    ).toBe(true);
+  });
+
   test('a tenant admin reads all', () => {
     expect(isRecallReadableBy({ conversationId: 'c-7', projectId: 'p-2' }, { all: true })).toBe(
       true,

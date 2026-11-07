@@ -60,6 +60,13 @@ export interface ProjectMembershipAddInput {
  */
 export interface ProjectBinding {
   /**
+   * `true` when `create` keeps `spec.testFor` as `Project.testFor`, at
+   * most one per person per workspace (`project-test-already-exists`).
+   * Absent: it doesn't, and the API makes no test project through this
+   * binding (`501 project-test-unsupported`).
+   */
+  readonly keepsTestProjects?: true;
+  /**
    * Create a `Project` within the workspace. `spec.orgId` optional.
    * Resolves to `ok` with the assigned `ProjectId`; to `slug-conflict`
    * when another project in the workspace has `spec.slug`; and, when
