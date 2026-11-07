@@ -14,7 +14,7 @@ to the next.
 
 | | Where it runs | What it's for | What's different |
 |---|---|---|---|
-| **Local** | `kindgi dev`, on your machine | Writing the pack and trying each change as you save it | Development mode: no license key, no authorization and no schedules ([On your machine](#on-your-machine)) |
+| **Local** | `kindgi dev`, on your machine | Writing the pack and trying each change as you save it | Development mode: no authorization and no schedules ([On your machine](#on-your-machine)) |
 | **Staging** | A project that isn't in production, first in an environment order | Trying a build with real settings before real users see it | Its runs are staging runs. On a runtime of your own, one runtime or two ([One runtime or two](#one-runtime-or-two)) |
 | **Production** | The project you put in production, next in the order | Real work, for real users | Its runs are production runs, on the versions you pinned there |
 
@@ -31,12 +31,15 @@ prod's ([Environments in order](../../deploy/ship-from-ci/#environments-in-order
 On Kindgi Cloud, staging is that second project. On a runtime of your own,
 it can also be a runtime of its own.
 
-**Production is a switch on a project.** On a runtime of your own, a tenant
-admin turns it on, and nothing else stands in the way. On Kindgi Cloud, the
-platform has to allow it, and it can refuse: `production-not-allowed`, or
-`production-limit-reached` when the workspace already has as many projects
-in production as it may. A project that isn't in production, such as
-staging, doesn't count toward that limit.
+**Production is a switch on a project.** On any runtime, turning it on is
+refused, with `409 promote-only-build`, while a build signed to reach
+production only by promotion was deployed into the project rather than
+promoted there
+([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)).
+On Kindgi Cloud, the platform has to allow it too, and it can refuse:
+`production-not-allowed`, or `production-limit-reached` when the workspace
+already has as many projects in production as it may. A project that isn't
+in production, such as staging, doesn't count toward that limit.
 
 ## Three things called env
 
@@ -62,8 +65,9 @@ runtime serves:
   startup banner prints it on its `Env:` line. The name is yours to pick:
   the runtime gives no name a meaning of its own. A runtime that serves
   `production` keeps it, and its values stay under `production`.
-- On a runtime that refuses other envs, Kindgi Cloud among them,
-  `kindgi auth whoami` names it in its JSON's `servedEnv`.
+- On any runtime that serves an env, `kindgi auth whoami` names it in its
+  JSON's `servedEnv`, with `refusesOtherEnvs` saying whether it refuses
+  values under any other. Kindgi Cloud refuses them.
 
 **An app's production test is a fourth thing, and it isn't an env name.**
 An app's Kindgi client counts itself as in production when `NODE_ENV` or
@@ -82,9 +86,9 @@ production run:
   console shows **Testing mode** or **Live**, with **Go live**. The CLI is
   `kindgi projects production <project-id> on|off|status`, and the API is
   `PUT /v1/projects/{projectId}/production`. A run in a project in
-  production is a production run, and any other run is a staging run. Only
-  a tenant admin turns it on or off, and taking a project out of production
-  is never refused.
+  production is a production run, and any other run is a staging run. With
+  authorization on, only a tenant admin turns it on or off. Taking a project
+  out of production is never refused.
 - **The license.** The runtime is free for non-production use, CI and
   staging environments that serve no end users included. Serving end users,
   or processing live business data, is production use, and needs a
@@ -103,7 +107,9 @@ mode.
 `kindgi dev` runs the image a deployment runs, in development mode
 (`KINDGI_DEV=true`). That makes it different from a deployment:
 
-- **No license key.** Development mode runs without one.
+- **Your license key.** `kindgi dev` gives the runtime your license key,
+  from `KINDGI_LICENSE_KEY` or the one `kindgi auth registry` keeps. The
+  free non-production key covers it ([Licensing](../licensing/)).
 - **No authorization.** `kindgi dev` runs without it, while a deployment
   can turn it on ([Run with authorization](../../deploy/authorization/)).
 - **No schedules.** **Schedule…** is off under `kindgi dev`, since it runs
@@ -125,7 +131,7 @@ mode.
 
 | What | When the project moves | Kept for each |
 |---|---|---|
-| The pack's code: agents, tools, flows and guardrails | `kindgi promote` moves the same signed build to the next environment on the same runtime, with the edits made since. Nothing is rebuilt. To another runtime, build and sign it again from the same commit ([One runtime or two](#one-runtime-or-two)) | project |
+| The pack's code: agents, tools, flows and guardrails | `kindgi promote` moves the same signed build to the next environment on the same runtime. Nothing is rebuilt. It lists the edits made to its agents and flows since the build, in the environment it moves from: the ones that move with it, and the ones that stay behind. To another runtime, build and sign it again from the same commit ([One runtime or two](#one-runtime-or-two)) | project |
 | Secrets and env values | Never move: they aren't part of a version. `kindgi promote --check` lists the ones the next environment is missing, and `kindgi deploy --sync-secrets` sends `.env.<env>`'s values, off by default | env and scope |
 | Pinned versions | Don't move. Runs in prod keep the version pinned there until you pin the new one | environment |
 | The production switch | Doesn't move. You turn it on in each project | project |

@@ -31,8 +31,8 @@ We run it for you. In private preview.
 
 Kindgi is self-host first: the runtime you run on your machine with
 `kindgi dev` is the same image you deploy, run in development mode: with no
-license key, authorization or schedules. Your pack's code runs beside it, in
-a pack service built from your app.
+authorization or schedules. Your pack's code runs beside it, in a pack
+service built from your app.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
