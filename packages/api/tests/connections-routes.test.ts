@@ -38,8 +38,17 @@ const tenantB = randomUUID() as TenantId;
 const ANA = 'user-ana';
 const BEN = 'user-ben';
 const ADMIN = 'user-admin';
+const KEY_PROJECT = randomUUID();
+const OTHER_PROJECT = randomUUID();
 const TOKENS: Record<string, Awaited<ReturnType<TokenResolver>>> = {
   ana: { tenantId: tenantA, userId: ANA as UserId },
+  /** Ana's key limited to a project. */
+  'ana-in-project': {
+    tenantId: tenantA,
+    userId: ANA as UserId,
+    tokenRole: 'member',
+    tokenProjectId: KEY_PROJECT,
+  },
   ben: { tenantId: tenantA, userId: BEN as UserId },
   admin: { tenantId: tenantA, userId: ADMIN as UserId, scopes: ['tenant-admin'] },
   /** The admin's `member` key: no admin action through it. */
@@ -1840,6 +1849,41 @@ describe('/v1/connection-choices', () => {
     expect(malformed.json.error.code).toBe('bad-input');
   });
 
+  test("removing one when the store can't be reached for its project's read answers that 503, not connection-choice-not-found", async () => {
+    const roles = projectRoles(project);
+    const made = makeApp({
+      authzCheckBinding: {
+        ...roles,
+        check: async (p, action, r) => {
+          if (action === 'read' && r.type === 'project') {
+            throw Object.assign(new Error("the authorization store couldn't be reached"), {
+              code: 'authz-backend-unavailable',
+            });
+          }
+          return roles.check(p, action, r);
+        },
+      },
+    });
+    const company = made.connected({ kind: 'company' }, tenantA, { label: 'Support' });
+    const choice = {
+      choiceId: randomUUID(),
+      tenantId: tenantA,
+      projectId: project,
+      agentId: 'acme.support',
+      app: 'google',
+      connectionId: company.connectionId,
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${ANA}`,
+      envName: 'local' as EnvName,
+    };
+    made.choices.set(choice.choiceId, choice as ConnectionChoiceRecord);
+    const res = await call(made.app, 'ana', 'DELETE', `/v1/connection-choices/${choice.choiceId}`);
+    expect(res.status).toBe(503);
+    expect(res.json.error.code).toBe('authz-backend-unavailable');
+    expect(made.choices.get(choice.choiceId)?.removedAt).toBeUndefined();
+  });
+
   test.each([
     ['no projectId', '', 'projectId'],
     ['a projectId that is not a UUID', 'projectId=acme', 'projectId'],
@@ -2348,6 +2392,110 @@ describe('several connections of an app', () => {
     });
     const notAnId = await call(app, 'ben', 'GET', '/v1/connections/not-an-id/choices');
     expect(notAnId.status).toBe(400);
+  });
+});
+
+describe('a key limited to a project', () => {
+  const KEY = 'ana-in-project';
+
+  /** Ana's connections: through a registration for every project, for the key's, and for another. */
+  async function limitedApp() {
+    const made = makeApp();
+    const through = async (projects?: string[]) => {
+      const res = await call(made.app, 'admin', 'POST', '/v1/connection-apps', {
+        app: 'google',
+        oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: SECRET },
+        ...(projects !== undefined && { projects }),
+      });
+      expect(res.status).toBe(201);
+      return { appId: res.json.appId as string };
+    };
+    const anas = { kind: 'member' as const, userId: ANA };
+    return {
+      ...made,
+      everywhere: made.connected(anas, tenantA, await through()),
+      here: made.connected(anas, tenantA, await through([KEY_PROJECT])),
+      elsewhere: made.connected(anas, tenantA, await through([OTHER_PROJECT])),
+    };
+  }
+
+  test('lists the connections its runs in that project may use', async () => {
+    const { app, calls } = await limitedApp();
+    expect((await call(app, KEY, 'GET', '/v1/connections')).status).toBe(200);
+    expect(calls.list?.[0]).toMatchObject({ ownerUserId: ANA, projectId: KEY_PROJECT });
+    const other = await call(app, KEY, 'GET', `/v1/connections?projectId=${OTHER_PROJECT}`);
+    expect([other.status, other.json.error.code]).toEqual([403, 'key-project-mismatch']);
+    await call(app, 'ana', 'GET', '/v1/connections');
+    expect(calls.list?.[1]).not.toHaveProperty('projectId');
+  });
+
+  test("reads one, and its choices, only when its registration lets the key's project use it", async () => {
+    const { app, everywhere, here, elsewhere } = await limitedApp();
+    for (const connection of [everywhere, here]) {
+      const path = `/v1/connections/${connection.connectionId}`;
+      expect((await call(app, KEY, 'GET', path)).status).toBe(200);
+      expect((await call(app, KEY, 'GET', `${path}/choices`)).status).toBe(200);
+    }
+    const path = `/v1/connections/${elsewhere.connectionId}`;
+    for (const refused of [
+      await call(app, KEY, 'GET', path),
+      await call(app, KEY, 'GET', `${path}/choices`),
+    ]) {
+      expect([refused.status, refused.json.error.code]).toEqual([404, 'connection-not-found']);
+    }
+    expect((await call(app, 'ana', 'GET', path)).status).toBe(200);
+  });
+
+  test("a connection's choices: only those in the key's project", async () => {
+    const { app, choices, here } = await limitedApp();
+    for (const projectId of [KEY_PROJECT, OTHER_PROJECT]) {
+      const choice = {
+        choiceId: randomUUID(),
+        tenantId: tenantA,
+        envName: 'local' as EnvName,
+        projectId,
+        agentId: 'acme.support',
+        app: 'google',
+        connectionId: here.connectionId,
+        person: { userId: ANA },
+        version: 1,
+        createdAt: at,
+        createdBy: `user:${ANA}`,
+      };
+      choices.set(choice.choiceId, choice as ConnectionChoiceRecord);
+    }
+    const path = `/v1/connections/${here.connectionId}/choices`;
+    const projectsOf = (res: { json: Record<string, any> }) =>
+      (res.json.data as { projectId: string }[]).map((choice) => choice.projectId).sort();
+    expect(projectsOf(await call(app, KEY, 'GET', path))).toEqual([KEY_PROJECT]);
+    expect(projectsOf(await call(app, 'ana', 'GET', path))).toEqual(
+      [KEY_PROJECT, OTHER_PROJECT].sort(),
+    );
+  });
+
+  test('connects, changes and disconnects nothing: a connection reaches every project', async () => {
+    const { app, calls, here } = await limitedApp();
+    const path = `/v1/connections/${here.connectionId}`;
+    for (const [method, route, body] of [
+      ['POST', '/v1/connections', { app: 'google' }],
+      ['POST', '/v1/connections/finish', { state: 'acme-state', code: 'acme-code' }],
+      ['POST', `/v1/connections/requests/${randomUUID()}/start`, {}],
+      ['PATCH', path, { label: 'Work' }],
+      ['DELETE', path, undefined],
+    ] as const) {
+      const res = await call(app, KEY, method, route, body);
+      expect([res.status, res.json.error.code], `${method} ${route}`).toEqual([
+        403,
+        'permission-denied',
+      ]);
+      expect(res.json.error.message).toBe(
+        `This API key is limited to project ${KEY_PROJECT}: a connection reaches beyond it`,
+      );
+    }
+    for (const made of ['createRequest', 'startRequest', 'finishRequest', 'update', 'disconnect']) {
+      expect(calls[made], made).toBeUndefined();
+    }
+    expect((await call(app, 'ana', 'PATCH', path, { label: 'Work' })).status).toBe(200);
   });
 });
 

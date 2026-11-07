@@ -159,9 +159,9 @@ export interface ServerError {
   readonly message: string;
   readonly fields?: Readonly<Record<string, unknown>>;
   /**
-   * On a 503 that carries `Retry-After` (such as `database-busy`): the
-   * seconds the server asked to wait before a retry. The client doesn't
-   * retry on its own.
+   * On a 503 that carries `Retry-After` (such as `database-busy` or
+   * `authz-backend-unavailable`): the seconds the server asked to wait
+   * before a retry. The client doesn't retry on its own.
    */
   readonly retryAfterSeconds?: number;
 }

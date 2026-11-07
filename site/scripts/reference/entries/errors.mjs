@@ -737,6 +737,25 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'promote-only-build': {
+    description:
+      "The build is promote-only, so it reaches a project in production only by promotion, never by a deploy. Its envelope says `productionEntry: 'promote-only'`, or the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted. At a deploy: the project you named (or the default project, when you named none) is in production, or this runtime can't read whether it is. Deploy the build into a project that isn't in production and comes before this one in its environment order (a tenant admin makes one when there's none), then promote it from there. Nothing is deployed. At `PUT /v1/projects/{projectId}/production`: such a build was deployed into the project (not promoted there), whether it still serves or not, so the project never goes into production. Put another project after it in its environment order, turn production on there, and promote into it. Nothing changes.",
+    details: [
+      {
+        key: 'signerKeyId',
+        meaning: 'id of the key that signed the build',
+      },
+      {
+        key: 'projectId',
+        meaning:
+          'the project the deploy was aimed at, or the one put in production; absent when no project could be read',
+      },
+      {
+        key: 'deploymentId',
+        meaning: 'at the production switch: the promote-only deployment the project holds',
+      },
+    ],
+  },
   'promotion-not-next-environment': {
     description:
       "A deployment is promoted only to the next environment of its environment order, one environment at a time. The project named isn't that one, or the deployment is in the order's last environment, or in no order. `kindgi environments list` shows the order. Nothing is written.",
@@ -3732,7 +3751,7 @@ export const ERROR_ENTRIES = {
   },
   'authz-backend-unavailable': {
     description:
-      "The store that holds permissions couldn't be read, so the runtime can't tell what the caller may do. Try the request again shortly.",
+      "The store that holds permissions couldn't be read, so the runtime can't tell what the caller may do. Try the request again shortly. When the answer carries `Retry-After`, the request didn't run, so sending it again is safe.",
     details: [],
   },
   'tenant-policy-unavailable': {

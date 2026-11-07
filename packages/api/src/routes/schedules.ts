@@ -33,6 +33,7 @@ import {
   type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
+import { refuses } from './denied.js';
 import { parseImproveScheduleInput } from './improve-runs.js';
 import { clampLimit } from './pagination.js';
 import {
@@ -156,7 +157,7 @@ export function schedulesRouter(
     return c.json(serializeSchedule(row, named));
   }
 
-  /** Nothing, when allowed; else the authorizer's own 403. */
+  /** Nothing, when allowed; else the authorizer's own answer, as `deniedBy`'s. */
   async function denied(
     c: Context<AppEnv>,
     action: Action,
@@ -222,26 +223,31 @@ export function schedulesRouter(
       (asked === 'write' && improve !== undefined
         ? await targetRefused(c, improve, projectId)
         : undefined);
-    if (refused !== undefined && !(await improveAlsoAllows(c, action, improve, projectId))) {
-      return { kind: 'err', response: refused };
-    }
-    return { kind: 'ok', value: rec };
+    const answer = await improveRefusal(c, action, improve, projectId, refused);
+    return answer === undefined ? { kind: 'ok', value: rec } : { kind: 'err', response: answer };
   }
 
   /**
-   * What else lets the caller `action` an Improve schedule {@link scheduleFor}
-   * refused: reading one, `read` on its agent; stopping one, its project's
-   * admin, as its runs count toward the project's month cap.
+   * The answer for a caller {@link scheduleFor} `refused` (nothing, when it
+   * didn't): nothing when something else lets them `action` an Improve
+   * schedule (reading one, `read` on its agent; stopping one, its project's
+   * admin, as its runs count toward the project's month cap); else
+   * `refused`, or the admin check's own answer when that isn't a refusal
+   * ({@link refuses}), such as a store's `503`.
    */
-  async function improveAlsoAllows(
+  async function improveRefusal(
     c: Context<AppEnv>,
     action: Action | 'stop',
     improve: TriggerTarget | undefined,
     projectId: string,
-  ): Promise<boolean> {
-    if (improve?.kind !== 'improve') return false;
-    if (action === 'read') return readsAgent(c, improve.agentId);
-    return action === 'stop' && (await denied(c, 'admin', ref('project', projectId))) === undefined;
+    refused: Response | undefined,
+  ): Promise<Response | undefined> {
+    if (refused === undefined || improve?.kind !== 'improve') return refused;
+    if (action === 'read') return (await readsAgent(c, improve.agentId)) ? undefined : refused;
+    if (action !== 'stop') return refused;
+    const admin = await denied(c, 'admin', ref('project', projectId));
+    if (admin === undefined) return undefined;
+    return refuses(admin) ? refused : admin;
   }
 
   /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
