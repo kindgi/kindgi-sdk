@@ -23,6 +23,7 @@ import type {
   UserRecord,
 } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { AUTHZ_UNAVAILABLE_RETRY_AFTER_S } from '../middleware/error-mapper.js';
 import type { MyAccess, MyAccessBinding, RoleCapabilities } from '../my-access-binding.js';
 import type {
   PersonGrant,
@@ -633,6 +634,7 @@ function mountMyPermissions(
       c.get('log').warn(
         `me/permissions: the authorization store couldn't be read: ${cause instanceof Error ? cause.message : String(cause)}`,
       );
+      c.header('Retry-After', String(AUTHZ_UNAVAILABLE_RETRY_AFTER_S));
       c.status(statusFor('authz-backend-unavailable') as never);
       return c.json(
         toWireError(

@@ -102,7 +102,7 @@ import {
   releaseGateFor,
   requestPin,
 } from './agent-pins.js';
-import { deniedBy, refused } from './denied.js';
+import { deniedBy, refused, refuses } from './denied.js';
 import { deployCheckDeps, olderBlocksRefusal } from './deploy-check-deps.js';
 import { type DeploymentsRouterBindings, makeDeployCards } from './deployments.js';
 import { pinWriteFailure } from './pinned-versions.js';
@@ -667,9 +667,10 @@ async function gateUnsupportedBefore(
 /**
  * Authorize pinning every carried agent in the target — a project scope at
  * `toProjectId`, `agentPinChangeRefusal`, the one the pin routes use — before
- * any pin, so a refusal is the 403 answered with nothing pinned. The 403 to
- * answer, or `undefined` when every agent is cleared (or the authorizer is
- * off, as it is in a plain composition).
+ * any pin, so a refusal is the 403 answered with nothing pinned. The
+ * check's answer (its 403, or the `503` of a store it couldn't reach, which
+ * `pinCarried` throws on), or `undefined` when every agent is cleared (or
+ * the authorizer is off, as it is in a plain composition).
  */
 async function authorizeCarried(
   c: Context<AppEnv>,
@@ -717,7 +718,10 @@ async function authorizeCarried(
  * version is the one in use there already. Returns the pins, or the
  * response to answer instead (a 403, a gate this deployment can't record,
  * or a write error carrying the pins so far in `error.details.pinned` and
- * `error.details.pinnedFlows`).
+ * `error.details.pinnedFlows`). A rights check the authorization store
+ * couldn't be reached for throws, so the promotion answers `500`, as a
+ * write's own check does: the move has committed, and the `503` that check
+ * would answer says nothing ran.
  */
 async function pinCarried(
   c: Context<AppEnv>,
@@ -743,7 +747,7 @@ async function pinCarried(
   const denied =
     (await authorizeCarried(c, authorizer, bindings.itemRights, pinnable, scope)) ??
     (await authorizeCarriedFlows(c, authorizer, bindings.itemRights, flows, pinScope));
-  if (denied !== undefined) return denied;
+  if (denied !== undefined) return refusedAfterMove(denied);
   const gated = await gateUnsupportedBefore(c, agentPins, tenantId, pinnable, scope);
   if (gated !== undefined) return gated;
   const pinned: DeploymentPinnedAgent[] = [];
@@ -782,6 +786,17 @@ async function pinCarried(
     pinned,
   );
   return pinnedFlows instanceof Response ? pinnedFlows : { pinned, pinnedFlows };
+}
+
+/**
+ * A carried version's rights check, answered after the move committed: a
+ * refusal (a 403) as it is. Any other answer is a store the check couldn't
+ * reach (the authorizer has logged its error), which throws: the promotion
+ * answers `500`, not the `503` that says nothing ran.
+ */
+function refusedAfterMove(denied: Response): Response {
+  if (refuses(denied)) return denied;
+  throw new Error("A carried version's pin check couldn't be answered after the move committed");
 }
 
 /**

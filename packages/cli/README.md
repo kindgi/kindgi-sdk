@@ -858,7 +858,9 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 (the directory `0700`, `<keyId>.pem` `0600`, `<keyId>.pub.pem` `0644`).
 `~` is `$HOME`, or the system's home folder where `HOME` isn't set.
 `create`, `export`, `list` and `trust` take `--home <dir>` to use
-`<dir>/.kindgi/keys/` instead.
+`<dir>/.kindgi/keys/` instead. With `HOME` set but empty, they refuse
+rather than use `.kindgi/keys/` under the current folder, and say to set
+`HOME` or pass `--home <dir>`.
 
 - **`create`** generates a key pair and refuses to overwrite an existing
   one. With `--env`, it prints what to add to that env block in

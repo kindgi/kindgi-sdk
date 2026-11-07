@@ -11,6 +11,7 @@ import { createApp } from '../src/index.js';
 import { OPERATIONS, generateOpenApiDocument, honoToOpenapiPath } from '../src/index.js';
 import {
   READS_WITHOUT_STORAGE,
+  answersAuthzUnavailable,
   answersDatabaseBusy,
   answersIdempotencyStoreUnavailable,
 } from '../src/openapi/operations.js';
@@ -212,6 +213,55 @@ describe('OpenAPI — generated document', () => {
         `${op.operationId} takes no Idempotency-Key`,
       ).not.toContain('idempotency-store-unavailable');
     }
+  });
+
+  test('every served operation that declares a 401 declares a 503 naming authz-backend-unavailable', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const authenticated = OPERATIONS.filter(
+      (o) => o.unserved === undefined && answersAuthzUnavailable(o),
+    );
+    // Guard against a filter that selects nothing (which would pass vacuously):
+    // all but a handful of operations declare a 401.
+    expect(authenticated.length).toBeGreaterThan(400);
+    for (const op of authenticated) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response,
+        `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (authz-backend-unavailable)`,
+      ).toBeDefined();
+      // Whichever 503 it has, its own or a shared one, names the code.
+      expect(
+        response?.description,
+        `${op.operationId} 503 must name authz-backend-unavailable`,
+      ).toContain('authz-backend-unavailable');
+    }
+  });
+
+  test('an operation that declares no 401 never names authz-backend-unavailable', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const unauthenticated = OPERATIONS.filter(
+      (o) => o.unserved === undefined && !answersAuthzUnavailable(o),
+    );
+    expect(unauthenticated.length).toBeGreaterThan(0);
+    for (const op of unauthenticated) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(response?.description ?? '', `${op.operationId} declares no 401`).not.toContain(
+        'authz-backend-unavailable',
+      );
+    }
+    // `GET /v1/auth/sign-in-options` keeps the shared busy 503 alone.
+    const signInOptions = doc.paths['/v1/auth/sign-in-options']?.get?.responses['503'];
+    expect(signInOptions?.description).toContain('database-busy');
   });
 
   test("what the runtime doesn't serve is left out, with the schemas only it uses", () => {

@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { isLocalAddress, sameAddress, storedKeyFor } from './api-address.js';
+import { homeFolder } from './home.js';
 import { writePrivateFile } from './private-file.js';
 
 /**
@@ -124,10 +124,14 @@ async function defaultReadFile(path: string): Promise<string | null> {
 export async function loadConfig(inputs: ConfigInputs = {}): Promise<ResolvedConfig> {
   const env = inputs.env ?? process.env;
   const cwd = inputs.cwd ?? process.cwd();
-  const home = inputs.home ?? homedir();
+  const home = homeFolder(inputs.home);
   const read = inputs.readFile ?? defaultReadFile;
 
-  const homeFile = await readConfigFile(join(home, '.kindgi', 'config.json'), 'home', read);
+  // With no home folder there's no home file, rather than one under the current folder.
+  const homeFile =
+    home === undefined
+      ? undefined
+      : await readConfigFile(join(home, '.kindgi', 'config.json'), 'home', read);
   const folderFile = await readConfigFile(join(cwd, '.kindgirc.json'), 'folder', read);
   const resolve = (files: readonly (ReadConfigFile | undefined)[]) =>
     resolveConfig(inputs.flagUrl, inputs.flagToken, env, files);
@@ -265,8 +269,8 @@ export interface HomeLogin {
 }
 
 /** Read `~/.kindgi/config.json` as it is now, as `kindgi auth login` finds it before a save. */
-export async function readHomeLogin(home: string | undefined = homedir()): Promise<HomeLogin> {
-  const path = join(home ?? homedir(), '.kindgi', 'config.json');
+export async function readHomeLogin(home?: string): Promise<HomeLogin> {
+  const path = homeConfigPath(home);
   const raw = await defaultReadFile(path);
   const parsed = raw === null ? {} : parseJson(raw, path);
   return {
@@ -295,6 +299,17 @@ export function keepsProject(
 /** `~/.kindgi` holds the API key: this account's only. */
 const HOME_DIR_MODE = 0o700;
 
+/** `~/.kindgi/config.json`, which a login needs a home folder for. */
+function homeConfigPath(home: string | undefined): string {
+  const folder = homeFolder(home);
+  if (folder === undefined) {
+    throw new Error(
+      'Found no home folder for .kindgi/config.json, since HOME is empty. Set HOME and run it again.',
+    );
+  }
+  return join(folder, '.kindgi', 'config.json');
+}
+
 /**
  * Persist a config file at `~/.kindgi/config.json`. Called by
  * `kindgi auth login`. Merges with any existing file so a partial
@@ -307,12 +322,8 @@ const HOME_DIR_MODE = 0o700;
  * file it points to is the one replaced.
  * Windows has no such modes: the write there is as before.
  */
-export async function saveHomeConfig(
-  patch: FileConfig,
-  home: string | undefined = homedir(),
-): Promise<string> {
-  const resolvedHome = home ?? homedir();
-  const path = join(resolvedHome, '.kindgi', 'config.json');
+export async function saveHomeConfig(patch: FileConfig, home?: string): Promise<string> {
+  const path = homeConfigPath(home);
   const existing = await defaultReadFile(path);
   const base = existing === null ? {} : (JSON.parse(existing) as FileConfig);
   const { project: _dropped, ...withoutProject } = base;

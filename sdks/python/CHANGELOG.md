@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
+  `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
+  connect's wait and one listed in `tokens` aren't `unattributed` either: it's
+  a wait that isn't an approval's, a connect's or one of `tokens`, or whose
+  approval, connect or token can't be read. What you pass or read doesn't
+  change.
 - `kindgi`: **a deployment can be promote-only.**
   `DeploymentRegistrationBody.production_entry` and
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
