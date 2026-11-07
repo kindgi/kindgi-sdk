@@ -827,12 +827,16 @@ hold the rejection as the tool's result:
         "role": "tool",
         "content": {
           "status": "rejected",
+          "by": "reviewer",
           "rationale": "Not confirmed yet"
         },
         …
 ```
 
-The run completes; it doesn't fail. The turn's
+`by: "reviewer"` tells the model that a person declined the call, so it
+doesn't put the refusal on the tool or the system the tool acts on.
+`rationale` is there only when the reviewer gave one. The run completes; it
+doesn't fail. The turn's
 [provenance](../../observability/trace-an-answer/) keeps the rejected call:
 its `tool-call`, and a `tool-result` that is the rejection the model read.
 
