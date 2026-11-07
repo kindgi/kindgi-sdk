@@ -74,11 +74,12 @@ import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
 /**
- * Corrections: whether a finished run's decisions and answer were right,
- * and what was right instead, each with a status and sorted to whoever
- * fixes it.
+ * Corrections: whether the decisions and answer of a run that completed
+ * with an output were right, and what was right instead, each with a
+ * status and sorted to whoever fixes it.
  *
- * - `POST /v1/corrections`: correct a finished run; it's sorted at save.
+ * - `POST /v1/corrections`: correct a run that completed with an output;
+ *   it's sorted at save.
  * - `GET /v1/corrections`: corrections, filtered by run, agent version,
  *   flow, status, sorting, who made them, when, group, participant or
  *   project scope.
