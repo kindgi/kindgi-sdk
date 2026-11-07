@@ -839,9 +839,9 @@ was connected. A link to it is their page's address with `#chat-apps`.
   own. It isn't a block: they can connect it again from the chat app.
 - **They're emailed** where the runtime sends mail and they have an
   address, with the subject "A chat app was disconnected from your access
-  to acme": which app, who disconnected it (your email address, or "A
-  workspace admin" without one) and when. The disconnect stands even when
-  the email doesn't go out.
+  to Default workspace" (the workspace's name): which app, who disconnected
+  it (your email address, or "A workspace admin" without one) and when. The
+  disconnect stands even when the email doesn't go out.
 - **Your own page** lists your own chat apps, as **My access** >
   **Chat apps** does, and disconnecting one there sends no email.
 
@@ -883,10 +883,10 @@ secret is never in one. A project's own account is made with one
 
 Disconnecting a chat app is kept as `chat-app-disconnected`, with its
 `clientId` and how many of its refresh tokens were revoked
-(`revokedCount`). When a person disconnects their own, they're its actor and
-it has no `userId`. When a tenant admin disconnects someone's
-(runtime 0.7.0 or later), the admin is its actor and the person is its
-`userId`.
+(`revokedCount`). On **My access** > **Chat apps**, the person is its actor
+and it has no `userId`. From a person's page in **People**
+(runtime 0.7.0 or later), the tenant admin is its actor and the person is
+its `userId`, so an admin's own page records their own id as both.
 
 ## Next
 

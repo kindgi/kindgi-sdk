@@ -197,7 +197,8 @@ balancer's address.
 
 ## Take a chat app away from someone
 
-A person disconnects their own chat apps on **My access** > **Chat apps**.
+A person disconnects their own chat apps on **My access** > **Chat apps**
+([Use Kindgi from Claude](../../../guides/chat/#disconnect)).
 With the runtime 0.7.0 or later, a tenant admin can disconnect one for
 them, from the person's page under
 [**People**](../../people-and-keys/#people). It stops acting for
