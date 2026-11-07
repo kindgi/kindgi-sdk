@@ -639,10 +639,14 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // longer an admin there, or its key revoked.
   'attach-ended': 409,
   'attach-not-found': 404,
-  // An attach refused when it's written, each for one reason.
+  // An attach refused when it's written, each for one reason: its key
+  // unknown, revoked or expired, or not its person's own limited to the
+  // project; and an attach written again for another person or key.
   'attach-needs-project-admin': 409,
   'attach-project-in-production': 409,
+  'attach-key-not-usable': 409,
   'attach-key-not-limited-to-project': 409,
+  'attach-mismatch': 409,
   'attach-test-project-not-theirs': 409,
   'attach-route-host-not-allowed': 409,
   // An attach's copy of the pack's index: one a deploy would refuse

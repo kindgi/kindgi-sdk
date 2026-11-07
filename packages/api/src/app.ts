@@ -198,6 +198,7 @@ import { signingKeysRouter } from './routes/signing-keys.js';
 import { siteEnrollRouter, siteSignInRouter } from './routes/site-auth.js';
 import { sitesRouter } from './routes/sites.js';
 import { suggestedChangesRouter } from './routes/suggested-changes.js';
+import { type SystemAttachesOptions, systemAttachesRouter } from './routes/system-attaches.js';
 import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
@@ -673,6 +674,17 @@ export interface CreateAppInput {
    * the routes aren't mounted (404).
    */
   readonly systemDeployments?: SystemDeploymentsOptions;
+  /**
+   * Optional. When present, mounts a project's attaches under
+   * `/v1/system/tenants/:tenantId/projects/:projectId/attaches/:attachId`:
+   * make or refresh one (`PUT`), copy its index in (`PUT …/index`), end it
+   * (`DELETE`). Only a system key holding `system:attaches` itself uses
+   * them (`ownSystemScope`). Each write checks the person and key its body
+   * names, never the caller: so `tokenAdmin`, `authz`,
+   * `systemTenantDirectory` and the access record (`systemAccessAudit`)
+   * are required with it, and `createApp` refuses to start without them.
+   */
+  readonly systemAttaches?: SystemAttachesOptions;
   /**
    * The record of every request a system principal makes (its key,
    * scope, route and target tenant). Required with `tenancy: 'multi'`;
@@ -1517,6 +1529,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       "createApp: systemDeployments needs systemAccessAudit, the record of every request the orchestrator's system key makes",
     );
   }
+  // An attach's checks read the person and key its body names, and its
+  // writes are on record: never a route that's silently off.
+  if (input.systemAttaches !== undefined) {
+    const missing = [
+      ...(input.tokenAdmin === undefined ? ['tokenAdmin'] : []),
+      ...(input.authz === undefined ? ['authz'] : []),
+      ...(input.systemTenantDirectory === undefined ? ['systemTenantDirectory'] : []),
+      ...(input.systemAccessAudit === undefined ? ['systemAccessAudit'] : []),
+    ];
+    if (missing.length > 0) {
+      throw new Error(
+        `createApp: systemAttaches needs ${missing.join(', ')}: its writes check the person and key they name, and are on record`,
+      );
+    }
+  }
   // A limit that isn't one would refuse every policy, or none.
   for (const [domain, limit] of Object.entries(input.retentionLimits ?? {})) {
     if (domain === '*' || !(RETENTION_DOMAINS as readonly string[]).includes(domain)) {
@@ -2082,6 +2109,26 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
         ...(packEnv !== undefined && { packEnv }),
+      }),
+    );
+  }
+  if (
+    input.systemAttaches !== undefined &&
+    input.tokenAdmin !== undefined &&
+    authorizer !== undefined &&
+    input.systemTenantDirectory !== undefined
+  ) {
+    // Checked at the start above: here only to narrow the types.
+    v1.route(
+      '/system',
+      systemAttachesRouter({
+        ...input.systemAttaches,
+        directory: input.systemTenantDirectory,
+        authorizer,
+        tokenAdmin: input.tokenAdmin,
+        providerKeys,
+        // As a deploy's index check, where pack calls go per deployment.
+        requirePrefixedPackChecks: input.systemDeployments !== undefined,
       }),
     );
   }

@@ -89,12 +89,15 @@ describe('checkPackIndex', () => {
     expect(checked.primitives.blocks.map((b) => b.id)).toEqual(['acme.reply']);
   });
 
-  test('bytes that are no JSON object: not JSON, not UTF-8, an array, null', async () => {
+  test('bytes that are no JSON object: not JSON, not UTF-8, an array, null, a number', async () => {
+    const utf8 = new TextEncoder();
     for (const raw of [
-      new TextEncoder().encode('{"v": 1,'),
-      new Uint8Array([0xff, 0xfe, 0x7b, 0x7d]),
+      utf8.encode('{"v": 1,'),
+      // An object, if its one byte that isn't UTF-8 were decoded anyway.
+      new Uint8Array([...utf8.encode('{"v":"'), 0xff, ...utf8.encode('"}')]),
       bytes([index()]),
       bytes(null),
+      bytes(7),
     ]) {
       expect(await checkPackIndex(raw, OPTIONS)).toEqual({ kind: 'not-an-object' });
     }

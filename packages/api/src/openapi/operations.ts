@@ -163,6 +163,14 @@ const SystemDeploymentIdPathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1, maxLength: 128 },
 };
 
+const AttachIdPathParam: ParameterSpec = {
+  name: 'attachId',
+  in: 'path',
+  required: true,
+  description: "The attach's id (a UUID), chosen by its first write.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const CursorQueryParam: ParameterSpec = {
   name: 'cursor',
   in: 'query',
@@ -3566,6 +3574,126 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  // ---------- system attaches ----------
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/attaches/:attachId',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}',
+    operationId: 'systemAttaches.put',
+    summary: "Make or refresh a project's attach",
+    description:
+      "Makes the attach, or refreshes its route and its route's token, once every check passes. The checks name the person and key the body names, never the caller: the route's host is on the operator's list (`attach-route-host-not-allowed`); the key is the tenant's and live (`attach-key-not-usable`), acts for the person and is limited to the project (`attach-key-not-limited-to-project`); the person holds `admin` on the project (`attach-needs-project-admin`); the project has no production (`attach-project-in-production`); and a person's own test project is this person's (`attach-test-project-not-theirs`). The key's other live attach then ends, `replaced`. An attach's person and key never change (`attach-mismatch`), and one that ended stays ended (`attach-ended`). Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.",
+    tags: ['system-attaches'],
+    security: 'bearer',
+    parameters: [
+      SystemTenantIdPathParam,
+      ProjectIdPathParam,
+      AttachIdPathParam,
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PutProjectAttachBody') },
+    responses: {
+      '200': {
+        description: 'Made or refreshed: the attach, without its route token.',
+        schema: ref('ProjectAttach'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A malformed body or path, or a route URL that isn't `https://<host>` with no user info, query or fragment (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:attaches` itself (`system-scope-missing`): `kindgi:system` doesn't stand in for it.",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such project in it (`project-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or a check refused it (`attach-route-host-not-allowed`, `attach-key-not-usable`, `attach-key-not-limited-to-project`, `attach-needs-project-admin`, `attach-project-in-production`, `attach-test-project-not-theirs`, `attach-mismatch`), or it ended (`attach-ended`).',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/attaches/:attachId/index',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}/index',
+    operationId: 'systemAttaches.putIndex',
+    summary: "Copy an attach's index in",
+    description:
+      "Copies the working copy's `index.json` in as the attach's newest revision, which a new run takes. It's checked as a deploy checks a pack's index (`attach-index-invalid`, with `details.issues` when its primitives are refused), with its own `artifactVersion`, and without data blocks. It's bounded: at most 1.5 MiB and 2,000 primitives (`attach-index-too-large`, with `details.limit`), within the API's own request limit (`request-too-large`), and one copy every 2 seconds (`attach-index-too-soon`, with `Retry-After`). A copy with the newest revision's hash makes none, and answers that revision. Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.",
+    tags: ['system-attaches'],
+    security: 'bearer',
+    parameters: [
+      SystemTenantIdPathParam,
+      ProjectIdPathParam,
+      AttachIdPathParam,
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ProjectAttachIndexBody') },
+    responses: {
+      '200': {
+        description: 'Copied, or the same as the newest: that revision.',
+        schema: ref('ProjectAttachIndexRevision'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed path (`bad-input`), or an index a deploy would refuse (`attach-index-invalid`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:attaches` itself (`system-scope-missing`): `kindgi:system` doesn't stand in for it.",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such attach on the project (`attach-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the attach ended (`attach-ended`).',
+      ),
+      '413': ErrorResponse(
+        "Past a bound, which `details.limit` names (`attach-index-too-large`), or past the API's own request limit, which is read first (`request-too-large`; `details.maxBytes` says how much).",
+      ),
+      '429': ErrorResponse(
+        'Less than 2 seconds after the last copy (`attach-index-too-soon`, with `Retry-After`).',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/attaches/:attachId',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}',
+    operationId: 'systemAttaches.end',
+    summary: "End a project's attach",
+    description:
+      "Ends the attach, `ended`: a run it would take starts no more, and a call it would make isn't made (`attach-ended`). Works for a closing or suspended tenant too. Ending one that ended answers it as it is. The record stays. Takes `system:attaches`, held by the key itself.",
+    tags: ['system-attaches'],
+    security: 'bearer',
+    parameters: [
+      SystemTenantIdPathParam,
+      ProjectIdPathParam,
+      AttachIdPathParam,
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'Ended: the attach.',
+        schema: ref('ProjectAttach'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:attaches` itself (`system-scope-missing`): `kindgi:system` doesn't stand in for it.",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such attach on the project (`attach-not-found`).',
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",

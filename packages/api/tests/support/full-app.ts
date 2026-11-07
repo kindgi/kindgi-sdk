@@ -802,7 +802,19 @@ export function fullAppInput(): CreateAppInput {
       },
       endpointHostAllowed: () => false,
     },
-    // Required with systemDeployments: the orchestrator's requests are on record.
+    systemAttaches: {
+      binding: {
+        put: async () => {
+          throw new Error('not used: no system principal in the sweeps');
+        },
+        putIndex: async () => {
+          throw new Error('not used: no system principal in the sweeps');
+        },
+        end: async () => ({ kind: 'not-found' }),
+      },
+      routeHostAllowed: () => false,
+    },
+    // Required with systemDeployments and systemAttaches: their requests are on record.
     systemAccessAudit: {
       record: async () => undefined,
       begin: async () => 'attempt',
