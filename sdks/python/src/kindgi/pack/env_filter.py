@@ -42,7 +42,7 @@ PLATFORM_ENV_NAMES: frozenset[str] = frozenset(
         "SHLVL",
         "_",
         "__CF_USER_TEXT_ENCODING",
-        # the language runtime (with the version its base image names)
+        # the language runtime (with what its base image names: the version, Python's release key)
         "NODE_ENV",
         "NODE_VERSION",
         "YARN_VERSION",
@@ -54,6 +54,7 @@ PLATFORM_ENV_NAMES: frozenset[str] = frozenset(
         "JDK_JAVA_OPTIONS",
         "_JAVA_OPTIONS",
         "VIRTUAL_ENV",
+        "GPG_KEY",
         # the port
         "PORT",
         # network trust

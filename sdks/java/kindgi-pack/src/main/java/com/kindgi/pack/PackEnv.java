@@ -42,9 +42,9 @@ final class PackEnv {
       // the process
       "PATH", "HOME", "HOSTNAME", "USER", "LANG", "LANGUAGE", "TZ", "TMPDIR", "TMP", "TEMP", "PWD", "SHLVL",
       "_", "__CF_USER_TEXT_ENCODING",
-      // the language runtime (with the version its base image names)
+      // the language runtime (with what its base image names: the version, Python's release key)
       "NODE_ENV", "NODE_VERSION", "YARN_VERSION", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "JAVA_HOME", "JAVA_VERSION",
-      "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "VIRTUAL_ENV",
+      "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "VIRTUAL_ENV", "GPG_KEY",
       // the port
       "PORT",
       // network trust

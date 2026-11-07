@@ -187,14 +187,15 @@ interface RunningService {
 /**
  * Names a pack service keeps although the pack doesn't declare them, one
  * of each kind the contract lists, with values that don't change how a
- * runtime starts: the process's, the platform's workload identity and
- * metadata (Cloud Run, AWS, Azure), and the kept prefixes (`LC_`,
- * `PYTHON`, `OTEL_`, `CLOUD_RUN_`, `CONTAINER_APP_`). `PATH` and `PORT`
- * are always set. Static credentials (`AWS_SECRET_ACCESS_KEY`) are not
- * among them.
+ * runtime starts: the process's, a base image's (Python's `GPG_KEY`), the
+ * platform's workload identity and metadata (Cloud Run, AWS, Azure), and
+ * the kept prefixes (`LC_`, `PYTHON`, `OTEL_`, `CLOUD_RUN_`,
+ * `CONTAINER_APP_`). `PATH` and `PORT` are always set. Static credentials
+ * (`AWS_SECRET_ACCESS_KEY`) are not among them.
  */
 const PLATFORM_ENV_PROBES: Readonly<Record<string, string>> = {
   HOSTNAME: 'conformance',
+  GPG_KEY: 'conformance',
   K_SERVICE: 'conformance',
   K_REVISION: 'conformance-00001',
   AWS_REGION: 'eu-west-1',

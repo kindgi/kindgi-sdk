@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a Python pack's service no longer warns at start that it dropped
+  `GPG_KEY`.** Python's base image sets it, it holds no secret, and nothing
+  reads it, so the pack service keeps it, as the TypeScript one and the JVM
+  launcher now do.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

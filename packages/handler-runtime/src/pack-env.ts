@@ -191,7 +191,7 @@ export const PLATFORM_ENV_NAMES: ReadonlySet<string> = new Set([
   'SHLVL',
   '_',
   '__CF_USER_TEXT_ENCODING',
-  // the language runtime (with the version its base image names)
+  // the language runtime (with what its base image names: the version, Python's release key)
   'NODE_ENV',
   'NODE_VERSION',
   'YARN_VERSION',
@@ -203,6 +203,7 @@ export const PLATFORM_ENV_NAMES: ReadonlySet<string> = new Set([
   'JDK_JAVA_OPTIONS',
   '_JAVA_OPTIONS',
   'VIRTUAL_ENV',
+  'GPG_KEY',
   // the port
   'PORT',
   // network trust

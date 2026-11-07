@@ -463,8 +463,7 @@ What to check before you upgrade, and what's different after:
     If your code reads one of them, declare it
     ([Declare the environment your code reads](../../../guides/secrets/pack-env/)).
     To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
-    the pack service. A Python pack's image always names `GPG_KEY`: its base
-    image sets it, and nothing reads it.
+    the pack service.
   - **A tool call has an idempotency key,** `ctx.idempotencyKey`, the same
     every time the same call runs. Pass it to the system a tool writes to, so
     a step that runs again doesn't refund or email twice
