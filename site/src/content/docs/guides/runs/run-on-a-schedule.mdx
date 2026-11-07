@@ -398,7 +398,7 @@ changes** page, where **Schedule…** makes one
 Under a schedule's title, its page says what it starts and when it next
 fires, or that it's paused, and then its newest version, who made it and
 when, such as "Version 2, taken over by you, 3 Nov 2026, 1:23 PM EST"
-(runtime 0.4.0 or later). The version's number opens it under
+(runtime 0.3.0 or later). The version's number opens it under
 **Versions**. The page has:
 - **When:** its cron in words and the cron, in the schedule's own zone, and
   its next five times, each in that zone (named when it isn't UTC) and also
@@ -409,11 +409,11 @@ when, such as "Version 2, taken over by you, 3 Nov 2026, 1:23 PM EST"
 - **What it fired:** a summary, such as "Of its 2 fires, 2 started a run.",
   and a table of its fires, newest first. Each fire has when it fired, the
   time it was for, what happened or why the fire was refused, and the run it
-  started, with the version of the schedule it ran, such as "v1". A fire
-  started by hand is for "run now", and what happened reads "Started a run
-  (run now)". The table sorts by a column's header, and **Columns** chooses
-  which columns it shows.
-- **Versions** (runtime 0.4.0 or later): its versions, newest first
+  started, with the version of the schedule it ran, such as "v1" (runtime
+  0.3.0 or later). A fire started by hand is for "run now", and what
+  happened reads "Started a run (run now)". The table sorts by a column's
+  header, and **Columns** chooses which columns it shows.
+- **Versions** (runtime 0.3.0 or later): its versions, newest first
   ([Its versions](#its-versions)). Each one has its number, when it was
   made, who made it and how, such as "Registered by acme-scheduler
   (service account)" or "Taken over by you", or why Kindgi made it itself,
