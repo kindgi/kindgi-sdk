@@ -56,3 +56,16 @@ export function renewAdvice(claims: LicenseClaims, renewCommand: string): string
     ? `Renew it: from this deployment (${renewCommand}), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired`
     : 'Renew it: contact@kindgi.com';
 }
+
+/**
+ * The same, for the key a `kindgi dev` laptop runs with, in the words of
+ * the runtime's banner in development mode: a laptop has no deployment to
+ * renew from, so for a self-serve key it's the latest key from
+ * access.kindgi.com, logged in with again; for a key Kindgi issued, write
+ * to Kindgi.
+ */
+export function devRenewAdvice(claims: LicenseClaims): string {
+  return isSelfServe(claims.subject)
+    ? 'Renew it: sign in at https://access.kindgi.com, which shows your latest key, then run kindgi auth registry with it again'
+    : 'Renew it: contact@kindgi.com';
+}

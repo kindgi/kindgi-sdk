@@ -16,8 +16,8 @@ no separate pull credential.
 
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or with
 your email address. It gives you a free non-production key, which starts with
-`kgi_lk_`. That key pulls the image, and runs the runtime outside development
-mode, for staging and CI ([Licensing](../../../concepts/licensing/)). A
+`kgi_lk_`. That key pulls the image and runs the runtime: under `kindgi dev`,
+in staging and in CI ([Licensing](../../../concepts/licensing/)). A
 production key, which comes with a commercial license from contact@kindgi.com,
 pulls the image too.
 
