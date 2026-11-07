@@ -112,7 +112,10 @@ mid-priced model, not the dearest. Register only the model you want, with
 | | `openai/gpt-6-luna` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.0001 / $0.0005 |
 
 The prices are the presets' own, checked against the providers on
-2026-10-07. `kindgi providers presets` shows that date as `pricesCheckedAt`.
+2026-10-07, and the two Gemini presets' on 2026-11-07. `kindgi providers
+presets` shows that date as `pricesCheckedAt`. Google bills a Gemini
+model's cached prompt tokens at a tenth of its input price, and the Gemini
+presets price them so (`cachedPromptMultiplier: 0.1`).
 A turn's `totalCostUsd` uses them. A prompt over a model's long-context
 threshold prices the whole call at the higher rates.
 [Temperature and thinking](../#temperature-and-thinking) says which of these

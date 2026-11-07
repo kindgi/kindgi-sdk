@@ -181,6 +181,9 @@ where Vertex AI serves Gemini 3.8 Flash, which isn't served from
 - **Its price is Google's launch price,** through 2026-12-31. From
   2027-01-01 Google charges $0.0015 / $0.0075 per 1K tokens, and a turn's
   `totalCostUsd` still uses the price the provider was registered with.
+- **Cached prompt tokens bill at a tenth of the input price,** for both
+  models (Google's Vertex AI pricing page, checked on 2026-11-07). The
+  preset prices them so, with `cachedPromptMultiplier: 0.1`.
 
 To send an agent to Gemini when other providers are registered too, set
 `preferredProvider: 'gemini'`, or `preferred_provider="gemini"` in Python.
@@ -219,11 +222,13 @@ this as `gemini.json`, with your project in place of `<gcp-project>`:
       { "name": "gemini-3.8-flash", "contextWindow": 1048576, "maxOutputTokens": 65536,
         "thinking": { "mode": "adaptive", "lowest": "low", "default": "low" },
         "features": ["tool-use", "structured-output", "long-context"],
-        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 } },
+        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375,
+          "cachedPromptMultiplier": 0.1 } },
       { "name": "gemini-3.5-flash-lite", "contextWindow": 1048576, "maxOutputTokens": 65536,
         "thinking": { "mode": "adaptive", "lowest": "minimal" },
         "features": ["tool-use", "structured-output", "long-context"],
-        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 } }
+        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025,
+          "cachedPromptMultiplier": 0.1 } }
     ]
   }
 }
