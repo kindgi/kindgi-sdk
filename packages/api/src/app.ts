@@ -2516,6 +2516,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchy: tenantHierarchyBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(input.production !== undefined && { production: input.production }),
+        ...(input.deploymentRegistry !== undefined &&
+          input.signingKeyRegistry !== undefined && {
+            deployments: { ledger: input.deploymentRegistry, keys: input.signingKeyRegistry },
+          }),
       }),
     );
     v1.route(

@@ -12,6 +12,7 @@ import type {
 } from '@kindgi/types';
 
 import type { PinActor } from './agent-pin-binding.js';
+import type { ProductionEntry } from './deployment-envelope.js';
 import {
   PACK_ENV_PROBLEM_CODES,
   PACK_ENV_SECRET_GIVE_CODES,
@@ -98,7 +99,7 @@ export interface DeploymentBinding {
   /**
    * Promote a deployment into the next environment of its order, in one
    * transaction: a deployment in the target project with the source's
-   * signed fields, contents, pack, pack checks and git `source` (as
+   * signed fields (its `productionEntry` included), contents, pack, pack checks and git `source` (as
    * `register` writes one, with its routes and pending endpoint) and
    * `promotedFromDeploymentId`, and its own `replaced` (the input's, never
    * the source's); the versions carried with it; and where each tool's
@@ -134,6 +135,7 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
     signerPublicKey: d.signerPublicKey,
     signature: d.signature,
     publishedAt: d.publishedAt,
+    ...(d.productionEntry !== undefined && { productionEntry: d.productionEntry }),
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.promotedFromDeploymentId !== undefined && {
@@ -447,6 +449,13 @@ export interface Deployment {
   readonly signature: string;
   /** Issuer-supplied timestamp inside the signed envelope. ISO-8601. */
   readonly publishedAt: string;
+  /**
+   * Inside the signed envelope when present: `'promote-only'`, a build that
+   * reaches a project in production only by promotion. Kept so a promotion
+   * verifies the signature over it again. Absent from a binding that doesn't
+   * keep it, which then promotes only builds signed without it.
+   */
+  readonly productionEntry?: ProductionEntry;
   /** Server-side ledger timestamp — when `register` returned OK. ISO-8601. */
   readonly activatedAt: string;
   /**
@@ -621,6 +630,8 @@ export interface DeploymentRegisterInput {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
+  /** In the signed envelope when the deploy sent it; the binding keeps it verbatim. */
+  readonly productionEntry?: ProductionEntry;
   readonly primitives: DeploymentPrimitiveCounts;
   readonly contents: DeploymentContents;
   /**
