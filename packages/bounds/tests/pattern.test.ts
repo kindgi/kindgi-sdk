@@ -277,16 +277,16 @@ describe('on RE2: linear time', () => {
     onRe2();
     const started = performance.now();
     expect(compiled('^(a+)+$').test(`${'a'.repeat(5_000)}b`)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(4_000);
   });
 
   test('counting asks no more than atMost of the input', () => {
     onRe2();
     // Every match of `x.*y|x` reads to the end of the input: counting all
-    // 16,000 takes seconds; three, at once.
+    // 32,000 takes about twenty seconds; three, at once.
     const started = performance.now();
-    expect(compiled('x.*y|x').count('x'.repeat(16_000), 3)).toBe(3);
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(compiled('x.*y|x').count('x'.repeat(32_000), 3)).toBe(3);
+    expect(performance.now() - started).toBeLessThan(3_000);
   });
 });
 

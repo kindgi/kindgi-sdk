@@ -52,7 +52,7 @@ class SpringBoot3Test {
     AgentPinScope read = bootMapper.readValue("{\"kind\":\"galaxy\",\"arm\":3,\"properties\":{\"x\":1}}", AgentPinScope.class);
     assertThat(read).isInstanceOf(AgentPinScope.Unrecognized.class);
     assertThat(((AgentPinScope.Unrecognized) read).properties()).isEqualTo(Map.of("arm", 3, "properties", Map.of("x", 1)));
-    assertThat(bootMapper.readValue(bootMapper.writeValueAsString(read), Map.class))
-        .isEqualTo(Map.of("kind", "galaxy", "arm", 3, "properties", Map.of("x", 1)));
+    assertThat(bootMapper.readTree(bootMapper.writeValueAsString(read)))
+        .isEqualTo(bootMapper.readTree("{\"kind\":\"galaxy\",\"arm\":3,\"properties\":{\"x\":1}}"));
   }
 }
