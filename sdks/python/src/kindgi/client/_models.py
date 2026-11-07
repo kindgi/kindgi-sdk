@@ -12077,7 +12077,7 @@ class ConnectionGitHubApp(BaseModel):
 
 class ConnectionApp(BaseModel):
     """
-    A workspace's registration of its own client at an app. Secrets are references, never values.
+    A workspace's registration of an app: its own client there, or Kindgi's own app (`via`). Secrets are references, never values.
     """
 
     model_config = ConfigDict(
@@ -12089,6 +12089,10 @@ class ConnectionApp(BaseModel):
     """
     The app's entry id.
     """
+    via: Annotated[Literal["kindgi"] | str, _open.OPEN] | None = None
+    """
+    `kindgi`: the app connects through Kindgi's own app (its entry's `signIn.kind` is `kindgi-app`). The server makes this registration itself, with no `oauth2` or `githubApp`. Absent: the workspace's own client.
+    """
     label: str | None = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
@@ -12098,11 +12102,11 @@ class ConnectionApp(BaseModel):
     """
     redirect_url: Annotated[AnyUrl, Field(alias="redirectUrl")]
     """
-    Give this to the app as its redirect URL: a GitHub App's Callback URL, with "Request user authorization (OAuth) during installation" ticked.
+    Give this to the app as its redirect URL: a GitHub App's Callback URL, with "Request user authorization (OAuth) during installation" ticked. Nothing to give anyone for a registration `via: 'kindgi'`.
     """
     notices_url: Annotated[AnyUrl, Field(alias="noticesUrl")]
     """
-    Give this to the app as the place it reports removals.
+    Give this to the app as the place it reports removals. Nothing to give anyone for a registration `via: 'kindgi'`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
@@ -12121,7 +12125,7 @@ class ConnectionAppPage(BaseModel):
 
 class CreateConnectionAppBody(BaseModel):
     """
-    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.
+    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes that registration itself.
     """
 
     model_config = ConfigDict(
@@ -12143,7 +12147,7 @@ class CreateConnectionAppBody(BaseModel):
 
 class UpdateConnectionAppBody(BaseModel):
     """
-    Fields to change; absent fields are kept. The app itself cannot change.
+    Fields to change; absent fields are kept. The app itself cannot change. A registration `via: 'kindgi'` has no client of its own: only `label` and `projects`.
     """
 
     model_config = ConfigDict(
@@ -12465,7 +12469,7 @@ class ConnectRequestInstallation(BaseModel):
 
 class StartConnectBody(BaseModel):
     """
-    Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.
+    Optional: a GitHub App's installation to attach, or a new one; or, for an app through Kindgi's own app, the account picked. Leave it out for any other app.
     """
 
     model_config = ConfigDict(
@@ -12481,6 +12485,10 @@ class StartConnectBody(BaseModel):
     new_installation: Annotated[bool | None, Field(alias="newInstallation")] = None
     """
     `true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.
+    """
+    account_id: Annotated[str | None, Field(alias="accountId", max_length=64, min_length=1)] = None
+    """
+    An app's through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.
     """
 
 
@@ -18544,7 +18552,10 @@ class SignIn(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
+    kind: Annotated[Literal["oauth2", "github-app", "kindgi-app"] | str, _open.OPEN]
+    """
+    `oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`).
+    """
     tenant: ConnectionEntrySignInTenant | None = None
     """
     Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
@@ -18758,6 +18769,10 @@ class ConnectRequest(BaseModel):
     """
     A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.
     """
+    accounts: list[ConnectionAccount] | None = None
+    """
+    An app's through Kindgi's own app, while it's `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.
+    """
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
     The connection it made.
@@ -18776,9 +18791,11 @@ class ConnectFinish(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["connected", "declined", "pick-installation"] | str, _open.OPEN]
+    kind: Annotated[
+        Literal["connected", "declined", "pick-installation", "pick-account"] | str, _open.OPEN
+    ]
     """
-    `declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.
+    `declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`. `pick-account`: through Kindgi's own app, the business shared several accounts that fit and none was picked; the request stays `pending` with its `accounts`.
     """
     request: ConnectRequest
     connection: Connection | None = None
