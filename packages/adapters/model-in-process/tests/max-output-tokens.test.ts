@@ -66,6 +66,29 @@ describe('max_new_tokens, in process', () => {
     expect(options.at(-1)?.max_new_tokens).toBe(sent);
   });
 
+  test('each model gets its own: one registered without a cap gets 512', async () => {
+    const metadata = registered(128);
+    const provider = inProcessAdapterEntry.factory({
+      metadata: {
+        ...metadata,
+        // Listed first, so a cap taken from the first model, or keyed to it, shows.
+        models: [
+          {
+            name: 'smollm2-135m',
+            contextWindow: 8192,
+            features: [],
+            cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
+          },
+          ...metadata.models,
+        ],
+      },
+    });
+    await provider.invoke({ ...ask, model: 'smollm2-135m' });
+    expect(options.at(-1)?.max_new_tokens).toBe(512);
+    await provider.invoke(ask);
+    expect(options.at(-1)?.max_new_tokens).toBe(128);
+  });
+
   test("the provider lists a model's registered maxOutputTokens; one built without a registration lists none", () => {
     expect(
       inProcessAdapterEntry.factory({ metadata: registered(128) }).metadata.models[0]
