@@ -916,7 +916,7 @@ export function unfinishedRun(
   run: CorrectedRun,
   runId: string,
 ): { readonly code: string; readonly message: string } | undefined {
-  // An erasure cleared its content: there's nothing to correct (T273 M-5).
+  // An erasure cleared its content: there's nothing to correct or to make a case of.
   if (run.contentErasedAt !== undefined) {
     return {
       code: 'run-erased',

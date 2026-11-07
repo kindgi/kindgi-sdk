@@ -4111,7 +4111,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse(
-        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`).',
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).',
       ),
       '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
     },
@@ -6213,7 +6213,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse(
-        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`).',
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).',
       ),
       '410': ErrorResponse(
         "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to correct.",
