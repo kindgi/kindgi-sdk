@@ -85,8 +85,8 @@ uv run kindgi runs list --limit=2
 The CLI lists every run, including the agent turns inside flows. Each of
 those is a run of `agent.turn`, with a `parentRunId`. `--agent=<agent-id>`
 lists one agent's turns, as [One agent's turns](#one-agents-turns) shows.
-The clients also filter by status, creation time, flow and version, and
-scope.
+The clients also filter by status, creation or end time, flow and version,
+how a run started, and scope.
 
 ## From your app
 
@@ -250,10 +250,21 @@ The page holds the runs, and its `nextCursor` leads to the next one.
 - **`flowId`** (`flow_id`) lists one flow's runs, and **`flowVersion`**
   (`flow_version`) one version's. An agent's turns run the `agent.turn` flow:
   use `agentId` for an agent's.
+- **`startedBy`** (`started_by`) lists the runs started one way, not by
+  one person (runtime 0.7.0 or later): `person`, `key` (a service account's
+  key), `schedule`, `webhook`, `event` or `mail`. A run inside another has
+  its parent's, so add `topLevel: true` for the runs schedules started. A
+  run from before the runtime recorded it has none, and isn't listed.
+- **`completedAfter`** / **`completedBefore`** (`completed_after` /
+  `completed_before`) list the runs that ended strictly after, or at or
+  before, a time, the earliest end first (runtime 0.7.0 or later). Runs
+  that haven't ended aren't listed. [Runs as they end](#runs-as-they-end)
+  pages them.
 - In Python, `paginate` follows `next_cursor` for you.
 
-A status that doesn't exist, a time that isn't one, an empty value, or a
-version without its id is refused with `400 bad-input`, naming it:
+A status that doesn't exist, a `startedBy` that isn't one of the six, a
+time that isn't one, an empty value, or a version without its id is
+refused with `400 bad-input`, naming it:
 
 ```json
 { "error": { "code": "bad-input", "message": "`agentVersion` needs `agentId`", … } }
@@ -381,6 +392,28 @@ b0896582-86d7-4e7d-8387-931550da93a3 failed null
 
 </TabItem>
 </Tabs>
+
+### Runs as they end
+
+To pick up each run once it has ended, such as to copy each one to another
+system, page them by when they ended (runtime 0.7.0 or later). Ask your
+coding agent: "I want my app to copy each run that ended to our warehouse,
+once." With `completedAfter` or `completedBefore`, the runs come in the
+order they ended, the earliest first, and a page has no `nextCursor`:
+
+- **For the next page,** set `completedAfter` to the last run's
+  `completedAt`, exactly as the API returned it, with its fraction of a
+  second, and `afterRunId` (`after_run_id`) to its `id`. A run that ended
+  at that same time is listed too, when its id comes after.
+- **Keep the last run you handled,** its `completedAt` and `id`, and the
+  next call starts after it.
+
+`hasMore` says whether another page follows. With no `nextCursor`, Python's
+`paginate` stops after the first page: follow the pair yourself.
+
+These are refused with `400 bad-input`, naming the problem: `cursor` with
+either bound, `afterRunId` without `completedAfter` or that isn't a UUID,
+and `completedAfter` later than `completedBefore`.
 
 ## The runs inside a run
 
