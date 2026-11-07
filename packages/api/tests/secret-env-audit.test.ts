@@ -5,7 +5,8 @@
  * Every secret and env write through the API is recorded at the route:
  * `secret-set`, `secret-rotated` / `secret-rotation-started` /
  * `secret-rotation-failed`, `secret-revoked` / `secret-hard-revoked`,
- * `env-set`, `env-deleted`. The record names the caller (`actor`), the
+ * `env-set`, `env-deleted`; and `PATCH /v1/tenant/config`'s, as `env-set`
+ * or `secret-set`. The record names the caller (`actor`), the
  * tenant, the scope's project, the request (`correlationId`) and what the
  * backend answered; never the value, nor anything derived from one.
  */
@@ -18,7 +19,7 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import { createLogger } from '@kindgi/log';
-import type { ApiTokenId, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { ApiTokenId, EnvName, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -30,6 +31,7 @@ const projectId = randomUUID() as ProjectId;
 const ALICE = 'token-alice';
 const BARE = 'token-bare';
 const KEY = 'token-key';
+const NO_CAPS = 'token-no-caps';
 const CAPS = [
   'secrets:write',
   'secrets:rotate',
@@ -42,6 +44,7 @@ const resolveToken: TokenResolver = async (t) => {
   if (t === BARE) return { tenantId, capabilities: CAPS };
   // An API key with no principal acts as its own service account.
   if (t === KEY) return { tenantId, tokenId: 'key-1' as ApiTokenId, capabilities: CAPS };
+  if (t === NO_CAPS) return { tenantId, capabilities: [] };
   return null;
 };
 
@@ -57,7 +60,11 @@ const RECORD = {
 
 function harness(
   answers: {
+    /** What the secrets `get` reads; absent, no such secret. */
+    get?: unknown;
     set?: unknown;
+    /** Answers to successive secret `set` calls, in order; past the last, `set`'s. */
+    sets?: readonly unknown[];
     rotate?: unknown;
     revoke?: unknown;
     envSet?: unknown;
@@ -65,13 +72,22 @@ function harness(
   } = {},
   auditEvents: AuditEventBinding | null = createInMemoryAuditEventBinding(),
   logLines?: string[],
+  servedEnv?: EnvName,
 ) {
+  /** What each secret `set` was sent, in order. */
+  const setInputs: Record<string, unknown>[] = [];
   const secretsBinding = {
     // The POST route reads for an `add-version` to decide whether the name is
     // being created (and so held to the grammar); `stripe-key` is in-grammar,
-    // so a null read lets the configured `set` answer stand.
-    get: async () => null,
-    set: async () => answers.set ?? { kind: 'ok', record: RECORD, versionId: 1 },
+    // so a null read (the default) lets the configured `set` answer stand.
+    get: async () => answers.get ?? null,
+    set: async (input: Record<string, unknown>) => {
+      setInputs.push(input);
+      return (
+        answers.sets?.[setInputs.length - 1] ??
+        answers.set ?? { kind: 'ok', record: RECORD, versionId: 1 }
+      );
+    },
     rotate: async () =>
       answers.rotate ?? { kind: 'ok', value: { kind: 'ok', newVersionId: 3, oldVersionId: 2 } },
     revoke: async () => answers.revoke ?? { kind: 'ok', value: { revoked: true, hard: false } },
@@ -92,9 +108,10 @@ function harness(
     envBinding,
     ...(auditEvents !== null && { auditEvents }),
     ...(logLines !== undefined && { logger: createLogger({ write: (l) => logLines.push(l) }) }),
+    ...(servedEnv !== undefined && { envName: servedEnv }),
   });
-  const call = async (method: string, path: string, body?: unknown, token = ALICE) => {
-    const res = await app.request(path, {
+  const send = (method: string, path: string, body?: unknown, token = ALICE) =>
+    app.request(path, {
       method,
       headers: {
         authorization: `Bearer ${token}`,
@@ -103,7 +120,12 @@ function harness(
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
-    return res.status;
+  const call = async (method: string, path: string, body?: unknown, token = ALICE) =>
+    (await send(method, path, body, token)).status;
+  /** One `PATCH /v1/tenant/config`: its status and its body. */
+  const patchConfig = async (body: unknown, token = ALICE) => {
+    const res = await send('PATCH', '/v1/tenant/config', body, token);
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
   const recorded = async (): Promise<AuditEvent[]> => {
     if (auditEvents === null) return [];
@@ -111,7 +133,7 @@ function harness(
     if (page.kind === 'err') throw new Error(page.error.message);
     return [...page.value.data];
   };
-  return { call, recorded };
+  return { call, patchConfig, recorded, setInputs };
 }
 
 const projectScope = { kind: 'project', tenantId, projectId };
@@ -295,10 +317,206 @@ describe('env writes are recorded at the route', () => {
   });
 });
 
+describe('tenant config writes are recorded at the route', () => {
+  test('an env entry: env-set with its revision, at the tenant, by the caller; never the value', async () => {
+    const { patchConfig, recorded } = harness();
+    expect((await patchConfig({ kind: 'env', key: 'KB_URL', value: VALUE })).status).toBe(200);
+    const events = await recorded();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'env-set',
+      tenantId,
+      actor: 'user:alice',
+      correlationId: 'req-123',
+      outcome: 'succeeded',
+    });
+    expect(events[0]).not.toHaveProperty('projectId');
+    expect(docOf(events[0])).toMatchObject({
+      name: 'KB_URL',
+      envName: 'default',
+      recordVersion: 4,
+      scope: { kind: 'tenant' },
+    });
+    expect(JSON.stringify(events)).not.toContain(VALUE);
+  });
+
+  test('on a runtime that serves another env, a workspace setting is recorded under default', async () => {
+    const { patchConfig, recorded } = harness({}, undefined, undefined, 'production' as EnvName);
+    expect((await patchConfig({ kind: 'config', key: 'support-email', value: VALUE })).status).toBe(
+      200,
+    );
+    expect((await patchConfig({ kind: 'env', key: 'KB_URL', value: VALUE })).status).toBe(200);
+    const events = await recorded();
+    expect(events.map((e) => e.kind)).toEqual(['env-set', 'env-set']);
+    const where = Object.fromEntries(events.map((e) => [docOf(e)?.name, docOf(e)?.envName]));
+    expect(where).toEqual({ 'support-email': 'default', KB_URL: 'production' });
+  });
+
+  test('a secret, and an entry sent with sensitive: secret-set, create-new; never the value', async () => {
+    const { patchConfig, recorded } = harness();
+    expect((await patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE })).status).toBe(
+      200,
+    );
+    const sensitive = { kind: 'env', key: 'stripe-key', value: VALUE, sensitive: true };
+    expect((await patchConfig(sensitive)).status).toBe(200);
+    const events = await recorded();
+    expect(events.map((e) => e.kind)).toEqual(['secret-set', 'secret-set']);
+    for (const event of events) {
+      expect(event).toMatchObject({ actor: 'user:alice', outcome: 'succeeded' });
+      expect(docOf(event)).toMatchObject({
+        name: 'stripe-key',
+        envName: 'default',
+        writeMode: 'create-new',
+        recordVersion: 1,
+      });
+    }
+    expect(JSON.stringify(events)).not.toContain(VALUE);
+  });
+
+  test('a secret that exists: add-version', async () => {
+    const { patchConfig, recorded, setInputs } = harness({
+      get: RECORD,
+      set: { kind: 'ok', record: RECORD, versionId: 2 },
+    });
+    expect((await patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE })).status).toBe(
+      200,
+    );
+    expect(setInputs.map((i) => i.writeMode)).toEqual(['add-version']);
+    expect(docOf((await recorded())[0])).toMatchObject({
+      writeMode: 'add-version',
+      recordVersion: 2,
+    });
+  });
+
+  test('refused by the store: failed, with the code the client got', async () => {
+    const secret = harness({ get: RECORD, set: { kind: 'version-conflict', currentVersion: 3 } });
+    const body = { kind: 'secret', key: 'stripe-key', value: VALUE, ifRevision: 2 };
+    expect((await secret.patchConfig(body)).status).toBe(409);
+    const env = harness({ envSet: { kind: 'revision-conflict', currentRevision: 5 } });
+    expect(
+      (await env.patchConfig({ kind: 'env', key: 'KB_URL', value: VALUE, ifRevision: 4 })).status,
+    ).toBe(409);
+    for (const [h, kind] of [
+      [secret, 'secret-set'],
+      [env, 'env-set'],
+    ] as const) {
+      const [event] = await h.recorded();
+      expect(event).toMatchObject({ kind, outcome: 'failed' });
+      expect(docOf(event)).toMatchObject({ errorCode: 'tenant-config-revision-conflict' });
+    }
+
+    const broken = harness({
+      envSet: { kind: 'error', code: 'persistence-error', message: 'the env table is down' },
+    });
+    expect((await broken.patchConfig({ kind: 'env', key: 'KB_URL', value: VALUE })).status).toBe(
+      500,
+    );
+    const brokenSecret = harness({
+      set: { kind: 'error', code: 'persistence-error', message: 'the secrets table is down' },
+    });
+    expect(
+      (await brokenSecret.patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE })).status,
+    ).toBe(500);
+    for (const [h, kind] of [
+      [broken, 'env-set'],
+      [brokenSecret, 'secret-set'],
+    ] as const) {
+      const [event] = await h.recorded();
+      expect(event).toMatchObject({ kind, outcome: 'failed' });
+      expect(docOf(event)).toMatchObject({ errorCode: 'persistence-error' });
+    }
+  });
+
+  test("a set that dropped a revoked secret's values says so (revokedValuesPurged)", async () => {
+    const { patchConfig, recorded } = harness({
+      get: RECORD,
+      set: { kind: 'ok', record: RECORD, versionId: 7, revokedValuesPurged: true },
+    });
+    expect((await patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE })).status).toBe(
+      200,
+    );
+    expect(docOf((await recorded())[0])).toMatchObject({
+      writeMode: 'add-version',
+      recordVersion: 7,
+      revokedValuesPurged: true,
+    });
+  });
+
+  test('a refusal before the store records nothing: a bad body, a bad new name, no capability', async () => {
+    const { patchConfig, recorded, setInputs } = harness();
+    expect((await patchConfig({ kind: 'secret', key: 'stripe-key' })).status).toBe(400);
+    expect((await patchConfig({ kind: 'secret', key: 'not a name!', value: VALUE })).status).toBe(
+      400,
+    );
+    const secret = { kind: 'secret', key: 'stripe-key', value: VALUE };
+    expect((await patchConfig(secret, NO_CAPS)).status).toBe(403);
+    expect((await patchConfig({ kind: 'env', key: 'KB_URL', value: VALUE }, NO_CAPS)).status).toBe(
+      403,
+    );
+    expect(setInputs).toEqual([]);
+    expect(await recorded()).toEqual([]);
+  });
+
+  describe('a new secret another writer created between the read and the write', () => {
+    const taken = { kind: 'already-exists', record: RECORD };
+
+    test('goes on as its next version, and the answer and the record are that write', async () => {
+      const { patchConfig, recorded, setInputs } = harness({
+        sets: [taken, { kind: 'ok', record: RECORD, versionId: 2 }],
+      });
+      const res = await patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ entry: { key: 'stripe-key', revision: 2 } });
+      expect(setInputs.map((i) => [i.writeMode, i.ifVersion])).toEqual([
+        ['create-new', undefined],
+        ['add-version', undefined],
+      ]);
+      const events = await recorded();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ kind: 'secret-set', outcome: 'succeeded' });
+      expect(docOf(events[0])).toMatchObject({ writeMode: 'add-version', recordVersion: 2 });
+    });
+
+    test("keeps the caller's ifRevision: a stale one is a 409, recorded failed", async () => {
+      const { patchConfig, recorded, setInputs } = harness({
+        sets: [taken, { kind: 'version-conflict', currentVersion: 1 }],
+      });
+      const body = { kind: 'secret', key: 'stripe-key', value: VALUE, ifRevision: 3 };
+      const res = await patchConfig(body);
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({
+        error: { code: 'tenant-config-revision-conflict', details: { currentRevision: 1 } },
+      });
+      expect(setInputs.map((i) => [i.writeMode, i.ifVersion])).toEqual([
+        ['create-new', 3],
+        ['add-version', 3],
+      ]);
+      const [event] = await recorded();
+      expect(event).toMatchObject({ kind: 'secret-set', outcome: 'failed' });
+      expect(docOf(event)).toMatchObject({
+        writeMode: 'add-version',
+        errorCode: 'tenant-config-revision-conflict',
+      });
+    });
+
+    test('writes again once: a second already-exists is a 409, never the old record', async () => {
+      const { patchConfig, recorded, setInputs } = harness({ sets: [taken, taken] });
+      const res = await patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE });
+      expect(res.status).toBe(409);
+      expect(setInputs).toHaveLength(2);
+      const [event] = await recorded();
+      expect(event).toMatchObject({ kind: 'secret-set', outcome: 'failed' });
+    });
+  });
+});
+
 describe('best effort', () => {
   test('without an audit binding the writes answer as before', async () => {
-    const { call } = harness({}, null);
+    const { call, patchConfig } = harness({}, null);
     expect(await call('POST', '/v1/secrets', setBody())).toBe(201);
+    expect((await patchConfig({ kind: 'secret', key: 'stripe-key', value: VALUE })).status).toBe(
+      200,
+    );
   });
 
   test('an audit log that fails never fails the write', async () => {
@@ -308,8 +526,9 @@ describe('best effort', () => {
         throw new Error('audit store down');
       },
     } as AuditEventBinding;
-    const { call } = harness({}, failing);
+    const { call, patchConfig } = harness({}, failing);
     expect(await call('POST', '/v1/secrets', setBody())).toBe(201);
+    expect((await patchConfig({ kind: 'env', key: 'KB_URL', value: VALUE })).status).toBe(200);
   });
 
   test("a failed append is logged at warn through the app's logger (subsystem audit), with the request", async () => {
