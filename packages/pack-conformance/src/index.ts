@@ -74,7 +74,8 @@ export interface PackServiceTarget {
  *   and a record per call with its ids and the caller's trace.
  * - `env-filter`: only the names the pack declares (and Kindgi's and the
  *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
- *   service names the ones it dropped (`env-dropped`).
+ *   service names the ones it dropped (`env-dropped`), but for one a base
+ *   image sets (`GPG_KEY`).
  * - `pause`: a tool that declares `pauses` gets the call's wait token and
  *   may answer with a pause (pack protocol 2.8.0); the fixture pack has
  *   `conformance.pause`.
@@ -187,15 +188,14 @@ interface RunningService {
 /**
  * Names a pack service keeps although the pack doesn't declare them, one
  * of each kind the contract lists, with values that don't change how a
- * runtime starts: the process's, a base image's (Python's `GPG_KEY`), the
- * platform's workload identity and metadata (Cloud Run, AWS, Azure), and
- * the kept prefixes (`LC_`, `PYTHON`, `OTEL_`, `CLOUD_RUN_`,
- * `CONTAINER_APP_`). `PATH` and `PORT` are always set. Static credentials
- * (`AWS_SECRET_ACCESS_KEY`) are not among them.
+ * runtime starts: the process's, the platform's workload identity and
+ * metadata (Cloud Run, AWS, Azure), and the kept prefixes (`LC_`,
+ * `PYTHON`, `OTEL_`, `CLOUD_RUN_`, `CONTAINER_APP_`). `PATH` and `PORT`
+ * are always set. Static credentials (`AWS_SECRET_ACCESS_KEY`) are not
+ * among them.
  */
 const PLATFORM_ENV_PROBES: Readonly<Record<string, string>> = {
   HOSTNAME: 'conformance',
-  GPG_KEY: 'conformance',
   K_SERVICE: 'conformance',
   K_REVISION: 'conformance-00001',
   AWS_REGION: 'eu-west-1',
@@ -996,6 +996,22 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
               expect.arrayContaining(['AWS_SECRET_ACCESS_KEY', 'CONFORMANCE_UNDECLARED']),
             );
             expect(dropped.names).not.toContain('CONFORMANCE_A');
+            expect(running.stderr.join('\n')).not.toContain(UNDECLARED_VALUE);
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test("a base image's name (GPG_KEY) is dropped without being named", async () => {
+          const running = await startService(target, await declaredIndexPath(), {
+            CONFORMANCE_A: 'a',
+            GPG_KEY: UNDECLARED_VALUE,
+          });
+          try {
+            expect(await namesIn(running)).not.toContain('GPG_KEY');
+            // An env-dropped line comes before `listening`, which startService waited for.
+            expect(running.events.map((e) => e.kind)).not.toContain('env-dropped');
+            expect(running.stderr.join('\n')).not.toContain('GPG_KEY');
             expect(running.stderr.join('\n')).not.toContain(UNDECLARED_VALUE);
           } finally {
             await running.terminate();

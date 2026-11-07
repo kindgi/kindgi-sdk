@@ -42,9 +42,9 @@ final class PackEnv {
       // the process
       "PATH", "HOME", "HOSTNAME", "USER", "LANG", "LANGUAGE", "TZ", "TMPDIR", "TMP", "TEMP", "PWD", "SHLVL",
       "_", "__CF_USER_TEXT_ENCODING",
-      // the language runtime (with what its base image names: the version, Python's release key)
+      // the language runtime (with the version its base image names)
       "NODE_ENV", "NODE_VERSION", "YARN_VERSION", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "JAVA_HOME", "JAVA_VERSION",
-      "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "VIRTUAL_ENV", "GPG_KEY",
+      "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "VIRTUAL_ENV",
       // the port
       "PORT",
       // network trust
@@ -66,6 +66,14 @@ final class PackEnv {
    * metadata. {@code KINDGI_*} is kept too.
    */
   static final List<String> PLATFORM_ENV_PREFIXES = List.of("LC_", "PYTHON", "OTEL_", "CLOUD_RUN_", "CONTAINER_APP_");
+
+  /**
+   * Names the launcher drops like any other undeclared one, but the service leaves out of the names
+   * it logs ({@code env-dropped}): a base image sets them in every pack's image (Python's sets {@code
+   * GPG_KEY}, the fingerprint of the key Python's releases are signed with). A pack that reads one
+   * declares it.
+   */
+  static final Set<String> QUIETLY_DROPPED_ENV_NAMES = Set.of("GPG_KEY");
 
   /**
    * Names the JVM sets in its own environment once it runs (macOS's {@code java} sets {@code

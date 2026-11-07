@@ -191,7 +191,7 @@ export const PLATFORM_ENV_NAMES: ReadonlySet<string> = new Set([
   'SHLVL',
   '_',
   '__CF_USER_TEXT_ENCODING',
-  // the language runtime (with what its base image names: the version, Python's release key)
+  // the language runtime (with the version its base image names)
   'NODE_ENV',
   'NODE_VERSION',
   'YARN_VERSION',
@@ -203,7 +203,6 @@ export const PLATFORM_ENV_NAMES: ReadonlySet<string> = new Set([
   'JDK_JAVA_OPTIONS',
   '_JAVA_OPTIONS',
   'VIRTUAL_ENV',
-  'GPG_KEY',
   // the port
   'PORT',
   // network trust
@@ -257,6 +256,16 @@ export const PLATFORM_ENV_PREFIXES: readonly string[] = [
   'CLOUD_RUN_',
   'CONTAINER_APP_',
 ];
+
+/**
+ * Names a pack service drops like any other undeclared one, but leaves out
+ * of the names it logs (`env-dropped`): a language's base image sets them
+ * in every pack's image (Python's sets `GPG_KEY`, the fingerprint of the
+ * key Python's releases are signed with), so naming them would warn at
+ * every start. A pack that reads one declares it. Python's (`kindgi.pack`)
+ * and Java's lists are the same; the conformance suite checks all of them.
+ */
+export const QUIETLY_DROPPED_ENV_NAMES: ReadonlySet<string> = new Set(['GPG_KEY']);
 
 /**
  * The names in `environment` that a pack service drops before its pack's

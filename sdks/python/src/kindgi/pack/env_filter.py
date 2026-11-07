@@ -42,7 +42,7 @@ PLATFORM_ENV_NAMES: frozenset[str] = frozenset(
         "SHLVL",
         "_",
         "__CF_USER_TEXT_ENCODING",
-        # the language runtime (with what its base image names: the version, Python's release key)
+        # the language runtime (with the version its base image names)
         "NODE_ENV",
         "NODE_VERSION",
         "YARN_VERSION",
@@ -54,7 +54,6 @@ PLATFORM_ENV_NAMES: frozenset[str] = frozenset(
         "JDK_JAVA_OPTIONS",
         "_JAVA_OPTIONS",
         "VIRTUAL_ENV",
-        "GPG_KEY",
         # the port
         "PORT",
         # network trust
@@ -99,6 +98,12 @@ PLATFORM_ENV_NAMES: frozenset[str] = frozenset(
 # The locale, Python's settings, OpenTelemetry's exporter, and Cloud Run's and
 # Container Apps' metadata. `KINDGI_*` is kept too.
 PLATFORM_ENV_PREFIXES: tuple[str, ...] = ("LC_", "PYTHON", "OTEL_", "CLOUD_RUN_", "CONTAINER_APP_")
+
+# Dropped like any other undeclared name, but left out of the names the service
+# logs (`env-dropped`): a base image sets them in every pack's image (Python's
+# sets `GPG_KEY`, the fingerprint of the key Python's releases are signed with).
+# A pack that reads one declares it.
+QUIETLY_DROPPED_ENV_NAMES: frozenset[str] = frozenset({"GPG_KEY"})
 
 
 def undeclared_pack_env(
