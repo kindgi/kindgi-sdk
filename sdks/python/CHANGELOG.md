@@ -13,6 +13,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.**
+  A tool that sets no version takes the pack's, and a deploy takes no other
+  tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or
+  `"1.0.0-rc.1"` no longer loads: `python -m kindgi.pack index`, and
+  `kindgi build`, `deploy`, `env`, `dev` and `mcp`, stop with
+  `config-parse-failed`, naming `pack.version`, as they do when it's missing.
+  Write `1.0.0`.
+- `kindgi`: **each kind's version is checked where it's declared, by the
+  deploy's rule.** A tool's (`@tool(version=...)`, `http_tool`) is
+  `MAJOR.MINOR.PATCH`, so a prerelease or build metadata is refused. An
+  agent's is an exact semver with no build metadata, and so is a flow's,
+  which wasn't checked. Each of those was refused only at deploy before. The
+  messages are `version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got '...'`
+  and `version must be an exact semver with no build metadata (e.g. 1.2.3 or
+  1.2.3-rc.1), got '...'`.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

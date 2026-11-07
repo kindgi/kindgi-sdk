@@ -92,7 +92,7 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   Field aliases are the names on the wire.
   The input is an object: a model calls a tool with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
-  pack's (or `version=`, an exact semver).
+  pack's (or `version=`), `MAJOR.MINOR.PATCH` such as `1.2.0`.
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an
   agent with tool approval gates on (and no override or `default` for it)
   doesn't ask before it. Without it a tool may change something (as with
