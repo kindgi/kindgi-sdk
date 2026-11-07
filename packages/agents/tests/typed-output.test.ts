@@ -405,6 +405,30 @@ describe('defineAgent output', () => {
     }
   });
 
+  test('a schema from zod 3 is named as one at /output/schema', () => {
+    // zod 3's shape: `_def` and `safeParse`, no `_zod`.
+    const zod3 = { _def: { typeName: 'ZodObject' }, safeParse: () => ({ success: true }) };
+    const r = defineAgent({
+      id: 'acme.bad',
+      version: '1.0.0',
+      name: 'Bad',
+      instructions: 'x',
+      capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+      tools: [],
+      retrieval: [],
+      guardrails: [],
+      output: { schema: zod3 },
+    });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toHaveLength(1);
+      expect(r.error.issues[0]?.path).toBe('/output/schema');
+      expect(r.error.issues[0]?.message).toMatch(
+        /^The schema is from zod 3 .* as a JSON Schema object/,
+      );
+    }
+  });
+
   test.each([
     ['null', null],
     ['a string', 'json'],
