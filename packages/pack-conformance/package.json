@@ -26,6 +26,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@kindgi/flow": "workspace:*",
     "@kindgi/specs": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1"

@@ -12,11 +12,13 @@ out/
 .turbo/
 # Maven (sdks/java)
 sdks/java/**/target/
-# sbt (sdks/scala, and the Scala conformance fixture)
+# sbt (sdks/scala, and the Scala conformance fixtures)
 sdks/scala/**/target/
 sdks/scala/.bsp/
 packages/pack-conformance/fixtures/scala-pack/**/target/
 packages/pack-conformance/fixtures/scala-pack/.bsp/
+packages/pack-conformance/fixtures/scala-invalid-flow-pack/**/target/
+packages/pack-conformance/fixtures/scala-invalid-flow-pack/.bsp/
 
 # Test + coverage
 coverage/

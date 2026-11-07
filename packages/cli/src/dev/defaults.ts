@@ -38,6 +38,7 @@ import { programPath } from '../program-path.js';
 import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
+import { judgeFlowGraphs, writeIndexFile } from './flow-graphs.js';
 import { createJavaPackBuilder } from './java-builder.js';
 import { lineReader } from './lines.js';
 import {
@@ -831,23 +832,47 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
       message: `Indexer succeeded but reading ${report.outputPath} failed: ${(readErr as Error).message}`,
     };
   }
+  // Python and JVM indexers check a flow's schema only. A flow that fails
+  // the graph checks leaves the file too: `kindgi dev`'s runtime serves
+  // flows from it, and in dev this is the staged file, before it's published.
+  const graphs = judgeFlowGraphs(index);
+  if (graphs.dropped > 0) {
+    try {
+      await writeIndexFile(report.outputPath, graphs.index);
+    } catch (writeErr) {
+      return {
+        kind: 'err',
+        code: 'index-write-failed',
+        message: `Dropping the flows that failed their checks from ${report.outputPath} failed: ${(writeErr as Error).message}`,
+      };
+    }
+  }
   return {
     kind: 'ok',
     packId: report.packId,
     packVersion: report.packVersion,
-    counts: report.counts,
-    fileErrors: report.fileErrors.map((e) => ({
-      code: e.code,
-      message: e.message,
-      ...(e.filePath !== undefined && { filePath: e.filePath }),
-    })),
+    counts:
+      graphs.dropped > 0
+        ? { ...report.counts, flows: report.counts.flows - graphs.dropped }
+        : report.counts,
+    fileErrors: [
+      ...report.fileErrors.map((e) => ({
+        code: e.code,
+        message: e.message,
+        ...(e.filePath !== undefined && { filePath: e.filePath }),
+      })),
+      ...graphs.fileErrors,
+    ],
     // A Python or JVM indexer from an older SDK sends no `warnings`.
-    warnings: (report.warnings ?? []).map((w) => ({
-      code: w.code,
-      message: w.message,
-      ...(w.filePath !== undefined && { filePath: w.filePath }),
-    })),
-    index,
+    warnings: [
+      ...(report.warnings ?? []).map((w) => ({
+        code: w.code,
+        message: w.message,
+        ...(w.filePath !== undefined && { filePath: w.filePath }),
+      })),
+      ...graphs.warnings,
+    ],
+    index: graphs.index,
   };
 }
 

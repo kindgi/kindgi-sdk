@@ -173,6 +173,81 @@ function toSchemaValidationError(err: {
   };
 }
 
+// ============ the graph checks, for a flow that skipped loadFlow ============
+
+const OPEN_GRAPH_SCHEMA_ID = 'https://kindgi.com/schemas/v1/flow-open.schema.json';
+
+// Built on first use, like `registry()`.
+let cachedOpenRegistry: SpecRegistry | undefined;
+
+function openRegistry(): SpecRegistry {
+  if (cachedOpenRegistry !== undefined) return cachedOpenRegistry;
+  // Its own `$id`, so the open copy is never taken for flow.schema.json.
+  const open = { ...(withObjectsOpen(flowSchema) as object), $id: OPEN_GRAPH_SCHEMA_ID };
+  const built = createSpecRegistry([open]);
+  if (built.kind === 'err') {
+    throw new Error(`@kindgi/flow: bundled schema failed to compile open: ${built.error.message}`);
+  }
+  cachedOpenRegistry = built.value;
+  return cachedOpenRegistry;
+}
+
+/**
+ * A copy of `schema` with every `additionalProperties: false` dropped, at
+ * any depth. Each `oneOf` in flow.schema.json tells its branches apart by
+ * `kind`, `loopKind` or `op`, or by a required field, so a flow that
+ * passes the closed schema passes the open one too.
+ */
+function withObjectsOpen(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withObjectsOpen);
+  if (!isRecord(schema)) return schema;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === 'additionalProperties' && value === false) continue;
+    out[key] = withObjectsOpen(value);
+  }
+  return out;
+}
+
+/**
+ * What `flowGraphProblem` makes of a flow: `ok`; `err`, with the first
+ * error `loadFlow`'s graph checks give; or `not-judged`, when the flow's
+ * shape is one this version doesn't know, so the graph checks can't run.
+ */
+export type FlowGraphCheck =
+  | { readonly kind: 'ok' }
+  | { readonly kind: 'err'; readonly error: FlowError }
+  | { readonly kind: 'not-judged'; readonly reason: string };
+
+/**
+ * `loadFlow`'s graph checks, for a flow that never went through `loadFlow`:
+ * one a Python, Java or Scala pack's indexer wrote, or a deployment's
+ * index. The flow is first checked against flow.schema.json with every
+ * object left open, so a field this version doesn't know, from a newer
+ * SDK, is passed over where `loadFlow` would refuse it. Then the same
+ * checks run, in the same order (steps 2-18 of `loadFlow`). So a flow that
+ * passes `loadFlow`'s schema gets the error `loadFlow` gives, code and
+ * message, or `ok` when `loadFlow` accepts it. A flow the open schema
+ * still refuses (an unknown node kind, a missing field) is `not-judged`,
+ * with the schema's reason: the graph checks need the shape. Pure, like
+ * `loadFlow`, and throws `SchemaCompileBudgetError` as it does.
+ */
+export function flowGraphProblem(flow: unknown): FlowGraphCheck {
+  const shaped = openRegistry().validate<Flow>(OPEN_GRAPH_SCHEMA_ID, flow);
+  if (shaped.kind === 'err') {
+    const err = shaped.error;
+    if (err.code !== 'validation-error') {
+      throw new Error(`@kindgi/flow: unexpected schema error ${err.code}: ${err.message}`);
+    }
+    return { kind: 'not-judged', reason: err.message };
+  }
+  for (const check of SEMANTIC_CHECKS) {
+    const error = check(shaped.value);
+    if (error !== undefined) return { kind: 'err', error };
+  }
+  return { kind: 'ok' };
+}
+
 // ============ every inline schema, for a flow that skipped loadFlow ============
 
 /** An inline schema in a flow that doesn't compile: where it sits, and why. */
