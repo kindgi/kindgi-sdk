@@ -30,6 +30,7 @@ import {
 } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { type ServedEnvRule, refuseUnservedToolSecret } from '../served-env.js';
 import type {
   ToolKindMismatch,
   ToolRecord,
@@ -94,6 +95,11 @@ export function toolsRouter(
     readonly projects?: SecretScopeDeps['projects'];
     /** The env the runtime serves: where the secrets a tool's code declares are read. */
     readonly envName?: EnvName;
+    /**
+     * A runtime that refuses other envs: a tool whose `secretRef` names
+     * another env is refused (`refuseUnservedToolSecret`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
     /**
      * The tenant's environment orders: a publish into a later environment is
      * refused (`environment-entry.ts`). Absent: no project is a later
@@ -502,6 +508,11 @@ export function toolsRouter(
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
+    }
+    const unserved = refuseUnservedToolSecret(options.servedEnv, validated.value);
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
     }
 
     const principal = c.get('principal') as Principal | undefined;

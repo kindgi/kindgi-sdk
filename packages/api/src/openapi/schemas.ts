@@ -4185,8 +4185,16 @@ export const ToolNeedSchema: JsonSchema = {
 export const ToolSecretRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['envName', 'name'],
-  properties: { envName: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 } },
+  required: ['name'],
+  properties: {
+    envName: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The env the secret is read in. Left out, it's the env the runtime serves (KINDGI_ENV; local under kindgi dev), as for the secrets a tool's code declares.",
+    },
+    name: { type: 'string', minLength: 1 },
+  },
 };
 
 export const HttpHeaderSpecSchema: JsonSchema = {

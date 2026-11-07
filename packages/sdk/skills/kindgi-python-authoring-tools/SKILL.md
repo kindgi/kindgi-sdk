@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -372,7 +372,7 @@ lookup_case = http_tool(
     method="GET",
     url_template="https://citator.example.com/{court}/{case_number}",
     headers={"Accept": "application/json"},
-    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "CITATOR_KEY"}},
+    authorization={"kind": "bearer", "secretRef": {"name": "CITATOR_KEY"}},
 )
 ```
 
@@ -381,9 +381,9 @@ lookup_case = http_tool(
   indexer reports it.
 - `authorization`: `{"kind": "bearer", "secretRef": …}` or
   `{"kind": "header", "headerName": "X-Api-Key", "secretRef": …}`. The
-  runtime resolves the secret on every call — `envName` `local` is the
-  pack's `.env` under `kindgi dev` — and fails the call, naming it, when
-  it's missing.
+  runtime resolves the secret on every call, in the env it serves (the
+  pack's `.env` under `kindgi dev`; `envName` pins one), and fails the
+  call, naming it, when it's missing.
 - `request_body`: `{"kind": "json-input"}` (the input's fields the URL
   didn't use, as JSON — the default for POST, PUT and PATCH),
   `{"kind": "input-passthrough"}` (the whole input), or
