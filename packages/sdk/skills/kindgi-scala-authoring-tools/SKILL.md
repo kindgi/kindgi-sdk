@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -116,7 +116,9 @@ object Citator {
   semver).
 - **Schemas:** from the case classes `Tool[Input, Output]` names. A
   parameter is a property, by its Jackson name
-  (`@JsonProperty("canonical_cite")` renames one). The input must be an
+  (`@JsonProperty("canonical_cite")` renames one). Unknown properties are
+  refused unless the case class says
+  `@JsonIgnoreProperties(ignoreUnknown = true)`. The input must be an
   **object**: a model calls a tool with an object of arguments.
 
   | In Scala | In the schema |
