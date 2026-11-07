@@ -41,6 +41,10 @@ into the chat.
 This key is the one every command in this guide uses. If you also run
 `kindgi dev`, its console and its token belong to the runtime on
 your machine, not to Kindgi Cloud: paste only the key you made here.
+In the pack's folder, the `.kindgirc.json` that `kindgi dev` writes
+sends the CLI's commands to that runtime too, and a command that goes
+there says so first. Add `--hosted` to a command, and it goes to Kindgi
+Cloud.
 
 **Sign the CLI in, in a terminal of your own,** in the pack's folder. Paste
 the key at the prompt, which doesn't show it:
@@ -294,6 +298,10 @@ version and every version that's waiting read the same values:
 
 ## If something goes wrong
 
+- **A command says it goes to the kindgi dev runtime.** `kindgi dev` ran
+  in the pack's folder, and the command went to the runtime on your
+  machine: a secret it stored is there, not on Kindgi Cloud. Run it again
+  with `--hosted`.
 - **The deploy says `No signing key is set.`** The pack's `prod`
   environment has no `signingKey`. Set it as in
   [Sign the pack](#sign-the-pack), or pass `--signing-key`.
