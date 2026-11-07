@@ -3741,7 +3741,7 @@
           "scope",
           "missing"
         ],
-        "description": "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project. Never a value.",
+        "description": "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project; a person's own test project's, at the project alone. Never a value.",
         "properties": {
           "name": {
             "type": "string"
@@ -21780,7 +21780,7 @@
               "org",
               "tenant"
             ],
-            "description": "Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`)."
+            "description": "Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`); in a person's own test project, the project only."
           },
           "problem": {
             "type": "string",
@@ -35780,7 +35780,7 @@
             }
           }
         },
-        "description": "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
+        "description": "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, or at the project alone for a person's own test project, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
         "parameters": [
           {
             "name": "tenantId",
@@ -60260,7 +60260,7 @@
             }
           }
         },
-        "description": "On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the workspace, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).",
+        "description": "On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the workspace, or the project alone for a person's own test project, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).",
         "parameters": [
           {
             "name": "deploymentId",

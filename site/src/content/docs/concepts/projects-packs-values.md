@@ -134,7 +134,8 @@ A run uses four kinds of values, each kept in its own place.
   a scope recorded for them: when the endpoint is registered, or when the
   trigger names its secret.
 - **A tool's env values,** in `ctx.env`. Each call reads the run's
-  project's value, else its org's, else the workspace's. A name none of them
+  project's value, else its org's, else the workspace's (in a person's own
+  test project, the project's value only). A name none of them
   sets takes its default
   ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)).
 - **The pack service's own environment,** in `process.env` or

@@ -1047,7 +1047,7 @@ class PackEnvScope(BaseModel):
 
 class PackEnvNameStatus(BaseModel):
     """
-    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project. Never a value.
+    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project; a person's own test project's, at the project alone. Never a value.
     """
 
     model_config = ConfigDict(
@@ -9582,7 +9582,7 @@ class DeploymentValue(BaseModel):
         Field(alias="foundAt"),
     ] = None
     """
-    Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`).
+    Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`); in a person's own test project, the project only.
     """
     problem: str | None = None
     """
