@@ -827,6 +827,27 @@ Adding their email again invites them anew."
 
 ![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with a Revoke icon), Sign-ins, and Remove from the workspace.](../../../assets/people/person.png)
 
+With the runtime 0.7.0 or later, a tenant admin also sees a person's
+**Chat apps** on their page, where the runtime lets
+[chat apps sign in](../self-hosted/chat-apps/). It lists the chat apps they
+connected, such as Claude: each by the address it sends people back to, with
+"It calls itself …" when the app gave a name, what it can do, and when it
+was connected. A link to it is their page's address with `#chat-apps`.
+
+- **Disconnect**, then **Disconnect it**, stops one acting for them at once:
+  its next request to Kindgi is refused, and it can't sign in again on its
+  own. It isn't a block: they can connect it again from the chat app.
+- **They're emailed** where the runtime sends mail and they have an
+  address, with the subject "A chat app was disconnected from your access
+  to acme": which app, who disconnected it (your email address, or "A
+  workspace admin" without one) and when. The disconnect stands even when
+  the email doesn't go out.
+- **Your own page** lists your own chat apps, as **My access** >
+  **Chat apps** does, and disconnecting one there sends no email.
+
+A removed person's page has no **Chat apps**: their removal already stopped
+every chat app of theirs.
+
 ### What needs you
 
 A tenant admin's home in the workspace starts with what needs a look, such as
@@ -859,6 +880,13 @@ Each change is kept as evidence: `person-added`, `person-granted`,
 secret is never in one. A project's own account is made with one
 `service-account-created`, which has its `projectId` and
 `projectAccount: true`, and no separate `service-account-granted`.
+
+Disconnecting a chat app is kept as `chat-app-disconnected`, with its
+`clientId` and how many of its refresh tokens were revoked
+(`revokedCount`). When a person disconnects their own, they're its actor and
+it has no `userId`. When a tenant admin disconnects someone's
+(runtime 0.7.0 or later), the admin is its actor and the person is its
+`userId`.
 
 ## Next
 

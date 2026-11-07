@@ -194,3 +194,14 @@ server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
 It needs `network_mode = "direct"`, and `public_url` set to the load
 balancer's address.
+
+## Take a chat app away from someone
+
+A person disconnects their own chat apps on **My access** > **Chat apps**.
+With the runtime 0.7.0 or later, a tenant admin can disconnect one for
+them, from the person's page under
+[**People**](../../people-and-keys/#people). It stops acting for
+them at once, and they're emailed where the runtime sends mail. It isn't a
+block: they can connect it again. To keep someone out,
+[remove them from the workspace](../../people-and-keys/#remove-a-person),
+which stops every chat app of theirs.
