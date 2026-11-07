@@ -178,8 +178,8 @@ step 1.
 
 ## Step 1: access to the runtime image
 
-If doctor's `registry` check passes, this machine can already pull the
-runtime: skip this step.
+If doctor's `registry` and `license` checks both pass, this machine can
+already pull the runtime, and `kindgi dev` has its key: skip this step.
 
 1. Ask the person: "Sign in at https://access.kindgi.com with GitHub or your
    email address. Under **1. Your license key**, copy the key (it starts with

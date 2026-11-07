@@ -42,10 +42,10 @@ email address for a license key. The key is also the runtime image's
 password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
-## Running outside development mode
+## Running on a server, in staging or in CI
 
-Anywhere else, the runtime needs its key: on a server, in staging, and in CI
-that runs the runtime itself. It reads the key from the `KINDGI_LICENSE_KEY`
+As in development mode, the runtime needs its key there: on a server, in
+staging, and in CI that runs the runtime itself. It reads the key from the `KINDGI_LICENSE_KEY`
 environment variable, which you set from your secrets store. A key starts
 with `kgi_lk_`.
 
