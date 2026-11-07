@@ -15,8 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * An agent's, a flow's and a tool's own version is an exact semver: another is an error of its
- * file. The pack is the classes under {@code testpacks/versions}, found by a source file of each.
+ * An agent's and a flow's own version is an exact semver with no build metadata, and a tool's is
+ * MAJOR.MINOR.PATCH: another is an error of its file. The pack is the classes under {@code
+ * testpacks/versions}, found by a source file of each.
  */
 class IndexerVersionTest {
   private static final String SOURCES = "src/main/java/com/kindgi/pack/testpacks/versions/";
@@ -48,8 +49,10 @@ class IndexerVersionTest {
   }
 
   private static String refused(String file, String kind, String id, String version) {
-    return "manifest-validation-failed: " + SOURCES + file + ": " + kind + " '" + id
-        + "': version must be an exact semver (e.g. 1.2.3), got '" + version + "'";
+    String rule = kind.equals("tool") ? "MAJOR.MINOR.PATCH (e.g. 1.2.3)"
+        : "an exact semver with no build metadata (e.g. 1.2.3 or 1.2.3-rc.1)";
+    return "manifest-validation-failed: " + SOURCES + file + ": " + kind + " '" + id + "': version must be " + rule
+        + ", got '" + version + "'";
   }
 
   @SuppressWarnings("unchecked")
@@ -59,9 +62,10 @@ class IndexerVersionTest {
   }
 
   @Test
-  void aVersionThatIsntAnExactSemverIsAnErrorOfItsFile() throws Exception {
+  void aVersionOutsideItsKindsRuleIsAnErrorOfItsFile() throws Exception {
     Map<String, Object> report = index();
     assertThat(errorsOf(report, "agents/Agents.java")).containsExactly(
+        refused("agents/Agents.java", "agent", "acme.build", "1.0.0+build.5"),
         refused("agents/Agents.java", "agent", "acme.leading-zero", "01.0.0"),
         refused("agents/Agents.java", "agent", "acme.prefixed", "v1.0.0"),
         refused("agents/Agents.java", "agent", "acme.short", "0.1"),
@@ -72,17 +76,18 @@ class IndexerVersionTest {
         shortFlow -> assertThat(shortFlow).startsWith("manifest-validation-failed: " + SOURCES + "flows/Flows.java: "
             + "flow 'acme.short-flow' is invalid at /version: must match pattern"));
     assertThat(errorsOf(report, "tools/Tools.java")).containsExactly(
+        refused("tools/Tools.java", "tool", "acme.leading-zero-tool", "01.0.0"),
+        refused("tools/Tools.java", "tool", "acme.prerelease-tool", "2.1.0-rc.1"),
         refused("tools/Tools.java", "tool", "acme.short-tool", "1.0"));
-    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 2, "guardrails", 0, "agents", 3, "flows", 1, "blocks", 0));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 2, "guardrails", 0, "agents", 2, "flows", 1, "blocks", 0));
   }
 
   @Test
   @SuppressWarnings("unchecked")
-  void anExactSemverIndexesAndAToolWithoutOneTakesThePacks() throws Exception {
+  void aVersionInItsKindsRuleIndexesAndAToolWithoutOneTakesThePacks() throws Exception {
     Map<String, Object> report = index();
     Map<String, Object> index = (Map<String, Object>) Json.parse(Files.readAllBytes(Path.of((String) report.get("outputPath"))));
-    assertThat(versions(index, "agents")).isEqualTo(Map.of(
-        "acme.plain", "1.0.0", "acme.prerelease", "1.0.0-rc.1", "acme.build", "1.0.0+build.5"));
+    assertThat(versions(index, "agents")).isEqualTo(Map.of("acme.plain", "1.0.0", "acme.prerelease", "1.0.0-rc.1"));
     assertThat(versions(index, "flows")).isEqualTo(Map.of("acme.plain-flow", "1.0.0"));
     assertThat(versions(index, "tools")).isEqualTo(Map.of("acme.own", "2.1.0", "acme.packs", "2.0.0"));
   }

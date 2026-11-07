@@ -8,6 +8,7 @@ import com.kindgi.pack.Agent;
 public final class Agents {
   public static final Agent PLAIN = agent("acme.plain", "1.0.0");
   public static final Agent PRERELEASE = agent("acme.prerelease", "1.0.0-rc.1");
+  /** An exact semver, but a deploy refuses build metadata. */
   public static final Agent BUILD = agent("acme.build", "1.0.0+build.5");
   public static final Agent SHORT = agent("acme.short", "0.1");
   public static final Agent LEADING_ZERO = agent("acme.leading-zero", "01.0.0");

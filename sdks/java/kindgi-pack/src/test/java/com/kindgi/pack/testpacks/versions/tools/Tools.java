@@ -17,6 +17,13 @@ public final class Tools {
   public static final Tool<Map<String, Object>, Map<String, Object>> SHORT = Tool.define("acme.short-tool")
       .version("1.0")
       .handler((input, ctx) -> Map.of());
+  public static final Tool<Map<String, Object>, Map<String, Object>> LEADING_ZERO = Tool.define("acme.leading-zero-tool")
+      .version("01.0.0")
+      .handler((input, ctx) -> Map.of());
+  /** An exact semver, but a tool's version is MAJOR.MINOR.PATCH only. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> PRERELEASE = Tool.define("acme.prerelease-tool")
+      .version("2.1.0-rc.1")
+      .handler((input, ctx) -> Map.of());
 
   private Tools() {}
 }
