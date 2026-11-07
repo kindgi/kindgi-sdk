@@ -32,9 +32,9 @@ That includes internal systems your own employees use.
 Development mode runs with the free non-production key from
 access.kindgi.com, the same key that pulls the runtime image.
 `kindgi auth registry` logs Docker in with it and keeps it for `kindgi dev`.
-So everything you build and test on your machine is free. Before 0.7.0,
-development mode ran with no key. Preview releases still stop starting after 90
-days, in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
+So everything you build and test on your machine is free. Preview releases
+still stop starting after 90 days, in development mode too
+([below](#preview-releases-stop-starting-after-90-days)).
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your

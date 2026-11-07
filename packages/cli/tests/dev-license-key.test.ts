@@ -72,8 +72,10 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-const resolve = (env: Record<string, string> = {}, publicKeys = PUBLIC_KEYS) =>
-  resolveDevLicenseKey({ env, home, now: () => NOW, publicKeys });
+const resolve = (
+  env: Record<string, string> = {},
+  publicKeys: Readonly<Record<string, string>> = PUBLIC_KEYS,
+) => resolveDevLicenseKey({ env, home, now: () => NOW, publicKeys });
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
 describe('the key kindgi dev runs with', () => {
