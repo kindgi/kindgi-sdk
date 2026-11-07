@@ -146,9 +146,11 @@ class PackService:
         self._tools: dict[str, list[Mapping[str, Any]]] = {}
         for t in cast("list[Mapping[str, Any]]", index.get("tools", [])):
             self._tools.setdefault(str(t["id"]), []).append(t)
+        # A built-in's check (`checkBuiltIn`) is the runtime's: the pack has no code for it.
         self._checks: dict[str, Mapping[str, Any]] = {
             str(g.get("checkId") or g["id"]): g
             for g in cast("list[Mapping[str, Any]]", index.get("guardrails", []))
+            if g.get("checkBuiltIn") is not True
         }
         self._validators: dict[int, SchemaValidator | Exception] = {}
         self._executor = ThreadPoolExecutor(
