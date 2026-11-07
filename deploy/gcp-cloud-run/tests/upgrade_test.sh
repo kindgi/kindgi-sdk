@@ -1228,6 +1228,44 @@ assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.5.0-rc.
 assert_out "plan check: it changes the image(s)"
 assert_out "0.4.0 -> 0.5.0-rc.0 applied"
 
+# The orchestrator's schedule in a plan, its retry config before ($1) and
+# after ($2).
+schedule_retry() {
+  jq -cn --argjson b "$1" --argjson a "$2" '[{address: "google_cloud_scheduler_job.orchestrator[0]", mode: "managed",
+    type: "google_cloud_scheduler_job", name: "orchestrator", index: 0,
+    change: {actions: ["update"],
+      before: {name: "kindgi-pack-orchestrator", schedule: "* * * * *", retry_config: $b},
+      after: {name: "kindgi-pack-orchestrator", schedule: "* * * * *", retry_config: $a},
+      after_unknown: {}}}]'
+}
+
+# 48d. The same with the orchestrator on: its Job takes the new image beside
+# the server, and the plan gives its schedule back the one attempt (a retry
+# count of 0) that Cloud Scheduler hands back no retry config for, as every
+# plan from 0.4.0 does. That changes nothing, so the check passes.
+case_start "0.4.0 to 0.5.0-rc.0, the orchestrator on"
+reset_env; export STUB_TAGS="0.4.0" STUB_PLAN_CHANGES="$(jq -cn --argjson j "$JOB_IMAGE" --argjson s "$(schedule_retry '[]' '[{"retry_count":0}]')" '$j + $s')"; V_OKV="1"
+run "yes" --to 0.5.0-rc.0
+assert_rc 0 "0.4.0 -> 0.5.0-rc.0 with the orchestrator on runs"
+if grep -q "PLAN CHECK" "$OUT"; then fail "the schedule's one attempt stopped the plan check"; else pass; fi
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.4.0 -> 0.5.0-rc.0 applied"
+
+# 48e. A retry count the schedule holds, or one other than 0, is a change:
+# the check names it and stops, and nothing is applied.
+for pair in '[{"retry_count":3}] [{"retry_count":0}] a count of 3 set to 0' '[] [{"retry_count":2}] a count of 2 added'; do
+  read -r before after label <<<"$pair"
+  case_start "the schedule's retry config, $label: a change"
+  reset_env; export STUB_TAGS="0.4.0" STUB_PLAN_CHANGES="$(jq -cn --argjson j "$JOB_IMAGE" --argjson s "$(schedule_retry "$before" "$after")" '$j + $s')"; V_OKV="1"
+  run "yes" --to 0.5.0-rc.0
+  assert_rc 1 "$label stops it"
+  assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+  assert_file_has "$OUT" "    google_cloud_scheduler_job.orchestrator[0]: changes retry_config.retry_count" "the change, by its path"
+  assert_absent "$STUB_MARKER_APPLY" "apply"
+  assert_varfile_unchanged
+done
+
 # 49. The module here is 0.4.0's, whose plan needs the 0.4.0 runtime: a --to
 # below 0.4.0, a release or a server fix, is refused before anything is
 # called, naming the tag whose script keeps the module at that release.
