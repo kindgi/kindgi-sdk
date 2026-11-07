@@ -168,6 +168,44 @@ describe('the helpers', () => {
     ]);
   });
 
+  test('flowReferences: an agent node that names its version references that version, in loop bodies too', () => {
+    const loaded = loadFlow({
+      id: 'acme.flow',
+      version: '1.0.0',
+      nodes: [
+        { id: 'match', kind: 'agent', ref: 'acme.matcher' },
+        { id: 'draft', kind: 'agent', ref: 'acme.desk', config: { version: '1.1.0' } },
+        {
+          id: 'each',
+          kind: 'loop',
+          loopKind: 'foreach',
+          iterateOver: { path: 'runInput.items' },
+          maxIterations: 10,
+          body: {
+            nodes: [{ id: 'ask', kind: 'agent', ref: 'acme.desk', config: { version: '1.0.0' } }],
+            edges: [
+              { id: 'b0', from: '$loop-start', to: 'ask' },
+              { id: 'b1', from: 'ask', to: '$loop-end' },
+            ],
+          },
+          outputSchema: { type: 'object' },
+        },
+      ],
+      edges: [
+        { id: 'e0', from: '$start', to: 'match' },
+        { id: 'e1', from: 'match', to: 'draft' },
+        { id: 'e2', from: 'draft', to: 'each' },
+        { id: 'e3', from: 'each', to: '$end' },
+      ],
+    });
+    if (loaded.kind !== 'ok') throw new Error(loaded.error.message);
+    expect(flowReferences(loaded.value)).toEqual([
+      { path: '/nodes/match', kind: 'agent', id: 'acme.matcher' },
+      { path: '/nodes/draft', kind: 'agent', id: 'acme.desk', version: '1.1.0' },
+      { path: '/nodes/each/body/nodes/ask', kind: 'agent', id: 'acme.desk', version: '1.0.0' },
+    ]);
+  });
+
   test('agentReferences: its tools, guardrails and data blocks', () => {
     const agent = {
       tools: [{ id: 'acme.lookup', version: '^1' }],
@@ -555,6 +593,26 @@ describe('a version named at open or registration: refused there when the projec
     expect(h.opened.map((c) => c.agentVersion)).toEqual(['1.0.0']);
   });
 
+  test("POST /v1/flows: an agent step's `config.version`, refused at the step, and nothing is published", async () => {
+    const h = await harness();
+    const publish = (named: string) =>
+      h.call('POST', '/v1/flows', {
+        id: 'acme.flow',
+        version: '1.0.0',
+        projectId: h.projectId,
+        nodes: [{ id: 'draft', kind: 'agent', ref: 'acme.desk', config: { version: named } }],
+        edges: [
+          { id: 'e0', from: '$start', to: 'draft' },
+          { id: 'e1', from: 'draft', to: '$end' },
+        ],
+      });
+    expectRefused(await publish('1.1.0'), '/nodes/draft', 'agent', 'acme.desk', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.1.0' });
+    // Nothing was published: the same version publishes now, naming one the project runs.
+    expect((await publish('1.0.0')).status).toBe(201);
+    expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.0.0' });
+  });
+
   test('POST /v1/schedules: a flow at `flowVersion`, refused at /target, and nothing is registered', async () => {
     const h = await harness();
     const register = (flowVersion: string) =>
@@ -815,6 +873,52 @@ describe('…/versions/{version}/reinstate: a retired version comes back only wi
     };
     return { registry, reinstated, id: record.id };
   }
+
+  test("flows: an agent step's `config.version` the project doesn't run keeps it retired, at the step", async () => {
+    const projectId = randomUUID();
+    const reinstated: string[] = [];
+    const record = {
+      id: 'acme.flow',
+      version: '1.0.0',
+      projectId,
+      nodes: [{ id: 'draft', kind: 'agent', ref: 'acme.desk', config: { version: '1.1.0' } }],
+      edges: [],
+      unregisteredAt: '2026-10-01T00:00:00.000Z',
+    };
+    const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+    const a = createApp({
+      ...fullAppWithoutAuthz(),
+      resolveToken: async (token) =>
+        token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
+      flowRegistry: {
+        getVersion: async () => record,
+        reinstateVersion: async (input: Record<string, unknown>) => {
+          reinstated.push(String(input.version));
+          return { kind: 'ok', flowId: record.id, version: record.version, wasTombstoned: true };
+        },
+      } as unknown as FlowRegistryBinding,
+      referenceScope: {
+        async reachable(input) {
+          asked.push(input);
+          return input.ref.version !== '1.1.0';
+        },
+      },
+    });
+    const res = await a.request('/v1/flows/acme.flow/versions/1.0.0/reinstate', {
+      method: 'POST',
+      headers: auth,
+    });
+    const body = (await res.json()) as {
+      error: { code: string; details: { issues: { path: string; id: string }[] } };
+    };
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      expect.objectContaining({ path: '/nodes/draft', kind: 'agent', id: 'acme.desk' }),
+    ]);
+    expect(asked.map((q) => q.ref)).toEqual([{ kind: 'agent', id: 'acme.desk', version: '1.1.0' }]);
+    expect(reinstated).toEqual([]);
+  });
 
   for (const kind of ['agents', 'flows'] as const) {
     test(`${kind}: a reference out of its project's reach keeps it retired, naming the reference`, async () => {

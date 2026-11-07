@@ -12,7 +12,10 @@ import type { AppEnv } from '../types.js';
 /**
  * An in-handler check, for a resource known only once the request is
  * read: nothing when the caller may take `action` on `resource` (or there
- * is no authorizer), else the authorizer's own 403, to return as is.
+ * is no authorizer), else the authorizer's own answer, to return as is: its
+ * 403, or the `503` of a store that couldn't be reached or a database too
+ * busy for the check's read. A route that reads it as yes or no asks
+ * {@link refuses}.
  */
 export async function deniedBy(
   authorizer: Authorizer | undefined,
@@ -26,6 +29,17 @@ export async function deniedBy(
     allowed = true;
   });
   return allowed ? undefined : (answer as Response);
+}
+
+/**
+ * Whether an in-handler check's answer ({@link deniedBy}) is a refusal: a
+ * 403. Any other, such as the `503 authz-backend-unavailable` of a store
+ * that couldn't be reached or the `503 database-busy` of a busy read, isn't
+ * a no, as the caller may be allowed: a route that reads the check as yes or
+ * no returns that answer as is.
+ */
+export function refuses(answer: Response): boolean {
+  return answer.status === 403;
 }
 
 /**

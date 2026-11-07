@@ -127,6 +127,19 @@ version locked when it was published, which is the tool's
 [pinned version](../../agents/agent-and-tool-versions/#a-pin-holds-a-tool-at-a-version)
 for the flow's project when a pin covers it, else the tool's newest.
 
+An agent version a step names (`config.version`) is checked the way its runs
+check it. Publishing, reinstating or deploying a flow version whose step names
+an agent version that doesn't exist, or one the flow's project doesn't run
+([What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)),
+answers `400 reference-out-of-scope` with an issue at the step's path, such as
+`/nodes/<id>` (in a deploy, `/flows/<i>/nodes/<id>`), and nothing is
+published. An unregistered version is accepted, since its runs still take it.
+A [retention policy](../../../deploy/retention/) that purges unregistered agent
+or tool versions may purge one that a flow version names or pins while the
+flow version is being published. The answer is then the same, with an issue at
+each path that names the purged version. Publishing again refuses a named
+version that's gone, and pins a pinned one afresh.
+
 ## Unpins
 
 **An unpin** removes a scope's own pinned version, at once. No release

@@ -72,7 +72,10 @@ export interface IdentityMeClient {
    * @wire GET /v1/identity/me/permissions
    */
   permissions(): Promise<MyPermissions>;
-  /** Your own second factor: from a session only (`auth-not-session-token` with an API key). */
+  /**
+   * Your own second factor: from a session only (`auth-not-session-token` with an API key),
+   * and never one limited to a project.
+   */
   readonly secondFactor: IdentityMeSecondFactorClient;
 }
 
@@ -118,9 +121,15 @@ export interface IdentityUsersClient {
   list(filter?: ListIdentityUsersFilter): Promise<IdentityUserPage>;
   /** @wire GET /v1/identity/users/:userId — a tenant admin, or the person */
   get(userId: string): Promise<IdentityUser>;
-  /** @wire GET /v1/identity/users/:userId/sessions — a tenant admin, or the person */
+  /**
+   * @wire GET /v1/identity/users/:userId/sessions — a tenant admin, or the person;
+   * never a key or session limited to a project
+   */
   listSessions(userId: string): Promise<IdentitySessionPage>;
-  /** @wire POST /v1/identity/users/:userId/revoke-sessions — admin op */
+  /**
+   * @wire POST /v1/identity/users/:userId/revoke-sessions — admin op; never a key or
+   * session limited to a project
+   */
   revokeSessions(
     userId: string,
     options?: { readonly idempotencyKey?: string },
