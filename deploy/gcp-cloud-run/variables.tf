@@ -62,7 +62,7 @@ variable "server_min_instances" {
 }
 
 variable "server_max_instances" {
-  description = "Maximum server instances. 1 until multiple replicas are verified: background work (the waitpoint sleeper, sweepers, the webhook worker, schedules) runs in every instance, and scale-in interrupts runs in flight."
+  description = "Maximum server instances. 1 until multiple replicas are verified: background work (the waitpoint sleeper, sweepers, the webhook worker) runs in every instance, and scale-in interrupts runs in flight."
   type        = number
   default     = 1
 }
