@@ -564,12 +564,15 @@ describe('runInitAugment — Zod', () => {
     expect(summary.warnings).toEqual([]);
   });
 
-  test('an app on zod 3 keeps it, and init says Kindgi needs zod 4', async () => {
+  test('an app on zod 3 keeps it, and init names both ways: zod 4 or JSON Schema objects', async () => {
     const { result, summary, written } = await initWith({ dependencies: { zod: '^3.25.0' } });
     expect(written.dependencies.zod).toBe('^3.25.0');
     expect(summary.warnings).toHaveLength(1);
     expect(summary.warnings[0]).toContain('zod ^3.25.0');
     expect(summary.warnings[0]).toContain('zod 4');
+    expect(summary.warnings[0]).toContain(
+      "as JSON Schema objects, e.g. input: { type: 'object', additionalProperties: false, required: ['orderId']",
+    );
     if (result.kind === 'ok')
       expect(result.rendered.stderr).toContain('  ⚠ zod: the app has zod ^3.25.0');
   });

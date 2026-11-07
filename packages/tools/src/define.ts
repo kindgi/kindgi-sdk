@@ -120,7 +120,10 @@ function resolveWireSchema(
   InvalidSchemaError
 > {
   if (!isZodSchema(schema)) {
-    return { kind: 'ok', value: { wire: schema } };
+    // A JSON Schema object comes back as is; a zod 3 schema is refused by name.
+    const wire = toJSONSchemaSync(schema, undefined, where);
+    if (wire.kind === 'err') return { kind: 'err', error: toSchemaError(wire.error, where) };
+    return { kind: 'ok', value: { wire: wire.value } };
   }
   // The input side for `input` (a `.default()` field is optional to the
   // caller), the output side for `output` (the field is always there).
