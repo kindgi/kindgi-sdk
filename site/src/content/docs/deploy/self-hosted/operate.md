@@ -70,7 +70,7 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 A migration that adds an index to a large table builds it during that start, before the runtime serves, so the more rows the table has, the longer the start takes. Some of these builds don't block writes to the table. Each of those first waits for every transaction already open on the database to end, so a long one, such as a backup still running, holds the start until it ends. Let the start finish: a restart in the middle throws the build away, and the next start builds that index again from the beginning.
 
-The log names each build that doesn't block writes, at its start and at its end, on the `migrations` [subsystem](../logs/#the-subsystems):
+The log names each build that doesn't block writes, at its start and at its end, on the `migrations` [subsystem](../logs/#the-subsystems) (runtime 0.7.0 or later):
 
 - `building index <index> on <table>; writes go on, and a large table takes a while`, with the fields `index`, `table`, `tableBytes` and `again`. `tableBytes` is the size of the table's main fork on disk as the build starts, as `pg_relation_size` gives it: without its indexes, or the long values Postgres keeps apart in its TOAST table.
 - `building index <index> on <table> again, as an earlier build stopped before it finished; writes go on, and a large table takes a while`, when an earlier start stopped that build (`again` is `true`).
