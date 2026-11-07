@@ -3058,6 +3058,11 @@ export const ERROR_ENTRIES = {
       '`POST /v1/auth/sites/enroll` was refused: the enrollment code is wrong, used or expired, or its site is paused or unregistered. Each of these gets the same answer. Ask a tenant admin for a new enrollment code.',
     details: [],
   },
+  'site-enrollment-key-retired': {
+    description:
+      "`POST /v1/auth/sites/enroll` took the code but refused the key: the site retired it (an admin revoked it, or a newer key replaced it), or another of the tenant's sites at the same address retired it, and it isn't live on this site now. Kindgi compares keys by their thumbprint. The code isn't used up: set a new key on the site and connect again with the same code before it expires. A key set in `wp-config.php` or the environment has to change first.",
+    details: [],
+  },
   'site-key-invalid': {
     description:
       "The key a site posts to `POST /v1/auth/sites/enroll` isn't an Ed25519 public JWK: `kty` `OKP`, `crv` `Ed25519`, `x` the 32-byte public key in base64url, and a `kid` of 1 to 64 letters, digits, `.`, `_` and `-`. A JWK with a private part (`d`) is refused too: post the public half only. The message says which part is wrong.",
