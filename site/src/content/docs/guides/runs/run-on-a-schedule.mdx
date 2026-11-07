@@ -343,6 +343,9 @@ pnpm exec kindgi schedules get <schedule-id> <version>
   column of `list --table` shows it, empty for a schedule that has none
   yet.
 
+In the console, a schedule's page lists them under **Versions**
+([In the console](#in-the-console)).
+
 Whoever can read the schedule can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
 `register`, `edit` or `owner` for a take-over to another owner). Two causes
@@ -392,7 +395,11 @@ changes** page, where **Schedule…** makes one
 
 ![The Schedules page, with a search box and the Columns menu: the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, and the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent (its pinned version, or the latest); next in 8h) with Pause, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
 
-A schedule's page has:
+Under a schedule's title, its page says what it starts and when it next
+fires, or that it's paused, and then its newest version, who made it and
+when, such as "Version 2, taken over by you, 3 Nov 2026, 1:23 PM EST"
+(runtime 0.4.0 or later). The version's number opens it under
+**Versions**. The page has:
 - **When:** its cron in words and the cron, in the schedule's own zone, and
   its next five times, each in that zone (named when it isn't UTC) and also
   on your clock when that reads differently. A paused one says "It doesn’t
@@ -402,15 +409,25 @@ A schedule's page has:
 - **What it fired:** a summary, such as "Of its 2 fires, 2 started a run.",
   and a table of its fires, newest first. Each fire has when it fired, the
   time it was for, what happened or why the fire was refused, and the run it
-  started. A fire started by hand is for "run now", and what happened reads
-  "Started a run (run now)". The table sorts by a column's header, and
-  **Columns** chooses which columns it shows.
+  started, with the version of the schedule it ran, such as "v1". A fire
+  started by hand is for "run now", and what happened reads "Started a run
+  (run now)". The table sorts by a column's header, and **Columns** chooses
+  which columns it shows.
+- **Versions** (runtime 0.4.0 or later): its versions, newest first
+  ([Its versions](#its-versions)). Each one has its number, when it was
+  made, who made it and how, such as "Registered by acme-scheduler
+  (service account)" or "Taken over by you", or why Kindgi made it itself,
+  and what changed from the version before, such as "Runs as", or "Its
+  first version". A version's number opens it above the table: who made it
+  and when, what changed field by field, and what it ran. The table sorts
+  by **Version** or **When**, and **Columns** chooses which columns it
+  shows.
 - **Details,** folded at the foot of the page: its trigger and schedule
   ids, its owner, and **Tools allowed unattended**, the tools its runs call
   without waiting for a person's yes, or "None"
   ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
-![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its pinned version, or the latest). Next in 8h (3 Nov 2026, 9:00 PM EST).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EST, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
+![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its pinned version, or the latest). Next in 8h (3 Nov 2026, 9:00 PM EST).", "Version 1, registered by you, 3 Nov 2026, 1:22 PM EST", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EST, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run, v1; then the top of Versions.](../../../../assets/schedules/schedule-fires.png)
 
 Project editors and up have, on the list and on the page:
 - **Pause** and **Resume**;
@@ -431,7 +448,7 @@ the new owner's access.
 After it, the page says "Runs as you, with your access.", and a paused
 schedule stays paused:
 
-![The weekly report's page after Take over: Paused, with Resume, Run now, Change owner… and Remove, "Starts the flow Refunds 1.0.0. Paused.", When: "Mondays at 9:00 AM UTC", 0 9 * * 1 and "It doesn’t fire while paused.", "Runs as you, with your access.", and What it fired: "It hasn’t fired yet. Runs it started →".](../../../../assets/schedules/schedule-page.png)
+![The weekly report's page after Take over: Paused, with Resume, Run now, Change owner… and Remove, "Starts the flow Refunds 1.0.0. Paused.", "Version 2, taken over by you, 3 Nov 2026, 1:23 PM EST", When: "Mondays at 9:00 AM UTC", 0 9 * * 1 and "It doesn’t fire while paused.", "Runs as you, with your access.", What it fired: "It hasn’t fired yet. Runs it started →", and Versions, with the Columns menu: version 2, taken over by you, which changed Runs as, and version 1, registered by acme-scheduler (service account), its first version.](../../../../assets/schedules/schedule-page.png)
 
 A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
 whenever the workspace has a registered service account the schedule doesn't
