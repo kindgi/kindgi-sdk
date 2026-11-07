@@ -39,6 +39,7 @@ import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
+import { DEV_LICENSE_KEY_VAR, resolveDevLicenseKey } from './license-key.js';
 import { lineReader } from './lines.js';
 import {
   type JvmPackCode,
@@ -582,6 +583,7 @@ export async function startApiServerContainerReal(
     image: opts.runtimeImage,
     packDir: opts.packDir,
     envFile,
+    ...(opts.licenseKey !== undefined && { licenseKey: opts.licenseKey }),
     network,
     hostPort: opts.port,
     ...(googleCredentials !== undefined && { googleCredentials }),
@@ -670,6 +672,10 @@ export async function attachToRuntimeReal(
   );
   progress(`Waiting for the Kindgi runtime at ${baseUrl}.`);
   progress(`  Start it with the settings in ${envFile} as its environment.`);
+  // Every runtime needs a key, and runtime.env holds none: it's in the project.
+  progress(
+    `  Give it your license key as ${DEV_LICENSE_KEY_VAR} from your own shell: ${envFile} holds none.`,
+  );
   opts.startPhases?.begin('serve');
   const deadline = Date.now() + 10 * 60_000;
   let project: Response | undefined;
@@ -1390,6 +1396,7 @@ async function startPostgresWithDocker(
 
 /** Default wiring used by the `kindgi dev` command in production. */
 export const REAL_DEV_RUNNERS: DevRunners = {
+  licenseKey: resolveDevLicenseKey,
   startApiServer: startApiServerReal,
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,

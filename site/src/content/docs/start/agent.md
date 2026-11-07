@@ -143,7 +143,10 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   a key), ask them, then run doctor again. `api-key` fails when the key
   stored for the CLI is for another address than the one it points at:
   every command that needs the key refuses until that's fixed, and the
-  checks that would send it skip.
+  checks that would send it skip. `license` fails when there's no license
+  key here and none kept for `kindgi dev`: every runtime needs one, and the
+  fix says where to get a free one. Ask the person to sign in for it; never
+  ask them to paste the key into the chat.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
   In this release seven checks warn. `dev-sandbox`: when `kindgi dev` can't
@@ -166,8 +169,7 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   can build none, `provider` fails instead.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running;
-  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `license` skips when
-  there's no license key here: `kindgi dev` needs none. `erasures` skips
+  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `erasures` skips
   with a note when the runtime has no erasure ledger key, as under
   `kindgi dev`: fine for development.
 

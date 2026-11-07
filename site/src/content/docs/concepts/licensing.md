@@ -29,9 +29,11 @@ That includes internal systems your own employees use.
 ## Building is free
 
 `kindgi dev` runs the runtime in development mode, with `KINDGI_DEV=true`.
-Development mode runs with no license key, and the free non-production key
-from access.kindgi.com pulls the runtime image. So everything you build and
-test on your machine is free. Preview releases still stop starting after 90
+Development mode runs with the free non-production key from
+access.kindgi.com, the same key that pulls the runtime image.
+`kindgi auth registry` logs Docker in with it and keeps it for `kindgi dev`.
+So everything you build and test on your machine is free. Before 0.7.0,
+development mode ran with no key. Preview releases still stop starting after 90
 days, in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
 
 :::note[Access to the runtime image]
@@ -62,9 +64,9 @@ There are two kinds of key:
 
 - **A production key** comes with a commercial license, from
   contact@kindgi.com.
-- **A non-production key** is free, for staging and CI that run the runtime
-  outside development mode. Get one at
-  [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **A non-production key** is free, for development, staging and CI. Get
+  one at [access.kindgi.com](https://access.kindgi.com), or from
+  contact@kindgi.com.
 
 The runtime starts with either and prints which one it has. It also prints
 the key's name: for a key from access.kindgi.com, your company's domain,
@@ -90,11 +92,11 @@ covers it.
 
 ## Without a valid key
 
-Outside development mode, a runtime with no key doesn't start. It exits with
+A runtime with no key doesn't start, in development mode too. It exits with
 code 2 and says why:
 
 ```text
-KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs a license key: a production key comes with a commercial license, and a free non-production key covers staging and CI. To get one: contact@kindgi.com. Local development needs none: `kindgi dev` runs the runtime with KINDGI_DEV=true.
+KINDGI_LICENSE_KEY is not set. Every Kindgi runtime needs a license key, in development mode too: a production key comes with a commercial license, and a free non-production key covers development, staging and CI. Get a non-production key at https://access.kindgi.com; a production key: contact@kindgi.com. With `kindgi dev`, run `kindgi auth registry` with your key: it keeps the key for `kindgi dev`.
 ```
 
 A key that was changed, or that Kindgi didn't issue, is refused the same

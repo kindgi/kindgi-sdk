@@ -96,12 +96,21 @@ function fakeTty(answer: string) {
   };
 }
 
+/** Each test's own home folder: a login with a license key keeps it there for kindgi dev. */
+let registryHome = '';
+beforeEach(async () => {
+  registryHome = await mkdtemp(join(tmpdir(), 'kindgi-registry-home-'));
+});
+afterEach(async () => {
+  await rm(registryHome, { recursive: true, force: true });
+});
+
 function runRegistry(argv: readonly string[], seam: RegistryAuthSeam) {
   return runCli({
     argv: ['auth', 'registry', ...argv],
     env: {},
     cwd: tmpdir(),
-    home: '/tmp/fake-home',
+    home: registryHome,
     registryAuthSeam: seam,
   });
 }
@@ -496,9 +505,11 @@ describe("Kindgi's registry: the license key logs in", () => {
     for (const call of fake.calls) expect(call.args.join(' ')).not.toContain(KEY);
     expect(fake.calls.at(-1)?.args).toEqual(['buildx', 'imagetools', 'inspect', KINDGI_IMAGE]);
     expect(out.stdout + out.stderr).not.toContain(KEY);
+    const kept = join(registryHome, '.kindgi', 'license', 'license-key');
     expect(out.stderr).toContain(
-      '✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.',
+      `✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store, and kindgi dev's copy is in ${kept}, readable only by you. When your key renews, log in again with the new one.`,
     );
+    expect(await readFile(kept, 'utf8')).toBe(`${KEY}\n`);
   });
 
   test('--password-stdin reads it, without the whitespace around it', async () => {
