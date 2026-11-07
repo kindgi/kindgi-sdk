@@ -757,12 +757,14 @@ export async function writeWhereMade(
   );
 }
 
-/** The 403 a refusal answers, in the envelope the authorizer's own 403 uses. */
+/**
+ * The 403 a refusal answers, in the envelope the authorizer's own 403 uses,
+ * and as it does, the answer's status, not set on the request.
+ */
 export function forbidden(c: Ctx, refused: ItemRefusal, message?: string): Response {
   const { action, resource, decision } = refused;
   const deny = denyPayload(action, resource.type, resource.id, decision.reason);
   const requestId = c.get('requestId');
-  c.status(403);
   return c.json(
     toWireError(
       {
@@ -774,6 +776,7 @@ export function forbidden(c: Ctx, refused: ItemRefusal, message?: string): Respo
       },
       typeof requestId === 'string' ? requestId : '',
     ),
+    403,
   );
 }
 

@@ -36,6 +36,7 @@ import {
 
 import { toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { authzUnavailableAnswer } from './error-mapper.js';
 
 /**
  * Callback that produces the resource being acted upon from the Hono
@@ -294,14 +295,27 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     authorize(action, getResource) {
       return async (c, next) => {
         const resource = await getResource(c);
-        const decision = await checkInternal(c, action, resource);
+        let decision: Decision;
+        try {
+          decision = await checkInternal(c, action, resource);
+        } catch (err) {
+          // The handler hasn't run (asked inside one, with `deniedBy`, it
+          // hasn't written yet; one that asks after a write throws on this
+          // answer), and the resource getter only reads: a store that
+          // couldn't be reached answers 503 on any method, as nothing ran.
+          // Anything else is the error handler's.
+          const unavailable = authzUnavailableAnswer(err, c);
+          if (unavailable !== undefined) return unavailable;
+          throw err;
+        }
         if (!decision.allowed) {
           // In the error envelope every route answers in, so clients type it
           // (`permission-denied` is an auth error, forbidden); what was
-          // denied, and why, is in `details`.
+          // denied, and why, is in `details`. The 403 is the answer's, not
+          // set on the request: a handler that asks this itself (`deniedBy`)
+          // may go on past the refusal, and answers with its own status.
           const deny = denyPayload(action, resource.type, resource.id, decision.reason);
           const requestId = c.get('requestId');
-          c.status(403);
           return c.json(
             toWireError(
               {
@@ -313,6 +327,7 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
               },
               typeof requestId === 'string' ? requestId : '',
             ),
+            403,
           );
         }
         return next();

@@ -231,12 +231,14 @@ const start: LeafCommand = {
     agent: { type: 'string', description: 'Run this agent.' },
     'agent-version': {
       type: 'string',
-      description: 'The agent version to run. Needs `--agent`. Default: the latest.',
+      description:
+        'The agent version to run. Needs `--agent`. Required on test cases (a `corrections` test set): the run tries that one version.',
     },
     flow: { type: 'string', description: 'Run this flow.' },
     'flow-version': {
       type: 'string',
-      description: 'The flow version to run. Needs `--flow`. Default: the latest.',
+      description:
+        'The flow version to run. Needs `--flow`. Required on test cases (a `corrections` test set): the run tries that one version.',
     },
     with: {
       type: 'string',
