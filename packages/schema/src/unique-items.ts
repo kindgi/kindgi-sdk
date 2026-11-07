@@ -70,7 +70,10 @@ function unwrapDefault<T>(module: unknown, is: (value: unknown) => value is T): 
   return value;
 }
 
-/** The keyword: Ajv's own, with this code. An Ajv takes it through `useLinearUniqueItems`. */
+/**
+ * Ajv's own keyword with this code, the one `useLinearUniqueItems` leaves on
+ * Ajv's rule: the tests compare an Ajv's keyword against it.
+ */
 export function linearUniqueItems(): CodeKeywordDefinition {
   return { ...ajvKeyword(), code: linearCode };
 }
