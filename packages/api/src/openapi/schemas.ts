@@ -1191,7 +1191,7 @@ export const RunWaitingForSchema: JsonSchema = {
         type: 'object',
         required: ['what'],
         description:
-          '`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.',
+          "`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait that isn't an approval's, a connect's or one of `tokens`, or whose approval, connect or token can't be read. `no-open-wait`: the journal shows none; the runtime picks the run up again.",
         properties: {
           what: {
             type: 'string',

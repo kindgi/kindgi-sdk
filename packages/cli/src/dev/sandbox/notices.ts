@@ -15,6 +15,9 @@
  * code it runs can't change the one in use, but bubblewrap can't stop it
  * adding another by a name looked up first, which the next start would
  * load outside the sandbox.
+ *
+ * On, with no home folder (`HOME` set but empty), it refuses: the home is
+ * what it keeps closed.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -43,12 +46,14 @@ export async function resolveDevSandbox(opts: {
   readonly config: PackConfigRecord | undefined;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly packDir: string;
-  readonly home: string;
+  /** `undefined` with `HOME` set but empty: the sandbox, which keeps the home closed, then refuses. */
+  readonly home: string | undefined;
   readonly detect: () => Promise<SandboxAvailability>;
 }): Promise<DevSandboxOutcome> {
+  // With no home, '' only for the parse: its paths are the sandbox's, which refuses below.
   const settings = devSandboxSettings(opts.config, opts.env, {
     packDir: opts.packDir,
-    home: opts.home,
+    home: opts.home ?? '',
   });
   if (settings.kind === 'invalid') return { kind: 'error', message: settings.message };
   const { mode, source, allowRead, allowUnixSockets } = settings.value;
@@ -87,6 +92,13 @@ export async function resolveDevSandbox(opts: {
     return {
       kind: 'error',
       message: `more than one Kindgi configuration in ${opts.packDir}: ${configs.join(', ')}. With the dev sandbox on, kindgi dev starts with one only: the code it runs can't change it, but could add another by a name looked up first. Keep the one you use and remove the others.`,
+    };
+  }
+  if (opts.home === undefined) {
+    return {
+      kind: 'error',
+      message:
+        'found no home folder for the dev sandbox to keep closed, since HOME is empty. Set HOME and run it again.',
     };
   }
   const sandbox: ActiveDevSandbox = {

@@ -3696,7 +3696,7 @@ export const ERROR_ENTRIES = {
   },
   'authz-backend-unavailable': {
     description:
-      "The store that holds permissions couldn't be read, so the runtime can't tell what the caller may do. Try the request again shortly.",
+      "The store that holds permissions couldn't be read, so the runtime can't tell what the caller may do. Try the request again shortly. When the answer carries `Retry-After`, the request didn't run, so sending it again is safe.",
     details: [],
   },
   'tenant-policy-unavailable': {

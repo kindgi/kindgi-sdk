@@ -35,7 +35,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -53,6 +52,7 @@ import {
   readPackBlocks,
   resolveDiscovery,
 } from '@kindgi/handler-runtime';
+import type { PackIdentity } from '@kindgi/handler-runtime/pack-service';
 import {
   LOCAL_ENV_NAME,
   type PackEnv,
@@ -164,6 +164,7 @@ import {
   writeProviderKeysRecord,
 } from '../env/provider-keys.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
+import { homeFolder } from '../home.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
@@ -563,7 +564,7 @@ async function runDevForPack(
     config: projectEnv.config,
     env: ctx.env,
     packDir: args.packDir,
-    home: ctx.env.HOME ?? homedir(),
+    home: homeFolder(ctx.env.HOME),
     detect: () => dev.detectSandbox(ctx.env),
   });
   if (devSandbox.kind === 'error') {
@@ -823,6 +824,7 @@ async function runDevForPack(
     code: code.value,
     env: packEnv,
   });
+  const identity = packIdentityOf(projectEnv.config);
   const refresher = createPackRefresher({
     dev,
     pack,
@@ -830,6 +832,7 @@ async function runDevForPack(
     packDir: args.packDir,
     env: packEnv,
     code: code.value,
+    ...(identity !== undefined && { identity }),
     onIndexerOutput: (line) => emitOutput(showIndexerLine(line, logView)),
     // The indexer imports every primitive's module: the pack's code, so sandboxed too.
     ...(devSandbox.sandbox !== undefined && { sandbox: devSandbox.sandbox }),
@@ -2342,6 +2345,18 @@ function renderIndexSection(
     ...(index.filePath !== undefined ? [`    at ${index.filePath}`] : []),
     '  Fix the pack source; kindgi dev keeps the server up regardless.',
   ];
+}
+
+/** The pack's id and version from its loaded config (`pack`), which the loader requires. */
+function packIdentityOf(
+  config: Readonly<Record<string, unknown>> | undefined,
+): PackIdentity | undefined {
+  const pack = config?.pack;
+  if (typeof pack !== 'object' || pack === null) return undefined;
+  const { id, version } = pack as Readonly<Record<string, unknown>>;
+  return typeof id === 'string' && typeof version === 'string'
+    ? { packId: id, packVersion: version }
+    : undefined;
 }
 
 /** The refresh found no primitive files: an empty pack, which is not an error. */
