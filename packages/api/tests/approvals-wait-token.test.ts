@@ -3,7 +3,7 @@
 
 /**
  * `GET /v1/approvals?waitTokenId=`: the approvals a run's open waits
- * belong to (T272). The route hands the tokens to the binding.
+ * belong to. The route hands the tokens to the binding.
  */
 
 import { randomUUID } from 'node:crypto';

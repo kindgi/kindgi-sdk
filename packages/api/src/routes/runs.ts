@@ -226,7 +226,7 @@ export function runsRouter(
     r.use('/:runId/progress/stream', progressAuth);
     r.use('/:runId/cancel', onRunProject('write'));
     // As cancel: changing a run is `write` on its project (a project has
-    // no `execute`; asking for it refused everyone, T243 A).
+    // no `execute`; asking for it refused everyone).
     r.use('/:runId/resume', onRunProject('write'));
   }
 
@@ -1078,7 +1078,7 @@ function parseResumeRunBody(body: unknown):
  * A run checked as before (no item more than one project serves, or one
  * landing outside its projects): `execute` on the agent or flow, and a run
  * filed under a project the caller names needs `write` on it: the run
- * lands there, readable by that project's viewers (T307). Unnamed, the
+ * lands there, readable by that project's viewers. Unnamed, the
  * runtime files it under the conversation's, the agent's or the flow's
  * own project, so a caller who may only run it needs no more, and the
  * refusal says so.

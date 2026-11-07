@@ -412,7 +412,7 @@ describe('approvals.list — status, assignedTo, order (a reviewer inbox in one 
   });
 });
 
-describe('approvals.list — waitTokenIds (T272)', () => {
+describe('approvals.list — waitTokenIds', () => {
   it('repeats ?waitTokenId= once per token, in order; an empty list sends none', async () => {
     const stub = recordingFetch([
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },

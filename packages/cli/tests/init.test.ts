@@ -244,7 +244,7 @@ describe('kindgi init — minimal template', () => {
   });
 
   test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up', 'returns-helper'])(
-    "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
+    "the %s template decides esbuild's install script for npm and pnpm alike: off",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
       const pkg = JSON.parse(await readFile(join(cwd, 'my-pack', 'package.json'), 'utf8')) as {
@@ -750,7 +750,7 @@ describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () =
   });
 });
 
-describe('kindgi init — a machine without pnpm (T280)', () => {
+describe('kindgi init — a machine without pnpm', () => {
   test('the next steps install and run with npm, never naming pnpm', async () => {
     const out = await runCli(
       baseInputs({
@@ -772,7 +772,7 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
   });
 });
 
-describe("kindgi init — the README's commands are the Next steps' (T279)", () => {
+describe("kindgi init — the README's commands are the Next steps'", () => {
   const NO_PNPM = {
     pnpmVersion: async () => {
       throw new Error('spawn pnpm ENOENT');

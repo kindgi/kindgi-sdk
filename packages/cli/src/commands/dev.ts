@@ -2267,8 +2267,8 @@ function describeModels(providers: readonly BannerProvider[]): string {
 }
 
 /**
- * The ready block's first lines: the console, and how to sign in to it
- * (T374). First, so the URL a person opens is the console's: the API's
+ * The ready block's first lines: the console, and how to sign in to it.
+ * First, so the URL a person opens is the console's: the API's
  * own address used to be the first one printed, and answered 404.
  */
 export function renderConsoleLines(baseUrl: string): readonly string[] {

@@ -3,8 +3,8 @@
 
 /**
  * A command's own option can't share a global flag's name: the global
- * wins when flags are parsed, so the command's option would never work
- * (T201, T206). The version-taking commands take the version as an
+ * wins when flags are parsed, so the command's option would never work.
+ * The version-taking commands take the version as an
  * argument.
  */
 

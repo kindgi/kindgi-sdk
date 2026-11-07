@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `policyScope` (T236): a retention policy holds its domain, `*`
+ * `policyScope`: a retention policy holds its domain, `*`
  * included; other kinds hold none.
  */
 

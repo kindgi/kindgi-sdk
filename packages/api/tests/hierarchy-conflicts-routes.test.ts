@@ -79,7 +79,7 @@ function makeApp(options: Options) {
           ...inMemoryOrgs,
           delete: async () => ({ kind: 'slug-conflict' as const, slugs: conflicting }),
         };
-  // The tenant's orgs, as the durable bindings check them (T220).
+  // The tenant's orgs, as the durable bindings check them.
   const orgExists = async (tenantId: TenantId, orgId: OrgId) =>
     (await orgs.get(tenantId, orgId)) !== undefined;
   const teamPair = makeInMemoryTeamBinding({ orgExists });
@@ -335,7 +335,7 @@ describe.each([
 describe.each([
   { mode: 'without an authorizer', authorized: false },
   { mode: 'with an authorizer', authorized: true },
-])('an org that is not the tenant’s (T220), $mode', ({ authorized }) => {
+])('an org that is not the tenant’s, $mode', ({ authorized }) => {
   /** An org created, then deleted: gone from the tenant. */
   async function deletedOrg(app: App): Promise<string> {
     const orgId = await created(app, '/v1/orgs', { name: 'Gone', slug: `gone-${randomUUID()}` });

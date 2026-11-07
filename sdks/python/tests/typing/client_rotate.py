@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""`secrets.rotate` answers a sync or an async rotation, told apart by `kind` (T327).
+"""`secrets.rotate` answers a sync or an async rotation, told apart by `kind`.
 
 Not a test pytest runs: pyright type-checks it (strict, `pyproject.toml`'s
 `include`). A method typed as the sync model alone would let `rotation_id`

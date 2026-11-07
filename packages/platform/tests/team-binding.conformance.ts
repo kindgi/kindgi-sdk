@@ -30,7 +30,7 @@ const T2 = 'tenant-2' as TenantId;
 const U1 = 'user-1' as UserId;
 const U2 = 'user-2' as UserId;
 const ORG_A = 'org-a' as OrgId;
-/** An org the binding doesn't know (T220), for the `checksOrgs` cases. */
+/** An org the binding doesn't know, for the `checksOrgs` cases. */
 export const CONFORMANCE_MISSING_ORG = 'org-missing' as OrgId;
 
 /** Create a team the test expects to succeed; its id. */
@@ -249,7 +249,7 @@ export function runTeamBindingConformance(
   });
 
   if (options.checksOrgs === true) {
-    describe(`${label} — an org that isn't the tenant's (T220)`, () => {
+    describe(`${label} — an org that isn't the tenant's`, () => {
       it('creating a team in it: org-not-found, and nothing is created', async () => {
         const { teams } = makeBinding();
         expect(

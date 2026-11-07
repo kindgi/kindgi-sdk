@@ -131,7 +131,7 @@ export const CORRECTOR_GROUP_SCOPE_KINDS = ['tenant', 'project', 'agent'] as con
 export type CorrectorGroupScopeKind = (typeof CORRECTOR_GROUP_SCOPE_KINDS)[number];
 
 /**
- * Who may assert a corrector group (T200): every part that's set must hold.
+ * Who may assert a corrector group: every part that's set must hold.
  * Absent: anyone who may correct the run may assert the group, as before.
  * A group with one is *restricted*; a correction recorded while it is
  * carries `expert`, and a comparison weighted `experts-only`
@@ -187,7 +187,7 @@ export interface CorrectorGroup {
   /** How much a correction of this group counts (≥ 0); an unclassified correction counts 1. */
   readonly weight: number;
   readonly description?: string;
-  /** Who may assert it; absent: anyone who may correct the run (T200). */
+  /** Who may assert it; absent: anyone who may correct the run. */
   readonly assertableBy?: CorrectorGroupAssertableBy;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -417,7 +417,7 @@ export interface Correction {
   /**
    * Set when the group was restricted (`assertableBy`) when the correction
    * was recorded, so whoever recorded it was checked against it. A restriction added
-   * or lifted later doesn't change it (T200).
+   * or lifted later doesn't change it.
    */
   readonly expert?: true;
   readonly madeBy: CorrectionMadeBy;

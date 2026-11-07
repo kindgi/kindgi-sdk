@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * T311: the system prompt names the call's tools as they're sent
+ * The system prompt names the call's tools as they're sent
  * (`demo__echo`), so a model told to call `demo.echo` calls a name it
  * was given. The user's words and the caller's own messages keep the id.
  */

@@ -51,7 +51,7 @@ interface DeployRefusal {
  * A deploy's primitive came back from its registry with an outcome other
  * than `ok` or `already-registered` (e.g. `project-not-found`): the deploy
  * stops, what it published is rolled back, and the route answers with
- * that outcome's own status and code (T205). Before, such an outcome was
+ * that outcome's own status and code. Before, such an outcome was
  * skipped, and the deployment was recorded without that primitive.
  *
  * A primitive whose id belongs to another project answers

@@ -27,7 +27,7 @@
  * publint and attw run for several packages at once (`KINDGI_PUBLISH_CHECK_JOBS`,
  * default 6): one at a time they took two minutes for 38 packages. Each attw
  * run reads a tarball packed into a directory of its own (`pack-tarball.mjs`),
- * never `attw --pack`'s shared one in the package's folder (T395).
+ * never `attw --pack`'s shared one in the package's folder.
  *
  * Requires a prior `pnpm run build`. Usage: `pnpm run check:publish`.
  */
