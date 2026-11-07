@@ -708,13 +708,15 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
 
   /**
    * The API's own authorizer (`createAuthorizer`), over a store that allows
-   * only what `grants()` holds and can't be reached for what `unreachable()`
+   * only what `grants()` holds, can't be reached for what `unreachable()`
+   * holds, and whose read the database is too busy for on what `busy()`
    * holds: the answers a route really gets, their status and headers too.
    */
   function storeBacked(
     grants: () => readonly string[],
     unreachable: () => readonly string[],
     checked: string[],
+    busy: () => readonly string[] = () => [],
   ): Authorizer {
     const decide = (action: Action, r: ResourceRef): Decision => {
       const asked = `${action} ${r.type}:${r.id}`;
@@ -723,6 +725,14 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
         throw Object.assign(new Error("the authorization store couldn't be reached"), {
           code: 'authz-backend-unavailable',
         });
+      }
+      if (busy().includes(asked)) {
+        throw Object.assign(
+          new Error('Tenant-scoped query failed: canceling statement due to lock timeout'),
+          {
+            code: 'database-busy',
+          },
+        );
       }
       const allowed = grants().includes(asked);
       return {
@@ -741,20 +751,23 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
    * An improve schedule for acme.scorer, registered with `publish` on it and
    * `write` on the project by `registrant` (a person; absent, there's no
    * principal, so it's shared), then called by `caller` (the registrant
-   * unless named) holding `granted`. With `unreachable`, the API's own
-   * authorizer answers, and the store can't be reached for those checks.
+   * unless named) holding `granted`. With `unreachable` or `busy`, the API's
+   * own authorizer answers, and the store can't be reached for those checks,
+   * or the database is too busy for their read.
    */
   async function asked(opts: {
     registrant?: string;
     caller?: string;
     granted: readonly string[];
     unreachable?: readonly string[];
+    busy?: readonly string[];
   }) {
     const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
     const checked: string[] = [];
     let who = opts.registrant;
     let grants: readonly string[] = [WRITE, SCORER];
     let unreachable: readonly string[] = [];
+    let busy: readonly string[] = [];
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
       c.set('tenantId' as never, tenantId as never);
@@ -766,12 +779,13 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
       '/',
       schedulesRouter(
         registry,
-        opts.unreachable === undefined
+        opts.unreachable === undefined && opts.busy === undefined
           ? granting(() => grants, checked)
           : storeBacked(
               () => grants,
               () => unreachable,
               checked,
+              () => busy,
             ),
       ),
     );
@@ -785,6 +799,7 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
     who = opts.caller ?? opts.registrant;
     grants = opts.granted;
     unreachable = opts.unreachable ?? [];
+    busy = opts.busy ?? [];
     checked.length = 0;
     const call = (method: string, path = '', body?: unknown) =>
       r.request(`/${id}${path}`, {
@@ -976,6 +991,37 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
       expect(writer.checked, path).toEqual([WRITE, SCORER, ADMIN]);
     }
     expect((await writer.stored())?.status).toBe('active');
+  });
+
+  test("stopping one when the database is too busy for its project's admin check answers that 503, not the 403 before it", async () => {
+    const writer = await asked({
+      registrant: OWNER,
+      caller: OTHER,
+      granted: [WRITE],
+      busy: [ADMIN],
+    });
+    for (const path of ['/pause', '/unregister']) {
+      const res = await writer.call('POST', path);
+      expect(res.status, path).toBe(503);
+      expect(res.headers.get('retry-after'), path).toBe('5');
+      expect(((await res.json()) as { error: { code: string } }).error.code, path).toBe(
+        'database-busy',
+      );
+    }
+    expect((await writer.stored())?.status).toBe('active');
+  });
+
+  test("its project's admin pauses one when the database was too busy for the project's write check before: a 200, with no Retry-After", async () => {
+    const admin = await asked({
+      registrant: OWNER,
+      caller: OTHER,
+      granted: [ADMIN],
+      busy: [WRITE],
+    });
+    const res = await admin.call('POST', '/pause');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('retry-after')).toBeNull();
+    expect((await admin.stored())?.status).toBe('paused');
   });
 
   test.each([

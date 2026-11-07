@@ -38,6 +38,7 @@ import {
   underItem,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { beforeHandler } from '../middleware/error-mapper.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { isReadMethod } from '../read-method.js';
@@ -190,16 +191,20 @@ export function agentsRouter(
     });
     // Changing what's pinned is its own permission (`pin`, granted to the
     // agent's admins), checked as a deployment's promotion that pins what
-    // it moves checks it (`agentPinChangeRefusal`).
+    // it moves checks it (`agentPinChangeRefusal`). It runs before the
+    // handler, so a store that couldn't be reached, or a database too busy
+    // to read, answers 503 on any method (`beforeHandler`).
     r.use('/:agentId/*', async (c, next) => {
       if (!isAgentPinWrite(c.req.method, c.req.path)) return next();
-      const refused = await agentPinChangeRefusal(c, {
-        authorizer,
-        rights: itemRights,
-        agentId: c.req.param('agentId') ?? '',
-        scope: await bodyScope(c),
-        setsPin: isAgentPinSet(c.req.method, c.req.path),
-      });
+      const refused = await beforeHandler(c, async () =>
+        agentPinChangeRefusal(c, {
+          authorizer,
+          rights: itemRights,
+          agentId: c.req.param('agentId') ?? '',
+          scope: await bodyScope(c),
+          setsPin: isAgentPinSet(c.req.method, c.req.path),
+        }),
+      );
       return refused ?? next();
     });
     // An agent more than one project serves is checked on those projects

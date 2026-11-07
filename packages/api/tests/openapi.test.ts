@@ -215,7 +215,7 @@ describe('OpenAPI — generated document', () => {
     }
   });
 
-  test('every served operation that declares a 401 declares a 503 naming authz-backend-unavailable', () => {
+  test('every served operation that declares a 401 declares a 503 naming authz-backend-unavailable and database-busy', () => {
     const doc = generateOpenApiDocument() as {
       paths: Record<
         string,
@@ -239,6 +239,11 @@ describe('OpenAPI — generated document', () => {
         response?.description,
         `${op.operationId} 503 must name authz-backend-unavailable`,
       ).toContain('authz-backend-unavailable');
+      // The authorization check reads the database too, before the handler
+      // runs, so a busy one answers the same 503 on any method.
+      expect(response?.description, `${op.operationId} 503 must name database-busy`).toContain(
+        'database-busy',
+      );
     }
   });
 

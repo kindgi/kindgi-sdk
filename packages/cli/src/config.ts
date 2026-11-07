@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isLocalAddress, sameAddress, storedKeyFor } from './api-address.js';
 import { homeFolder } from './home.js';
-import { writePrivateFile } from './private-file.js';
+import { makePrivateDir, writePrivateFile } from './private-file.js';
 
 /**
  * Resolved configuration used by every command. Precedence at load
@@ -296,9 +296,6 @@ export function keepsProject(
   );
 }
 
-/** `~/.kindgi` holds the API key: this account's only. */
-const HOME_DIR_MODE = 0o700;
-
 /** `~/.kindgi/config.json`, which a login needs a home folder for. */
 function homeConfigPath(home: string | undefined): string {
   const folder = homeFolder(home);
@@ -329,14 +326,8 @@ export async function saveHomeConfig(patch: FileConfig, home?: string): Promise<
   const { project: _dropped, ...withoutProject } = base;
   const next = { ...(keepsProject(base, patch) ? base : withoutProject), ...patch };
   const text = `${JSON.stringify(next, null, 2)}\n`;
-  await mkdir(dirname(path), { recursive: true, mode: HOME_DIR_MODE });
-  // One made earlier, by hand or by an older CLI, may be looser.
-  if (
-    process.platform !== 'win32' &&
-    ((await stat(dirname(path))).mode & 0o777 & ~HOME_DIR_MODE) !== 0
-  ) {
-    await chmod(dirname(path), HOME_DIR_MODE);
-  }
+  // `~/.kindgi` holds the API key: this account's only.
+  await makePrivateDir(dirname(path));
   await writePrivateFile(path, text);
   return path;
 }
