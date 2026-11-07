@@ -29,6 +29,7 @@ import { type PointWhere, guardrailsAt, pointFaultOutcome } from './guardrail-po
 import { answerNotes, isRetryGuardrail, judgedInLoop, turnRetryNotes } from './guardrail-retry.js';
 import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
+import { agentActor } from './turn-provenance.js';
 
 /**
  * Guardrail gate on the turn's final response, before it is stored, on
@@ -171,8 +172,9 @@ function inGuardrailOrder(
 }
 
 /**
- * The final answer's `model-output` node in provenance, `produced` by its
- * model call: what its guardrail checks link to (`addCheckNodes`).
+ * The final answer's `model-output` node in provenance, its actor the
+ * agent, `produced` by its model call: what its guardrail checks link to
+ * (`addCheckNodes`).
  */
 export function addModelOutputNode(
   ctx: TurnContext,
@@ -186,6 +188,7 @@ export function addModelOutputNode(
     id: output,
     kind: 'model-output',
     timestamp: at,
+    actor: agentActor(ctx.input.agent),
     modelVersion: `${provider.id}/${provider.model}`,
   });
   provenance.addEdge({ from: output, to: `model-call:${ctx.usage.steps}`, kind: 'produced' });
