@@ -15778,7 +15778,7 @@ class LicenseStatus(BaseModel):
     )
     mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
     """
-    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
+    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
     """
     name: str | None = None
     """
