@@ -10,7 +10,8 @@ Kindgi knows an app through its entry: data that says how people sign in to
 it, what its permissions mean in plain words, how its tokens are withdrawn,
 and how it reports access removed at the app. The app's tools sit next to
 its entry.
-Google, Microsoft, GitHub and LinkedIn have entries in `@kindgi/connections`.
+Google, Microsoft, GitHub, LinkedIn, Facebook Pages and Instagram have entries in
+`@kindgi/connections`.
 
 An app that signs people in with standard OAuth 2.0 (the authorization code
 flow, with PKCE) fits the sign-in Kindgi already has, so adding it takes
@@ -57,14 +58,17 @@ export const acmeCrm = defineApp({
   its access token ends, which the app's token answer must say
   (`expires_in`), and needs reconnecting from then. A refresh token the app gives anyway is
   used as usual. By default, a connect that brings no refresh token, with
-  none kept from before, is refused.
+  none kept from before, is refused. `kindgi-app` is for Kindgi's own
+  entries, such as Facebook Pages and Instagram, which connect through
+  Kindgi's own app at the network, so a workspace registers nothing.
 - **`owners`:** who can own a connection to it: `'member'`, a person in
   your workspace, for their own account; `'company'`, for the company's;
   or both.
 - **`account`:** how Kindgi learns whose account it is, so lists and
   approvals can show it. `openid` reads the sign-in's ID token; `profile`
   asks a URL with the new token, and reads the account's id and a label
-  from named fields of the answer.
+  from named fields of the answer. `kindgi-app-account` is a `kindgi-app`
+  entry's: one of the Pages or accounts the network's admin shared.
 - **`removal`:** how a token is withdrawn at the app (`revoke`), whether
   that withdraws everything the person allowed your registration
   (`revokeIsGrantWide`: Google's does), and how the app reports access

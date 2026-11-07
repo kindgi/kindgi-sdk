@@ -26,14 +26,17 @@ const OWNER_KINDS: ReadonlySet<string> = new Set(['member', 'company']);
 const REVIEW_CLASSES: ReadonlySet<string> = new Set(['none', 'sensitive', 'restricted']);
 const REVOKE_KINDS: ReadonlySet<string> = new Set(['oauth2-revoke', 'github-installation-token']);
 const NOTICE_KINDS: ReadonlySet<string> = new Set(['google-risc', 'github-webhooks']);
+const KINDGI_APP_ASSETS: ReadonlySet<string> = new Set(['page', 'instagram']);
 
 /**
  * Checks an app entry and returns a frozen copy of it. A field that's
  * wrong throws a `TypeError` naming it: an id or a permission key that
  * doesn't match its pattern, a URL that isn't `https:`, an owner, review
  * class, revoke or notice kind outside its set, a revoke or an account
- * lookup that doesn't fit the sign-in kind, a `{tenant}` in the sign-in's
- * URLs without a `signIn.tenant` (or with one, not once in each of the
+ * lookup that doesn't fit the sign-in kind, a `kindgi-app` sign-in with
+ * any field besides its kind or with `removal.notices`, an account asset
+ * outside its set, a `{tenant}` in the sign-in's URLs without a
+ * `signIn.tenant` (or with one, not once in each of the
  * authorize and token URLs, or more than once in the revoke URL), a
  * `{tenant}` in the profile lookup's URL, a scope holding a space or a
  * comma, a rate limit that isn't a positive whole number, a cost that
@@ -64,14 +67,19 @@ export function defineApp(entry: AppEntry): AppEntry {
 type At = (field: string) => string;
 
 function checkSignIn(signIn: SignIn, at: At): void {
-  if (signIn?.kind === 'github-app') {
+  if (signIn?.kind === 'github-app' || signIn?.kind === 'kindgi-app') {
     if ('refreshToken' in signIn) {
       throw new TypeError(at('signIn.refreshToken is for an "oauth2" sign-in'));
+    }
+    // Kindgi's app, its configurations and the network's API version are the connect step's.
+    const other = signIn.kind === 'kindgi-app' && Object.keys(signIn).find((key) => key !== 'kind');
+    if (other) {
+      throw new TypeError(at(`signIn.${other} isn't taken by a "kindgi-app" sign-in`));
     }
     return;
   }
   if (signIn?.kind !== 'oauth2') {
-    throw new TypeError(at('signIn.kind must be "oauth2" or "github-app"'));
+    throw new TypeError(at('signIn.kind must be "oauth2", "github-app" or "kindgi-app"'));
   }
   requireHttps(signIn.authorizeUrl, at('signIn.authorizeUrl'));
   requireHttps(signIn.tokenUrl, at('signIn.tokenUrl'));
@@ -189,8 +197,19 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
     checkProfile(account, signIn, at);
     return;
   }
+  if (account?.kind === 'kindgi-app-account') {
+    if (signIn.kind !== 'kindgi-app') {
+      throw new TypeError(at('account.kind "kindgi-app-account" needs a "kindgi-app" sign-in'));
+    }
+    if (!KINDGI_APP_ASSETS.has(account.asset)) {
+      throw new TypeError(at('account.asset must be "page" or "instagram"'));
+    }
+    return;
+  }
   if (account?.kind !== 'openid') {
-    throw new TypeError(at('account.kind must be "openid", "github-installation" or "profile"'));
+    throw new TypeError(
+      at('account.kind must be "openid", "github-installation", "profile" or "kindgi-app-account"'),
+    );
   }
   if (signIn.kind !== 'oauth2') {
     throw new TypeError(at('account.kind "openid" needs an "oauth2" sign-in'));
@@ -254,6 +273,13 @@ function checkRemoval(removal: AppRemoval, signIn: SignIn, at: At): void {
   }
   if (removal.notices !== undefined && !NOTICE_KINDS.has(removal.notices)) {
     throw new TypeError(at('removal.notices must be "google-risc" or "github-webhooks"'));
+  }
+  if (removal.notices !== undefined && signIn.kind === 'kindgi-app') {
+    throw new TypeError(
+      at(
+        "removal.notices is for an app the workspace registers: what Kindgi's app hears goes to Kindgi's connect step",
+      ),
+    );
   }
 }
 

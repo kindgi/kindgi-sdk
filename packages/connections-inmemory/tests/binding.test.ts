@@ -11,6 +11,7 @@ import {
 } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
 import { type AppEntry, defineApp } from '@kindgi/connections';
+import { facebookPages } from '@kindgi/connections/facebook-pages';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
 import { microsoft } from '@kindgi/connections/microsoft';
@@ -107,6 +108,13 @@ describe('createInMemoryConnections', () => {
     const options = { entries: [google], publicUrl: 'https://kindgi.acme.example' };
     expect(() => createInMemoryConnections(options)).toThrow(/NODE_ENV=production/);
     expect(() => createInMemoryConnections({ ...options, productionSafe: true })).not.toThrow();
+  });
+
+  test("refuses an entry that connects through Kindgi's app, which its fake app can't sign in to", () => {
+    const options = { entries: [google, facebookPages], publicUrl: 'https://kindgi.acme.example' };
+    expect(() => createInMemoryConnections(options)).toThrow(
+      "@kindgi/connections-inmemory: facebook-pages connects through Kindgi's app, which the in-memory connections don't offer",
+    );
   });
 });
 

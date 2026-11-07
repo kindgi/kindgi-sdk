@@ -185,7 +185,11 @@ export interface FakeAppCall {
 }
 
 export interface InMemoryConnectionsOptions {
-  /** The app entries the server knows: `[google, github]`. */
+  /**
+   * The app entries the server knows: `[google, github]`. An entry that
+   * connects through Kindgi's app (`signIn.kind` `kindgi-app`) is refused
+   * with a `TypeError`.
+   */
   readonly entries: readonly AppEntry[];
   /** The server's public URL, for `connectUrl`, `redirectUrl` and `noticesUrl`. */
   readonly publicUrl: string;
@@ -530,6 +534,13 @@ export function createInMemoryConnections(
   const publicUrl = options.publicUrl.replace(/\/+$/, '');
   const fake: FakeApp = options.app ?? {};
   const ttlMs = (fake.accessTokenTtlSeconds ?? DEFAULT_ACCESS_TOKEN_TTL_SECONDS) * 1000;
+  // Its fake app signs in as an OAuth app or a GitHub App, never through Kindgi's connect step.
+  const throughKindgi = options.entries.find((entry) => entry.signIn.kind === 'kindgi-app');
+  if (throughKindgi !== undefined) {
+    throw new TypeError(
+      `@kindgi/connections-inmemory: ${throughKindgi.id} connects through Kindgi's app, which the in-memory connections don't offer`,
+    );
+  }
   const entries = new Map(options.entries.map((entry) => [entry.id, entry]));
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, StoredConnection>();
@@ -1461,7 +1472,9 @@ export function createInMemoryConnections(
     );
     const scopes = new Set([
       ...(signIn.scopes ?? []),
-      ...(entry.account.kind === 'github-installation' ? [] : entry.account.scopes),
+      ...(entry.account.kind === 'openid' || entry.account.kind === 'profile'
+        ? entry.account.scopes
+        : []),
       ...request.permissions.map((p) => entry.permissions[p]?.grants ?? p),
     ]);
     url.searchParams.set('response_type', 'code');

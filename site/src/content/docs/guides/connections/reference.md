@@ -241,6 +241,11 @@ It asks first, unless `--yes`, and prints what was done. Kindgi then:
    - **LinkedIn:** withdraws nothing, since LinkedIn has no way to give a
      token back. It works until its 60 days end, or until the person
      removes your app at LinkedIn ([LinkedIn](../linkedin/#disconnecting)).
+   - **Facebook Pages and Instagram:** withdraw nothing at Meta, and
+     Kindgi's connect step drops its record of the connection. The
+     business removes Kindgi at Meta
+     ([Facebook Pages](../facebook-pages/#disconnecting),
+     [Instagram](../instagram/#disconnecting)).
    - If the app doesn't answer, Kindgi records that and goes on.
 3. **Destroys the stored token** in your secret store (below).
 4. **Records the removal,** with a signed audit event that names the app

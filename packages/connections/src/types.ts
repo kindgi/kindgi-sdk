@@ -27,7 +27,7 @@ export interface AppEntry {
   readonly account: AccountLookup;
   readonly removal: AppRemoval;
   readonly rateLimits?: readonly AppRateLimit[];
-  /** The docs page an admin follows to register the app: `'/guides/connections/google/'`. */
+  /** The docs page an admin follows to set the app up: `'/guides/connections/google/'`. */
   readonly setupGuide: string;
 }
 
@@ -67,6 +67,13 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *     refused. One the app gives anyway is used as under `'required'`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
+ * - `kindgi-app`: through Kindgi's own app at the network, so the workspace
+ *   registers nothing. Kindgi's connect step holds the app's secret, swaps
+ *   the code for a token and hands it to the server sealed; the server
+ *   keeps it as it keeps any connection's. The entry's id says which
+ *   network and which of its sign-in configurations, so the sign-in
+ *   takes no other field: the app, its configurations and the network's
+ *   API version are the step's. Its account is a `kindgi-app-account`.
  */
 export type SignIn =
   | {
@@ -81,7 +88,8 @@ export type SignIn =
       readonly tenant?: { readonly default?: string };
       readonly refreshToken?: 'required' | 'optional';
     }
-  | { readonly kind: 'github-app' };
+  | { readonly kind: 'github-app' }
+  | { readonly kind: 'kindgi-app' };
 
 export interface AppPermission {
   /**
@@ -119,6 +127,12 @@ export interface AppPermission {
  *   `scopes` are asked for besides the permissions' own; each is one, with
  *   no space or comma, as a permission's `grants` is. `url` can't hold
  *   `{tenant}`.
+ * - `kindgi-app-account`: for a `kindgi-app` sign-in, one of the assets the
+ *   network's admin shared with Kindgi's app when they said yes. `asset`
+ *   is its type: `page`, a Facebook Page, or `instagram`, an Instagram
+ *   professional account. Its id is the network's id for it, and its label
+ *   the Page's name or the account's `@username`. When they shared several,
+ *   the console asks which.
  */
 export type AccountLookup =
   | {
@@ -133,7 +147,8 @@ export type AccountLookup =
       readonly scopes: readonly string[];
       readonly id: string;
       readonly label: readonly [string, ...string[]];
-    };
+    }
+  | { readonly kind: 'kindgi-app-account'; readonly asset: 'page' | 'instagram' };
 
 /** How access is withdrawn, and how the app tells the server it was. */
 export interface AppRemoval {
@@ -148,7 +163,10 @@ export interface AppRemoval {
    * registration, not only this connection's permissions. Google's does.
    */
   readonly revokeIsGrantWide?: boolean;
-  /** How the app reports a removal made at the app. */
+  /**
+   * How the app reports a removal made at the app. Not for a `kindgi-app`
+   * sign-in: what Kindgi's app hears goes to Kindgi's connect step.
+   */
   readonly notices?: 'google-risc' | 'github-webhooks';
 }
 
