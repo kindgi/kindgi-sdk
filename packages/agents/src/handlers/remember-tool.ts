@@ -22,6 +22,7 @@ import {
   MAX_REMEMBER_KEY,
   REMEMBER_TOOL_ID,
   REMEMBER_TOOL_VERSION,
+  type RememberTarget,
   rememberTarget,
   reviewReasons,
   runUserId,
@@ -154,16 +155,7 @@ async function remember(
   // The schema bounds the text; this also refuses one of only spaces.
   const problem = rememberedTextProblem(args.content);
   if (problem !== undefined) return notRemembered(`Not remembered: the text ${problem}.`);
-  const userId = runUserId(ctx.input.principal);
-  const participantId = ctx.conversation?.participantId ?? ctx.input.participantId;
-  const target = rememberTarget(policy.scope, {
-    tenantId: ctx.input.tenantId,
-    projectId: ctx.input.projectId,
-    conversationId: ctx.input.conversationId,
-    ...(participantId !== undefined && { participantId }),
-    ...(userId !== undefined && { userId }),
-    ...(ctx.input.projectIsTest === true && { projectIsTest: true }),
-  });
+  const target = turnTarget(ctx, policy);
   if (target.kind === 'refused') return notRemembered(target.reason);
   const toolIds = [...(ctx.tools?.byName.keys() ?? [])].filter((id) => id !== REMEMBER_TOOL_ID);
   const reasons = reviewReasons(policy, args.content, toolIds);
@@ -199,6 +191,20 @@ async function remember(
     outcome,
     ...(pending && { reason: 'A person reviews it before it is used.' }),
   };
+}
+
+/** Where this turn remembers, for `policy.scope` (`rememberTarget`). */
+function turnTarget(ctx: TurnContext, policy: RememberPolicy): RememberTarget {
+  const userId = runUserId(ctx.input.principal);
+  const participantId = turnParticipantId(ctx);
+  return rememberTarget(policy.scope, {
+    tenantId: ctx.input.tenantId,
+    projectId: ctx.input.projectId,
+    conversationId: ctx.input.conversationId,
+    ...(participantId !== undefined && { participantId }),
+    ...(userId !== undefined && { userId }),
+    ...(ctx.input.projectIsTest === true && { projectIsTest: true }),
+  });
 }
 
 function notRemembered(reason: string): RememberToolOutput {

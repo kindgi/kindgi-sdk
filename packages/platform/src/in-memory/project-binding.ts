@@ -15,8 +15,9 @@
  * guardrail at write time: creating a second default in the same
  * tenant resolves to `project-default-already-exists`, and a second
  * test project for the same person (`Project.testFor`) to
- * `project-test-already-exists`. A project's slug is unique within its org, and a project without an org's among
- * the tenant's projects without one (`slug-conflict`).
+ * `project-test-already-exists`. A project's slug is unique within its
+ * org, and a project without an org's among the tenant's projects
+ * without one (`slug-conflict`).
  */
 
 import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
@@ -173,23 +174,33 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     return false;
   }
 
+  /** Why `create` refuses `spec`, or `undefined` when it doesn't. */
+  async function createRefusal(
+    tenantId: TenantId,
+    spec: ProjectSpec,
+  ): Promise<ProjectCreateOutcome | undefined> {
+    // The isDefault guardrail first: a caller asking for the default
+    // wants to hear that one exists, whatever its slug.
+    if (spec.isDefault === true && tenantAlreadyHasDefault(tenantId)) {
+      return { kind: 'project-default-already-exists' };
+    }
+    if (spec.testFor !== undefined && personAlreadyHasTestProject(tenantId, spec.testFor)) {
+      return { kind: 'project-test-already-exists' };
+    }
+    if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
+      return { kind: 'org-not-found', orgId: spec.orgId };
+    }
+    if (slugTaken(tenantId, spec.orgId, spec.slug)) {
+      return { kind: 'slug-conflict', slug: spec.slug };
+    }
+    return undefined;
+  }
+
   const projects: ProjectBinding = {
     async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
+      const refused = await createRefusal(tenantId, spec);
+      if (refused !== undefined) return refused;
       const isDefault = spec.isDefault === true;
-      // The isDefault guardrail first: a caller asking for the default
-      // wants to hear that one exists, whatever its slug.
-      if (isDefault && tenantAlreadyHasDefault(tenantId)) {
-        return { kind: 'project-default-already-exists' };
-      }
-      if (spec.testFor !== undefined && personAlreadyHasTestProject(tenantId, spec.testFor)) {
-        return { kind: 'project-test-already-exists' };
-      }
-      if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
-        return { kind: 'org-not-found', orgId: spec.orgId };
-      }
-      if (slugTaken(tenantId, spec.orgId, spec.slug)) {
-        return { kind: 'slug-conflict', slug: spec.slug };
-      }
       const id = nextProjectId();
       const now = nowTimestamp();
       const row: Project = {
