@@ -241,9 +241,10 @@ It asks first, unless `--yes`, and prints what was done. Kindgi then:
    - **LinkedIn:** withdraws nothing, since LinkedIn has no way to give a
      token back. It works until its 60 days end, or until the person
      removes your app at LinkedIn ([LinkedIn](../linkedin/#disconnecting)).
-   - **Facebook Pages and Instagram:** withdraw nothing at Meta, and
-     Kindgi's connect step drops its record of the connection. The
-     business removes Kindgi at Meta
+   - **Facebook Pages and Instagram:** withdraw nothing at Meta. Kindgi's
+     connect step marks its record of the connection disconnected, and
+     deletes it once its retention period ends. The business removes
+     Kindgi at Meta
      ([Facebook Pages](../facebook-pages/#disconnecting),
      [Instagram](../instagram/#disconnecting)).
    - If the app doesn't answer, Kindgi records that and goes on.
@@ -293,6 +294,10 @@ receiver**. Each notice is checked by its signature.
   Without Cross-Account Protection, Kindgi finds out the next time it
   renews the token: Google refuses, and the connection then needs
   reconnecting.
+- **Facebook Pages and Instagram:** no notice reaches your Kindgi. It finds
+  out when Meta refuses a call
+  ([Facebook Pages](../facebook-pages/#when-meta-ends-access),
+  [Instagram](../instagram/#when-meta-ends-access)).
 
 A notice changes only what was connected before it, so someone who has
 connected again since keeps working. A connection a notice removes is

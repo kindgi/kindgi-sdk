@@ -34,13 +34,13 @@ const KINDGI_APP_ASSETS: ReadonlySet<string> = new Set(['page', 'instagram']);
  * doesn't match its pattern, a URL that isn't `https:`, an owner, review
  * class, revoke or notice kind outside its set, a revoke or an account
  * lookup that doesn't fit the sign-in kind, a `kindgi-app` sign-in with
- * any field besides its kind or with `removal.notices`, an account asset
- * outside its set, a `{tenant}` in the sign-in's URLs without a
- * `signIn.tenant` (or with one, not once in each of the
- * authorize and token URLs, or more than once in the revoke URL), a
- * `{tenant}` in the profile lookup's URL, a scope holding a space or a
- * comma, a rate limit that isn't a positive whole number, a cost that
- * isn't a whole number.
+ * any field besides its kind, with `removal.notices` or with an owner
+ * besides the company, an account asset outside its set, a `{tenant}` in
+ * the sign-in's URLs without a `signIn.tenant` (or with one, not once in
+ * each of the authorize and token URLs, or more than once in the revoke
+ * URL), a `{tenant}` in the profile lookup's URL, a scope holding a space
+ * or a comma, a rate limit that isn't a positive whole number, a cost
+ * that isn't a whole number.
  */
 export function defineApp(entry: AppEntry): AppEntry {
   if (typeof entry !== 'object' || entry === null) {
@@ -55,7 +55,8 @@ export function defineApp(entry: AppEntry): AppEntry {
   if (!entry.setupGuide.startsWith('/')) {
     throw new TypeError(at('setupGuide must be a docs path starting with "/"'));
   }
-  checkSignIn(entry.signIn, at);
+  if (entry.signIn?.kind === 'kindgi-app') checkKindgiApp(entry, at);
+  else checkSignIn(entry.signIn, at);
   checkOwners(entry.owners, at);
   checkPermissions(entry.permissions, at);
   checkAccount(entry.account, entry.signIn, at);
@@ -66,15 +67,29 @@ export function defineApp(entry: AppEntry): AppEntry {
 
 type At = (field: string) => string;
 
+/**
+ * A `kindgi-app` entry: the sign-in names only its kind, since Kindgi's app,
+ * its configurations and the maker's API version are the connect step's,
+ * and the connection is the company's, never a person's.
+ */
+function checkKindgiApp(entry: AppEntry, at: At): void {
+  const { signIn, owners } = entry;
+  if ('refreshToken' in signIn) {
+    throw new TypeError(at('signIn.refreshToken is for an "oauth2" sign-in'));
+  }
+  const other = Object.keys(signIn).find((key) => key !== 'kind');
+  if (other) {
+    throw new TypeError(at(`signIn.${other} isn't taken by a "kindgi-app" sign-in`));
+  }
+  if (!Array.isArray(owners) || owners.length !== 1 || owners[0] !== 'company') {
+    throw new TypeError(at('owners must be ["company"] for a "kindgi-app" sign-in'));
+  }
+}
+
 function checkSignIn(signIn: SignIn, at: At): void {
-  if (signIn?.kind === 'github-app' || signIn?.kind === 'kindgi-app') {
+  if (signIn?.kind === 'github-app') {
     if ('refreshToken' in signIn) {
       throw new TypeError(at('signIn.refreshToken is for an "oauth2" sign-in'));
-    }
-    // Kindgi's app, its configurations and the network's API version are the connect step's.
-    const other = signIn.kind === 'kindgi-app' && Object.keys(signIn).find((key) => key !== 'kind');
-    if (other) {
-      throw new TypeError(at(`signIn.${other} isn't taken by a "kindgi-app" sign-in`));
     }
     return;
   }

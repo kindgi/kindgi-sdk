@@ -60,7 +60,8 @@ export const acmeCrm = defineApp({
   used as usual. By default, a connect that brings no refresh token, with
   none kept from before, is refused. `kindgi-app` is for Kindgi's own
   entries, such as Facebook Pages and Instagram, which connect through
-  Kindgi's own app at the network, so a workspace registers nothing.
+  Kindgi's own app at the app's maker (Meta, for these two), so a workspace
+  registers no app.
 - **`owners`:** who can own a connection to it: `'member'`, a person in
   your workspace, for their own account; `'company'`, for the company's;
   or both.
@@ -68,7 +69,8 @@ export const acmeCrm = defineApp({
   approvals can show it. `openid` reads the sign-in's ID token; `profile`
   asks a URL with the new token, and reads the account's id and a label
   from named fields of the answer. `kindgi-app-account` is a `kindgi-app`
-  entry's: one of the Pages or accounts the network's admin shared.
+  entry's: one of the Pages or accounts the admin shared with Kindgi's
+  app when they connected.
 - **`removal`:** how a token is withdrawn at the app (`revoke`), whether
   that withdraws everything the person allowed your registration
   (`revokeIsGrantWide`: Google's does), and how the app reports access

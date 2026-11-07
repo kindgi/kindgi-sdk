@@ -9,7 +9,7 @@ sidebar:
 When you finish this page, your workspace has its Facebook Page connected.
 A tool that asks for `posts.write` can then post on the Page as the Page,
 after a person approves it. You connect through Kindgi's own Meta app, so
-there's no app to create at Meta and nothing to register with Kindgi.
+there's no app to create at Meta, and none to register in your workspace.
 
 A Facebook Page connection is the company's. An admin makes it, and runs
 use it as the company's connection
@@ -38,8 +38,8 @@ Facebook Pages, and under **For** choose **The company**:
    console. A link someone sent you to Meta's page does nothing without
    this step.
 2. **At Meta,** pick the business portfolio and the Pages to share with
-   Kindgi, and allow what's asked: posting on the Page as the Page, and
-   seeing its name and posts.
+   Kindgi, and allow what's asked: posting on the Page as the Page and
+   deleting what it posted, and seeing its name and posts.
 3. **Back in Kindgi,** the connection shows the Page's name. If you shared
    several Pages, Kindgi asks which one this connection is for.
 
@@ -51,16 +51,14 @@ Connect once for each Page your tools post on.
 ([How connections work](../reference/#disconnecting)). Kindgi withdraws
 nothing at Meta.
 
-To remove Kindgi's access at Meta as well, an admin of the business
-portfolio removes Kindgi from the business's **Business Integrations**
+An admin of the business portfolio can also remove Kindgi at Meta, in the
+business's **Business Integrations**
 ([Meta: Facebook Login for Business](https://developers.facebook.com/docs/facebook-login/facebook-login-for-business)).
 
 ## When Meta ends access
 
-Meta's token for a business doesn't expire, so there's nothing to renew.
-If Meta stops taking it, for example when the business removes Kindgi at
-Meta, Meta sends Kindgi no notice: Kindgi finds out when Meta refuses a
-call. That call fails, the connection needs reconnecting, and the
+If Meta stops taking the token, Kindgi isn't told: it finds out when Meta
+refuses a call. That call fails, the connection needs reconnecting, and the
 **Connections** page shows it. An admin connects it again.
 
 ## Limits

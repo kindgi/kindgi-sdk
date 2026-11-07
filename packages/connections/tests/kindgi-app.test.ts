@@ -111,6 +111,11 @@ describe('defineApp, for an app Kindgi connects through its own app', () => {
       { removal: { notices: 'google-risc' } },
       /removal.notices is for an app the workspace registers/,
     ],
+    [
+      'a member as an owner',
+      { owners: ['member', 'company'] },
+      /owners must be \["company"\] for a "kindgi-app" sign-in/,
+    ],
   ])('refuses %s', (_name, patch, message) => {
     expect(() => defineApp(withAcmeSocial(patch))).toThrow(message);
   });

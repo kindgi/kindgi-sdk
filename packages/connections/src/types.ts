@@ -67,13 +67,14 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *     refused. One the app gives anyway is used as under `'required'`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
- * - `kindgi-app`: through Kindgi's own app at the network, so the workspace
- *   registers nothing. Kindgi's connect step holds the app's secret, swaps
- *   the code for a token and hands it to the server sealed; the server
- *   keeps it as it keeps any connection's. The entry's id says which
- *   network and which of its sign-in configurations, so the sign-in
- *   takes no other field: the app, its configurations and the network's
- *   API version are the step's. Its account is a `kindgi-app-account`.
+ * - `kindgi-app`: through Kindgi's own app at the app's maker (Meta, for
+ *   Facebook Pages and Instagram), so the workspace registers no app.
+ *   Kindgi's connect step holds the app's secret, swaps the code for a
+ *   token and hands it to the server sealed; the server keeps it as it
+ *   keeps any connection's. The entry's id says which maker and which of
+ *   its sign-in configurations, so the sign-in takes no other field: the
+ *   app, its configurations and the maker's API version are the step's.
+ *   Its account is a `kindgi-app-account`, and its owner only the company.
  */
 export type SignIn =
   | {
@@ -128,9 +129,9 @@ export interface AppPermission {
  *   no space or comma, as a permission's `grants` is. `url` can't hold
  *   `{tenant}`.
  * - `kindgi-app-account`: for a `kindgi-app` sign-in, one of the assets the
- *   network's admin shared with Kindgi's app when they said yes. `asset`
- *   is its type: `page`, a Facebook Page, or `instagram`, an Instagram
- *   professional account. Its id is the network's id for it, and its label
+ *   admin shared with Kindgi's app when they connected. `asset` is its
+ *   type: `page`, a Facebook Page, or `instagram`, an Instagram
+ *   professional account. Its id is the maker's id for it, and its label
  *   the Page's name or the account's `@username`. When they shared several,
  *   the console asks which.
  */

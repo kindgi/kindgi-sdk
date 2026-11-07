@@ -9,14 +9,14 @@ sidebar:
 When you finish this page, your workspace has its Instagram account
 connected. A tool that asks for `posts.write` can then post photos to the
 account, after a person approves it. You connect through Kindgi's own Meta
-app, so there's no app to create at Meta and nothing to register with
-Kindgi.
+app, so there's no app to create at Meta, and none to register in your
+workspace.
 
 An Instagram connection is the company's. An admin makes it, and runs use
 it as the company's connection
-([Choose a connection](../choose-a-connection/)). Its token reaches the
-Instagram accounts you share and nothing else: it can't post on the
-business's Facebook Pages, which have [their own connection](../facebook-pages/).
+([Choose a connection](../choose-a-connection/)). Its token can't post on
+the business's Facebook Pages, which have
+[their own connection](../facebook-pages/).
 
 ## Before you start
 
@@ -56,16 +56,15 @@ Connect once for each account your tools post to.
 ([How connections work](../reference/#disconnecting)). Kindgi withdraws
 nothing at Meta.
 
-To remove Kindgi's access at Meta as well, an admin of the business
-portfolio removes Kindgi from the business's **Business Integrations**
+An admin of the business portfolio can also remove Kindgi at Meta, in the
+business's **Business Integrations**
 ([Meta: Facebook Login for Business](https://developers.facebook.com/docs/facebook-login/facebook-login-for-business)).
 
 ## When Meta ends access
 
 Meta's token for a business doesn't expire, so there's nothing to renew.
-If Meta stops taking it, for example when the business removes Kindgi at
-Meta, Meta sends Kindgi no notice: Kindgi finds out when Meta refuses a
-call. That call fails, the connection needs reconnecting, and the
+If Meta stops taking it, Kindgi isn't told: it finds out when Meta refuses
+a call. That call fails, the connection needs reconnecting, and the
 **Connections** page shows it. An admin connects it again.
 
 ## Limits

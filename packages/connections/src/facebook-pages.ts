@@ -5,13 +5,12 @@ import { defineApp } from './define.js';
 
 /**
  * Facebook Pages, for the company: posts made as one of its Pages. The
- * company connects through Kindgi's own Meta app, so it registers nothing at
- * Meta or with Kindgi (the setup guide says what an admin does).
+ * company connects through Kindgi's own Meta app, so it registers no app at
+ * Meta or in the workspace (the setup guide says what an admin does).
  *
  * - **Sign-in:** Facebook Login for Business, through Kindgi's connect step,
- *   with this entry's own configuration at Meta: it grants only the
- *   permissions below, on Pages. The token is the business's, not a
- *   person's, and Meta sets it never to expire, so there's no refresh.
+ *   with this entry's own configuration at Meta: it asks for the
+ *   permissions below, on Pages.
  * - **Whose account:** a Page the admin shared with Kindgi's app when they
  *   said yes: its id, labelled with its name. When they shared several, the
  *   console asks which.

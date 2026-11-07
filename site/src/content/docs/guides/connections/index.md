@@ -56,8 +56,8 @@ runs as a service account and uses the company's
    OAuth client, Microsoft Entra app, GitHub App or LinkedIn app. Its
    secrets stay in your secret store, and Kindgi keeps only their names
    ([Google](google/), [Microsoft](microsoft/), [GitHub](github/),
-   [LinkedIn](linkedin/)). Facebook Pages and Instagram need no
-   registration: they connect through Kindgi's own Meta app
+   [LinkedIn](linkedin/)). Facebook Pages and Instagram need no app
+   of your own: they connect through Kindgi's own Meta app
    ([Facebook Pages](facebook-pages/), [Instagram](instagram/)).
 2. **People connect** on the app's own sign-in page: from the console's
    **Connections** page, from a terminal with `kindgi connections connect`,
