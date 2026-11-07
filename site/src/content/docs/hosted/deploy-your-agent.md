@@ -42,9 +42,12 @@ This key is the one every command in this guide uses. If you also run
 `kindgi dev`, its console and its token belong to the runtime on
 your machine, not to Kindgi Cloud: paste only the key you made here.
 In the pack's folder, the `.kindgirc.json` that `kindgi dev` writes
-sends the CLI's commands to that runtime too, and a command that goes
-there says so first. Add `--hosted` to a command, and it goes to Kindgi
-Cloud.
+sends the CLI's commands to that runtime too, unless the terminal
+exports `KINDGI_API_URL`, and a command that goes there says so first.
+`--hosted` sends a command to Kindgi Cloud from any folder, and so does
+`--env=prod` once `prod` says `build: 'hosted'`
+([Sign the pack](#sign-the-pack)). This guide's commands carry one or
+the other, and `auth login` names Kindgi Cloud's address with `--url`.
 
 **Sign the CLI in, in a terminal of your own,** in the pack's folder. Paste
 the key at the prompt, which doesn't show it:
@@ -52,7 +55,7 @@ the key at the prompt, which doesn't show it:
 ```sh
 read -rs KINDGI_API_TOKEN && export KINDGI_API_TOKEN
 pnpm exec kindgi auth login --url=https://platform.kindgi.com
-pnpm exec kindgi auth whoami
+pnpm exec kindgi auth whoami --hosted
 ```
 
 `auth whoami` checks the key with Kindgi Cloud. The CLI keeps the key in
@@ -77,7 +80,7 @@ reference, that's two commands:
 
 ```sh
 pnpm exec kindgi key create acme-desk --env=prod
-pnpm exec kindgi key trust acme-desk
+pnpm exec kindgi key trust acme-desk --hosted
 ```
 
 and the pack's `prod` environment in `kindgi.config.ts`. The config that
@@ -178,7 +181,7 @@ happened**: each step, and then what the agent **Answered**.
 From the CLI, the same run is:
 
 ```sh
-pnpm exec kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessage":"Can I still return a jacket I bought five weeks ago?"}'
+pnpm exec kindgi runs start --hosted --agent=acme-desk.reply-drafter --input='{"userMessage":"Can I still return a jacket I bought five weeks ago?"}'
 ```
 
 ## Go live
@@ -195,11 +198,12 @@ Ask your coding agent: "Pin the version of `acme-desk.reply-drafter` that I
 tried in the default project." For reference:
 
 ```sh
-pnpm exec kindgi agents pin acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
+pnpm exec kindgi agents pin acme-desk.reply-drafter <version> --hosted --project=<project-id> --reason="The version we tried"
 ```
 
-`kindgi projects list` lists the projects, with their ids. In the console,
-the agent's **Pinned versions** page shows where each version is pinned.
+`kindgi projects list --hosted` lists the projects, with their ids. In
+the console, the agent's **Pinned versions** page shows where each
+version is pinned.
 
 **2. Put the project in production.**
 
@@ -230,19 +234,19 @@ its version, before you pin it.
    version.
 2. **Try the new version by its version number.** In the console, choose
    it under **Version** in the **Start run** form. From the CLI, it's
-   `kindgi runs start --agent=acme-desk.reply-drafter --agent-version=<new version> --input=…`.
+   `kindgi runs start --hosted --agent=acme-desk.reply-drafter --agent-version=<new version> --input=…`.
    This is a real run, in a project in production. It uses your
    workspace's keys and secrets, and its tools do what they do.
 3. **Try it on your test cases,** if you have some. A run on the test cases
    replays them with the new version
    ([Try a version on the test cases](../../guides/improve/compare-an-agent-version/)).
 4. **Pin it:**
-   `kindgi agents pin acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
+   `kindgi agents pin acme-desk.reply-drafter <new version> --hosted --project=<project-id> --reason=…`.
    Runs get it from the next run, except that a conversation that's
    already open keeps the version it started with
    ([Conversations keep their version](../../guides/improve/pinned-versions-reference/#conversations-keep-their-version)).
 5. **Undo it if you need to:**
-   `kindgi agents unpin acme-desk.reply-drafter --project=<project-id> --reason=…`,
+   `kindgi agents unpin acme-desk.reply-drafter --hosted --project=<project-id> --reason=…`,
    or pin the earlier version again.
 
 Several new versions can wait at once. Each deploy that changes the code
@@ -261,12 +265,13 @@ for:
 - a pack check that a registered guardrail runs;
 - a tool deployed without a version, until a newer build ships it.
 
-`kindgi deployments get <deployment-id>` lists what keeps it, under
-`Kept for:`. To let an old build go, unregister the versions nothing calls:
+`kindgi deployments get <deployment-id> --hosted` lists what keeps it,
+under `Kept for:`. To let an old build go, unregister the versions
+nothing calls:
 
 ```sh
-pnpm exec kindgi agents unregister acme-desk.reply-drafter <old version>
-pnpm exec kindgi tools unregister <tool-id> <old version>
+pnpm exec kindgi agents unregister acme-desk.reply-drafter <old version> --hosted
+pnpm exec kindgi tools unregister <tool-id> <old version> --hosted
 ```
 
 Once nothing keeps a build, its pack service goes. Registering one of its
@@ -300,23 +305,25 @@ version and every version that's waiting read the same values:
 
 - **A command says it goes to the kindgi dev runtime.** `kindgi dev` ran
   in the pack's folder, and the command went to the runtime on your
-  machine: a secret it stored is there, not on Kindgi Cloud. Run it again
-  with `--hosted`.
+  machine: what it changed, such as a trusted key or a pin, is there, not
+  on Kindgi Cloud. Run it again with `--hosted`. A signing key trusted
+  only there leaves the deploy refused with `signer-not-trusted`.
 - **The deploy says `No signing key is set.`** The pack's `prod`
   environment has no `signingKey`. Set it as in
   [Sign the pack](#sign-the-pack), or pass `--signing-key`.
 - **The deploy is refused with `signer-not-trusted`.** The signing key was
   never trusted, or it was revoked. Trust it with
-  `kindgi key trust acme-desk`, then deploy again. A revoked key stays
-  revoked: make a new one.
+  `kindgi key trust acme-desk --hosted`, then deploy again. A revoked key
+  stays revoked: make a new one.
 - **Trusting the key or storing the model key is refused.** The CLI's key
   lacks **Admin**, **Trust signing keys** or **Store secrets**. Make
   another key, as in [Sign the CLI in](#sign-the-cli-in), and sign the CLI
   in with it.
 - **The pack service isn't ready after 5 minutes.** The deployment stays.
-  `kindgi deployments get <deployment-id>` says its state, and why when
-  a reason is recorded (`kindgi deployments list --table` lists your
-  deployments, with their ids). Run the same
+  `kindgi deployments get <deployment-id> --hosted` says its state, and
+  why when a reason is recorded
+  (`kindgi deployments list --hosted --table` lists your deployments,
+  with their ids). Run the same
   `kindgi deploy --hosted --env=prod` again: it sends the same deployment
   and goes on waiting.
 - **Testing mode says `Going live isn't turned on for this workspace yet.`**
