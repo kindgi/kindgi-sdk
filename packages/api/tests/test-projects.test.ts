@@ -527,6 +527,15 @@ describe('a test project stays its person’s', () => {
     refused(made, 409, 'project-is-a-test-project');
     expect(made.body.error.message).toBe("A test project is one person's: nobody else joins it");
     expect(made.body.error.details).toMatchObject({ projectId: testId });
+    // Wherever it is among the grants.
+    refused(
+      await h.call('POST', '/v1/service-accounts', ADMIN_TOKEN, {
+        name: 'acme-bot',
+        grants: [{ kind: 'tenant-member' }, onTest],
+      }),
+      409,
+      'project-is-a-test-project',
+    );
     refused(
       await h.call('POST', '/v1/service-accounts/sa-acme-bot/grant', ADMIN_TOKEN, onTest),
       409,
