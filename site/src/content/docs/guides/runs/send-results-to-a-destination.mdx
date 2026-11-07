@@ -24,9 +24,10 @@ older runtime doesn't serve `/v1/destinations`.
 A destination's `kind` says where it sends:
 
 - **`email`**: some of the workspace's members, by email. `people` lists
-  their user ids, 1 to 50. Each one is checked when a message goes: a
-  person who has left the workspace, or can't read the run's project, is
-  skipped (`no-access`).
+  their user ids, 1 to 50. One that isn't a member of the workspace
+  answers `400 bad-input`, naming it. Each one is checked again when a
+  message goes: a person who has left the workspace, or can't read the
+  run's project, is skipped (`no-access`).
 - **`slack`, `teams`, `google-chat` and `discord`**: a channel's incoming
   webhook, by its `url` or `urlRef`.
 - **`webhook`**: your own endpoint, by its `url` or `urlRef`, signed with
@@ -144,8 +145,8 @@ destination takes `people` in place of a URL, such as
   destination, answers `400 bad-input` naming it. A field it doesn't know
   answers `400 unknown-field`.
 - `create`, `update`, `remove`, `sendTest` and `redeliver` take an
-  idempotency key: `{ idempotencyKey }` after the body in TypeScript,
-  `idempotency_key=` in Python.
+  idempotency key: `{ idempotencyKey }` as the last argument in
+  TypeScript, `idempotency_key=` in Python.
 
 ## Its URL is write-only
 
@@ -171,7 +172,8 @@ If you keep your secrets elsewhere, store the URL first, as
 A `webhook` destination sends the same signed requests as a webhook
 endpoint, in the Standard Webhooks format. Its `secretRef` names the
 signing secret: `whsec_` and the base64 of at least 24 random bytes, or
-`400 destination-secret-too-weak`.
+`400 destination-secret-too-weak`. The checks on `urlRef` above hold for it
+too.
 [Get a webhook when a run finishes](../../webhooks/receive-run-finished/)
 makes and stores one, and [Verify a webhook](../../webhooks/verify-a-webhook/)
 checks it in your app.
@@ -373,8 +375,8 @@ object SendAnswers {
   kept. Leave both out to keep it.
 - `projects: null` (`projects=None` in Python, `.projects(null)` in Java)
   lets every project's schedules use it again.
-- What results must still fit its kind: `content: 'answer'` with no
-  `projects` is refused, as on create.
+- The destination as changed must still fit its kind: `content: 'answer'`
+  with no `projects` is refused, as on create.
 
 ## Test it
 
@@ -406,8 +408,9 @@ schedule.
 `redeliver('<destination-id>', '<delivery-id>')`,
 `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`,
 queues a delivery again now, whatever its status: its attempts start over,
-and so does its retry window, about a day. It's checked again as when it was
-queued and as when it's sent, so one skipped as `destination-removed`,
+and so does its retry window, about a day. On a `failing` destination it's
+held, as new messages are, until a test reaches it. It's checked again as
+when it was queued and as when it's sent, so one skipped as
 `not-for-this-project` or `no-access` is skipped again for that reason. One
 skipped for `rate-cap` goes out. It answers `202` with the delivery.
 
@@ -415,7 +418,7 @@ skipped for `rate-cap` goes out. It answers `202` with the delivery.
 
 `remove('<destination-id>')`, `DELETE /v1/destinations/{destinationId}`,
 answers `204`. Its stored URL is revoked. Kindgi keeps its record, but it
-can't be read again: `get`, its deliveries, `sendTest`, `redeliver` and a
-second `remove` answer `404 destination-not-found`. Schedules that still
+can't be read again: `get`, `update`, its deliveries, `sendTest`,
+`redeliver` and a second `remove` answer `404 destination-not-found`. Schedules that still
 name it send it nothing: each of their messages is recorded `skipped`, with
 `destination-removed`.

@@ -293,9 +293,9 @@ Its `sendResultsTo` names at most five places, each `{ to, on }`:
   waits on a person's approval. All four when it's left out.
 
 Only the runs the schedule started send one, never their replays or the
-runs inside them. From your app, `register` and `update` take it in the
-schedule's body. This code sends its failed runs to you, and every run to
-a destination:
+runs inside them. From your app, `register` and `update` take it
+(`send_results_to` in Python) in the schedule's body. This code sends its
+failed runs to you, and every run to a destination:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

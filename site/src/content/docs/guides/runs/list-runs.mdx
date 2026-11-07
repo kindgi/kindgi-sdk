@@ -262,8 +262,9 @@ The page holds the runs, and its `nextCursor` leads to the next one.
   pages them.
 - In Python, `paginate` follows `next_cursor` for you.
 
-A status that doesn't exist, a time that isn't one, an empty value, or a
-version without its id is refused with `400 bad-input`, naming it:
+A status that doesn't exist, a `startedBy` that isn't one of the six, a
+time that isn't one, an empty value, or a version without its id is
+refused with `400 bad-input`, naming it:
 
 ```json
 { "error": { "code": "bad-input", "message": "`agentVersion` needs `agentId`", … } }
@@ -407,9 +408,12 @@ order they ended, the earliest first, and a page has no `nextCursor`:
 - **Keep the last run you handled,** its `completedAt` and `id`, and the
   next call starts after it.
 
+`hasMore` says whether another page follows. With no `nextCursor`, Python's
+`paginate` stops after the first page: follow the pair yourself.
+
 These are refused with `400 bad-input`, naming the problem: `cursor` with
-either bound, `afterRunId` without `completedAfter` or that isn't a run's
-id, and `completedAfter` later than `completedBefore`.
+either bound, `afterRunId` without `completedAfter` or that isn't a UUID,
+and `completedAfter` later than `completedBefore`.
 
 ## The runs inside a run
 
