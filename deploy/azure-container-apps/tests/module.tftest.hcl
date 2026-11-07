@@ -651,6 +651,16 @@ run "a_previous_pagination_key_needs_the_current_one" {
   expect_failures = [azurerm_container_app.server]
 }
 
+run "a_previous_pagination_key_file_needs_the_current_one_too" {
+  command = plan
+  variables {
+    server_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY_PATH = "/run/secrets/acme-previous-cursor-key"
+    }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
 run "a_previous_pagination_key_at_the_current_version_is_refused" {
   command = plan
   variables {

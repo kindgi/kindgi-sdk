@@ -347,7 +347,7 @@ resource "azurerm_container_app" "server" {
     }
     # After a rotation (README, Operating it), the key before the current one.
     precondition {
-      condition     = !contains(keys(var.server_secret_env), "KINDGI_PAGINATION_PREVIOUS_KEY") || var.pagination_key_version != ""
+      condition     = var.pagination_key_version != "" || length(setintersection(local.server_extra_env, toset(["KINDGI_PAGINATION_PREVIOUS_KEY", "KINDGI_PAGINATION_PREVIOUS_KEY_PATH"]))) == 0
       error_message = "KINDGI_PAGINATION_PREVIOUS_KEY is the page-cursor key before the current one: set pagination_key_version too. The server won't start without it."
     }
     precondition {

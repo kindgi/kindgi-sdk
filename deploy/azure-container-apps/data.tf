@@ -148,10 +148,9 @@ locals {
       : "${azurerm_key_vault.kindgi.vault_uri}secrets/${ref.secret}/${ref.version}"
     )
   }
-  # A secret the module grants the server already gets no second
-  # assignment: after a rotation, KINDGI_PAGINATION_PREVIOUS_KEY names the
-  # module's own pagination-key, at the version before. Key Vault ignores
-  # case in a name.
+  # The module's own pagination-key gets no second assignment: after a
+  # rotation, KINDGI_PAGINATION_PREVIOUS_KEY names it at the version before,
+  # and server_reads grants it already. Key Vault ignores case in a name.
   server_extra_secret_names = toset([
     for ref in values(var.server_secret_env) : ref.secret
     if !contains([for name in values(local.pagination_key_secrets) : lower(name)], lower(ref.secret))
