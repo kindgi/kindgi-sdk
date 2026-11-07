@@ -262,6 +262,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_DB_POOL_SIZE',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. How many connections the server's database pool holds, per server process. Default 10, the size earlier runtimes always have. A whole number, 1 or more; anything else stops the boot, naming the variable. A connection opens when a query first needs it and closes after 30 s idle; while every one is taken, a query waits up to `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` for one. The boot log's `Database timeouts:` line ends with the size in effect. `kindgi-runtime erasures …` takes it too. Outside the pool, each system tenant purge in flight opens up to 11 connections of its own, and the other admin commands (`kindgi-runtime tenants …`, `check …`) keep their own 10. Everything that connects must fit under the database's `max_connections`: every server process's pool (during a deploy, the old processes' and the new ones'), the connections outside it, anything else on the same database server, and a reserve.",
+    example: '10',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_OPENFGA_API_URL',
     description:
       'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced: roles decide who may read, write or administer each project. Unset → no roles are checked: every key and every sign-in works in every project, and only the tenant admin (the API token or an `admin` key) changes tenant settings. Suits one tenant whose people trust each other; `KINDGI_TENANCY=multi` refuses to start without it.',
