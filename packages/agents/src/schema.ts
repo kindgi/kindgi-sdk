@@ -145,7 +145,7 @@ export const agentRunSnapshots = pgTable(
     /**
      * The turn's prompt parameters and structured input, as given to
      * `invokeAgent`. A resumed turn renders its instructions with the
-     * same values. Versioned envelopes, like `principal`.
+     * same values. Versioned envelopes, like `authz`.
      */
     parameters: jsonb('parameters'),
     input: jsonb('input'),
@@ -153,13 +153,6 @@ export const agentRunSnapshots = pgTable(
     participantId: text('participant_id'),
     /** dryRun marker from the original invocation. Affects handler side-effect behavior. */
     dryRun: integer('dry_run').notNull().default(0),
-    /**
-     * Optional serialized Principal (authorization) from the original
-     * invocation. Threaded back into the resumed TurnContext so tool
-     * dispatch stays enforcement-consistent. Versioned envelope so shape
-     * evolution is migrate-on-read.
-     */
-    principal: jsonb('principal'),
     /**
      * Optional authz config (`{fgaApiUrl}`) from the original invocation.
      * Threaded back into the resumed TurnContext.
