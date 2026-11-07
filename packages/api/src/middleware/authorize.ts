@@ -36,7 +36,7 @@ import {
 
 import { toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
-import { authzUnavailableAnswer } from './error-mapper.js';
+import { beforeHandlerAnswer } from './error-mapper.js';
 
 /**
  * Callback that produces the resource being acted upon from the Hono
@@ -294,18 +294,20 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     },
     authorize(action, getResource) {
       return async (c, next) => {
-        const resource = await getResource(c);
+        let resource: ResourceRef;
         let decision: Decision;
         try {
+          resource = await getResource(c);
           decision = await checkInternal(c, action, resource);
         } catch (err) {
           // The handler hasn't run (asked inside one, with `deniedBy`, it
           // hasn't written yet; one that asks after a write throws on this
-          // answer), and the resource getter only reads: a store that
-          // couldn't be reached answers 503 on any method, as nothing ran.
-          // Anything else is the error handler's.
-          const unavailable = authzUnavailableAnswer(err, c);
-          if (unavailable !== undefined) return unavailable;
+          // answer): a store that couldn't be reached, or a database too
+          // busy for the check's read or the resource getter's, answers 503
+          // on any method, as nothing ran. Anything else, a getter's own
+          // refusal included, is the error handler's.
+          const answer = beforeHandlerAnswer(err, c);
+          if (answer !== undefined) return answer;
           throw err;
         }
         if (!decision.allowed) {

@@ -30285,7 +30285,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30846,7 +30846,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30975,7 +30975,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31484,7 +31484,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31781,7 +31781,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31919,7 +31919,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32214,7 +32214,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32333,7 +32333,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32507,7 +32507,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32626,7 +32626,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32913,7 +32913,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33042,7 +33042,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33171,7 +33171,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33310,7 +33310,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33449,7 +33449,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33697,7 +33697,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33893,7 +33893,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34109,7 +34109,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34258,7 +34258,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34423,7 +34423,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35142,7 +35142,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35264,7 +35264,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35403,7 +35403,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35541,7 +35541,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35921,7 +35921,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36071,7 +36071,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36221,7 +36221,7 @@
             }
           },
           "503": {
-            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36371,7 +36371,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36669,7 +36669,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36807,7 +36807,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36935,7 +36935,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37063,7 +37063,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37482,7 +37482,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37698,7 +37698,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37886,7 +37886,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -38015,7 +38015,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -38280,7 +38280,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -38750,7 +38750,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39095,7 +39095,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39223,7 +39223,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39351,7 +39351,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39467,7 +39467,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39793,7 +39793,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39911,7 +39911,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40260,7 +40260,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40581,7 +40581,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40688,7 +40688,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40998,7 +40998,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41262,7 +41262,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41644,7 +41644,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41760,7 +41760,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42053,7 +42053,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42181,7 +42181,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42524,7 +42524,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42916,7 +42916,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43032,7 +43032,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43325,7 +43325,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43453,7 +43453,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43796,7 +43796,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44091,7 +44091,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44349,7 +44349,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44546,7 +44546,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44675,7 +44675,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45029,7 +45029,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45244,7 +45244,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45450,7 +45450,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45598,7 +45598,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45736,7 +45736,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45855,7 +45855,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46119,7 +46119,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46248,7 +46248,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46607,7 +46607,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46736,7 +46736,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46976,7 +46976,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47162,7 +47162,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47301,7 +47301,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47430,7 +47430,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47559,7 +47559,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47767,7 +47767,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48323,7 +48323,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48568,7 +48568,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48808,7 +48808,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49352,7 +49352,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49705,7 +49705,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49843,7 +49843,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50543,7 +50543,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50672,7 +50672,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50882,7 +50882,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51190,7 +51190,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51318,7 +51318,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51563,7 +51563,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51741,7 +51741,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52096,7 +52096,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52958,7 +52958,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53076,7 +53076,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53321,7 +53321,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53727,7 +53727,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53855,7 +53855,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54093,7 +54093,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54200,7 +54200,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54453,7 +54453,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54939,7 +54939,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55057,7 +55057,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55331,7 +55331,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55807,7 +55807,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55936,7 +55936,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56085,7 +56085,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56417,7 +56417,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56516,7 +56516,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56771,7 +56771,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56935,7 +56935,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57128,7 +57128,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57343,7 +57343,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57515,7 +57515,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57634,7 +57634,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57723,7 +57723,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57949,7 +57949,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58214,7 +58214,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58342,7 +58342,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58535,7 +58535,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58664,7 +58664,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58793,7 +58793,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58922,7 +58922,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59119,7 +59119,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59227,7 +59227,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59510,7 +59510,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59658,7 +59658,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59863,7 +59863,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60106,7 +60106,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60390,7 +60390,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60658,7 +60658,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60787,7 +60787,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61141,7 +61141,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61754,7 +61754,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61930,7 +61930,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62008,7 +62008,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62222,7 +62222,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62408,7 +62408,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62476,7 +62476,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62691,7 +62691,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62782,7 +62782,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62919,7 +62919,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63218,7 +63218,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63405,7 +63405,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63484,7 +63484,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63689,7 +63689,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64043,7 +64043,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64159,7 +64159,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64458,7 +64458,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64748,7 +64748,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64864,7 +64864,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65077,7 +65077,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65433,7 +65433,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65571,7 +65571,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65697,7 +65697,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65912,7 +65912,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66043,7 +66043,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66130,7 +66130,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66308,7 +66308,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66445,7 +66445,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66639,7 +66639,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66874,7 +66874,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -67118,7 +67118,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -67293,7 +67293,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -67880,7 +67880,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -68005,7 +68005,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -68310,7 +68310,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -68533,7 +68533,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -68972,7 +68972,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69365,7 +69365,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69658,7 +69658,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69787,7 +69787,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69906,7 +69906,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70015,7 +70015,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70422,7 +70422,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70561,7 +70561,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70690,7 +70690,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70972,7 +70972,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -71101,7 +71101,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -71220,7 +71220,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -71329,7 +71329,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -71746,7 +71746,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -71885,7 +71885,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -72157,7 +72157,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -72276,7 +72276,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -72385,7 +72385,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -72494,7 +72494,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -72901,7 +72901,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -73040,7 +73040,7 @@
             }
           },
           "503": {
-            "description": "`tenant-state-unavailable`: the workspace's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run.",
+            "description": "`tenant-state-unavailable`: the workspace's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -73481,7 +73481,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -73647,7 +73647,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -73829,7 +73829,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -73947,7 +73947,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74183,7 +74183,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74310,7 +74310,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74573,7 +74573,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74788,7 +74788,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74915,7 +74915,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75204,7 +75204,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75353,7 +75353,7 @@
             }
           },
           "503": {
-            "description": "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75571,7 +75571,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75787,7 +75787,7 @@
             }
           },
           "503": {
-            "description": "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75914,7 +75914,7 @@
             }
           },
           "503": {
-            "description": "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76299,7 +76299,7 @@
             }
           },
           "503": {
-            "description": "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76418,7 +76418,7 @@
             }
           },
           "503": {
-            "description": "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "description": "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76981,7 +76981,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77204,7 +77204,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77341,7 +77341,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77468,7 +77468,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77595,7 +77595,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77722,7 +77722,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77849,7 +77849,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -77985,7 +77985,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -78102,7 +78102,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -78185,7 +78185,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
