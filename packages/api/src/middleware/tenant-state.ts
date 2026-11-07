@@ -18,11 +18,11 @@ export interface TenantStateBinding {
 const ALWAYS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'DELETE']);
 
 /**
- * `POST`s a frozen tenant may still make: reads that are posts, its signed
- * exports, signing in and out, and every way this API deletes, erases and
- * revokes (unregistering is its soft delete). Nothing here creates or
- * changes what the tenant runs. Matched for `POST` only: any other write to
- * these paths is refused.
+ * `POST`s a frozen tenant may still make on `/v1`: reads that are posts,
+ * its signed exports, signing in and out, and every way this API deletes,
+ * erases and revokes (unregistering is its soft delete). Nothing here
+ * creates or changes what the tenant runs. Matched for `POST` only: any
+ * other write to these paths is refused.
  */
 const ALLOWED_POSTS: readonly RegExp[] = [
   // signing in and out; registering or changing a provider is a write
@@ -65,12 +65,15 @@ const RETRY_AFTER_S = 5;
  * On the S3-compatible surface (`surface: 's3'`) it answers in S3's terms,
  * which S3 clients parse: `403 AllAccessDisabled` for a frozen tenant, and
  * `503 ServiceUnavailable` with `Retry-After` when the state can't be read.
+ * There a `POST` starts or completes a multipart upload, a write, so none
+ * is let through, whatever its path.
  */
 export function tenantStateGate(
   states: TenantStateBinding | undefined,
   options: { readonly cacheMs?: number; readonly surface?: 'api' | 's3' } = {},
 ): MiddlewareHandler<AppEnv> {
   const stateOf = states === undefined ? undefined : tenantStateReader(states, options.cacheMs);
+  const allowedPosts: readonly RegExp[] = options.surface === 's3' ? [] : ALLOWED_POSTS;
   return async (c, next) => {
     if (stateOf === undefined || c.get('systemPrincipal') !== undefined) return next();
     const tenantId = c.get('tenantId');
@@ -78,7 +81,7 @@ export function tenantStateGate(
     const method = c.req.method;
     if (
       ALWAYS.has(method) ||
-      (method === 'POST' && ALLOWED_POSTS.some((re) => re.test(c.req.path)))
+      (method === 'POST' && allowedPosts.some((re) => re.test(c.req.path)))
     ) {
       return next();
     }
