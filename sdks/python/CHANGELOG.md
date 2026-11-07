@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.agents.release_gate.resolve` needs `scope_kind`.**
+  `GET /v1/agents/{agentId}/release-gate` answers `400` without one, and the
+  API's spec now says it's required, so `scope_kind` is a required keyword
+  argument, sync and async. A call without it raises `TypeError` before it's
+  sent, where it got that `400`.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's
