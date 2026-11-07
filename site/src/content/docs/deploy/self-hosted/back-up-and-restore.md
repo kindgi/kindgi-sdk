@@ -458,8 +458,8 @@ The server logs each copy it writes the same way, as
 ### Look at a restored copy before it serves: `KINDGI_PASSIVE`
 
 `KINDGI_PASSIVE=on` starts a runtime that does nothing on its own:
-- none of its background work starts: schedules and event triggers, runs
-  resumed or swept, webhook deliveries, sending permission changes to
+- none of its background work starts: schedules, runs resumed or swept,
+  webhook deliveries, sending permission changes to
   OpenFGA, the sweeps, erasures, the ledger's copies;
 - it connects no MCP endpoint at startup;
 - it sends no email.

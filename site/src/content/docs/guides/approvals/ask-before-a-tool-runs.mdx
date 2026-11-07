@@ -456,7 +456,7 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
   the trigger fires, and the runs that run starts, such as a flow's agent
   steps, take the same list. A run that waits and resumes keeps the list it
   started with, so a change reaches the next fire. Any other run has none:
-  a person's, a key's, an event trigger's. `POST /v1/runs` can't set one.
+  a person's or a key's. `POST /v1/runs` can't set one.
 - **Setting it takes `admin` on the trigger's project,** clearing it too.
   A caller with only `write` is answered `403 permission-denied`.
 - **With the CLI,** it's `--allow-unattended=<tool-id>`, once for each
