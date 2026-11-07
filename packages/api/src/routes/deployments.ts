@@ -133,7 +133,12 @@ import {
   toolSecretRefs,
 } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
-import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
+import {
+  type ServedEnvRule,
+  readReferencesOnce,
+  refuseUnservedToolSecret,
+  refuseUnservedValue,
+} from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { DeployCardsInput, DeployCardsOutcome } from '../suggested-change-service.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
@@ -344,8 +349,9 @@ export interface DeploymentsRouterBindings {
   readonly cloudSecrets?: Pick<EnvCloudSecretBinding, 'get'>;
   /**
    * On a runtime that refuses other envs: a secret sync under another env
-   * answers `409 env-not-served` before any write (`refuseUnservedValue`).
-   * Absent: any env.
+   * answers `409 env-not-served` before any write (`refuseUnservedValue`),
+   * and so does a deploy with a tool whose `secretRef` names another env
+   * (`refuseUnservedToolSecret`). Absent: any env.
    */
   readonly servedEnv?: ServedEnvRule;
   /**
@@ -1226,6 +1232,17 @@ export function deploymentsRouter(
         named,
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
+    // A tool whose `secretRef` names another env than the one this runtime
+    // serves would never have its secret read: refused before any write,
+    // whether the deploy publishes it or keeps a version already registered.
+    for (const tool of validated.tools) {
+      const unserved = refuseUnservedToolSecret(bindings.servedEnv, tool);
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
+      }
     }
 
     // Every schema a deploy compiles is compiled before its first write,

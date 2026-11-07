@@ -149,7 +149,7 @@ lookup_vendor = http_tool(
     output=Vendor,
     method="GET",
     url_template="https://vendors.example.com/v1/{vendor_id}",
-    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "VENDORS_TOKEN"}},
+    authorization={"kind": "bearer", "secretRef": {"name": "VENDORS_TOKEN"}},
 )
 ```
 

@@ -140,7 +140,9 @@ public final class HttpToolSpec {
 
   private static Map<String, Object> secretRefMap(ToolSecretRef ref) {
     Map<String, Object> m = new LinkedHashMap<>();
-    m.put("envName", ref.envName());
+    if (ref.envName() != null) {
+      m.put("envName", ref.envName());
+    }
     m.put("name", ref.name());
     return m;
   }

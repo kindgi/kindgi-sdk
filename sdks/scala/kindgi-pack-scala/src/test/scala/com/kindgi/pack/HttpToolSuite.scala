@@ -51,6 +51,22 @@ class HttpToolSuite extends munit.FunSuite {
       ju.Map.of("kind", "bearer", "secretRef", ju.Map.of("envName", "local", "name", "ACME_TOKEN")))
   }
 
+  test("a secret ref that names no env leaves envName out of the spec") {
+    val tool = lookup()
+      .version("1.0.0")
+      .http(
+        HttpToolSpec
+          .builder()
+          .method(HttpMethod.GET)
+          .urlTemplate("https://cases.example.com/{court}/{docket}")
+          .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("ACME_TOKEN")))
+          .build())
+
+    assertEquals(
+      specOf(tool).get("authorization"),
+      ju.Map.of("kind", "bearer", "secretRef", ju.Map.of("name", "ACME_TOKEN")))
+  }
+
   test("a url placeholder that isn't an input field is refused") {
     val e = intercept[IllegalArgumentException] {
       lookup().http(

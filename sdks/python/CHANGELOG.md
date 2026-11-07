@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an HTTP tool's `secretRef` can leave its env out.**
+  `http_tool(authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}})`
+  is read in the env the runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`), as the secrets a tool's code declares are. A ref that names
+  its env still reads there, and an empty `envName` is refused. The client's
+  `ToolSecretRef.env_name` is optional: `None` when a tool's ref names no env.
+  An older `kindgi` fails to read such a tool, or a page of tools that holds
+  one, so upgrade it with the runtime.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

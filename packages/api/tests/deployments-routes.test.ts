@@ -9156,3 +9156,144 @@ describe('POST /v1/deployments and /v1/deployments/check — a deploy against wh
     expect(JSON.stringify(h.logger.warns)).not.toContain('answered 502');
   });
 });
+
+// ---------------- a tool's secretRef, on a runtime that refuses other envs ----------------
+
+describe("POST /v1/deployments — a tool's `secretRef` on a runtime that refuses other envs", () => {
+  type Ref = { envName?: string; name: string };
+  const httpTool = (id: string, secretRef: Ref) => ({
+    id,
+    description: 'Looks an order up.',
+    version: '1.0.0',
+    input: { type: 'object' },
+    output: { type: 'object' },
+    spec: {
+      kind: 'http',
+      method: 'GET',
+      urlTemplate: 'https://shop.acme.example/orders',
+      authorization: { kind: 'bearer', secretRef },
+    },
+  });
+  const imageWith = (...tools: ReturnType<typeof httpTool>[]) =>
+    buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools,
+        guardrails: [],
+      },
+    });
+  // Set at the tenant, under the env this runtime serves.
+  const secretsBinding = {
+    get: async (input: { scope: { kind: string }; envName: string; name: string }) =>
+      input.scope.kind === 'tenant' && input.envName === 'prod' && input.name === 'SHOP_TOKEN'
+        ? { name: input.name, currentVersion: 1 }
+        : null,
+  } as unknown as SecretBinding;
+  /**
+   * An app serving `prod` (refusing every other env when `refuses`), over
+   * `tools`, with what it publishes recorded.
+   */
+  const servingProd = (
+    fixture: SignedDeploy,
+    refuses: boolean,
+    tools: ToolRegistryBinding = makeVersionedToolRegistry(),
+  ) => {
+    const published: { tool: { spec?: unknown }; secretScopes?: unknown }[] = [];
+    const toolRegistry = {
+      ...tools,
+      publish: async (input: Parameters<ToolRegistryBinding['publish']>[0]) => {
+        published.push(input as never);
+        return tools.publish(input);
+      },
+    } as ToolRegistryBinding;
+    const made = makeApp({
+      fixture,
+      toolRegistry,
+      extra: {
+        secretsBinding,
+        envName: 'prod' as EnvName,
+        ...(refuses && { refuseOtherEnvs: true }),
+      },
+    });
+    const deploy = async () => {
+      const res = await made.app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      return { status: res.status, text: await res.text() };
+    };
+    return { ...made, published, deploy };
+  };
+  const REFUSED = {
+    code: 'env-not-served',
+    message:
+      'This runtime keeps its values under `prod` only, so tool "acme.fetch-order" 1.0.0\'s `authorization.secretRef` names `SHOP_TOKEN` under `production`. Leave `envName` out to read it under `prod`',
+    details: { envName: 'production', servedEnv: 'prod' },
+  };
+  const errorOf = (text: string) => (JSON.parse(text) as { error: Record<string, unknown> }).error;
+
+  test('naming another env: 409 env-not-served, naming the fix, before any write', async () => {
+    const made = servingProd(
+      imageWith(httpTool('acme.fetch-order', { envName: 'production', name: 'SHOP_TOKEN' })),
+      true,
+    );
+    const answer = await made.deploy();
+    expect(answer.status, answer.text).toBe(409);
+    expect(errorOf(answer.text)).toEqual(expect.objectContaining(REFUSED));
+    expect(made.published).toEqual([]);
+    expect((await made.deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('a version the deploy would keep (already published, unchanged) is refused the same', async () => {
+    const fixture = imageWith(
+      httpTool('acme.fetch-order', { envName: 'production', name: 'SHOP_TOKEN' }),
+    );
+    const tools = makeVersionedToolRegistry();
+    // Published before the runtime refused other envs.
+    expect((await servingProd(fixture, false, tools).deploy()).status).toBe(201);
+    expect(tools.versions('acme.fetch-order')).toEqual(['1.0.0']);
+
+    const made = servingProd(fixture, true, tools);
+    const answer = await made.deploy();
+    expect(answer.status, answer.text).toBe(409);
+    expect(errorOf(answer.text)).toEqual(expect.objectContaining(REFUSED));
+    expect(made.published).toEqual([]);
+    expect((await made.deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('naming the served env, or none: deployed, each secret read under the served env, the ref kept as given', async () => {
+    const made = servingProd(
+      imageWith(
+        httpTool('acme.fetch-order', { envName: 'prod', name: 'SHOP_TOKEN' }),
+        httpTool('acme.fetch-invoice', { name: 'SHOP_TOKEN' }),
+      ),
+      true,
+    );
+    const answer = await made.deploy();
+    expect(answer.status, answer.text).toBe(201);
+    expect(made.published.map((p) => p.secretScopes)).toEqual([
+      { SHOP_TOKEN: { kind: 'tenant' } },
+      { SHOP_TOKEN: { kind: 'tenant' } },
+    ]);
+    expect(
+      made.published.map(
+        (p) => (p.tool.spec as { authorization: { secretRef: Ref } }).authorization.secretRef,
+      ),
+    ).toEqual([{ envName: 'prod', name: 'SHOP_TOKEN' }, { name: 'SHOP_TOKEN' }]);
+  });
+
+  test('without the switch: another env is deployed', async () => {
+    const made = servingProd(
+      imageWith(httpTool('acme.fetch-order', { envName: 'production', name: 'SHOP_TOKEN' })),
+      false,
+    );
+    const answer = await made.deploy();
+    expect(answer.status, answer.text).toBe(201);
+    expect(made.published).toHaveLength(1);
+  });
+});

@@ -299,8 +299,13 @@ function applyAuth(
       );
     }
     const header = auth.kind === 'bearer' ? 'Authorization' : auth.headerName;
+    // A ref that names no env is read in the runtime's, which this module doesn't know.
+    const secret =
+      auth.secretRef.envName === undefined
+        ? auth.secretRef.name
+        : `${auth.secretRef.envName}/${auth.secretRef.name}`;
     throw new Error(
-      `http-tool "${toolId}": its secret ${auth.secretRef.envName}/${auth.secretRef.name} for the header "${header}" has ${problem}, which a header can't carry: store the secret without it`,
+      `http-tool "${toolId}": its secret ${secret} for the header "${header}" has ${problem}, which a header can't carry: store the secret without it`,
     );
   }
   switch (auth.kind) {
