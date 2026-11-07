@@ -78,6 +78,8 @@ function ctxFor(a: Agent, input: Partial<InvokeAgentInput> = {}): TurnContext {
     appended: [],
     usage: { steps: 1, promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
     abortReason: undefined,
+    // The person's 'go': what the turn's loop adds comes after it.
+    initialMessageCount: 1,
   };
 }
 
@@ -132,7 +134,7 @@ describe('reading and checking the answer', () => {
     expect(msg.role).toBe('user');
     expect(msg.content).toContain('the axes as JSON');
     expect(msg.content).toContain('- /remedy must be array');
-    expect(repairsSoFar([{ role: 'user', content: 'go' }, msg])).toBe(1);
+    expect(repairsSoFar(ctxFor(agent()), [{ role: 'user', content: 'go' }, msg])).toBe(1);
   });
 });
 
@@ -214,7 +216,8 @@ describe('budget-check with a typed output', () => {
   });
 
   test('an invalid answer with a repair left keeps the turn going with a repair message', async () => {
-    const handler = buildBudgetCheckHandler(ctxFor(agent({ output: AXES })));
+    const ctx = ctxFor(agent({ output: AXES }));
+    const handler = buildBudgetCheckHandler(ctx);
     const sent: ModelMessage[] = [{ role: 'user', content: 'go' }];
     const out = (await handler(answer('not json', sent), kctx())) as AgentTurnIterationOutput;
     expect(out.finishedTurn).toBe(false);
@@ -222,7 +225,7 @@ describe('budget-check with a typed output', () => {
       { role: 'user', content: 'go' },
       { role: 'assistant', content: 'not json' },
     ]);
-    expect(repairsSoFar(out.nextMessages)).toBe(1);
+    expect(repairsSoFar(ctx, out.nextMessages)).toBe(1);
   });
 
   test('still invalid after the repairs: output-schema-violation, with the attempts', async () => {
