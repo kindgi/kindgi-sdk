@@ -461,6 +461,10 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "server_public (an allUsers invoker binding) and server_invoker_iam_disabled are two ways to the same thing: pick one."
     }
     precondition {
+      condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_PAGINATION_KEY", "KINDGI_PAGINATION_KEY_PATH"]))) == 0
+      error_message = "The module keeps the page-cursor key now, in ${local.server_secrets.pagination_key} at pagination_key_version: copy the key the server reads now into that secret, then set pagination_key_version in place of KINDGI_PAGINATION_KEY, so every cursor out there still opens (README, Upgrading)."
+    }
+    precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
       error_message = "server_env and server_secret_env can't set a name this module sets itself (its variables do: public_url for KINDGI_PUBLIC_URL, trusted_proxies, cors_origins, ...), nor KINDGI_DEV, which is for `kindgi dev` only."
     }
@@ -485,7 +489,7 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "KINDGI_PAGINATION_PREVIOUS_KEY is the page-cursor key before the current one: set pagination_key_version too. The server won't start without it."
     }
     precondition {
-      condition     = try(var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].secret != local.server_secrets.pagination_key || var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].project != null || !contains([var.pagination_key_version, "latest"], var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].version), true)
+      condition     = try(var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].secret != local.server_secrets.pagination_key || coalesce(var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].project, var.project_id) != var.project_id || !contains([var.pagination_key_version, "latest"], var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].version), true)
       error_message = "server_secret_env's KINDGI_PAGINATION_PREVIOUS_KEY is ${local.server_secrets.pagination_key} at the version the server seals with: after a rotation, the previous key is the version before pagination_key_version's, pinned (never \"latest\", which is the newest)."
     }
     precondition {

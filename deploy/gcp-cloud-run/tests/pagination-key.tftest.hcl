@@ -146,8 +146,10 @@ run "after_the_rotation_the_key_before_goes" {
     ]) == "kindgi-dev-pagination-key@2"
     error_message = "The new version stays the key."
   }
+  # The mock keeps no shared binding, so this holds with or without the
+  # grant filter: the run before, with no second grant, is what guards it.
   assert {
     condition     = google_secret_manager_secret_iam_member.server_reads["pagination_key"].secret_id == google_secret_manager_secret.server["pagination_key"].id
-    error_message = "The server keeps its read access to the key's secret after the previous key goes."
+    error_message = "The server's read access to the key's secret is still the module's own after the previous key goes."
   }
 }

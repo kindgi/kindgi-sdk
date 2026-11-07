@@ -549,6 +549,18 @@ run "a_previous_pagination_key_at_the_current_version_is_refused" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+# The module's own project, named: still the module's secret.
+run "a_previous_pagination_key_at_the_current_version_in_the_named_project_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", project = "acme-app-dev", version = "2" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
 # latest is the newest version: after a rotation, the current key.
 run "a_previous_pagination_key_at_latest_is_refused" {
   command = plan

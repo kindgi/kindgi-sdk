@@ -260,7 +260,7 @@ unset DBPW
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-   # version 1 (not with secrets_backend = "none")
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
-openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-    # version 1, its own key (never the AAD key)
+openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-    # version 1, its own key (never the AAD key or the erasure ledger key)
 # Only with export_signing = "secret": the key that signs exports.
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
@@ -1147,7 +1147,8 @@ to, so set it to the deployment's before any `gcloud` command for it
   `POST /v1/system/keys/{keyId}/revoke`, with the old key's id from
   `GET /v1/system/keys`
   ([Serve many tenants](../serve-many-tenants/)).
-- **Rotate the page-cursor key** yearly, in one apply. It's pinned too.
+- **Rotate the page-cursor key** yearly: one apply switches the key, and a
+  second, a day later, drops the one before. It's pinned too.
   1. Add a version:
      `openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-`.
   2. Set `pagination_key_version` to it, and put the version before it in

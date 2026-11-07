@@ -134,7 +134,7 @@ openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
 
-# The key page cursors are sealed with: 32 bytes, base64, its own (never the AAD key).
+# The key page cursors are sealed with: 32 bytes, base64, its own (never the AAD key or the erasure ledger key).
 # Its first version is the one `pagination_key_version` pins ("1").
 openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-
 
@@ -446,10 +446,11 @@ server_secret_env = {
   2. Set `pagination_key_version = "1"`, and apply again.
   - From that revision on, a page cursor outlives a restart and a new revision. The boot lines say `Page cursors: sealed (key from KINDGI_PAGINATION_KEY)`.
   - Don't set `pagination_key_version` before the secret has that version: the server's new revision wouldn't start.
-  - **If `server_secret_env` sets `KINDGI_PAGINATION_KEY` already,** the plan is refused, because the module sets it now. Keep the same key, so no cursor breaks:
-    1. Apply only the secret and the server's read access to it: `terraform apply -var-file=dev.tfvars -target=google_secret_manager_secret_iam_member.server_reads`.
-    2. Copy the key in: `gcloud secrets versions access <its version> --secret=<its secret> | gcloud secrets versions add $N-pagination-key --data-file=-`.
+  - **If `server_secret_env` sets `KINDGI_PAGINATION_KEY` already,** the plan is refused, because the module owns that name now. Keep the same key, so no cursor breaks:
+    1. Apply only the secret and the server's read access to it: `terraform apply -var-file=<env>.tfvars -target=google_secret_manager_secret_iam_member.server_reads`.
+    2. Copy the key in: `gcloud secrets versions access <its version> --secret=<its secret> | gcloud secrets versions add $N-pagination-key --data-file=-`, with `--project=<its project>` on the read when the entry names one.
     3. Take the entry out of `server_secret_env`, set `pagination_key_version = "1"`, and apply in full.
+    - **If your secret already has the module's name** (`$N-pagination-key`, in the module's project), there's nothing to copy. In place of steps 1 and 2, bring the secret into the state, and drop the entry's grant from the state, not from the project: `terraform import -var-file=<env>.tfvars 'google_secret_manager_secret.server["pagination_key"]' projects/<project_id>/secrets/$N-pagination-key`, then `terraform state rm 'google_secret_manager_secret_iam_member.server_reads_its_secrets["KINDGI_PAGINATION_KEY"]'`. The module grants the same read, and two grants of one role to one member on one secret are one, so an apply that deleted the entry's grant would take the server's read away with it. In step 3, set `pagination_key_version` to the version the server reads now (the newest, if the entry said `latest`).
 - **By hand**, for any deployment (and for `network_mode = "direct"` or `"connector"` with an `upgrade.sh` from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only): staging first, with `gcloud` set to the deployment's project (`gcloud config set project <project_id>`). Copy the new image by digest (step 2), run the new version's checks as a Cloud Run job that reaches the database, back the database up, set `server_image`, `(umask 077 && terraform plan -var-file=<env>.tfvars -out=upgrade.tfplan)` (the plan holds your variables' values, secret ones too), read it, `terraform apply upgrade.tfplan`, delete the plan, and check the new revision serves. The steps, the commands and the way back: [Upgrade by hand](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#upgrade-by-hand).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
@@ -468,7 +469,7 @@ server_secret_env = {
   1. `gcloud sql ssl server-ca-certs create --instance=$N` adds the upcoming CA.
   2. `terraform apply`: the server's new revision trusts it and the current one. An OpenFGA of yours that checks these CAs gets them again here too (`gcloud sql ssl server-ca-certs list`, as above) and restarts with the new file.
   3. `gcloud sql ssl server-ca-certs rotate --instance=$N` moves the instance to the new CA ([Google: manage SSL/TLS](https://docs.cloud.google.com/sql/docs/postgres/manage-ssl-instance)).
-- **The page-cursor key is pinned too.** The server reads the version `pagination_key_version` names, so every instance and every revision seals and opens page cursors with the same key. `latest` would be read again at each instance's start, so once a version was added, two instances could hold different keys. Rotate it yearly, in one apply. The new version seals, and the one before it still opens the cursors it sealed:
+- **The page-cursor key is pinned too.** The server reads the version `pagination_key_version` names, so every instance and every revision seals and opens page cursors with the same key. `latest` would be read again at each instance's start, so once a version was added, two instances could hold different keys. Rotate it yearly: one apply switches the key, and a second, a day later, drops the one before. The new version seals, and the one before it still opens the cursors it sealed:
   1. Add a version: `openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-`.
   2. Set `pagination_key_version` to it, and give the server the version before it in `server_secret_env`: `KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "<prefix>-pagination-key", version = "<the one before>" }`. Then apply.
   3. After at least a day (a cursor's life), take that entry out and apply again.
