@@ -19,6 +19,9 @@ model.
   retried request doesn't start a second run.
 - [Run on a schedule](run-on-a-schedule/): an agent or a flow at set times,
   as you, with a history of each time it ran or why it didn't.
+- [Send results to a destination](send-results-to-a-destination/): a chat
+  channel, a signed webhook or members' email that schedules send their
+  results to, and what it sent.
 - [Start runs from new mail](start-runs-from-new-mail/): a run for each new
   mail in a Gmail or Outlook mailbox, one conversation for each thread.
 - [Follow a run's events](follow-a-run/): each step as it starts and ends.

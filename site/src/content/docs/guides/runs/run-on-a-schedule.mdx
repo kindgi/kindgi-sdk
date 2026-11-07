@@ -280,9 +280,10 @@ fire also logs one `[schedules]` record, with its outcome and run, as
 
 A schedule can send word of the runs it starts somewhere outside Kindgi
 (runtime 0.7.0 or later): to its owner's own email, or to a
-**destination**, a place a tenant admin set up with `/v1/destinations`,
-such as a Slack, Teams, Google Chat or Discord channel, a webhook, or some
-of the workspace's members by email. A runtime before 0.7.0 ignores it.
+**destination**, a place a tenant admin
+[set up](../send-results-to-a-destination/) with `/v1/destinations`, such
+as a Slack, Teams, Google Chat or Discord channel, a webhook, or some of the
+workspace's members by email. An older runtime ignores it.
 
 Its `sendResultsTo` names at most five places, each `{ to, on }`:
 
@@ -321,8 +322,60 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
 kindgi.schedules.update(
     "<schedule-id>",
-    sendResultsTo=[{"to": "me", "on": ["failed"]}, {"to": "<destination-id>"}],
+    send_results_to=[{"to": "me", "on": ["failed"]}, {"to": "<destination-id>"}],
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/SendResults.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PatchScheduleBody;
+import com.kindgi.client.models.ScheduleResultEvent;
+import com.kindgi.client.models.ScheduleResultTargetInput;
+import java.util.List;
+import java.util.UUID;
+
+public final class SendResults {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.schedules().update(UUID.fromString("<schedule-id>"), PatchScheduleBody.builder()
+        .sendResultsTo(List.of(
+            ScheduleResultTargetInput.builder().to("me").on(List.of(ScheduleResultEvent.FAILED)).build(),
+            ScheduleResultTargetInput.builder().to("<destination-id>").build()))
+        .build());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/SendResults.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{PatchScheduleBody, ScheduleResultEvent, ScheduleResultTargetInput}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object SendResults {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.schedules().update(UUID.fromString("<schedule-id>"), PatchScheduleBody.builder()
+      .sendResultsTo(List(
+        ScheduleResultTargetInput.builder().to("me").on(List(ScheduleResultEvent.FAILED).asJava).build(),
+        ScheduleResultTargetInput.builder().to("<destination-id>").build()).asJava)
+      .build())
+  }
+}
 ```
 
 </TabItem>
