@@ -2135,6 +2135,84 @@ export const SetPackEndpointBodySchema: JsonSchema = {
   },
 };
 
+export const PutProjectAttachBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId', 'tokenId', 'routeUrl', 'routeToken'],
+  properties: {
+    userId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "The person whose working copy it is. They must hold `admin` on the project (`attach-needs-project-admin`), and, in a person's own test project, be its person (`attach-test-project-not-theirs`).",
+    },
+    tokenId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "The person's key whose runs the attach takes: one of the tenant's, live (`attach-key-not-usable`), acting for `userId` and limited to the project (`attach-key-not-limited-to-project`). An attach's person and key never change (`attach-mismatch`).",
+    },
+    routeUrl: {
+      type: 'string',
+      description:
+        "Where the working copy is served: `https://<host>`, then any path, with no user info, query or fragment. Its host must be on the operator's list (`KINDGI_ATTACH_ROUTE_HOSTS`, `attach-route-host-not-allowed`).",
+    },
+    routeToken: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4096,
+      description:
+        'What the runtime sends the route with each call. Stored sealed; never returned, logged or recorded.',
+    },
+  },
+};
+
+export const ProjectAttachSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['attachId', 'projectId', 'userId', 'tokenId', 'routeUrl', 'createdAt'],
+  properties: {
+    attachId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string' },
+    userId: { type: 'string' },
+    tokenId: { type: 'string' },
+    routeUrl: { type: 'string' },
+    indexRevision: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The newest copy of the index, which a new run takes; absent before the first.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    endedAt: { type: 'string', format: 'date-time' },
+    endedReason: {
+      type: 'string',
+      enum: ['ended', 'replaced', 'production-on', 'not-an-admin', 'key-revoked'],
+      description:
+        "Why it ended: `DELETE` (`ended`), another attach for the same key (`replaced`), the project's production turned on (`production-on`), its person no longer an admin there (`not-an-admin`), or its key revoked (`key-revoked`).",
+    },
+  },
+};
+
+export const ProjectAttachIndexBodySchema: JsonSchema = {
+  type: 'object',
+  description:
+    "The working copy's `index.json`, as its build writes it, at most `ATTACH_INDEX_MAX_BYTES` (1.5 MiB) and 2,000 primitives (`attach-index-too-large`). It's checked as a deploy checks a pack's index (`attach-index-invalid`), with its own `artifactVersion`; data blocks aren't served from a copy.",
+};
+
+export const ProjectAttachIndexRevisionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['attachId', 'revision', 'hash', 'createdAt'],
+  properties: {
+    attachId: { type: 'string', format: 'uuid' },
+    revision: { type: 'integer', minimum: 1 },
+    hash: { type: 'string', description: "The sha256 of the copy's bytes, in hex." },
+    createdAt: { type: 'string', format: 'date-time' },
+  },
+};
+
 /** A pack's declared process environment, as the image's `index.json` carries it. */
 export const PackEnvDeclarationSchema: JsonSchema = {
   type: 'object',
@@ -18049,6 +18127,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SystemDeploymentEntry', SystemDeploymentEntrySchema],
   ['SystemDeploymentPage', SystemDeploymentPageSchema],
   ['SetPackEndpointBody', SetPackEndpointBodySchema],
+  ['PutProjectAttachBody', PutProjectAttachBodySchema],
+  ['ProjectAttach', ProjectAttachSchema],
+  ['ProjectAttachIndexBody', ProjectAttachIndexBodySchema],
+  ['ProjectAttachIndexRevision', ProjectAttachIndexRevisionSchema],
   ['PackEnvDeclaration', PackEnvDeclarationSchema],
   ['PackEnvScope', PackEnvScopeSchema],
   ['PackEnvNameStatus', PackEnvNameStatusSchema],

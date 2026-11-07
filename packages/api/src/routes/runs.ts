@@ -13,6 +13,7 @@ import type {
   RunStatus,
 } from '@kindgi/runtime';
 import type {
+  ApiTokenId,
   FlowId,
   ListScope,
   ProjectId,
@@ -348,8 +349,11 @@ export function runsRouter(
       binding,
       tenantId,
       start,
-      c.get('principal') as Principal | undefined,
-      c.get('serviceAccountId') !== undefined,
+      {
+        principal: c.get('principal') as Principal | undefined,
+        serviceAccountKey: c.get('serviceAccountId') !== undefined,
+        tokenId: c.get('tokenId'),
+      },
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
@@ -1195,20 +1199,30 @@ async function oneOfItsProjects(
   );
 }
 
+/** The authenticated caller starting a run: whom it acts for, and the key it came with. */
+interface RunCaller {
+  readonly principal: Principal | undefined;
+  /** Whether it's a service account's key. */
+  readonly serviceAccountKey: boolean;
+  readonly tokenId: ApiTokenId | undefined;
+}
+
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */
 function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
-  principal: Principal | undefined,
-  serviceAccountKey: boolean,
+  caller: RunCaller,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
-  const startedBy = startedByCaller(principal, serviceAccountKey);
+  const { principal, tokenId } = caller;
+  const startedBy = startedByCaller(principal, caller.serviceAccountKey);
   const common = {
     tenantId,
-    // Whom the run acts for: the authenticated caller, never the body.
+    // Whom the run acts for, and the key it came with: the authenticated
+    // caller, never the body.
     ...(principal !== undefined && { principal }),
+    ...(tokenId !== undefined && { callerTokenId: tokenId }),
     // How it started: from the caller too, never the body.
     ...(startedBy !== undefined && { startedBy }),
     ...(trace !== undefined && { trace }),

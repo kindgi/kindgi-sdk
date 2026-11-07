@@ -357,6 +357,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'identity-user-unregistered':
     case 'identity-user-not-invited':
     case 'provider-key-in-use':
+    case 'attach-ended':
       return conflict(code, message, details);
     case 'invalid-request':
     case 'validation-failed':

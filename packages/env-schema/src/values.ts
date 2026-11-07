@@ -187,6 +187,9 @@ export function parsePackRouting(raw: string | undefined): PackRouting {
 /** The hosts a deployment's pack endpoint may name (`KINDGI_PACK_ENDPOINT_HOSTS`). */
 export const PACK_ENDPOINT_HOSTS_VAR = 'KINDGI_PACK_ENDPOINT_HOSTS';
 
+/** The hosts a project's attach route may be on (`KINDGI_ATTACH_ROUTE_HOSTS`). */
+export const ATTACH_ROUTE_HOSTS_VAR = 'KINDGI_ATTACH_ROUTE_HOSTS';
+
 /**
  * One allowed host:
  * - `exact` (`pack.internal`);
@@ -219,9 +222,9 @@ function onCloudRun(domain: string): boolean {
   return domain === CLOUD_RUN_DOMAIN || domain.endsWith(`.${CLOUD_RUN_DOMAIN}`);
 }
 
-function cloudRunRefusal(item: string): Error {
+function cloudRunRefusal(variable: string, item: string): Error {
   return new Error(
-    `${PACK_ENDPOINT_HOSTS_VAR} refuses "${item}": ${CLOUD_RUN_DOMAIN} is Cloud Run's shared domain, whose URLs are \`<service>-<project number>.<region>.run.app\` in every project, so it would admit anyone's service. List the exact hosts, or name one project with \`*-<project number>.<region>.run.app\`.`,
+    `${variable} refuses "${item}": ${CLOUD_RUN_DOMAIN} is Cloud Run's shared domain, whose URLs are \`<service>-<project number>.<region>.run.app\` in every project, so it would admit anyone's service. List the exact hosts, or name one project with \`*-<project number>.<region>.run.app\`.`,
   );
 }
 
@@ -242,6 +245,20 @@ function isHostName(name: string): boolean {
  * Cloud Run service.
  */
 export function parsePackEndpointHosts(raw: string | undefined): readonly PackEndpointHost[] {
+  return parseHosts(PACK_ENDPOINT_HOSTS_VAR, raw);
+}
+
+/**
+ * Parse `KINDGI_ATTACH_ROUTE_HOSTS` as `parsePackEndpointHosts` parses its
+ * list, each error naming this one. Unset or blank: none, so every attach
+ * is refused. Match a route's host with `packEndpointHostAllowed`.
+ */
+export function parseAttachRouteHosts(raw: string | undefined): readonly PackEndpointHost[] {
+  return parseHosts(ATTACH_ROUTE_HOSTS_VAR, raw);
+}
+
+/** A list of hosts, as `parsePackEndpointHosts` says, read from `variable`. */
+function parseHosts(variable: string, raw: string | undefined): readonly PackEndpointHost[] {
   if (raw === undefined || raw.trim() === '') return [];
   return raw.split(',').map((entry) => {
     const item = entry.trim();
@@ -250,22 +267,22 @@ export function parsePackEndpointHosts(raw: string | undefined): readonly PackEn
       const tail = dot < 0 ? '' : item.slice(2, dot);
       const domain = dot < 0 ? '' : item.slice(dot + 1);
       if (HOST_LABEL.test(tail) && isHostName(domain)) {
-        if (onCloudRun(domain) && !/^[0-9]+$/.test(tail)) throw cloudRunRefusal(item);
+        if (onCloudRun(domain) && !/^[0-9]+$/.test(tail)) throw cloudRunRefusal(variable, item);
         return { kind: 'tail' as const, tail, domain };
       }
       throw new Error(
-        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
+        `${variable} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
       );
     }
     const suffix = item.startsWith('*.') ? item.slice(2) : undefined;
     const name = suffix ?? item;
     if (!isHostName(name)) {
       throw new Error(
-        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
+        `${variable} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
       );
     }
     if (suffix === undefined) return { kind: 'exact' as const, host: name };
-    if (onCloudRun(suffix)) throw cloudRunRefusal(item);
+    if (onCloudRun(suffix)) throw cloudRunRefusal(variable, item);
     return { kind: 'suffix' as const, suffix };
   });
 }

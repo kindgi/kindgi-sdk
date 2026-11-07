@@ -489,6 +489,12 @@ export type {
   SystemPackEnvPage,
 } from './resources/system-deployments.js';
 export type {
+  ProjectAttach,
+  ProjectAttachIndexRevision,
+  ProjectAttachSpec,
+  SystemAttachesClient,
+} from './resources/system-attaches.js';
+export type {
   EnvCloudSecret,
   EnvCloudSecretPage,
   SystemCloudSecretKey,

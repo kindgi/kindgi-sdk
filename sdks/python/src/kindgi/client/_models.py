@@ -775,6 +775,7 @@ class SystemKey(BaseModel):
             "system:deployments",
             "system:pack-env",
             "system:env-refs",
+            "system:attaches",
             "system:usage:read",
             "system:license",
             "kindgi:system",
@@ -808,6 +809,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system",
@@ -856,6 +858,7 @@ class MintSystemKeyResult(BaseModel):
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system",
@@ -908,6 +911,7 @@ class Datum2(BaseModel):
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system",
@@ -964,6 +968,7 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system",
@@ -1008,6 +1013,83 @@ class SetPackEndpointBody(BaseModel):
     """
     The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.
     """
+
+
+class PutProjectAttachBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", max_length=128, min_length=1)]
+    """
+    The person whose working copy it is. They must hold `admin` on the project (`attach-needs-project-admin`), and, in a person's own test project, be its person (`attach-test-project-not-theirs`).
+    """
+    token_id: Annotated[str, Field(alias="tokenId", max_length=128, min_length=1)]
+    """
+    The person's key whose runs the attach takes: one of the tenant's, live (`attach-key-not-usable`), acting for `userId` and limited to the project (`attach-key-not-limited-to-project`). An attach's person and key never change (`attach-mismatch`).
+    """
+    route_url: Annotated[str, Field(alias="routeUrl")]
+    """
+    Where the working copy is served: `https://<host>`, then any path, with no user info, query or fragment. Its host must be on the operator's list (`KINDGI_ATTACH_ROUTE_HOSTS`, `attach-route-host-not-allowed`).
+    """
+    route_token: Annotated[str, Field(alias="routeToken", max_length=4096, min_length=1)]
+    """
+    What the runtime sends the route with each call. Stored sealed; never returned, logged or recorded.
+    """
+
+
+class ProjectAttach(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    attach_id: Annotated[UUID, Field(alias="attachId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    user_id: Annotated[str, Field(alias="userId")]
+    token_id: Annotated[str, Field(alias="tokenId")]
+    route_url: Annotated[str, Field(alias="routeUrl")]
+    index_revision: Annotated[int | None, Field(alias="indexRevision", ge=1)] = None
+    """
+    The newest copy of the index, which a new run takes; absent before the first.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    ended_at: Annotated[AwareDatetime | None, Field(alias="endedAt")] = None
+    ended_reason: Annotated[
+        Annotated[
+            Literal["ended", "replaced", "production-on", "not-an-admin", "key-revoked"] | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="endedReason"),
+    ] = None
+    """
+    Why it ended: `DELETE` (`ended`), another attach for the same key (`replaced`), the project's production turned on (`production-on`), its person no longer an admin there (`not-an-admin`), or its key revoked (`key-revoked`).
+    """
+
+
+class ProjectAttachIndexBody(BaseModel):
+    """
+    The working copy's `index.json`, as its build writes it, at most `ATTACH_INDEX_MAX_BYTES` (1.5 MiB) and 2,000 primitives (`attach-index-too-large`). It's checked as a deploy checks a pack's index (`attach-index-invalid`), with its own `artifactVersion`; data blocks aren't served from a copy.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+
+
+class ProjectAttachIndexRevision(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    attach_id: Annotated[UUID, Field(alias="attachId")]
+    revision: Annotated[int, Field(ge=1)]
+    hash: str
+    """
+    The sha256 of the copy's bytes, in hex.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
 class PackEnvDeclaration(BaseModel):

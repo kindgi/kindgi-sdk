@@ -13,6 +13,19 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`system_attaches`, a project's attaches on a runtime serving
+  many tenants.** `put`, `put_index` and `end`, sync and async, for a key
+  holding `system:attaches` itself. They come with the `PutProjectAttachBody`,
+  `ProjectAttach`, `ProjectAttachIndexBody` and `ProjectAttachIndexRevision`
+  models. A write refused with a 409, `attach-key-not-usable` and
+  `attach-mismatch` among them, raises `ConflictError`. Nothing else you pass
+  or read changes.
+- `kindgi`: **`attach-ended` is a conflict, and the system key models list
+  `system:attaches`.** A runtime's `409 attach-ended` is raised as
+  `ConflictError`, as other conflicts are. `SystemKey.scopes`,
+  `MintSystemKeyBody.scopes` and `MintSystemKeyResult.scopes` take
+  `system:attaches`, a project's attaches, which only a key holding it itself
+  uses. Nothing else you pass or read changes.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

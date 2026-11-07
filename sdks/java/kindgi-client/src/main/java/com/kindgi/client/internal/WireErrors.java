@@ -47,7 +47,7 @@ public final class WireErrors {
           "version-already-exists", "test-run-already-terminal", "approval-already-decided",
           "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
           "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
-          "release-gate-needs-pin", "release-gate-descendant-unpinned");
+          "release-gate-needs-pin", "release-gate-descendant-unpinned", "attach-ended");
   static final Set<String> INVALID =
       Set.of(
           "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

@@ -70,6 +70,10 @@ import {
   makeSuggestedChangesClient,
 } from './resources/suggested-changes.js';
 import {
+  type SystemAttachesClient,
+  makeSystemAttachesClient,
+} from './resources/system-attaches.js';
+import {
   type SystemDeploymentsClient,
   makeSystemDeploymentsClient,
 } from './resources/system-deployments.js';
@@ -173,6 +177,12 @@ export interface KindgiClient {
    */
   readonly systemDeployments: SystemDeploymentsClient;
   /**
+   * A project's attaches, on a runtime serving many tenants: make or
+   * refresh one, copy its index in, end it (`system:attaches`, held by the
+   * key itself).
+   */
+  readonly systemAttaches: SystemAttachesClient;
+  /**
    * The env names an operator sets to a cloud secret, which a pack service
    * reads from its cloud. System keys with `system:env-refs` only.
    */
@@ -265,6 +275,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     runtime: makeRuntimeClient(transport),
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
+    systemAttaches: makeSystemAttachesClient(transport),
     systemEnv: makeSystemEnvClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
     systemUsage: makeSystemUsageClient(transport),

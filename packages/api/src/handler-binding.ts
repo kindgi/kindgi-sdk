@@ -5,7 +5,15 @@ import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { RunIdempotencyKey, RunMailbox, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
-import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
+import type {
+  ApiTokenId,
+  FlowId,
+  ProjectId,
+  RunId,
+  ScopeSegment,
+  Semver,
+  TenantId,
+} from '@kindgi/types';
 
 /**
  * Callback the platform HTTP surface hands off to when it receives
@@ -147,6 +155,15 @@ export interface InvokeAgentBindingInput {
    * the route, never from the body. On its own it enforces nothing.
    */
   readonly principal?: Principal;
+  /**
+   * The id of the API key the request starting the run came with, set by
+   * the route from the caller (`c.get('tokenId')`), never from the body;
+   * absent for a sign-in session, the deployment's own token and a
+   * trigger's run. Two keys of one person share a principal, so this is
+   * what a runtime matches on when what a run reaches depends on the key
+   * that started it. On its own it enforces nothing.
+   */
+  readonly callerTokenId?: ApiTokenId;
   /** The trace context of the request starting the run: the binding records its `traceId` on the run. */
   readonly trace?: RunTrace;
 }
@@ -185,6 +202,8 @@ export interface InvokeFlowBindingInput {
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */
   readonly principal?: Principal;
+  /** The key the request starting the run came with, as for `InvokeAgentBindingInput.callerTokenId`. */
+  readonly callerTokenId?: ApiTokenId;
   /** The trace context of the request starting the run, as for an agent run. */
   readonly trace?: RunTrace;
 }

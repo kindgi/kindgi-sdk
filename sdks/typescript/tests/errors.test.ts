@@ -112,6 +112,7 @@ describe('fromWire — conflicts', () => {
     'identity-user-email-taken',
     'identity-user-not-invited',
     'provider-key-in-use',
+    'attach-ended',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',

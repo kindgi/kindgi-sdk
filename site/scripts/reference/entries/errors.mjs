@@ -809,6 +809,95 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
+  'attach-ended': {
+    description:
+      "The run's attach has ended, so the run isn't started, or its call isn't made. An attach sends the runs a person starts with a key of theirs, limited to one project, to their working copy of the project's code before it's deployed. It ends when the project goes into production, when its person no longer holds `admin` there, when its key is revoked, and when it's ended or replaced. A run resumed on a copy of the index that's no longer kept is refused too. Nothing is run. Deploy the code to run it in the project, or start the run with a key that has no attach. A write to an attach that ended is refused the same way, and nothing is written: write a new attach, with its own id.",
+    details: [
+      {
+        key: 'endedReason',
+        meaning:
+          'on a write to the attach: why it ended, one of `ended`, `replaced`, `production-on`, `not-an-admin` or `key-revoked`',
+      },
+    ],
+    seeAlso: ['POST /v1/runs', 'deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-not-found': {
+    description:
+      'The project has no attach with this id in the tenant the route names. Nothing is written.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-needs-project-admin': {
+    description:
+      "The attach's person doesn't hold `admin` on the project, so they couldn't deploy to it, and no attach is made for them. Nothing is written.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-project-in-production': {
+    description:
+      "The project is in production, where runs use only what's deployed, so no attach is made in it. Nothing is written.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-key-not-usable': {
+    description:
+      "The attach's key isn't one the tenant holds, or it's revoked or expired. An attach takes a live key of its person's. Nothing is written. Make them a key limited to the project, and attach with it.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-key-not-limited-to-project': {
+    description:
+      "An attach's key is its person's own, limited to the project. This one isn't theirs, or isn't limited to this project. Nothing is written. Make them a key limited to the project, and attach with it.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-mismatch': {
+    description:
+      "The attach was written for another person or key. An attach's person and key never change. Nothing is written. Write a new attach, with its own id.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-test-project-not-theirs': {
+    description:
+      "The project is a person's own test project (`testFor`), and the attach is for someone else. In a test project only its person is attached, whatever `admin` anyone else holds there. Nothing is written.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-route-host-not-allowed': {
+    description:
+      "The attach's route is on a host `KINDGI_ATTACH_ROUTE_HOSTS` doesn't name. Unset, it names none, and every attach is refused. Nothing is written.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-index-invalid': {
+    description:
+      "The attach's copy of the pack's index is one a deploy of the pack would refuse: not a JSON object, an env the build wouldn't write, no artifact version, primitives the registries wouldn't store, or data blocks, which an attach doesn't serve. Nothing is written. Fix the pack and copy its index again.",
+    details: [
+      {
+        key: 'issues',
+        meaning:
+          'when its primitives are refused: each problem, with the primitive, its id and the path',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-index-too-large': {
+    description:
+      "The attach's copy of the index is past a bound, which `limit` names: its size, or how many primitives it holds. Nothing is written.",
+    details: [
+      {
+        key: 'limit',
+        meaning: 'the bound it passed',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
+  'attach-index-too-soon': {
+    description:
+      "A copy of the index came too soon after the attach's last one: an attach takes one every 2 seconds at most. Nothing is written. Copy it again after the `Retry-After` header's seconds.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
   'pin-scope-spans-environments': {
     description:
       "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole workspace or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --pin`). Nothing is changed.",

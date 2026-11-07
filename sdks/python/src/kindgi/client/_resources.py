@@ -172,6 +172,27 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "systemAttaches.put": Operation(
+        "systemAttaches.put",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}",
+        "json",
+        True,
+    ),
+    "systemAttaches.end": Operation(
+        "systemAttaches.end",
+        "DELETE",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}",
+        "json",
+        True,
+    ),
+    "systemAttaches.putIndex": Operation(
+        "systemAttaches.putIndex",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}/index",
+        "json",
+        True,
+    ),
     "serviceAccounts.list": Operation(
         "serviceAccounts.list", "GET", "/v1/service-accounts", "json", False
     ),
@@ -2744,6 +2765,88 @@ class SystemDeploymentsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SetPackSuspendedBody, body, fields),
             response=_models.PackSuspension,
+            timeout=timeout,
+        )
+
+
+class SystemAttachesResource:
+    """`client.system_attaches` — the `systemAttaches` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def put(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        attach_id: str | UUID,
+        body: _models.PutProjectAttachBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectAttach:
+        """Make or refresh a project's attach. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}`
+
+        Makes the attach, or refreshes its route and its route's token, once every check passes. The checks name the person and key the body names, never the caller: the route's host is on the operator's list (`attach-route-host-not-allowed`); the key is the tenant's and live (`attach-key-not-usable`), acts for the person and is limited to the project (`attach-key-not-limited-to-project`); the person holds `admin` on the project (`attach-needs-project-admin`); the project has no production (`attach-project-in-production`); and a person's own test project is this person's (`attach-test-project-not-theirs`). The key's other live attach then ends, `replaced`. An attach's person and key never change (`attach-mismatch`), and one that ended stays ended (`attach-ended`). Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.
+        """
+        return self._client._request(
+            _OPERATIONS["systemAttaches.put"],
+            path={"tenantId": tenant_id, "projectId": project_id, "attachId": attach_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PutProjectAttachBody, body, fields),
+            response=_models.ProjectAttach,
+            timeout=timeout,
+        )
+
+    def end(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        attach_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectAttach:
+        """End a project's attach. `DELETE /v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}`
+
+        Ends the attach, `ended`: a run it would take starts no more, and a call it would make isn't made (`attach-ended`). Works for a closing or suspended tenant too. Ending one that ended answers it as it is. The record stays. Takes `system:attaches`, held by the key itself.
+        """
+        return self._client._request(
+            _OPERATIONS["systemAttaches.end"],
+            path={"tenantId": tenant_id, "projectId": project_id, "attachId": attach_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectAttach,
+            timeout=timeout,
+        )
+
+    def put_index(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        attach_id: str | UUID,
+        body: _models.ProjectAttachIndexBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectAttachIndexRevision:
+        """Copy an attach's index in. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}/index`
+
+        Copies the working copy's `index.json` in as the attach's newest revision, which a new run takes. It's checked as a deploy checks a pack's index (`attach-index-invalid`, with `details.issues` when its primitives are refused), with its own `artifactVersion`, and without data blocks. It's bounded: at most 1.5 MiB and 2,000 primitives (`attach-index-too-large`, with `details.limit`), within the API's own request limit (`request-too-large`), and one copy every 2 seconds (`attach-index-too-soon`, with `Retry-After`). A copy with the newest revision's hash makes none, and answers that revision. Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.
+        """
+        return self._client._request(
+            _OPERATIONS["systemAttaches.putIndex"],
+            path={"tenantId": tenant_id, "projectId": project_id, "attachId": attach_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectAttachIndexBody, body, fields),
+            response=_models.ProjectAttachIndexRevision,
             timeout=timeout,
         )
 
@@ -13078,6 +13181,88 @@ class AsyncSystemDeploymentsResource:
         )
 
 
+class AsyncSystemAttachesResource:
+    """`client.system_attaches` — the `systemAttaches` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def put(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        attach_id: str | UUID,
+        body: _models.PutProjectAttachBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectAttach:
+        """Make or refresh a project's attach. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}`
+
+        Makes the attach, or refreshes its route and its route's token, once every check passes. The checks name the person and key the body names, never the caller: the route's host is on the operator's list (`attach-route-host-not-allowed`); the key is the tenant's and live (`attach-key-not-usable`), acts for the person and is limited to the project (`attach-key-not-limited-to-project`); the person holds `admin` on the project (`attach-needs-project-admin`); the project has no production (`attach-project-in-production`); and a person's own test project is this person's (`attach-test-project-not-theirs`). The key's other live attach then ends, `replaced`. An attach's person and key never change (`attach-mismatch`), and one that ended stays ended (`attach-ended`). Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemAttaches.put"],
+            path={"tenantId": tenant_id, "projectId": project_id, "attachId": attach_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PutProjectAttachBody, body, fields),
+            response=_models.ProjectAttach,
+            timeout=timeout,
+        )
+
+    async def end(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        attach_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectAttach:
+        """End a project's attach. `DELETE /v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}`
+
+        Ends the attach, `ended`: a run it would take starts no more, and a call it would make isn't made (`attach-ended`). Works for a closing or suspended tenant too. Ending one that ended answers it as it is. The record stays. Takes `system:attaches`, held by the key itself.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemAttaches.end"],
+            path={"tenantId": tenant_id, "projectId": project_id, "attachId": attach_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectAttach,
+            timeout=timeout,
+        )
+
+    async def put_index(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        attach_id: str | UUID,
+        body: _models.ProjectAttachIndexBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectAttachIndexRevision:
+        """Copy an attach's index in. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}/index`
+
+        Copies the working copy's `index.json` in as the attach's newest revision, which a new run takes. It's checked as a deploy checks a pack's index (`attach-index-invalid`, with `details.issues` when its primitives are refused), with its own `artifactVersion`, and without data blocks. It's bounded: at most 1.5 MiB and 2,000 primitives (`attach-index-too-large`, with `details.limit`), within the API's own request limit (`request-too-large`), and one copy every 2 seconds (`attach-index-too-soon`, with `Retry-After`). A copy with the newest revision's hash makes none, and answers that revision. Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemAttaches.putIndex"],
+            path={"tenantId": tenant_id, "projectId": project_id, "attachId": attach_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectAttachIndexBody, body, fields),
+            response=_models.ProjectAttachIndexRevision,
+            timeout=timeout,
+        )
+
+
 class AsyncServiceAccountsResource:
     """`client.service_accounts` — the `serviceAccounts` operations."""
 
@@ -22113,6 +22298,7 @@ class Resources:
     system_usage: SystemUsageResource
     usage: UsageResource
     system_deployments: SystemDeploymentsResource
+    system_attaches: SystemAttachesResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
@@ -22176,6 +22362,7 @@ class Resources:
         self.system_usage = SystemUsageResource(client)
         self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
+        self.system_attaches = SystemAttachesResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
@@ -22241,6 +22428,7 @@ class AsyncResources:
     system_usage: AsyncSystemUsageResource
     usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
+    system_attaches: AsyncSystemAttachesResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
@@ -22304,6 +22492,7 @@ class AsyncResources:
         self.system_usage = AsyncSystemUsageResource(client)
         self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)
+        self.system_attaches = AsyncSystemAttachesResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)

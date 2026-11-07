@@ -33,7 +33,7 @@ import {
   isGuardrailPoint,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
-import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
+import { type PackEnvDeclaration, resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
 import type { Logger } from '@kindgi/log';
 import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
@@ -961,115 +961,16 @@ export function deploymentsRouter(
 
     // What registers is the image's own index, the bytes the signature
     // covers (through indexHash), never a copy from the request.
-    const imageIndex = parseImageIndex(indexFile.value.bytes);
-    if (imageIndex === undefined) {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: 'Image /app/index.json is not a JSON object',
-            imageRef: wire.imageRef,
-          },
-          requestId,
-        ),
-      );
-    }
-    // The names its pack service reads from its process env, as the build
-    // validated them: a signed index that doesn't is refused, never kept.
-    const declaredEnv = resolvePackEnv(imageIndex.env);
-    if (declaredEnv.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Image /app/index.json's env is malformed: ${declaredEnv.message}`,
-            imageRef: wire.imageRef,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (imageIndex.artifactVersion !== wire.artifactVersion) {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Image /app/index.json is artifact ${JSON.stringify(imageIndex.artifactVersion)}, not the signed ${wire.artifactVersion}`,
-            imageRef: wire.imageRef,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    // ---- Manifest validation ----
-    const validation = validatePrimitives(
-      imageIndex,
-      { imageRef: wire.imageRef, artifactVersion: wire.artifactVersion },
-      c.get('log'),
-    );
-    if (validation.kind === 'err') {
-      c.status(statusFor('deployment-validation-failed') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'deployment-validation-failed',
-            message: `Deployment manifest validation failed (${validation.error.details.length} issue${validation.error.details.length === 1 ? '' : 's'})`,
-            issues: validation.error.details as unknown as Record<string, unknown>[],
-          },
-          requestId,
-        ),
-      );
-    }
-    const validated = validation.value;
-
-    // A reserved `kindgi.` name or a model provider's key is never a tool's:
-    // each tool naming one is an issue.
-    const keyIssues: ValidationDetail[] = [];
-    if (validated.tools.length > 0) {
-      const tenantId = c.get('tenantId') as TenantId;
-      for (const [index, tool] of validated.tools.entries()) {
-        const refusal = await refuseSecretNames(
-          bindings.providerKeys,
-          tenantId,
-          toolSecretNames(tool),
-          'a tool',
-        );
-        if (refusal !== undefined) {
-          keyIssues.push({
-            primitive: 'tool',
-            index,
-            id: tool.id as unknown as string,
-            path: `/secrets/${refusal.secret}`,
-            message: refusal.message,
-          });
-        }
-      }
-    }
-    if (keyIssues.length > 0) return validationFailed(c, keyIssues);
-
-    // The pack's data blocks are published into the runtime's block
-    // registry: a runtime without one takes none.
-    if (validated.blocks.length > 0 && bindings.blockRegistry === undefined) {
-      return validationFailed(
-        c,
-        validated.blocks.map((block, index) => ({
-          primitive: 'block' as const,
-          index,
-          id: block.id,
-          path: '',
-          message: 'this runtime serves no data blocks',
-        })),
-      );
-    }
-
-    if (bindings.requirePrefixedPackChecks === true) {
-      const checkIssues = unprefixedPackChecks(validated.guardrails, imageIndex.packId);
-      if (checkIssues.length > 0) return validationFailed(c, checkIssues);
-    }
+    const checked = await checkPackIndex(indexFile.value.bytes, {
+      image: { imageRef: wire.imageRef, artifactVersion: wire.artifactVersion },
+      tenantId,
+      ...(bindings.providerKeys !== undefined && { providerKeys: bindings.providerKeys }),
+      servesBlocks: bindings.blockRegistry !== undefined,
+      requirePrefixedPackChecks: bindings.requirePrefixedPackChecks === true,
+      log: c.get('log'),
+    });
+    if (checked.kind !== 'ok') return packIndexRefused(c, checked, wire);
+    const { index: imageIndex, env: packEnv, primitives: validated } = checked;
 
     // A read-only registry (under `kindgi dev`, the pack's files) takes
     // nothing a deployment brings: refuse before any write.
@@ -1538,7 +1439,7 @@ export function deploymentsRouter(
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
-        ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
+        ...(packEnv !== undefined && { packEnv }),
         packChecks: [
           ...new Set(
             validated.guardrails
@@ -2286,6 +2187,135 @@ function unprefixedPackChecks(
   return issues;
 }
 
+/** What `checkPackIndex` checks an index against, besides its bytes. */
+export interface PackIndexCheckOptions {
+  /**
+   * Where the index's code is: each tool and module guardrail keeps a
+   * pointer into it (`codeArtifactRef`), and the index names its
+   * `artifactVersion`.
+   */
+  readonly image: DeployedImage;
+  /** The tenant whose model providers' keys no tool may name. */
+  readonly tenantId: TenantId;
+  /** The model providers' keys (`DeploymentsRouterBindings.providerKeys`). Without, reserved names alone are refused. */
+  readonly providerKeys?: ProviderKeys;
+  /** Whether the runtime takes data blocks: without, an index with any is refused. */
+  readonly servesBlocks: boolean;
+  /** Refuse a check run in the pack whose id doesn't start with the pack's (`DeploymentsRouterBindings.requirePrefixedPackChecks`). */
+  readonly requirePrefixedPackChecks: boolean;
+  readonly log?: { debug(message: string): void };
+}
+
+/** What `checkPackIndex` found: the index and what registers from it, or why it's refused. */
+export type PackIndexCheck =
+  | {
+      readonly kind: 'ok';
+      readonly index: Readonly<Record<string, unknown>>;
+      /** The names its pack service reads from its process env, when it declares any. */
+      readonly env: PackEnvDeclaration | undefined;
+      readonly primitives: ValidatedPrimitives;
+    }
+  | { readonly kind: 'not-an-object' }
+  | { readonly kind: 'env-malformed'; readonly message: string }
+  | { readonly kind: 'artifact-version-mismatch'; readonly found: unknown }
+  | { readonly kind: 'invalid'; readonly issues: readonly ValidationDetail[] };
+
+/**
+ * The checks a deploy makes of a pack's `index.json` before anything
+ * registers, in its order, the first that fails being the answer: a JSON
+ * object; its `env` as the build validated it; the artifact version of
+ * its code (`image.artifactVersion`); each primitive as the registries
+ * store it; no tool naming a reserved name or a model provider's key;
+ * data blocks only where the runtime takes them; and, when asked, each
+ * check run in the pack named with the pack's id. It reads only the
+ * provider keys and writes nothing, so whatever else takes a copy of an
+ * index checks it as a deploy would.
+ */
+export async function checkPackIndex(
+  bytes: Uint8Array,
+  options: PackIndexCheckOptions,
+): Promise<PackIndexCheck> {
+  const index = parseImageIndex(bytes);
+  if (index === undefined) return { kind: 'not-an-object' };
+  // The names its pack service reads from its process env, as the build
+  // validated them: an index that doesn't is refused, never kept.
+  const env = resolvePackEnv(index.env);
+  if (env.kind === 'err') return { kind: 'env-malformed', message: env.message };
+  if (index.artifactVersion !== options.image.artifactVersion) {
+    return { kind: 'artifact-version-mismatch', found: index.artifactVersion };
+  }
+  const validation = validatePrimitives(index, options.image, options.log);
+  if (validation.kind === 'err') return { kind: 'invalid', issues: validation.error.details };
+  const issues = await primitiveIssues(validation.value, index.packId, options);
+  if (issues.length > 0) return { kind: 'invalid', issues };
+  return { kind: 'ok', index, env: env.value, primitives: validation.value };
+}
+
+/** The issues of the first of `checkPackIndex`'s checks past the primitives' own that finds any. */
+async function primitiveIssues(
+  primitives: ValidatedPrimitives,
+  packId: unknown,
+  options: PackIndexCheckOptions,
+): Promise<readonly ValidationDetail[]> {
+  // A reserved `kindgi.` name or a model provider's key is never a tool's:
+  // each tool naming one is an issue.
+  const keyIssues: ValidationDetail[] = [];
+  for (const [index, tool] of primitives.tools.entries()) {
+    const refusal = await refuseSecretNames(
+      options.providerKeys,
+      options.tenantId,
+      toolSecretNames(tool),
+      'a tool',
+    );
+    if (refusal !== undefined) {
+      keyIssues.push({
+        primitive: 'tool',
+        index,
+        id: tool.id as unknown as string,
+        path: `/secrets/${refusal.secret}`,
+        message: refusal.message,
+      });
+    }
+  }
+  if (keyIssues.length > 0) return keyIssues;
+  // The pack's data blocks are published into the runtime's block
+  // registry: a runtime without one takes none.
+  if (primitives.blocks.length > 0 && !options.servesBlocks) {
+    return primitives.blocks.map((block, index) => ({
+      primitive: 'block' as const,
+      index,
+      id: block.id,
+      path: '',
+      message: 'this runtime serves no data blocks',
+    }));
+  }
+  return options.requirePrefixedPackChecks
+    ? unprefixedPackChecks(primitives.guardrails, packId)
+    : [];
+}
+
+/** A deploy's answer to an index `checkPackIndex` refused, as the deploy route gave it before. */
+function packIndexRefused(
+  c: Context<AppEnv>,
+  refused: Exclude<PackIndexCheck, { readonly kind: 'ok' }>,
+  wire: { readonly imageRef: string; readonly artifactVersion: string },
+) {
+  if (refused.kind === 'invalid') return validationFailed(c, refused.issues);
+  const message =
+    refused.kind === 'not-an-object'
+      ? 'Image /app/index.json is not a JSON object'
+      : refused.kind === 'env-malformed'
+        ? `Image /app/index.json's env is malformed: ${refused.message}`
+        : `Image /app/index.json is artifact ${JSON.stringify(refused.found)}, not the signed ${wire.artifactVersion}`;
+  c.status(statusFor('image-unverifiable') as never);
+  return c.json(
+    toWireError(
+      { code: 'image-unverifiable', message, imageRef: wire.imageRef },
+      c.get('requestId'),
+    ),
+  );
+}
+
 /** The image's `/app/index.json` as an object, or `undefined` when it isn't one. */
 function parseImageIndex(bytes: Uint8Array): Readonly<Record<string, unknown>> | undefined {
   let parsed: unknown;
@@ -2347,7 +2377,7 @@ function extractImageDigest(imageRef: string): string | null {
 // Primitive validation
 // ------------------------------------------------------------
 
-interface ValidationDetail {
+export interface ValidationDetail {
   readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
   readonly index: number;
   readonly id?: string;
@@ -2355,7 +2385,7 @@ interface ValidationDetail {
   readonly message: string;
 }
 
-interface ValidatedPrimitives {
+export interface ValidatedPrimitives {
   readonly tools: readonly import('@kindgi/tools').ToolManifest[];
   readonly guardrails: readonly Guardrail[];
   /**
@@ -2379,7 +2409,7 @@ type ValidateResult =
   | { readonly kind: 'err'; readonly error: { readonly details: readonly ValidationDetail[] } };
 
 /** The image a deployment's code lives in, for each primitive's `codeArtifactRef`. */
-interface DeployedImage {
+export interface DeployedImage {
   readonly imageRef: string;
   readonly artifactVersion: string;
 }

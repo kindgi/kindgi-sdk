@@ -67,6 +67,7 @@ export {
 } from './system.js';
 export type { SystemPrincipal, SystemScope } from './system.js';
 export {
+  ownSystemScope,
   requireFullSystem,
   requireSystemScope,
   systemPrincipalFence,
@@ -95,6 +96,27 @@ export {
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
 export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
+export {
+  ATTACH_INDEX_MAX_BYTES,
+  ATTACH_INDEX_MAX_PRIMITIVES,
+  ATTACH_INDEX_MIN_INTERVAL_MS,
+} from './routes/system-attaches.js';
+export type {
+  ProjectAttach,
+  ProjectAttachEndedReason,
+  ProjectAttachIndexRevision,
+  ProjectAttachRef,
+  SystemAttachesBinding,
+  SystemAttachesOptions,
+} from './routes/system-attaches.js';
+export { checkPackIndex } from './routes/deployments.js';
+export type {
+  DeployedImage,
+  PackIndexCheck,
+  PackIndexCheckOptions,
+  ValidatedPrimitives,
+  ValidationDetail,
+} from './routes/deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,

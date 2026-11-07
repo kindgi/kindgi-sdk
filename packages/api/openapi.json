@@ -52,6 +52,10 @@
       "description": "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL."
     },
     {
+      "name": "system-attaches",
+      "description": "A project's attaches, on a runtime serving many tenants: what sends the runs a person starts with one key of theirs, limited to the project, to their working copy of its code before it's deployed. Written only by a system key holding `system:attaches` itself, and every check names the person and key the write names."
+    },
+    {
       "name": "service-accounts"
     },
     {
@@ -581,6 +585,18 @@
           "promotion-values-not-ready": 409,
           "deployment-superseded": 409,
           "promotions-unsupported": 501,
+          "attach-ended": 409,
+          "attach-not-found": 404,
+          "attach-needs-project-admin": 409,
+          "attach-project-in-production": 409,
+          "attach-key-not-usable": 409,
+          "attach-key-not-limited-to-project": 409,
+          "attach-mismatch": 409,
+          "attach-test-project-not-theirs": 409,
+          "attach-route-host-not-allowed": 409,
+          "attach-index-invalid": 400,
+          "attach-index-too-large": 413,
+          "attach-index-too-soon": 429,
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "slug-conflict": 409,
@@ -3281,6 +3297,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3331,6 +3348,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3387,6 +3405,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3460,6 +3479,7 @@
                       "system:deployments",
                       "system:pack-env",
                       "system:env-refs",
+                      "system:attaches",
                       "system:usage:read",
                       "system:license",
                       "kindgi:system"
@@ -3524,6 +3544,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3677,6 +3698,126 @@
             "minLength": 1,
             "maxLength": 128,
             "description": "The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change."
+          }
+        }
+      },
+      "PutProjectAttachBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "tokenId",
+          "routeUrl",
+          "routeToken"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The person whose working copy it is. They must hold `admin` on the project (`attach-needs-project-admin`), and, in a person's own test project, be its person (`attach-test-project-not-theirs`)."
+          },
+          "tokenId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The person's key whose runs the attach takes: one of the tenant's, live (`attach-key-not-usable`), acting for `userId` and limited to the project (`attach-key-not-limited-to-project`). An attach's person and key never change (`attach-mismatch`)."
+          },
+          "routeUrl": {
+            "type": "string",
+            "description": "Where the working copy is served: `https://<host>`, then any path, with no user info, query or fragment. Its host must be on the operator's list (`KINDGI_ATTACH_ROUTE_HOSTS`, `attach-route-host-not-allowed`)."
+          },
+          "routeToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "What the runtime sends the route with each call. Stored sealed; never returned, logged or recorded."
+          }
+        }
+      },
+      "ProjectAttach": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attachId",
+          "projectId",
+          "userId",
+          "tokenId",
+          "routeUrl",
+          "createdAt"
+        ],
+        "properties": {
+          "attachId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
+          },
+          "routeUrl": {
+            "type": "string"
+          },
+          "indexRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The newest copy of the index, which a new run takes; absent before the first."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedReason": {
+            "type": "string",
+            "enum": [
+              "ended",
+              "replaced",
+              "production-on",
+              "not-an-admin",
+              "key-revoked"
+            ],
+            "description": "Why it ended: `DELETE` (`ended`), another attach for the same key (`replaced`), the project's production turned on (`production-on`), its person no longer an admin there (`not-an-admin`), or its key revoked (`key-revoked`)."
+          }
+        }
+      },
+      "ProjectAttachIndexBody": {
+        "type": "object",
+        "description": "The working copy's `index.json`, as its build writes it, at most `ATTACH_INDEX_MAX_BYTES` (1.5 MiB) and 2,000 primitives (`attach-index-too-large`). It's checked as a deploy checks a pack's index (`attach-index-invalid`), with its own `artifactVersion`; data blocks aren't served from a copy."
+      },
+      "ProjectAttachIndexRevision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attachId",
+          "revision",
+          "hash",
+          "createdAt"
+        ],
+        "properties": {
+          "attachId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hash": {
+            "type": "string",
+            "description": "The sha256 of the copy's bytes, in hex."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -36271,6 +36412,468 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SetPackSuspendedBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}": {
+      "put": {
+        "operationId": "systemAttaches.put",
+        "summary": "Make or refresh a project's attach",
+        "tags": [
+          "system-attaches"
+        ],
+        "responses": {
+          "200": {
+            "description": "Made or refreshed: the attach, without its route token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAttach"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed body or path, or a route URL that isn't `https://<host>` with no user info, query or fragment (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:attaches` itself (`system-scope-missing`): `kindgi:system` doesn't stand in for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such project in it (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or a check refused it (`attach-route-host-not-allowed`, `attach-key-not-usable`, `attach-key-not-limited-to-project`, `attach-needs-project-admin`, `attach-project-in-production`, `attach-test-project-not-theirs`, `attach-mismatch`), or it ended (`attach-ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes the attach, or refreshes its route and its route's token, once every check passes. The checks name the person and key the body names, never the caller: the route's host is on the operator's list (`attach-route-host-not-allowed`); the key is the tenant's and live (`attach-key-not-usable`), acts for the person and is limited to the project (`attach-key-not-limited-to-project`); the person holds `admin` on the project (`attach-needs-project-admin`); the project has no production (`attach-project-in-production`); and a person's own test project is this person's (`attach-test-project-not-theirs`). The key's other live attach then ends, `replaced`. An attach's person and key never change (`attach-mismatch`), and one that ended stays ended (`attach-ended`). Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "attachId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The attach's id (a UUID), chosen by its first write."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutProjectAttachBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "systemAttaches.end",
+        "summary": "End a project's attach",
+        "tags": [
+          "system-attaches"
+        ],
+        "responses": {
+          "200": {
+            "description": "Ended: the attach.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAttach"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:attaches` itself (`system-scope-missing`): `kindgi:system` doesn't stand in for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such attach on the project (`attach-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ends the attach, `ended`: a run it would take starts no more, and a call it would make isn't made (`attach-ended`). Works for a closing or suspended tenant too. Ending one that ended answers it as it is. The record stays. Takes `system:attaches`, held by the key itself.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "attachId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The attach's id (a UUID), chosen by its first write."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/attaches/{attachId}/index": {
+      "put": {
+        "operationId": "systemAttaches.putIndex",
+        "summary": "Copy an attach's index in",
+        "tags": [
+          "system-attaches"
+        ],
+        "responses": {
+          "200": {
+            "description": "Copied, or the same as the newest: that revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAttachIndexRevision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed path (`bad-input`), or an index a deploy would refuse (`attach-index-invalid`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:attaches` itself (`system-scope-missing`): `kindgi:system` doesn't stand in for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such attach on the project (`attach-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the attach ended (`attach-ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Past a bound, which `details.limit` names (`attach-index-too-large`), or past the API's own request limit, which is read first (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Less than 2 seconds after the last copy (`attach-index-too-soon`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Copies the working copy's `index.json` in as the attach's newest revision, which a new run takes. It's checked as a deploy checks a pack's index (`attach-index-invalid`, with `details.issues` when its primitives are refused), with its own `artifactVersion`, and without data blocks. It's bounded: at most 1.5 MiB and 2,000 primitives (`attach-index-too-large`, with `details.limit`), within the API's own request limit (`request-too-large`), and one copy every 2 seconds (`attach-index-too-soon`, with `Retry-After`). A copy with the newest revision's hash makes none, and answers that revision. Refused for a closing or suspended tenant. Takes `system:attaches`, held by the key itself.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "attachId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The attach's id (a UUID), chosen by its first write."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectAttachIndexBody"
               }
             }
           }
