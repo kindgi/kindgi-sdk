@@ -1164,9 +1164,9 @@ to, so set it to the deployment's before any `gcloud` command for it
   - every server copy's pool (up to `server_max_instances` copies, 1 by
     default), and the old revision's copies' too, which a deploy keeps up
     while the new ones start;
-  - up to 11 more for each system tenant purge in flight, 10 for each admin
-    command that runs (`kindgi-runtime tenants …`, `check …`), and a pool of
-    this size for a `kindgi-runtime erasures …` run;
+  - up to 5 more for each system tenant purge in flight, up to 10 for each
+    admin command that runs (`kindgi-runtime tenants …`, `check …`), and a
+    pool of this size for a `kindgi-runtime erasures …` run;
   - OpenFGA's own, when its store is on the same instance;
   - a reserve.
 
