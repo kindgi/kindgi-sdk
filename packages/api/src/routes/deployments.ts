@@ -18,7 +18,7 @@ import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
-import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
+import { type Flow, type FlowPins, flowGraphProblem, flowSchemaProblems } from '@kindgi/flow';
 import {
   DEFAULT_CHECK_POINTS,
   GUARDRAIL_SPEC_KEYS,
@@ -3043,8 +3043,14 @@ function agentOutputProblems(raw: unknown): readonly { path: string; message: st
  * Minimal shape check on an `IndexedFlow` after `modulePath` and
  * `kernelPayloadVersion` are stripped, and every inline schema a run
  * compiles (`flowSchemaProblems`): one that doesn't compile would fail
- * every run. The rest of `loadFlow` isn't run: it refuses fields it
- * doesn't know, and an index from a newer CLI may carry some.
+ * every run. Then, when those pass, `loadFlow`'s graph checks
+ * (`flowGraphProblem`): a flow with a cycle, an edge to or from a step
+ * that doesn't exist or no edge from `$start` hangs or skips steps when
+ * it runs, and a Python, Java or Scala indexer doesn't check its graph.
+ * `loadFlow` itself isn't run: it refuses fields it doesn't know, and an
+ * index from a newer CLI may carry some. `flowGraphProblem` passes them
+ * over, and a flow whose shape this version doesn't know (an unknown node
+ * kind) isn't judged.
  */
 function validateFlowIndexShape(
   spec: Record<string, unknown>,
@@ -3063,6 +3069,11 @@ function validateFlowIndexShape(
     out.push({ path: '/edges', message: 'flow.edges must be an array' });
   }
   out.push(...flowSchemaProblems(spec));
+  if (out.length > 0) return out;
+  const graph = flowGraphProblem(spec);
+  if (graph.kind === 'err') {
+    out.push({ path: '', message: `${graph.error.code}: ${graph.error.message}` });
+  }
   return out;
 }
 

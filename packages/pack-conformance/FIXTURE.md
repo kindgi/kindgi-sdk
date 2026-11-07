@@ -1,9 +1,11 @@
 # The conformance fixture pack
 
 Every implementation ships the same pack, in its own language, under
-`fixtures/<name>/`. The suite indexes it with the implementation's indexer and
+`fixtures/<name>-pack/`. The suite indexes it with the implementation's indexer and
 runs it in the implementation's pack service. Ids, versions and behaviour are
-the contract; how each language declares them is its own business.
+the contract; how each language declares them is its own business. Each also
+ships the [invalid-flow pack](#the-invalid-flow-pack), which the suite only
+indexes.
 
 Pack: id `conformance`, version `1.0.0`. Every tool is version `1.0.0`.
 
@@ -46,3 +48,11 @@ Three files under `blocks/`, the same bytes in every implementation:
 - `blocks/greeting.json`: `conformance.greeting` (version `1.0.0`), a prompt block described as `Greets the person by name`, with one parameter, `name` (a string), whose template is in its own file: `"templateFile": "greeting.liquid"`.
 - `blocks/greeting.liquid`: `Say hello to {{ name }}.` and a newline. The index carries it as the block's `template`.
 - `blocks/limits.json`: `conformance.limits` (version `1.0.0`), a settings block with the values `{ "maxSentences": 3, "temperature": 1.0, "minScore": 1e-7 }` and a schema that takes `maxSentences`, an integer of at least 1, as required, and `temperature` and `minScore`, numbers of at least 0. Each language writes those two by default in its own way (`1.0` is `1` in JavaScript; `1e-7` is `1e-07` in Python and `1.0E-7` in Java), and the index writes numbers as JavaScript does, so they check each implementation's number formatting.
+
+## The invalid-flow pack
+
+Under `fixtures/<name>-invalid-flow-pack/`: pack id `conformance`, version `1.0.0`, and one flow, nothing else.
+
+- `conformance.cycle-flow` (version `1.0.0`, `FIXTURE_CYCLE_FLOW_ID`): tool nodes `a` and `b`, each with the ref `conformance.echo` given as a string (the pack has no tools); edges `$start → a`, `a → b`, `b → a`, `b → $end`. Its steps form a cycle, so the graph checks (`flowGraphProblem`, `loadFlow`) refuse it with `cycle-detected`: `Flow "conformance.cycle-flow" contains a cycle: …`.
+
+An indexer may refuse the flow itself, as the TypeScript one does, or write it to the index as declared, as one that checks a flow's schema only does. The suite passes either, and nothing else.

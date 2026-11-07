@@ -8,7 +8,7 @@
  * runtime serves flows from.
  */
 
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { PYTHON_BUILD_RUNNERS } from '../src/build/defaults.js';
 import { REAL_DEV_RUNNERS, runJavaIndexer, runPythonIndexer } from '../src/dev/defaults.js';
-import { judgeFlowGraphs } from '../src/dev/flow-graphs.js';
+import { judgeFlowGraphs, writeIndexFile } from '../src/dev/flow-graphs.js';
 import type { JavaPackCode } from '../src/dev/pack-code.js';
 import { createPackRefresher } from '../src/dev/pack-service.js';
 import { devIndexPath } from '../src/dev/paths.js';
@@ -266,5 +266,15 @@ describe('judgeFlowGraphs', () => {
         message: expect.stringMatching(/^flow 'acme\.cycle' is invalid: cycle-detected: /),
       },
     ]);
+  });
+});
+
+describe('writeIndexFile', () => {
+  test('a rename that fails leaves no temporary file, and throws', async () => {
+    // A directory that isn't empty can't be renamed over.
+    const target = join(dir, 'index.json');
+    await mkdir(join(target, 'held'), { recursive: true });
+    await expect(writeIndexFile(target, indexOf([GOOD]))).rejects.toThrow();
+    expect(await readdir(dir)).toEqual(['index.json']);
   });
 });

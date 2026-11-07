@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { rename, writeFile } from 'node:fs/promises';
+import { rename, unlink, writeFile } from 'node:fs/promises';
 
 import { flowGraphProblem } from '@kindgi/flow';
 
@@ -76,12 +76,19 @@ export function judgeFlowGraphs(index: unknown): FlowGraphFindings {
 /**
  * Write `index` to `path` as the TypeScript indexer writes one: keys
  * sorted, two-space indent, a final newline, through a temporary file
- * renamed into place.
+ * renamed into place. When the write or the rename fails, the temporary
+ * file is removed (best effort) and the error is thrown.
  */
 export async function writeIndexFile(path: string, index: unknown): Promise<void> {
   const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(tmpPath, `${JSON.stringify(sortedKeys(index), null, 2)}\n`, 'utf8');
-  await rename(tmpPath, path);
+  try {
+    await writeFile(tmpPath, `${JSON.stringify(sortedKeys(index), null, 2)}\n`, 'utf8');
+    await rename(tmpPath, path);
+  } catch (cause) {
+    // The write's own error is what the caller needs, not the cleanup's.
+    await unlink(tmpPath).catch(() => undefined);
+    throw cause;
+  }
 }
 
 function namesOf(flow: unknown): { readonly id: string; readonly modulePath?: string } {

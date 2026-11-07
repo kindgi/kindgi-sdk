@@ -139,11 +139,17 @@ triage_ticket = Flow(
   are snake_case (`max_parallelism`).
 - **Where it's checked:** `Flow(...)` checks the id when the module
   loads. The indexer checks the rest against `flow.schema.json` —
-  version, node and edge shapes, `$start` / `$end` — and `kindgi dev`
-  reports a mistake as a file error that says what and where
+  version, node and edge shapes — and then `kindgi dev` and
+  `kindgi build` run the checks a TypeScript flow gets from
+  `defineFlow`: ids, edges between steps that exist, an edge from
+  `$start`, no cycles, loop bodies and mappings. `kindgi dev` reports a
+  mistake as a file error that says what and where
   (`flow 'acme.triage-ticket' is invalid at /nodes/0: must NOT have
-  additional properties ('input_mapping')`), while the pack's other
-  primitives keep serving. That a ref's tool or agent
+  additional properties ('input_mapping')`, or
+  `flow 'acme.triage-ticket' is invalid: cycle-detected: Flow
+  "acme.triage-ticket" contains a cycle: parse → classify → parse`),
+  while the pack's other primitives keep serving. `kindgi build` stops
+  on it, and a deploy refuses the flow. That a ref's tool or agent
   exists is checked when a run starts (see "Running a flow").
 
 ## Nodes
