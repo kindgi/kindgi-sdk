@@ -193,6 +193,7 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
+  KINDGI_ATTACH_ROUTE_HOSTS: 'none: every attach is refused',
   KINDGI_PACK_ENDPOINT_KMS_KEY:
     "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
   KINDGI_ENV_CLOUD_SECRETS: '`off`: no cloud secrets are kept, and their routes answer 501',

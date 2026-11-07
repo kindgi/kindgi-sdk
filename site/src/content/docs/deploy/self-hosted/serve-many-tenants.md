@@ -106,8 +106,9 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
 | `system:env-refs` | [Setting a tenant's env names to a cloud secret](#set-a-name-to-a-cloud-secret), for its pack services (runtime 0.4.0 or later) |
+| `system:attaches` | A project's attaches, which send the runs a person starts with a key of theirs, limited to the project, to their working copy of its code before it's deployed, at a route on a host `KINDGI_ATTACH_ROUTE_HOSTS` names (runtime 0.7.0 or later). Only a key holding this scope itself uses it, not `kindgi:system`, and no key holds it on a runtime serving one tenant |
 | `system:license` | Reading the deployment's license, for its renewal |
-| `kindgi:system` | All of them: a full key |
+| `kindgi:system` | All of them but `system:attaches`: a full key |
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/keys" \

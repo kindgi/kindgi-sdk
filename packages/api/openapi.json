@@ -580,6 +580,16 @@
           "promotion-values-not-ready": 409,
           "deployment-superseded": 409,
           "promotions-unsupported": 501,
+          "attach-ended": 409,
+          "attach-not-found": 404,
+          "attach-needs-project-admin": 409,
+          "attach-project-in-production": 409,
+          "attach-key-not-limited-to-project": 409,
+          "attach-test-project-not-theirs": 409,
+          "attach-route-host-not-allowed": 409,
+          "attach-index-invalid": 400,
+          "attach-index-too-large": 413,
+          "attach-index-too-soon": 429,
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "slug-conflict": 409,
@@ -3280,6 +3290,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3330,6 +3341,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3386,6 +3398,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"
@@ -3459,6 +3472,7 @@
                       "system:deployments",
                       "system:pack-env",
                       "system:env-refs",
+                      "system:attaches",
                       "system:usage:read",
                       "system:license",
                       "kindgi:system"
@@ -3523,6 +3537,7 @@
                 "system:deployments",
                 "system:pack-env",
                 "system:env-refs",
+                "system:attaches",
                 "system:usage:read",
                 "system:license",
                 "kindgi:system"

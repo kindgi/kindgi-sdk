@@ -1555,6 +1555,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
   },
   {
+    name: 'KINDGI_ATTACH_ROUTE_HOSTS',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The hosts a project's attach route may be on, comma-separated, each written as in `KINDGI_PACK_ENDPOINT_HOSTS`: a host name; `*.` and a domain; or `*-`, a tail and a domain. The same entries under `run.app` are refused, and the server refuses to start with one. Lowercase, with no scheme, port or path. An attach, written with a system key holding `system:attaches`, sends the runs a person starts with a key of theirs, limited to one project, to their working copy of its code before it's deployed, at the route it names. Unset, every attach is refused (`attach-route-host-not-allowed`). Name only the hosts that serve attaches, none of `KINDGI_PACK_ENDPOINT_HOSTS`'s, so an attach never points at a deployment's pack service, and no deployment's endpoint at an attach's route. Serving one tenant, no key holds `system:attaches`, so it's unused there.",
+    example: 'attach.example.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+  },
+  {
     name: 'KINDGI_PACK_ENDPOINT_KMS_KEY',
     description:
       "Used from runtime 0.4.0; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the key each deployment's endpoint token is sealed under in the database. Its shape picks the KMS. **Cloud KMS:** `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`, a symmetric encryption key; the server's service account needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on it. **Azure Key Vault:** `https://<vault>.vault.azure.net/keys/<name>`, an RSA key; the server's identity needs Key Vault Crypto Service Encryption User on it. Without a version either way: a token is sealed with the key's current version, so the key can rotate. Unset, the tokens are sealed under the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start without it. Setting it on a server whose endpoints are already recorded, or changing it, leaves each of those unreadable, sealed under the secrets' own key or the old one: its calls fail until its endpoint is recorded again. The orchestrator records only pending or cleared endpoints, so deploy each pack again, or clear each ready endpoint (`DELETE /v1/system/tenants/<tenant>/deployments/<deployment>/endpoint`) for the orchestrator to make its service anew. Any other value stops the server at boot, naming both shapes.",

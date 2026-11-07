@@ -37,13 +37,14 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
 
 /**
  * The scopes a system key can hold, each the least one service needs.
- * `kindgi:system` holds them all, but for one read. None of them reads
- * customer content (runs, conversations, memory, files);
- * `system:tenants:contacts` reads account contacts only, and
+ * `kindgi:system` holds them all, but for one read and `system:attaches`.
+ * None of them reads customer content (runs, conversations, memory,
+ * files); `system:tenants:contacts` reads account contacts only, and
  * `system:pack-env` reads the env values a deployment's pack declares. Its
  * secrets' values are given only when asked (`?secrets=values`), each
  * audited, and only to a key holding `system:pack-env` itself, never to
- * one holding `kindgi:system`.
+ * one holding `kindgi:system`. `system:attaches` is used only by a key
+ * holding it itself, too.
  */
 export const SYSTEM_SCOPES = [
   /** Create, list, read, rename and close tenants. */
@@ -79,6 +80,14 @@ export const SYSTEM_SCOPES = [
    * of its own: the orchestrator's key reads values and sets none.
    */
   'system:env-refs',
+  /**
+   * A project's attaches: what sends the runs a person starts with one key
+   * of theirs, limited to the project, to their working copy of its code
+   * before it's deployed. Only a key holding it itself may use it, never
+   * one holding `kindgi:system` (`ownSystemScope`), and no key holds it on
+   * a runtime serving one tenant.
+   */
+  'system:attaches',
   /** Usage across tenants: counts and sums only. */
   'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */

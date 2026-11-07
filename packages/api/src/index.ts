@@ -67,6 +67,7 @@ export {
 } from './system.js';
 export type { SystemPrincipal, SystemScope } from './system.js';
 export {
+  ownSystemScope,
   requireFullSystem,
   requireSystemScope,
   systemPrincipalFence,
@@ -95,6 +96,14 @@ export {
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
 export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
+export { checkPackIndex } from './routes/deployments.js';
+export type {
+  DeployedImage,
+  PackIndexCheck,
+  PackIndexCheckOptions,
+  ValidatedPrimitives,
+  ValidationDetail,
+} from './routes/deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
