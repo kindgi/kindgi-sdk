@@ -281,8 +281,9 @@ approvals for anything an agent could do with what it read.
 - Never declare it on a tool that writes, sends or deletes. A dry run would
   then run it for real, and an agent could run it at the same time as other
   calls.
-- A tool from an [MCP server](../mcp-servers/) always counts as one that
-  changes things: it doesn't run in a dry run.
+- A tool from an [MCP server](../mcp-servers/) counts as one that may
+  change things, so it doesn't run in a dry run, unless its endpoint lists
+  it as read-only ([Name its read-only tools](../mcp-servers/#name-its-read-only-tools)).
 
 ## Next
 
