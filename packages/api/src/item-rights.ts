@@ -119,7 +119,10 @@ export interface ItemRights {
     kind: OrderItemKind,
     id: string,
   ): Promise<EnvironmentOrderLocation | undefined>;
-  /** `multi` for a page's items, in one ask: the ids more than one project serves. */
+  /**
+   * `multi` for a page's items, in one ask, or none for the items the
+   * request has asked already: the ids more than one project serves.
+   */
   multiOfMany(
     c: Ctx,
     kind: OrderItemKind,
@@ -247,24 +250,57 @@ export function createItemRights(
   orders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
 ): ItemRights {
   // What one request has asked already: an item's projects are asked once,
-  // though its middleware and its handler both need them.
+  // though its middleware and its handler both need them, or a page and
+  // then its rows' versions.
   const asked = new WeakMap<Request, Map<string, Promise<unknown>>>();
-  function once<T>(c: Ctx, key: string, ask: () => Promise<T>): Promise<T> {
+  function seenBy(c: Ctx) {
     let seen = asked.get(c.req.raw);
     if (seen === undefined) {
       seen = new Map();
       asked.set(c.req.raw, seen);
     }
+    return seen;
+  }
+  function once<T>(c: Ctx, key: string, ask: () => Promise<T>): Promise<T> {
+    const seen = seenBy(c);
     const found = seen.get(key);
     if (found !== undefined) return found as Promise<T>;
     const answer = ask();
     seen.set(key, answer);
     return answer;
   }
+  const projectsKey = (kind: OrderItemKind, id: string) => `projects ${kind} ${id}`;
   function projects(c: Ctx, kind: OrderItemKind, id: string) {
-    return once(c, `projects ${kind} ${id}`, () =>
+    return once(c, projectsKey(kind, id), () =>
       binding.projectsOf({ tenantId: tenantOf(c), kind, id }),
     );
+  }
+
+  /**
+   * `projects` for a page of one kind's items: those the request hasn't
+   * asked yet in one `projectsOfMany`, the others as already asked. An id
+   * that names no item is missing from the map.
+   */
+  async function projectsOfMany(c: Ctx, kind: OrderItemKind, ids: readonly string[]) {
+    const seen = seenBy(c);
+    const unique = [...new Set(ids)];
+    const fresh = unique.filter((id) => !seen.has(projectsKey(kind, id)));
+    if (fresh.length > 0) {
+      const page = binding.projectsOfMany({ tenantId: tenantOf(c), kind, ids: fresh });
+      for (const id of fresh) {
+        seen.set(
+          projectsKey(kind, id),
+          page.then((answer) => answer.get(id)),
+        );
+      }
+    }
+    const of = new Map<string, readonly ProjectId[]>();
+    for (const [id, found] of await Promise.all(
+      unique.map(async (id) => [id, await projects(c, kind, id)] as const),
+    )) {
+      if (found !== undefined) of.set(id, found);
+    }
+    return of;
   }
 
   async function multi(c: Ctx, kind: OrderItemKind, id: string) {
@@ -288,12 +324,7 @@ export function createItemRights(
   }
 
   async function multiOfMany(c: Ctx, kind: OrderItemKind, ids: readonly string[]) {
-    if (ids.length === 0) return new Map<string, readonly ProjectId[]>();
-    const of = await binding.projectsOfMany({
-      tenantId: tenantOf(c),
-      kind,
-      ids: [...new Set(ids)],
-    });
+    const of = await projectsOfMany(c, kind, ids);
     return new Map([...of].filter(([, projects]) => projects.length > 1));
   }
 
@@ -395,11 +426,7 @@ export function createItemRights(
     how: ItemRows<T>,
   ): Promise<T[]> {
     if (rows.length === 0) return [];
-    const of = await binding.projectsOfMany({
-      tenantId: tenantOf(c),
-      kind,
-      ids: [...new Set(rows.map(how.idOf))],
-    });
+    const of = await projectsOfMany(c, kind, rows.map(how.idOf));
     const projectsOf = (row: T) => {
       const projects = of.get(how.idOf(row));
       return projects !== undefined && projects.length > 1 ? projects : undefined;
