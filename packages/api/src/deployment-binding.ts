@@ -632,6 +632,19 @@ export interface DeploymentRegisterInput {
   readonly publishedAt: string;
   /** In the signed envelope when the deploy sent it; the binding keeps it verbatim. */
   readonly productionEntry?: ProductionEntry;
+  /**
+   * Set when the build is promote-only, by its mark, its key id's prefix
+   * or its key's bytes (the route asks the trust list): it reaches a
+   * project in production only by promotion. A binding that keeps the
+   * workspace's projects in the same store takes the project's lock (the
+   * one named, else the default) in the registration's own step, and
+   * answers `project-in-production` without a write when that project is
+   * in production or isn't there. It keeps the flag on the row, so
+   * `ProjectBinding.setProduction` refuses a project holding one in its
+   * own step. The route checks the project before it registers; a binding
+   * that ignores the flag leaves that check the only one.
+   */
+  readonly promoteOnly?: true;
   readonly primitives: DeploymentPrimitiveCounts;
   readonly contents: DeploymentContents;
   /**
@@ -681,6 +694,14 @@ export type DeploymentRegisterOutcome =
        */
       readonly kind: 'already-registered';
       readonly deployment: Deployment;
+    }
+  | {
+      /**
+       * `promoteOnly` was set, and the project is in production or isn't
+       * there, read in the registration's own step. Nothing was written;
+       * the route answers as its own check does, `409 promote-only-build`.
+       */
+      readonly kind: 'project-in-production';
     }
   | {
       /** Any other write failure — persistence error, invalid input. */

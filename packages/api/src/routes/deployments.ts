@@ -1175,29 +1175,20 @@ export function deploymentsRouter(
 
     // A promote-only build reaches a project in production by promotion
     // only, so a deploy into one (or into one whose production can't be
-    // read) is refused. The project is the one the order check reads.
+    // read) is refused. The project is the one the order check reads. Every
+    // deploy is asked, a project in production or not: the registry asks
+    // again in its own step (`promoteOnly`), so a project put in production
+    // while this deploy runs refuses it there.
+    const promoteOnly = await promoteOnlyBuild(bindings.signingKeyRegistry, tenantId, {
+      ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+      signerKeyId: wire.signerKeyId as unknown as string,
+      publicKey: publicKeyBase64,
+    });
     if (
-      (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId)) &&
-      (await promoteOnlyBuild(bindings.signingKeyRegistry, tenantId, {
-        ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
-        signerKeyId: wire.signerKeyId as unknown as string,
-        publicKey: publicKeyBase64,
-      }))
+      promoteOnly &&
+      (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId))
     ) {
-      c.status(statusFor('promote-only-build') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'promote-only-build',
-            message: `This build reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). Deploy it into a project before this one in its environment order (a tenant admin makes one when there's none) and promote it from there; nothing was deployed.`,
-            signerKeyId: wire.signerKeyId as unknown as string,
-            ...(entryProjectId !== undefined && {
-              projectId: entryProjectId as unknown as string,
-            }),
-          },
-          requestId,
-        ),
-      );
+      return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
     }
 
     // What its agents and flows name, besides what it brings itself, must be
@@ -1543,6 +1534,7 @@ export function deploymentsRouter(
         signature: wire.signature,
         publishedAt: wire.publishedAt,
         ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+        ...(promoteOnly && { promoteOnly: true }),
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
@@ -1584,6 +1576,12 @@ export function deploymentsRouter(
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
       throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
+    }
+    if (outcome.kind === 'project-in-production') {
+      // The project went into production after the check above: the
+      // registry's own step saw it, and nothing was recorded.
+      await rollback(rolled, c.get('log'));
+      return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
     }
     if (outcome.kind === 'already-registered') {
       // Digest-based idempotency: same digest already recorded. Roll back
@@ -1936,6 +1934,31 @@ type ParsedSyncEntry =
 // ------------------------------------------------------------
 // Promote-only builds
 // ------------------------------------------------------------
+
+/**
+ * The refusal of a promote-only build deployed into a project in
+ * production, or one whose production can't be read: `409
+ * promote-only-build`, nothing deployed.
+ */
+function promoteOnlyDeployResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  signerKeyId: SigningKeyId,
+  projectId: ProjectId | undefined,
+) {
+  c.status(statusFor('promote-only-build') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'promote-only-build',
+        message: `This build reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). Deploy it into a project before this one in its environment order (a tenant admin makes one when there's none) and promote it from there; nothing was deployed.`,
+        signerKeyId: signerKeyId as unknown as string,
+        ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+      },
+      requestId,
+    ),
+  );
+}
 
 /**
  * Whether `projectId` is in production, or its production can't be read

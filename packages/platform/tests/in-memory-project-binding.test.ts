@@ -6,7 +6,7 @@
  * in-memory reference adapter.
  */
 
-import type { ProjectId, TenantId } from '@kindgi/types';
+import type { ProjectId, SigningKeyId, TenantId } from '@kindgi/types';
 
 import { makeInMemoryProjectBinding } from '../src/in-memory/project-binding.js';
 import {
@@ -18,17 +18,33 @@ runProjectBindingConformance(
   () => {
     // The tenant's limit where the binding reads it, as a runtime keeps it beside the tenant.
     const limits = new Map<TenantId, number>();
+    // The promote-only builds deployed into each project, as the deployments' store keeps them.
+    const held = new Map<string, { deploymentId: string; signerKeyId: SigningKeyId }>();
+    const key = (tenantId: TenantId, projectId: ProjectId) => `${tenantId}::${projectId}`;
     return {
-      ...makeInMemoryProjectBinding({ productionLimit: (tenantId) => limits.get(tenantId) }),
+      ...makeInMemoryProjectBinding({
+        productionLimit: (tenantId) => limits.get(tenantId),
+        promoteOnlyDeployment: (tenantId, projectId) => held.get(key(tenantId, projectId)),
+      }),
       setProductionLimit: (tenantId, limit) => {
         if (limit === undefined) limits.delete(tenantId);
         else limits.set(tenantId, limit);
         return Promise.resolve();
       },
+      deployPromoteOnly: (tenantId, projectId, deployment) => {
+        if (!held.has(key(tenantId, projectId))) held.set(key(tenantId, projectId), deployment);
+        return Promise.resolve();
+      },
     };
   },
   'InMemoryProjectBinding',
-  { production: true, productionLimit: true, repoConnection: true, testProjects: true },
+  {
+    production: true,
+    productionLimit: true,
+    promoteOnlyBuilds: true,
+    repoConnection: true,
+    testProjects: true,
+  },
 );
 // With an org check: every org but the missing one is the tenant's.
 runProjectBindingConformance(
