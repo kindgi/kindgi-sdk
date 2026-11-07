@@ -420,8 +420,8 @@ object CheckToken {
 - To read one environment's secret wherever the tool runs, add `envName`,
   for example `{ envName: 'staging', name: 'HTTPBIN_TOKEN' }`. Under
   `kindgi dev`, any name other than `local` is that environment's file,
-  `.env.<name>`. A runtime that keeps its values under the environment it
-  serves only refuses a tool that names another (`env-not-served`).
+  `.env.<name>`. A runtime that keeps its values only under the environment
+  it serves refuses a tool that names another (`env-not-served`).
 - A secret a header can't carry, such as a value pasted with a line break
   inside it, fails the call by its header's name, never showing the value:
 
