@@ -19,6 +19,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   a wait that isn't an approval's, a connect's or one of `tokens`, or whose
   approval, connect or token can't be read. What you pass or read doesn't
   change.
+- `kindgi`: **a deployment can be promote-only.**
+  `DeploymentRegistrationBody.production_entry` and
+  `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
+  mark of a build that reaches a project in production only by promotion. A
+  deploy of one into a project in production is `409 promote-only-build`.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

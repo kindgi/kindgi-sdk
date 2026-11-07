@@ -574,6 +574,7 @@
           "cloud-secret-system-only": 403,
           "project-in-another-order": 409,
           "environment-takes-promotions": 409,
+          "promote-only-build": 409,
           "project-in-environment-order": 409,
           "org-has-environment-order": 409,
           "promotion-not-next-environment": 409,
@@ -21444,6 +21445,13 @@
             "format": "date-time",
             "description": "Issuer-supplied timestamp inside the signed envelope."
           },
+          "productionEntry": {
+            "type": "string",
+            "enum": [
+              "promote-only"
+            ],
+            "description": "Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way."
+          },
           "activatedAt": {
             "type": "string",
             "format": "date-time",
@@ -22229,12 +22237,19 @@
           },
           "signature": {
             "type": "string",
-            "description": "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }) with sorted keys, no whitespace, UTF-8."
+            "description": "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8."
           },
           "publishedAt": {
             "type": "string",
             "format": "date-time",
             "description": "Issuer-supplied ISO-8601 timestamp — covered by the signature."
+          },
+          "productionEntry": {
+            "type": "string",
+            "enum": [
+              "promote-only"
+            ],
+            "description": "Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there."
           },
           "projectId": {
             "type": "string",
@@ -59798,7 +59813,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (`KINDGI_TENANCY=multi`), where each workspace deploys only its own images: `image-not-allowed`, the image is outside the workspace's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (`KINDGI_TENANCY=multi`), where each workspace deploys only its own images: `image-not-allowed`, the image is outside the workspace's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check. Or `promote-only-build`: the build is promote-only (the body's `productionEntry`, or a signing key whose id starts with `kindgi-promote-only:` or that has the public key of one the workspace has trusted), and the project is in production, or its production can't be read. It reaches production only by promotion: deploy it into a project before this one in its environment order, then promote it (`details.signerKeyId`, `details.projectId`). Nothing was deployed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65368,7 +65383,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `promote-only-build`: a promote-only build was deployed into the project (not promoted there), so the project can't go into production (`details.deploymentId`, `details.signerKeyId`, `details.projectId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -65418,7 +65433,7 @@
             }
           }
         },
-        "description": "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+        "description": "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. Putting a project in production is refused with 409 `promote-only-build` while a promote-only build was deployed into it (not promoted there), whether it serves or not: such a build reaches a project in production only by promotion, so that project never goes into production. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
         "parameters": [
           {
             "name": "projectId",
