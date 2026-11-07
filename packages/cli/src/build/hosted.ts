@@ -67,13 +67,27 @@ export function retryAfterSeconds(header: string | null): number | undefined {
   return Number(header.trim());
 }
 
-/** How a refusal reads on stderr: its message, its code, and the wait it asked. */
+/**
+ * How a refusal reads on stderr: its message, its code, and the wait it
+ * asked. The service's message ends as a sentence, with a full stop added
+ * when it has none, so the wait after it reads as a sentence of its own.
+ */
 export function describeBuildRefusal(refusal: BuildServiceRefusal): string {
+  const message = refusal.message.trim();
+  const said = message === '' ? '.' : `: ${asSentence(message)}`;
   const wait =
     refusal.retryAfterSeconds !== undefined
       ? ` Try again in ${refusal.retryAfterSeconds} s.`
       : '';
-  return `The build service refused the build (HTTP ${refusal.status}, ${refusal.code}): ${refusal.message}${wait}\n`;
+  return `The build service refused the build (HTTP ${refusal.status}, ${refusal.code})${said}${wait}\n`;
+}
+
+/**
+ * `text` with a full stop after it, unless it already ends a sentence
+ * (a closing quote or bracket may follow the stop).
+ */
+function asSentence(text: string): string {
+  return /[.!?]["')\]]*$/.test(text) ? text : `${text}.`;
 }
 
 function mebibytes(bytes: number): string {
