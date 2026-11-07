@@ -13,13 +13,13 @@ import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
-import { userPrincipal } from '@kindgi/authz';
+import { type Action, type Decision, type ResourceRef, userPrincipal } from '@kindgi/authz';
 import type { ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
-import type { Authorizer } from '../src/middleware/authorize.js';
+import { type Authorizer, createAuthorizer } from '../src/middleware/authorize.js';
 import { schedulesRouter } from '../src/routes/schedules.js';
 import type { AppEnv } from '../src/types.js';
 
@@ -707,16 +707,54 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
   }
 
   /**
+   * The API's own authorizer (`createAuthorizer`), over a store that allows
+   * only what `grants()` holds and can't be reached for what `unreachable()`
+   * holds: the answers a route really gets, their status and headers too.
+   */
+  function storeBacked(
+    grants: () => readonly string[],
+    unreachable: () => readonly string[],
+    checked: string[],
+  ): Authorizer {
+    const decide = (action: Action, r: ResourceRef): Decision => {
+      const asked = `${action} ${r.type}:${r.id}`;
+      checked.push(asked);
+      if (unreachable().includes(asked)) {
+        throw Object.assign(new Error("the authorization store couldn't be reached"), {
+          code: 'authz-backend-unavailable',
+        });
+      }
+      const allowed = grants().includes(asked);
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not granted',
+        evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+      };
+    };
+    return createAuthorizer({
+      check: async (_p, action, r) => decide(action, r),
+      checkBatch: async (_p, action, rs) => rs.map((r) => decide(action, r)),
+    });
+  }
+
+  /**
    * An improve schedule for acme.scorer, registered with `publish` on it and
    * `write` on the project by `registrant` (a person; absent, there's no
    * principal, so it's shared), then called by `caller` (the registrant
-   * unless named) holding `granted`.
+   * unless named) holding `granted`. With `unreachable`, the API's own
+   * authorizer answers, and the store can't be reached for those checks.
    */
-  async function asked(opts: { registrant?: string; caller?: string; granted: readonly string[] }) {
+  async function asked(opts: {
+    registrant?: string;
+    caller?: string;
+    granted: readonly string[];
+    unreachable?: readonly string[];
+  }) {
     const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
     const checked: string[] = [];
     let who = opts.registrant;
     let grants: readonly string[] = [WRITE, SCORER];
+    let unreachable: readonly string[] = [];
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
       c.set('tenantId' as never, tenantId as never);
@@ -728,7 +766,13 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
       '/',
       schedulesRouter(
         registry,
-        granting(() => grants, checked),
+        opts.unreachable === undefined
+          ? granting(() => grants, checked)
+          : storeBacked(
+              () => grants,
+              () => unreachable,
+              checked,
+            ),
       ),
     );
     const created = await r.request('/', {
@@ -740,6 +784,7 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
     const id = ((await created.json()) as { scheduleId: string }).scheduleId;
     who = opts.caller ?? opts.registrant;
     grants = opts.granted;
+    unreachable = opts.unreachable ?? [];
     checked.length = 0;
     const call = (method: string, path = '', body?: unknown) =>
       r.request(`/${id}${path}`, {
@@ -912,6 +957,63 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
     expect((await writer.call('POST', '/unregister')).status).toBe(403);
     expect((await writer.stored())?.status).toBe('active');
   });
+
+  test("stopping one when the store can't be reached for its project's admin answers that 503, not the 403 before it", async () => {
+    const writer = await asked({
+      registrant: OWNER,
+      caller: OTHER,
+      granted: [WRITE],
+      unreachable: [ADMIN],
+    });
+    for (const path of ['/pause', '/unregister']) {
+      writer.checked.length = 0;
+      const res = await writer.call('POST', path);
+      expect(res.status, path).toBe(503);
+      expect(res.headers.get('retry-after'), path).toBe('5');
+      expect(((await res.json()) as { error: { code: string } }).error.code, path).toBe(
+        'authz-backend-unavailable',
+      );
+      expect(writer.checked, path).toEqual([WRITE, SCORER, ADMIN]);
+    }
+    expect((await writer.stored())?.status).toBe('active');
+  });
+
+  test.each([
+    ['refused', []],
+    ["couldn't be reached", [WRITE]],
+  ] as const)(
+    "its project's admin pauses one when the project's write check before %s: a 200, with none of that check's answer",
+    async (_how, unreachable) => {
+      const admin = await asked({
+        registrant: OWNER,
+        caller: OTHER,
+        granted: [ADMIN],
+        unreachable,
+      });
+      const res = await admin.call('POST', '/pause');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('retry-after')).toBeNull();
+      expect((await admin.stored())?.status).toBe('paused');
+    },
+  );
+
+  test.each([
+    ['refused', []],
+    ["couldn't be reached", [`read project:${PROJECT}`]],
+  ] as const)(
+    "read on its agent alone reads one when the project's read check %s: a 200, with none of that check's answer",
+    async (_how, unreachable) => {
+      const reader = await asked({
+        registrant: OWNER,
+        caller: OTHER,
+        granted: ['read agent:acme.scorer'],
+        unreachable,
+      });
+      const res = await reader.call('GET');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('retry-after')).toBeNull();
+    },
+  );
 });
 
 describe('the list holds only schedules whose project the caller may read', () => {

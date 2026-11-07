@@ -1840,6 +1840,41 @@ describe('/v1/connection-choices', () => {
     expect(malformed.json.error.code).toBe('bad-input');
   });
 
+  test("removing one when the store can't be reached for its project's read answers that 503, not connection-choice-not-found", async () => {
+    const roles = projectRoles(project);
+    const made = makeApp({
+      authzCheckBinding: {
+        ...roles,
+        check: async (p, action, r) => {
+          if (action === 'read' && r.type === 'project') {
+            throw Object.assign(new Error("the authorization store couldn't be reached"), {
+              code: 'authz-backend-unavailable',
+            });
+          }
+          return roles.check(p, action, r);
+        },
+      },
+    });
+    const company = made.connected({ kind: 'company' }, tenantA, { label: 'Support' });
+    const choice = {
+      choiceId: randomUUID(),
+      tenantId: tenantA,
+      projectId: project,
+      agentId: 'acme.support',
+      app: 'google',
+      connectionId: company.connectionId,
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${ANA}`,
+      envName: 'local' as EnvName,
+    };
+    made.choices.set(choice.choiceId, choice as ConnectionChoiceRecord);
+    const res = await call(made.app, 'ana', 'DELETE', `/v1/connection-choices/${choice.choiceId}`);
+    expect(res.status).toBe(503);
+    expect(res.json.error.code).toBe('authz-backend-unavailable');
+    expect(made.choices.get(choice.choiceId)?.removedAt).toBeUndefined();
+  });
+
   test.each([
     ['no projectId', '', 'projectId'],
     ['a projectId that is not a UUID', 'projectId=acme', 'projectId'],
