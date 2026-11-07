@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { every } from 'hono/combine';
 
 import type { S3CredentialBinding } from '../s3-credential-binding.js';
 import type { AppEnv } from '../types.js';
@@ -20,17 +21,20 @@ import {
 /**
  * AWS SigV4 verification middleware for the `/s3/*` wire surface.
  * Verifies both header-based auth (`Authorization: AWS4-HMAC-SHA256 ...`)
- * and presigned URLs (`?X-Amz-Algorithm=...&X-Amz-Signature=...`). On
- * success sets `tenantId`, `bucket` and `s3AccessKeyId` on the context for
- * downstream route handlers.
+ * and presigned URLs (`?X-Amz-Algorithm=...&X-Amz-Signature=...`). Once
+ * a request is signed for its bucket, it sets `tenantId`, `bucket` and
+ * `s3AccessKeyId` on the context for what runs after it.
  *
  * The signature is re-derived from exactly what the client signed — its
  * own timestamp and only its `SignedHeaders` (see `./sigv4-verify.ts`);
  * the server clock only bounds the timestamp (±15 minutes; presigned URLs
  * until `X-Amz-Expires`). Order: parse → timestamp/scope → credential →
- * signature → bucket → body → payload hash. The body is read once,
- * under `maxBytes`, and compared with the `x-amz-content-sha256` the
- * client signed; the routes read the copy Hono keeps.
+ * signature → bucket → tenant → `beforeBody` → body → payload hash. The
+ * `beforeBody` handlers run once the tenant is known and before the body
+ * is read, so a request one of them answers is answered unread. The body
+ * is read once, under `maxBytes`, and compared with the
+ * `x-amz-content-sha256` the client signed; the routes read the copy Hono
+ * keeps.
  *
  * ## S3-style errors
  *
@@ -42,8 +46,10 @@ import {
 export function sigv4Middleware(
   binding: S3CredentialBinding,
   maxBytes: number,
+  options: { readonly beforeBody?: readonly MiddlewareHandler<AppEnv>[] } = {},
 ): MiddlewareHandler<AppEnv> {
   const underLimit = objectBodyLimit(maxBytes);
+  const beforeBody = options.beforeBody ?? [];
   return async (c, next) => {
     const req = c.req.raw;
     const method = req.method;
@@ -97,17 +103,26 @@ export function sigv4Middleware(
       );
     }
 
-    // ------------ body + payload hash verification ------------
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'DELETE') {
-      const refused = await readSignedBody(c, info, underLimit);
-      if (refused !== undefined) return refused;
-    }
-
     c.set('tenantId', credential.tenantId);
     c.set('bucket', credential.bucket);
     c.set('s3AccessKeyId', info.accessKeyId);
+    // ------------ before the body, then body + payload hash verification ------------
+    return every(...beforeBody, signedBody(info, underLimit))(c, next);
+  };
+}
+
+/** The body, read once under `underLimit` and checked against what `claim` signed; then `next`. */
+function signedBody(
+  claim: SigV4Claim,
+  underLimit: MiddlewareHandler<AppEnv>,
+): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const method = c.req.method;
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'DELETE') {
+      const refused = await readSignedBody(c, claim, underLimit);
+      if (refused !== undefined) return refused;
+    }
     await next();
-    return;
   };
 }
 

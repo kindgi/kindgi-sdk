@@ -1699,6 +1699,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   );
   // A closing or suspended tenant reads, exports and deletes; nothing else.
   v1.use('*', tenantStateGate(input.tenantStates));
+  const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
+  // Each tenant's own limits, when the runtime sets them. Its API requests
+  // a minute are counted before any body is read, so a request past the
+  // limit is refused unread.
+  const tenantLimiter =
+    input.tenantLimits !== undefined
+      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
+      : undefined;
+  if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   // A write's body is read once, as the bytes it came with, before
   // anything parses it: the checks below, idempotency and the route all
   // read that copy. An upload is read under its own size limit, any
@@ -1712,13 +1721,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
-  const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
-  // Each tenant's own limits, when the runtime sets them.
-  const tenantLimiter =
-    input.tenantLimits !== undefined
-      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
-      : undefined;
-  if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
   // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
@@ -2981,12 +2983,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const s3 = new Hono<AppEnv>();
     s3.use(
       '*',
-      sigv4Middleware(input.s3Credentials, input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+      sigv4Middleware(input.s3Credentials, input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES, {
+        // Once SigV4 names the tenant, and before the body is read: a frozen
+        // tenant's artifacts are read, not written, here too, and the
+        // tenant's API requests a minute count here too. A write either one
+        // refuses is answered unread.
+        beforeBody: [
+          tenantStateGate(input.tenantStates, { surface: 's3' }),
+          ...(tenantLimiter !== undefined ? [tenantS3RequestLimit(tenantLimiter)] : []),
+        ],
+      }),
     );
-    // A frozen tenant's artifacts are read, not written, here too.
-    s3.use('*', tenantStateGate(input.tenantStates, { surface: 's3' }));
-    // The tenant's API requests a minute count here too, once SigV4 names it.
-    if (tenantLimiter !== undefined) s3.use('*', tenantS3RequestLimit(tenantLimiter));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }
