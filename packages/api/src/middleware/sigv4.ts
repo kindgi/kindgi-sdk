@@ -123,6 +123,7 @@ function signedBody(
       if (refused !== undefined) return refused;
     }
     await next();
+    return;
   };
 }
 
