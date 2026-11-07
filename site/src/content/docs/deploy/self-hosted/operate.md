@@ -754,7 +754,8 @@ and set `server_image` to its digest.
 **If you removed someone from a project or a team on an earlier version,
 after re-adding them with another role,** they may still hold that role.
 Remove them again on 0.1.5.1: the removal now clears it. For a leftover
-`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+`owner` on a project, as a tenant admin, add the person as `owner`, then
+remove them. 0.1.6
 adds a check that finds who needs it.
 
 ### From 0.1.4 to 0.1.5
