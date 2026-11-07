@@ -604,6 +604,9 @@ pnpm exec kindgi mail-triggers get <trigger-id> <version>
   column of `list --table` shows it, empty for a trigger that has none
   yet.
 
+In the console, a mail trigger's page lists them under **Versions**
+([In the console](#in-the-console)).
+
 Whoever can read the trigger can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
 `register`, `edit` or `owner` for a take-over to another owner). Three
@@ -665,9 +668,12 @@ start empty: a project admin lists them with the CLI
 is personal to whoever made it. To have the project own it, create it with
 `--run-as=project` ([The company's mailboxes](#the-companys-mailboxes)).
 
-A trigger's page says what it does, such as "New mail in the company's
-Gmail, inbox starts the agent Support Desk (its pinned version, or the
-latest), one run per mail." Then:
+Under a trigger's title, its page says what it does, such as "New mail in
+the company's Gmail, inbox starts the agent Support Desk (its pinned
+version, or the latest), one run per mail.", and then its newest version,
+who made it and when, such as "Version 2, changed by Sam Lee, 3 Nov 2026,
+1:23 PM EST" (runtime 0.3.0 or later). The version's number opens it
+under **Versions**. Then:
 
 - **Mailbox:** whose mailbox it is, its label or folder, or **Inbox**, the
   account it reads, once it has looked (on a person's mailbox, to its
@@ -680,11 +686,22 @@ latest), one run per mail." Then:
   · Shared" when the project's own account owns it.
 - **Mail:** a summary, such as "Of its 3 mails, 2 started a run and 1 was
   skipped.", **Runs it started →**, and its latest mails, up to 50: when,
-  what happened, and the run it started. These are its
+  what happened, and the run it started, with the version of the trigger
+  it ran, such as "v1" (runtime 0.3.0 or later). These are its
   [fires](#see-what-each-mail-did) in words, such as "Over its
   runs-an-hour limit: this mail never runs", and a mail that never runs
   adds "Answer it in the mailbox." When there are more, the summary says
   "Of the last …", and `kindgi mail-triggers fires` has the older ones.
+- **Versions** (runtime 0.3.0 or later): its versions, newest first
+  ([Its versions](#its-versions)). Each one has its number, when it was
+  made, who made it and how, such as "Registered by you" or "Taken over by
+  Sam Lee", or why Kindgi made it itself, such as "Kindgi fixed it to the
+  only connection it could use.", and what changed from the version
+  before, such as "Pace", or "Its first version". A version's number opens
+  it above the table: who made it and when, what changed field by field,
+  and what it ran. On the company's mailbox, what it ran names the
+  connection it's read with (runtime 0.5.0 or later). The table sorts by
+  **Version** or **When**, and **Columns** chooses which columns it shows.
 - **Details,** folded at the foot of the page: its trigger id, its owner,
   the account, its tools allowed unattended, and when it was made.
 
