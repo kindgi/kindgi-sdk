@@ -29,14 +29,16 @@ export interface RunSnapshotWriteInput {
   readonly participantId?: string;
   readonly dryRun?: boolean;
   /**
-   * Optional serialized Principal (authorization). Impls MUST persist
-   * unchanged and return it verbatim from `read` so resumed turns get
-   * the same enforcement context. Wire shape is opaque to this layer.
+   * Optional serialized Principal (authorization): who the turn acts
+   * for. A store that keeps it with the run's record instead may ignore
+   * it here, as long as `read` answers the run's. Wire shape is opaque
+   * to this layer.
    */
   readonly principal?: unknown;
   /**
-   * Optional authz config (`{ fgaApiUrl }`). Same persistence contract
-   * as `principal`.
+   * Optional authz config (`{ fgaApiUrl }`). Impls MUST persist it
+   * unchanged and return it verbatim from `read`, so resumed turns get
+   * the same enforcement context.
    */
   readonly authz?: unknown;
   /** The turn's replay marker (`InvokeAgentInput.replay`): a resumed replay stays one. */
@@ -81,6 +83,10 @@ export interface RunSnapshotRecord {
   readonly input?: unknown;
   readonly participantId?: string;
   readonly dryRun: boolean;
+  /**
+   * Who started the turn's run, as recorded when it started: a resumed
+   * turn acts for it, never for whoever resumes it.
+   */
   readonly principal?: unknown;
   readonly authz?: unknown;
   /** The turn's replay marker (`InvokeAgentInput.replay`): a resumed replay stays one. */

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_run_snapshots" DROP COLUMN "principal";
