@@ -58,4 +58,10 @@ describe('describeBuildRefusal', () => {
     expect(describeBuildRefusal(refusal(' ', 10))).toBe(`${PREFIX}. Try again in 10 s.\n`);
     expect(describeBuildRefusal(refusal(''))).toBe(`${PREFIX}.\n`);
   });
+
+  test('a full stop inside the message does not end it', () => {
+    expect(describeBuildRefusal(refusal('One build per 10 s. Send it again', 10))).toBe(
+      `${PREFIX}: One build per 10 s. Send it again. Try again in 10 s.\n`,
+    );
+  });
 });
