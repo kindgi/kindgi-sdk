@@ -133,6 +133,13 @@ export interface ResumeAgentTurnInput {
    * `orgId`, so the resumed turn's tools and guardrails see it too.
    */
   readonly orgId?: OrgId;
+  /**
+   * `true` when the run's project is a person's own test project
+   * (`Project.testFor`). The caller resolves it from the project, as for
+   * `invokeAgent`'s `projectIsTest`, so the resumed turn reaches only
+   * what's in its project too.
+   */
+  readonly projectIsTest?: boolean;
 }
 
 /**
@@ -326,16 +333,18 @@ export type { ConnectionCallCode } from './handlers/connection-gate.js';
 /**
  * The `InvokeAgentInput` a resumed turn runs with: the one captured in its
  * snapshot at run start, the agent the caller resolved, and the org of the
- * run's project, which the caller resolves as for `invokeAgent`.
+ * run's project and whether it's a test project, which the caller resolves
+ * as for `invokeAgent`.
  */
 export function turnInputFromSnapshot(
   snapshot: RunSnapshotRecord,
-  input: Pick<ResumeAgentTurnInput, 'agent' | 'orgId'>,
+  input: Pick<ResumeAgentTurnInput, 'agent' | 'orgId' | 'projectIsTest'>,
 ): InvokeAgentInput {
   return {
     tenantId: snapshot.tenantId,
     projectId: snapshot.projectId,
     ...(input.orgId !== undefined && { orgId: input.orgId }),
+    ...(input.projectIsTest === true && { projectIsTest: true }),
     agent: input.agent,
     conversationId: snapshot.conversationId,
     userMessage: snapshot.userMessage,

@@ -70,7 +70,9 @@ export interface InvokeAgentInput {
    * (`Project.testFor`): the runtime resolves it from the project, never
    * from input. Its runs reach only what's made in it, so its turns
    * recall no fact without a project (`RetrievalRun.projectIsTest`), and
-   * the `remember` tool refuses a workspace-wide fact there.
+   * the `remember` tool refuses a workspace-wide fact there. A turn
+   * resumed after a park gets it the same way
+   * (`ResumeAgentTurnInput.projectIsTest`).
    */
   readonly projectIsTest?: boolean;
   readonly agent: Agent;
