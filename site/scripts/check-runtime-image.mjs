@@ -20,9 +20,10 @@
  *   registry.kindgi.com.
  *
  * A reference with no tag names no release, and nor does a placeholder, so
- * they're fine: `<version>`, or a tag or digest that starts with neither a
- * letter nor a digit (`…`). Emphasis or a tag right after a reference
- * (`**`, `_`, `<br/>`) isn't part of it. Release notes pages
+ * they're fine: a tag or digest that starts with neither a letter nor a
+ * digit (`<version>`, `{{kindgi.version}}`, `…`). A digest after a
+ * placeholder tag is still the pin's or fails. Emphasis or a tag right
+ * after a reference (`**`, `_`, `<br/>`) isn't part of it. Release notes pages
  * (`releases/`) aren't read, and nor are the sections in `OLDER_RELEASES`,
  * such as operate.md's steps for an older release, which name the image
  * that release ran. A section runs from its heading to the next heading of
@@ -48,11 +49,12 @@ export const OLDER_RELEASES = [
 
 /**
  * A runtime image reference, `[<registry>/]kindgi/runtime[:<tag>][@sha256:<digest>]`:
- * the registry is a host, with a port or without; the tag and the digest
- * each run to the first character that ends one in prose, code or markup.
+ * the registry is a host, with a port or without; the tag is a whole
+ * placeholder (`<version>`, `{{kindgi.version}}`) or runs, as the digest
+ * does, to the first character that ends one in prose, code or markup.
  */
 const REFERENCE =
-  /(?<![A-Za-z0-9.-])(?:([A-Za-z0-9.-]+(?::\d+)?)\/)?kindgi\/runtime(?![\w-])(?::([^\s@`'"()[\]{},;|*<>]+))?(?:@sha256:([^\s`'"()[\]{},;|*<>]+))?/g;
+  /(?<![A-Za-z0-9.-])(?:([A-Za-z0-9.-]+(?::\d+)?)\/)?kindgi\/runtime(?![\w-])(?::(<[^\s<>]*>|\{\{[^\s{}]*\}\}|[^\s@`'"()[\]{},;|*<>]+))?(?:@sha256:([^\s`'"()[\]{},;|*<>]+))?/g;
 const OLD = 'quay.io';
 const OLD_REGISTRY = /\bquay\.io\/kindgi\b/g;
 /** A reference as written: up to the first character that ends one in prose, code or markup. */

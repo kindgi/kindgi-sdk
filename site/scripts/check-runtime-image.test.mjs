@@ -49,7 +49,7 @@ test('another tag fails, in code and in prose', () => {
   );
 });
 
-test("another digest fails, with the pin's tag too", () => {
+test("another digest fails, with the pin's tag or a placeholder", () => {
   assert.deepEqual(problems(`  registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${OTHER}`), [
     `1: registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${OTHER}: digest bbbbbbbbbbbb…, not the pin's aaaaaaaaaaaa…`,
   ]);
@@ -57,6 +57,11 @@ test("another digest fails, with the pin's tag too", () => {
     `1: registry.kindgi.com/kindgi/runtime:0.3.0@sha256:${OTHER}: tag 0.3.0, not 0.4.0`,
     `1: registry.kindgi.com/kindgi/runtime:0.3.0@sha256:${OTHER}: digest bbbbbbbbbbbb…, not the pin's aaaaaaaaaaaa…`,
   ]);
+  for (const tag of ['<version>', '{{kindgi.version}}']) {
+    assert.deepEqual(problems(`registry.kindgi.com/kindgi/runtime:${tag}@sha256:${OTHER}`), [
+      `1: registry.kindgi.com/kindgi/runtime:${tag}@sha256:${OTHER}: digest bbbbbbbbbbbb…, not the pin's aaaaaaaaaaaa…`,
+    ]);
+  }
 });
 
 test('another registry fails, and so does none, which Docker reads as Docker Hub', () => {
