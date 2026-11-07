@@ -21,6 +21,7 @@ import { type Readable, finished } from 'node:stream';
 
 import { programPath } from '../program-path.js';
 import { dockerUnreachable } from './blocked.js';
+import { DEV_LICENSE_KEY_VAR } from './license-key.js';
 import { lineReader } from './lines.js';
 import { parseRecord, textLines } from './log-view.js';
 import {
@@ -55,10 +56,17 @@ export interface DockerOutcome {
 
 export interface DockerRunOptions {
   /**
-   * Written to the command's stdin, which is then closed. A secret (a
-   * registry token) goes here, never in the arguments or the environment.
+   * Written to the command's stdin, which is then closed. A secret docker
+   * reads itself (a registry token) goes here, never in the arguments.
    */
   readonly stdin?: string;
+  /**
+   * Set in the command's environment, over this process's own, which it
+   * keeps (`PATH`, `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`). A
+   * secret `docker run` hands a container by name (`--env NAME`, the
+   * license key) goes here, never in the arguments, which `ps` shows.
+   */
+  readonly env?: Readonly<Record<string, string>>;
   /** Each line as it comes, from either stream (a pull's progress). */
   readonly onLine?: (line: string) => void;
   /** Ends the command (a registry that doesn't answer); it then reports no exit code. */
@@ -85,6 +93,7 @@ export async function docker(
   return new Promise((resolve) => {
     const child = spawn(file, args, {
       stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      ...(options.env !== undefined && { env: { ...process.env, ...options.env } }),
       ...(options.signal !== undefined && { signal: options.signal }),
     });
     let stdout = '';
@@ -341,6 +350,13 @@ export interface RuntimeContainerOptions {
   readonly packDir: string;
   /** The `runtime.env` file (`docker run --env-file`). */
   readonly envFile: string;
+  /**
+   * The license key the runtime runs with (`dev/license-key.ts`): named
+   * in the arguments (`--env KINDGI_LICENSE_KEY`), its value only in the
+   * `docker run`'s environment. Never in `envFile`, which sits in the
+   * project, and never in the other docker commands.
+   */
+  readonly licenseKey?: string;
   readonly network: RuntimeNetwork;
   /** The host port the API is reached on (always on `127.0.0.1`). */
   readonly hostPort: number;
@@ -443,6 +459,8 @@ export function runtimeRunArgs(name: string, options: RuntimeContainerOptions): 
   // No --rm: a container that stops while starting is read (its logs, how
   // it exited) before kindgi dev removes it; `stop` removes it too.
   const args = ['run', '--detach', '--name', name, '--env-file', options.envFile];
+  // The name only: docker takes the value from its own environment.
+  if (options.licenseKey !== undefined) args.push('--env', DEV_LICENSE_KEY_VAR);
   if (options.owner !== undefined) args.push('--label', `${RUNTIME_OWNER_LABEL}=${options.owner}`);
   args.push('--volume', `${options.packDir}:${RUNTIME_PACK_DIR}`);
   if (options.googleCredentials !== undefined) {
@@ -537,7 +555,12 @@ export async function startRuntimeContainer(
   const phases = options.phases ?? NO_START_PHASES;
   phases.begin('container');
   await removeReplaceableRuntimeContainer(name, options);
-  const started = await run(runtimeRunArgs(name, options));
+  const started = await run(
+    runtimeRunArgs(name, options),
+    options.licenseKey !== undefined
+      ? { env: { [DEV_LICENSE_KEY_VAR]: options.licenseKey } }
+      : undefined,
+  );
   if (started.code !== 0) {
     throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
   }
