@@ -726,6 +726,103 @@ describe('errors and retries', () => {
     expect(attemptsOf(err)).toBe(3);
   });
 
+  describe('a call nothing came back from says why, from its causes', () => {
+    const url = 'https://llm.example.invalid/v1/generate';
+    const refused = (address: string) =>
+      Object.assign(new Error(`connect ECONNREFUSED ${address}`), { code: 'ECONNREFUSED' });
+
+    test('fetch failed: its cause after it', async () => {
+      const timeout = Object.assign(
+        new Error(
+          'Connect Timeout Error (attempted address: llm.acme.example:443, timeout: 10000ms)',
+        ),
+        { name: 'ConnectTimeoutError', code: 'UND_ERR_CONNECT_TIMEOUT' },
+      );
+      const thrown = new TypeError('fetch failed', { cause: timeout });
+      const err = await withoutWaiting(provider([{ throws: thrown }]).invoke(ask));
+      expect(err).toMatchObject({
+        kind: 'network',
+        status: undefined,
+        message:
+          'fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: llm.acme.example:443, timeout: 10000ms)',
+      });
+      expect(attemptsOf(err)).toBe(3);
+    });
+
+    test('the library’s "Cannot connect to API: " with an empty reason: both refused addresses', async () => {
+      // Node tries every address a host has; refused at all of them, it throws an AggregateError
+      // with an empty message, so the library's own message ends at the colon.
+      const both = Object.assign(
+        new AggregateError([refused('::1:443'), refused('127.0.0.1:443')], ''),
+        { code: 'ECONNREFUSED' },
+      );
+      const thrown = new APICallError({
+        message: 'Cannot connect to API: ',
+        url,
+        requestBodyValues: {},
+        cause: both,
+        isRetryable: true,
+      });
+      const err = await withoutWaiting(provider([{ throws: thrown }]).invoke(ask));
+      expect(err).toMatchObject({
+        kind: 'network',
+        status: undefined,
+        message:
+          'Cannot connect to API; caused by AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:443, connect ECONNREFUSED 127.0.0.1:443',
+      });
+      expect(attemptsOf(err)).toBe(3);
+    });
+
+    test('a reason the library already says is not said again', async () => {
+      const cause = refused('127.0.0.1:443');
+      const thrown = new APICallError({
+        message: `Cannot connect to API: ${cause.message}`,
+        url,
+        requestBodyValues: {},
+        cause,
+        isRetryable: true,
+      });
+      const err = await withoutWaiting(provider([{ throws: thrown }]).invoke(ask));
+      expect(err).toMatchObject({
+        kind: 'network',
+        message: 'Cannot connect to API: connect ECONNREFUSED 127.0.0.1:443',
+      });
+    });
+
+    test('a cause is masked: a secret in its URL never shows', async () => {
+      const thrown = new TypeError('fetch failed', {
+        cause: new Error(
+          'proxy refused https://llm.acme.example/v1/generate?key=AcmeKey0123456789',
+        ),
+      });
+      const err = await withoutWaiting(provider([{ throws: thrown }]).invoke(ask));
+      expect((err as Error).message).toContain('fetch failed; caused by Error: proxy refused');
+      expect((err as Error).message).toContain('?key=[redacted]');
+      expect((err as Error).message).not.toContain('AcmeKey0123456789');
+    });
+
+    test('a vendor’s answer is said as it came: its causes stay out', async () => {
+      const thrown = new APICallError({
+        message: 'Bad Request',
+        url,
+        requestBodyValues: {},
+        statusCode: 400,
+        responseBody: '{"message":"tools[0] has no name"}',
+        cause: new Error('the body was read in full'),
+        isRetryable: false,
+      });
+      const err = await provider([{ throws: thrown }])
+        .invoke(ask)
+        .catch((e: unknown) => e);
+      expect(err).toMatchObject({
+        kind: 'invalid-request',
+        status: 400,
+        message: '400 {"message":"tools[0] has no name"}',
+      });
+      expect(attemptsOf(err)).toBe(1);
+    });
+  });
+
   test('a redirect the request won’t follow: unavailable, once, saying why', async () => {
     // As undici rejects it, and the AI SDK re-wraps it as a connection failure it would retry.
     const redirect = new APICallError({
