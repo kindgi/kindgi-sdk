@@ -2495,6 +2495,60 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect(body.error.code).toBe('deployment-validation-failed');
     expect(body.error.details?.issues?.some((d) => d.primitive === 'flow')).toBe(true);
   });
+
+  // The SDKs refuse these where they're declared (a tool's version is
+  // MAJOR.MINOR.PATCH; an agent's or a flow's has no build metadata), so a
+  // pack that indexes clean never meets these refusals at deploy.
+  test.each([
+    [
+      'a tool whose version is a prerelease',
+      {
+        tools: [
+          {
+            id: 'acme.verify-citation',
+            description: 'Verify a legal citation.',
+            version: '1.0.0-rc.1',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/legal/verify-citation.js',
+          },
+        ],
+        agents: [],
+      },
+      { primitive: 'tool', index: 0, id: 'acme.verify-citation', path: '/version' },
+    ],
+    [
+      'an agent whose version carries build metadata',
+      {
+        tools: [],
+        agents: [{ id: 'acme.desk', version: '1.0.0+b1', name: 'Desk', instructions: 'Help.' }],
+      },
+      { primitive: 'agent', path: '/version', message: 'agent.version must be semver' },
+    ],
+  ])('%s → 400 deployment-validation-failed at its version', async (_name, primitives, issue) => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        guardrails: [],
+        flows: [],
+        ...primitives,
+      },
+    });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toContainEqual(expect.objectContaining(issue));
+  });
 });
 
 // ------- 500 bodies route through the central handler -------

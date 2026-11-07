@@ -75,6 +75,18 @@ describe('defineTool — schema conformance', () => {
     if (r.kind === 'err') expect(r.error.code).toBe('invalid-tool-definition');
   });
 
+  test.each(['1.2.3-beta.1', '1.2.3+b1'])(
+    'refuses %s: a tool version is MAJOR.MINOR.PATCH, as its schema says',
+    (version) => {
+      const r = defineTool(baseTool({ version }));
+      expect(r.kind === 'err' ? r.error : r).toMatchObject({
+        code: 'invalid-tool-definition',
+        message: expect.stringContaining('must be MAJOR.MINOR.PATCH (e.g., `1.2.3`)'),
+        issues: [{ path: '/version', message: 'version must be MAJOR.MINOR.PATCH' }],
+      });
+    },
+  );
+
   test('rejects unknown transport value', () => {
     const r = defineTool(baseTool({ transport: 'weird' as 'auto' }));
     expect(r.kind).toBe('err');

@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -112,8 +112,8 @@ object Citator {
 - **Id:** `<pack-id>.<tool-name>`, kebab-case, dot-namespaced.
 - **Description:** what it does and returns. The model reads it to decide
   when to call the tool. It isn't enforced, so never leave it out.
-- **Version:** the pack's (`pack.version`), or `.version("1.2.0")` (an exact
-  semver).
+- **Version:** the pack's (`pack.version`), or `.version("1.2.0")`
+  (`MAJOR.MINOR.PATCH`).
 - **Schemas:** from the case classes `Tool[Input, Output]` names. A
   parameter is a property, by its Jackson name
   (`@JsonProperty("canonical_cite")` renames one). The input must be an

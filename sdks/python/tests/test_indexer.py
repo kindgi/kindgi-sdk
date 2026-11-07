@@ -325,6 +325,13 @@ def test_config_errors(make_pack: Callable[..., Path], tmp_path: Path) -> None:
         "message": f"Config file {no_id / 'pyproject.toml'}: 'pack.id' is missing or not a non-empty string",
         "filePath": str(no_id / "pyproject.toml"),
     }
+    for bad in ("1", "1.0", "1.0.0-rc.1", "01.0.0"):
+        not_core = make_pack({}, pyproject=f'[tool.kindgi.pack]\nid = "acme"\nversion = "{bad}"\n')
+        assert run_indexer(not_core)["error"] == {
+            "code": "config-parse-failed",
+            "message": f"Config file {not_core / 'pyproject.toml'}: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '{bad}'",
+            "filePath": str(not_core / "pyproject.toml"),
+        }
     assert run_indexer(make_pack({}))["error"]["code"] == "discovery-empty"
 
 

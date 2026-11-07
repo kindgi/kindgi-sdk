@@ -41,13 +41,14 @@ import {
 const TOOL_SCHEMA_URI = 'https://kindgi.com/schemas/v1/tool.schema.json';
 
 /**
- * Exact semver regex — accepts `MAJOR.MINOR.PATCH[-PRERELEASE]`. Tool
- * VERSIONS are always exact (a tool row ships a specific semver);
- * agent bindings reference tools via `{ id, version: <range> }`
- * where the range grammar is npm-style (parsed by `semver` at
- * dispatch time).
+ * A tool's version: `MAJOR.MINOR.PATCH`, the pattern `tool.schema.json`
+ * holds a manifest to, so this check says in plain words what that one
+ * refuses. Tool VERSIONS are always exact (a tool row ships a specific
+ * version); agent bindings reference tools via `{ id, version: <range> }`
+ * where the range grammar is npm-style (parsed by `semver` at dispatch
+ * time).
  */
-const SEMVER_EXACT_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const TOOL_VERSION_RE = /^\d+\.\d+\.\d+$/;
 
 let cachedRegistry: SpecRegistry | undefined;
 function registry(): SpecRegistry {
@@ -362,24 +363,23 @@ function finalizeDefinition<
   converter: ZodConverter | undefined,
   options: DefineToolOptions,
 ): Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError> {
-  // `version` is required on every tool manifest.
-  // Deep semver grammar checked here via a lightweight regex; range
-  // parsing (for agent-side `tools[].version` refs) happens elsewhere
-  // via the `semver` library at dispatch time. This regex accepts
-  // exact semvers only — tool VERSIONS are exact (a tool ships a
-  // specific `1.2.3`); ranges live on the agent binding.
+  // `version` is required on every tool manifest: MAJOR.MINOR.PATCH, the
+  // schema's own pattern (checked again below), said here in plain
+  // words. Range parsing (for agent-side `tools[].version` refs) happens
+  // elsewhere via the `semver` library at dispatch time; ranges live on
+  // the agent binding.
   const specVersion = (spec as { readonly version?: unknown }).version;
-  if (typeof specVersion !== 'string' || !SEMVER_EXACT_RE.test(specVersion)) {
+  if (typeof specVersion !== 'string' || !TOOL_VERSION_RE.test(specVersion)) {
     return {
       kind: 'err',
       error: {
         code: 'invalid-tool-definition',
         message:
-          '`version` is required on every tool manifest and must be an exact semver (e.g., `1.2.3`, `1.2.3-beta.1`). Agent bindings then reference tools via `{ id, version: <range> }`.',
+          '`version` is required on every tool manifest and must be MAJOR.MINOR.PATCH (e.g., `1.2.3`). Agent bindings then reference tools via `{ id, version: <range> }`.',
         issues: [
           {
             path: '/version',
-            message: 'version must be a non-empty exact semver string',
+            message: 'version must be MAJOR.MINOR.PATCH',
           },
         ],
       },

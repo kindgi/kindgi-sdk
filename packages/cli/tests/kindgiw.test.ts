@@ -280,7 +280,7 @@ describe('kindgi upgrade', () => {
   test('a TypeScript pack is told to use its package manager; a bad version is refused', async () => {
     await writeFile(
       join(pack, 'kindgi.config.mjs'),
-      "export default { pack: { id: 'a', version: '1' } };\n",
+      "export default { pack: { id: 'a', version: '1.0.0' } };\n",
     );
     const ts = await runCli({ argv: ['upgrade'], env: {}, cwd: pack, home: pack });
     expect(ts.exitCode).toBe(1);

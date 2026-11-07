@@ -57,6 +57,10 @@ DEFAULT_DISCOVERY: Mapping[str, str] = {
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 """A process environment variable name, matched in full."""
 
+PACK_VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+"""`pack.version`, matched in full: MAJOR.MINOR.PATCH, a tool's own version
+rule, since a tool that sets no version takes the pack's."""
+
 RESERVED_ENV_PREFIX = "KINDGI_"
 """The prefix of the names that configure Kindgi itself; never a pack's."""
 
@@ -135,6 +139,13 @@ def load_config(pack_dir: Path, config_path: Path | None = None) -> PackConfig:
         raise ConfigError(
             "config-parse-failed",
             f"Config file {path}: 'pack.version' is missing or not a non-empty string",
+            path,
+        )
+    if not PACK_VERSION.fullmatch(version):
+        raise ConfigError(
+            "config-parse-failed",
+            f"Config file {path}: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0),"
+            f" got {version!r}",
             path,
         )
     discovery = raw.get("discovery", {})
