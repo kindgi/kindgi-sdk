@@ -911,7 +911,7 @@ async function prepareCorrection(
 
 type CorrectedRun = NonNullable<Awaited<ReturnType<RunBinding['getRun']>>>;
 
-/** Why a run can't be corrected, or made a test case: an erasure cleared it, or it has no output yet. */
+/** Why a run can't be corrected, or made a test case: an erasure cleared it, or it has no output. */
 export function unfinishedRun(
   run: CorrectedRun,
   runId: string,
@@ -920,16 +920,25 @@ export function unfinishedRun(
   if (run.contentErasedAt !== undefined) {
     return {
       code: 'run-erased',
-      message: `Run "${runId}" was erased (a person's words were removed): there's nothing to correct.`,
+      message: `Run "${runId}" was erased (a person's words were removed): its content is gone.`,
     };
   }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
-    return {
-      code: 'run-not-finished',
-      message: `Run "${runId}" has no output to correct yet (status ${run.status}).`,
-    };
+    return { code: 'run-not-finished', message: noOutput(run.status, runId) };
   }
   return undefined;
+}
+
+/**
+ * Why a run has no output, in words that fit both callers: a correction and
+ * a test case. A run that ended won't have one; only a run still going says "yet".
+ */
+function noOutput(status: CorrectedRun['status'], runId: string): string {
+  if (status === 'completed') return `Run "${runId}" completed without an output.`;
+  if (status === 'failed' || status === 'cancelled') {
+    return `Run "${runId}" ended without an output (status ${status}), and won't have one.`;
+  }
+  return `Run "${runId}" has no output yet (status ${status}).`;
 }
 
 /** The first item whose pointer finds nothing in the run's output, as its refusal. */

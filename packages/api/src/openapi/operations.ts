@@ -4110,7 +4110,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output yet.'),
+      '409': ErrorResponse(
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`).',
+      ),
       '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
     },
   },
@@ -6210,7 +6212,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
+      '409': ErrorResponse(
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`).',
+      ),
       '410': ErrorResponse(
         "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to correct.",
       ),
