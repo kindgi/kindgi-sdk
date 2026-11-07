@@ -99,13 +99,19 @@ The middleware:
 5. Compares the URL-declared bucket to the credential's `bucket`
    field. Mismatch → `403 AccessDenied` (each credential is scoped to
    one bucket).
-6. Reads the body (not for `GET`, `HEAD` or `DELETE`), at most
+6. Sets `c.set('tenantId', ...)`, `c.set('bucket', ...)` and
+   `c.set('s3AccessKeyId', ...)`, then runs its `beforeBody` handlers
+   in order. One that answers ends the request with its body unread.
+   `createApp` passes the tenant state gate (a closing or suspended
+   tenant's write is `403 AllAccessDisabled`) and then the S3 request
+   limit (past the minute, `503 SlowDown`).
+7. Reads the body (not for `GET`, `HEAD` or `DELETE`), at most
    `artifactMaxBytes` (default 100 MiB): more is `400 EntityTooLarge`.
    For header auth, verifies `x-amz-content-sha256` matches it, an
    empty body too, unless it's `UNSIGNED-PAYLOAD`: a mismatch is
    `400 XAmzContentSHA256Mismatch`.
-7. Sets `c.set('tenantId', ...)` + `c.set('bucket', ...)` for the
-   downstream S3 route handlers, which read the body step 6 read.
+8. Passes the request on to the S3 route handlers, which read the body
+   step 7 read.
 
 All auth failures return S3-style XML errors
 (`<Error><Code>...</Code>...</Error>`) with `Content-Type: application/xml`.
@@ -203,11 +209,14 @@ S3 object to its `blobId`.
 | 403  | `SignatureDoesNotMatch`          | SigV4 verification failed                |
 | 403  | `RequestTimeTooSkewed`           | Signed timestamp outside the ±15 min window |
 | 403  | `InvalidRequest`                 | Malformed SigV4 authorization            |
+| 403  | `AllAccessDisabled`              | A closing or suspended tenant's write    |
 | 400  | `AuthorizationQueryParametersError` | Malformed presigned-URL parameters    |
 | 404  | `NoSuchKey`                      | Unknown key                              |
 | 404  | `NoSuchUpload`                   | Unknown or aborted `uploadId`            |
 | 501  | `NotImplemented`                 | Unsupported operation                    |
 | 500  | `InternalError`                  | Backing store failure                    |
+| 503  | `SlowDown`                       | Past the tenant's API requests a minute (with `Retry-After`) |
+| 503  | `ServiceUnavailable`             | The tenant's state can't be read (with `Retry-After`) |
 
 ## Development
 
