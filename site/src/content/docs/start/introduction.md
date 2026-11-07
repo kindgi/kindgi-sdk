@@ -69,8 +69,8 @@ try what it wrote, and the run's journal when something fails.
   sign in with GitHub or your email address.)
 - **In your own cloud:** you deploy the same runtime image into your
   project; your data and prompts stay there.
-- **Kindgi Cloud:** we operate the runtime for you. It's in private
-  preview.
+- **Kindgi Cloud:** we operate the runtime for you
+  ([Start on Kindgi Cloud](../../hosted/start-on-kindgi-cloud/)).
 
 ## Status
 
