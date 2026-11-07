@@ -97,7 +97,7 @@ export const ERROR_ENTRIES = {
   },
   'schema-validation-failed': {
     description:
-      "The API doesn't send this code. A flow definition with this problem is answered `validation-failed`, with the problem in `details.issues`. A deployment whose pack carries such a flow is answered `deployment-validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition with this problem is answered `validation-failed`, with the problem in `details.issues`. A deployment checks less of a flow's shape: its id and version, that its nodes and edges are lists, and that its inline schemas compile. A problem there is answered `deployment-validation-failed`, with the problem in `details.issues`; a field or a shape it doesn't know is passed over.",
     details: [],
     seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },

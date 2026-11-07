@@ -59,8 +59,8 @@ from source: with kindgi-pack installed (`./mvnw -pl kindgi-pack -am install
 -DskipTests`), `sbt writeClasspath` in `fixtures/scala-pack` and in
 `fixtures/scala-invalid-flow-pack` writes its `target/classpath.txt` (Scala 3;
 `sbt "++2.13.18!" writeClasspath` for 2.13, in both). Without them, or with the
-two built on different Scala versions, the target is skipped, saying why. The Scala job sets
-`KINDGI_CONFORMANCE_SCALA=1`, under which it fails instead.
+two built on different Scala versions, the target is skipped, saying why. The
+Scala job sets `KINDGI_CONFORMANCE_SCALA=1`, under which it fails instead.
 
 A target that hasn't implemented part of the contract yet lists it in
 `unsupported` (`ConformanceFeature`, e.g. `'pack-env'`): those cases are skipped

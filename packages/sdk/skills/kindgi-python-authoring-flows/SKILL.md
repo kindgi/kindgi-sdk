@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-agents.
 type: core
 library: "kindgi (Python)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -149,8 +149,9 @@ triage_ticket = Flow(
   `flow 'acme.triage-ticket' is invalid: cycle-detected: Flow
   "acme.triage-ticket" contains a cycle: parse → classify → parse`),
   while the pack's other primitives keep serving. `kindgi build` stops
-  on it, and a deploy refuses the flow. That a ref's tool or agent
-  exists is checked when a run starts (see "Running a flow").
+  on it, and a deploy refuses a flow that fails the `defineFlow`
+  checks. That a ref's tool or agent exists is checked when a run
+  starts (see "Running a flow").
 
 ## Nodes
 

@@ -16,7 +16,7 @@ description: >
   kindgi-scala-authoring-agents.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -194,9 +194,9 @@ object TriageTicket {
   file error that says what and where (`flow 'acme.triage-ticket' is
   invalid: cycle-detected: Flow "acme.triage-ticket" contains a cycle:
   parse → classify → parse`), while the pack's other primitives keep
-  serving. `kindgi build` stops on it, and a deploy refuses the flow.
-  Whether a step's tool or agent exists is checked when a run starts (see
-  "Running a flow").
+  serving. `kindgi build` stops on it, and a deploy refuses a flow that
+  fails the `defineFlow` checks. Whether a step's tool or agent exists is
+  checked when a run starts (see "Running a flow").
 
 ## Nodes
 

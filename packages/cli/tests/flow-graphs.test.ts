@@ -271,7 +271,7 @@ describe('judgeFlowGraphs', () => {
 
 describe('writeIndexFile', () => {
   test('a rename that fails leaves no temporary file, and throws', async () => {
-    // A directory that isn't empty can't be renamed over.
+    // A file can't be renamed over a directory.
     const target = join(dir, 'index.json');
     await mkdir(join(target, 'held'), { recursive: true });
     await expect(writeIndexFile(target, indexOf([GOOD]))).rejects.toThrow();

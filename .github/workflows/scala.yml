@@ -2,10 +2,11 @@ name: Scala SDK
 
 # The Scala layer (sdks/scala, kindgi-pack-scala) on Java 17, tested on Scala 2.13 and 3.3, then the
 # pack conformance suite on its fixture pack (packages/pack-conformance/fixtures/scala-pack) and its
-# invalid-flow pack (fixtures/scala-invalid-flow-pack), built with each. It reports on every pull request and merge-queue group, so it can be a required check,
-# and does its work only when the layer, kindgi-pack (which it builds on), the fixture or the suite
-# change (the `changes` job). What would go to Maven Central is staged unsigned and checked as the
-# release checks it (scripts/check-jars.mjs).
+# invalid-flow pack (fixtures/scala-invalid-flow-pack), built with each. It reports on every pull
+# request and merge-queue group, so it can be a required check, and does its work only when the
+# layer, kindgi-pack (which it builds on), the fixtures, the suite or @kindgi/flow (which the suite
+# runs) change (the `changes` job). What would go to Maven Central is staged unsigned and checked as
+# the release checks it (scripts/check-jars.mjs).
 on:
   push:
     branches: [main]
@@ -43,9 +44,9 @@ jobs:
         run: >-
           node scripts/changed-paths.mjs
           'sdks/scala/**' sdks/java/pom.xml 'sdks/java/kindgi-pack/**' 'packages/pack-conformance/**'
-          'packages/specs/schemas/**' .github/workflows/scala.yml scripts/changed-paths.mjs
-          scripts/check-jars.mjs scripts/lib/zip.mjs scripts/lib/pom-xml.mjs scripts/text-scan.mjs
-          scripts/forbidden-names.json
+          'packages/flow/**' 'packages/specs/schemas/**' .github/workflows/scala.yml
+          scripts/changed-paths.mjs scripts/check-jars.mjs scripts/lib/zip.mjs scripts/lib/pom-xml.mjs
+          scripts/text-scan.mjs scripts/forbidden-names.json
 
   scala:
     name: Scala SDK (2.13, 3.3)
