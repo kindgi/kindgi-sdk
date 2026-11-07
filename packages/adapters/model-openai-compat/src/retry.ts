@@ -8,6 +8,7 @@ import {
   isTransport,
   modelProviderError,
   refusedConnection,
+  withCauses,
   withRetries,
 } from '@kindgi/adapter-model-shared';
 
@@ -86,9 +87,11 @@ export function describeOpenAIFailure(error: unknown): OpenAIFailure {
       ...(headers !== undefined && { headers }),
     };
   }
-  // No response reached the endpoint: a dropped connection, DNS, TLS. Retried.
+  // No response reached the endpoint: a dropped connection, DNS, TLS. Retried. The SDK's
+  // "Connection error." doesn't say why; its causes do.
   if (error instanceof APIConnectionError || isTransport(error)) {
-    return { words: error instanceof Error ? error.message : String(error), retryable: true };
+    const words = error instanceof Error ? error.message : String(error);
+    return { words: withCauses(words, error), retryable: true };
   }
   return {
     words: error instanceof Error ? error.message : String(error),
