@@ -32,9 +32,12 @@ export type { KindgiClient } from '@kindgi/client';
  * A client for the app's Kindgi runtime. Every option is optional:
  *
  * - `apiUrl` and `auth` come from `KINDGI_API_URL` and `KINDGI_API_TOKEN`;
- * - outside production, when those aren't set, from the running
+ * - outside production, when neither is set, from the running
  *   `kindgi dev` (the nearest `.kindgirc.json`), with a one-time warning to
  *   put them in the app's env file;
+ * - with only one of them set, nothing from that file, and the first call
+ *   throws, naming the file and what to set. A URL that is that
+ *   `kindgi dev`'s own is the exception: it takes the file's token;
  * - a token that doesn't match the running `kindgi dev`'s for the same
  *   `apiUrl` (after `kindgi dev --reset`) is warned about once.
  *

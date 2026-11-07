@@ -148,9 +148,11 @@ gets `` `projectId` must be a project id (a UUID) ``.
 
 Create a client. With no arguments it reads the API's URL and a token from
 `KINDGI_API_URL` and `KINDGI_API_TOKEN`, which you set in your env file
-(`.env` / `.env.local`). In development, when they aren't set, it uses the
+(`.env` / `.env.local`). In development, when neither is set, it uses the
 running `kindgi dev`, which writes both to `.kindgirc.json`, and warns once
-that you should set them. In production (`NODE_ENV` or `KINDGI_ENV` set to
+that you should set them. Set both, or neither: with only one set, it
+throws, naming the file and what to set
+([Call Kindgi from your app](../../../start/call-from-your-app/)). In production (`NODE_ENV` or `KINDGI_ENV` set to
 `production`) it never does, so set them there.
 
 Ask your coding agent: "I want my app to start runs on Kindgi." For

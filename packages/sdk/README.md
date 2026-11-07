@@ -68,9 +68,10 @@ const run = await client.runs.start({
 - in development, when those aren't set, from the running `kindgi dev`
   (the nearest `.kindgirc.json`), with a one-time warning to put them in
   your env file (`.env` / `.env.local`);
-- the two go together: with only one of them set, the client takes
-  nothing from `.kindgirc.json`, unless the URL is that `kindgi dev`'s own,
-  and throws, naming the file and what to set;
+- the two go together: with only one of them set, the client throws,
+  naming the file and what to set, and takes nothing from `.kindgirc.json`.
+  A URL that is that `kindgi dev`'s own is the exception: it takes the
+  file's token;
 - a token that doesn't match the running `kindgi dev`'s for the same URL
   (after `kindgi dev --reset`) is warned about once.
 
