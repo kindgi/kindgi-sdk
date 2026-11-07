@@ -18,8 +18,9 @@ import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, describe, expect, test } from 'vitest';
 
+import { boundedAjv } from '../src/bounded.js';
 import { compileInlineSchema } from '../src/index.js';
-import { useLinearUniqueItems } from '../src/unique-items.js';
+import { linearUniqueItems, useLinearUniqueItems } from '../src/unique-items.js';
 
 type Answer = string | null;
 type ByGroup<T> = Readonly<Record<string, Readonly<Record<string, T>>>>;
@@ -62,6 +63,15 @@ describe('`uniqueItems` on RE2, in the place Ajv’s own has', () => {
       ['type', '/2'],
     ]);
     expect(errorsOf(HOSTED_BOUNDS, schema, [{}, {}, 1])).toEqual(onV8);
+  });
+
+  test('the rule an array’s code is written from is the linear one', () => {
+    under(HOSTED_BOUNDS);
+    const arrays = boundedAjv('2020-12', { strict: true }).RULES.types.array;
+    const rules = typeof arrays === 'object' ? arrays.rules : [];
+    expect(rules.find((rule) => rule.keyword === 'uniqueItems')?.definition).toMatchObject({
+      code: linearUniqueItems().code,
+    });
   });
 
   test('an Ajv whose `uniqueItems` rule isn’t the one its array rules hold is refused', () => {
