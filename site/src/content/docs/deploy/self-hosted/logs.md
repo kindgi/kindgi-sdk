@@ -212,11 +212,12 @@ retention to match your data rules.
 
 In Python, an error your code logs is written with its message, with only
 known secret shapes masked, and a database driver's message can quote the
-statement and the values bound to it. SQLAlchemy adds the values unless the
-engine is made with `hide_parameters=True`, and psycopg keeps the server's
-`DETAIL:` line, which can quote a row's values. Where that matters, make the
-engine with `hide_parameters=True`, and log the error's SQLSTATE in a field
-rather than the error itself.
+statement and the values bound to it. SQLAlchemy adds the statement, and the
+values too unless the engine is made with `hide_parameters=True`, and psycopg
+keeps the server's `DETAIL:` line, which can quote a row's values. Where that
+matters, make the engine with `hide_parameters=True`, and log the error's
+SQLSTATE in a field rather than the error itself: a psycopg error's
+`sqlstate`, or `orig.sqlstate` on SQLAlchemy's.
 
 ## Your pack's service
 
