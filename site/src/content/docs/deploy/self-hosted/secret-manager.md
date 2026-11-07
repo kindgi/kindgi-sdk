@@ -408,8 +408,9 @@ one comes with a message that says which case it is.
   secret is still there. A revoke whose runtime stopped partway holds the
   next one off for up to 10 minutes.
 - **`500 secret-store-error`:** the secrets store or the secret manager
-  failed, or the erase in the secret manager didn't finish. Run the revoke
-  again.
+  failed, so run the revoke again, or the erase in the secret manager
+  didn't finish. The message says which. An erase that didn't finish is one
+  of these:
   - If writes to the secret kept landing while it erased, the secret stays
     revoked, so reads stop, and the hard revoke run again finishes the
     erase.
@@ -421,8 +422,8 @@ one comes with a message that says which case it is.
     longer a valid one, the secret is revoked, but its value stays in that
     secret manager. Remove it there.
 
-A write of the secret during a hard revoke (a set, a rotate, a deployment's
-secret sync or a tenant config change) gets one of two answers:
+A write of the secret during a hard revoke (a set, a deployment's secret
+sync or a tenant config change) gets one of two answers:
 
 - **`404 secret-revoked`:** the revoke overtook the write, so what it wrote
   isn't served. The message says what becomes of that value.
@@ -430,8 +431,9 @@ secret sync or a tenant config change) gets one of two answers:
   secret in your secret manager. Write it again in a few minutes. A revoke
   whose runtime stopped partway holds writes off for up to 10 minutes.
 
-A rotate of a secret that's already revoked answers `404 secret-revoked` as
-well: a revoked secret can't be rotated.
+A rotate answers `404 secret-revoked` instead, during a hard revoke or after
+any revoke: a revoked secret can't be rotated. If a hard revoke overtook the
+rotate's write, the message says what becomes of that value.
 
 ## Next
 
