@@ -401,6 +401,19 @@ const PinScopeKindQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
 };
 
+/**
+ * `scopeKind` where it names what the answer is for, not a filter: a route
+ * that takes it answers `400` without one.
+ */
+const PinScopeKindRequiredQueryParam: ParameterSpec = {
+  name: 'scopeKind',
+  in: 'query',
+  required: true,
+  description:
+    'The scope a pin would be for: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`).',
+  schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
+};
+
 const PinChangeIdPathParam: ParameterSpec = {
   name: 'changeId',
   in: 'path',
@@ -4299,7 +4312,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the workspace), at its latest active version. `releaseGate: null` when none applies.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, PinScopeKindQueryParam, ScopeIdQueryParam, SegmentQueryParam],
+    parameters: [
+      AgentIdPathParam,
+      PinScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      SegmentQueryParam,
+    ],
     responses: {
       '200': { description: 'The release gate, or null.', schema: ref('ReleaseGateResolution') },
       ...CommonAuthErrors,

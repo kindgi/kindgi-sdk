@@ -40007,8 +40007,8 @@
                 "segment"
               ]
             },
-            "required": false,
-            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+            "required": true,
+            "description": "The scope a pin would be for: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
           },
           {
             "name": "scopeId",
