@@ -12660,6 +12660,12 @@ export const DeploymentRecordSchema: JsonSchema = {
       format: 'date-time',
       description: 'Issuer-supplied timestamp inside the signed envelope.',
     },
+    productionEntry: {
+      type: 'string',
+      enum: ['promote-only'],
+      description:
+        'Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way.',
+    },
     activatedAt: {
       type: 'string',
       format: 'date-time',
@@ -13337,12 +13343,18 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
     signature: {
       type: 'string',
       description:
-        'Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }) with sorted keys, no whitespace, UTF-8.',
+        'Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8.',
     },
     publishedAt: {
       type: 'string',
       format: 'date-time',
       description: 'Issuer-supplied ISO-8601 timestamp — covered by the signature.',
+    },
+    productionEntry: {
+      type: 'string',
+      enum: ['promote-only'],
+      description:
+        "Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.",
     },
     projectId: {
       type: 'string',
