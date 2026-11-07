@@ -354,7 +354,9 @@ export interface DeploymentsRouterBindings {
    * that caches the catalogs (its tool and guardrail bridges) sees the
    * deployment at once rather than at restart. Called too for each one a
    * failed deployment's rollback undid (`rollback`), so a cache that read
-   * the deployment's write before the undo doesn't keep serving it.
+   * the deployment's write before the undo doesn't keep serving it. One
+   * whose undo failed is told too, with the same kind: a cache reads the
+   * catalog again on a notice, rather than taking its kind as what's there.
    * Advisory: a failing hook doesn't fail the deployment.
    */
   readonly onToolWrite?: ToolWriteHook;
