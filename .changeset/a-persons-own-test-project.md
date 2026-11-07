@@ -6,6 +6,7 @@
 "@kindgi/memory": patch
 "@kindgi/env-schema": patch
 "@kindgi/client": patch
+"@kindgi/testing": patch
 ---
 
 **A person's own test project.** Anyone in the workspace can make one test project of their own: `POST /v1/projects` (`client.projects.create`) takes an optional `testFor`, their own user id, and the project carries it. It's set only when the project is made, so `PATCH /v1/projects/{projectId}` refuses it with `400 bad-input`. A test project follows these rules:

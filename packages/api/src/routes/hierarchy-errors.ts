@@ -94,6 +94,18 @@ export function projectTestNeedsIsolatedRuntimeError() {
 }
 
 /**
+ * `501 project-test-unsupported`: the project store that makes this
+ * runtime's projects doesn't keep test projects (its binding has no
+ * `keepsTestProjects`), so it makes none.
+ */
+export function projectTestUnsupportedError() {
+  return {
+    code: 'project-test-unsupported',
+    message: "This runtime's project store doesn't keep test projects, so it makes none",
+  } as const;
+}
+
+/**
  * `409 project-is-a-test-project`: the change isn't one a person's own test
  * project takes. Nobody else joins it, it moves into no org, it never goes
  * into production, and it's in no environment order and has no repo

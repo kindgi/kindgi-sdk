@@ -34,7 +34,7 @@
     "StubMethods": {
       "kind": "type",
       "form": "alias",
-      "definition": "{ readonly [K in keyof T]-?: true }"
+      "definition": "{ readonly [K in keyof T as NonNullable<T[K]> extends (...args: never[]) => unknown ? K : never]-?: true }"
     }
   }
 }

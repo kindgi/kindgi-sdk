@@ -37,6 +37,7 @@ import {
   projectTestAlreadyExistsError,
   projectTestNeedsIsolatedRuntimeError,
   projectTestNotYoursError,
+  projectTestUnsupportedError,
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
@@ -157,12 +158,7 @@ export function projectsRouter(
   ): { readonly code: string; readonly message: string } | undefined {
     const shape = testShapeRefusal(b);
     if (shape !== undefined) return shape;
-    if (!keepsTestProjects) {
-      return {
-        code: 'project-test-unsupported',
-        message: "This runtime's project store doesn't keep test projects, so it makes none",
-      };
-    }
+    if (!keepsTestProjects) return projectTestUnsupportedError();
     const principal = c.get('principal') as Principal | undefined;
     if (principal?.actor.kind !== 'user' || (principal.actor.id as string) !== b.testFor) {
       return projectTestNotYoursError(
