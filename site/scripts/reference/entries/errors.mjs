@@ -3861,8 +3861,9 @@ export const ERROR_ENTRIES = {
   },
   'secret-provider-unavailable': {
     description:
-      "The external secret provider can't be reached, or the active secrets store can't do provider-driven rotation, so send the new value yourself.",
+      "The external secret provider can't be reached, or the active secrets store can't do provider-driven rotation, so send the new value yourself. A set, or another hard revoke, also gets it while a hard revoke is still erasing the secret: try again in a few minutes.",
     details: [],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-provider-unauthorized': {
     description:
