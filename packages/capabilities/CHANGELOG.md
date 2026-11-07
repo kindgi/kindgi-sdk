@@ -1,5 +1,23 @@
 # @kindgi/capabilities
 
+## 0.5.0
+
+### Patch Changes
+
+- 6421d6f: The server's messages call the place a workspace, as the console and the CLI do. Among them are the lookups that find nothing in it, the slug conflicts, its limits and policies (the model router's reasons among them), its render and compile budgets, and the pack service's `KINDGI_PACK_TENANT_ID` checks. What you match on keeps `tenant`: the error codes, `tenantId`, the scope value `tenant` and the paths. So do the tenant admin role and the system routes' messages, which are for the operator of a runtime that serves several workspaces. A rename's answer follows its route: `PATCH /v1/tenant` says workspace, and the operator's `PATCH /v1/system/tenants/{tenantId}` says tenant.
+- af5b037: When a turn merges the `tenantPolicy` bound to it with the policy its `policyRegistry` yields, it now keeps the larger `maxTokensPerCall`. That field is the smallest context window a picked model must have, so keeping the smaller value let the weaker policy win. Now a model whose context window is below either policy's isn't picked. The `TenantPolicy` docs now say what both fields check. `maxCostPerCallUsd` is the highest prompt price per 1K tokens a picked model may have, not what a call costs. `maxTokensPerCall` is the smallest context window it must have, not the tokens a call uses. When no model routes, a `capability-unsatisfiable` error's `requirement` names them the same way, for example `tenant.maxCostPerCallUsd: promptUsdPer1kTokens<=0.5` and `tenant.maxTokensPerCall: contextWindow>=100000`. The context window's message now reads "workspace minimum".
+- 1ed72e3: The doc comments and READMEs call the place a workspace, as the console does, and so do the npm descriptions of `@kindgi/capabilities`, `@kindgi/memory` and `@kindgi/policy-contract` and the types package's `SPEC.md`. What you type keeps `tenant`: `tenantId`, `TenantId` and `forTenant`. So does the multi-tenant text.
+- 1365f49: The spec schemas' descriptions, the doc text of the types a pack author reads, and the indexer's `check-id-unprefixed` warning call the place a workspace, as the console does. The policy spec's title is Workspace policy. What you type keeps `tenant`: `tenantId`, the `kindgi-tenant-id` header, `KINDGI_PACK_TENANT_ID`, the scope and context-slot value `tenant`, and error codes such as `pack-tenant-mismatch`. So does the multi-tenant text: a cross-tenant call is still refused by that name.
+- Updated dependencies [6421d6f]
+- Updated dependencies [6279526]
+- Updated dependencies [25d902a]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [8327900]
+- Updated dependencies [1365f49]
+  - @kindgi/schema@0.5.0
+  - @kindgi/platform@0.5.0
+  - @kindgi/types@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

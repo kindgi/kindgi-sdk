@@ -1,5 +1,41 @@
 # @kindgi/secrets-dotenv
 
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies [6421d6f]
+- Updated dependencies [64f9f38]
+- Updated dependencies [b095fe4]
+- Updated dependencies [5461b4e]
+- Updated dependencies [cde9433]
+- Updated dependencies [04813e4]
+- Updated dependencies [e96b83b]
+- Updated dependencies [2251f96]
+- Updated dependencies [c104300]
+- Updated dependencies [9b65483]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [3b5216b]
+- Updated dependencies [f3a6c97]
+- Updated dependencies [c430e06]
+- Updated dependencies [3360533]
+- Updated dependencies [054e09f]
+- Updated dependencies [6d3018f]
+- Updated dependencies [ea5b156]
+- Updated dependencies [363dd24]
+- Updated dependencies [6279526]
+- Updated dependencies [fda29c0]
+- Updated dependencies [fda6124]
+- Updated dependencies [f3d8f7d]
+- Updated dependencies [25d902a]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [8327900]
+- Updated dependencies [1365f49]
+  - @kindgi/api@0.5.0
+  - @kindgi/platform@0.5.0
+  - @kindgi/types@0.5.0
+  - @kindgi/dotenv-file@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @kindgi/types
 
+## 0.5.0
+
+### Patch Changes
+
+- 25d902a: `@kindgi/types` exports `UUID_RE`, the one check of a UUID id's shape: 8-4-4-4-12 hex digits, any version, either case. The API's id checks, the CLI's project and connection references, the calendar tools' event ids, `KINDGI_PACK_TENANT_ID`'s check and the SDK's webhook event `uuid` format now all use it, and each accepts exactly what it accepted before. `@kindgi/env-schema` now depends on `@kindgi/types` for it, and `@kindgi/types` has no dependencies.
+- 1ed72e3: The doc comments and READMEs call the place a workspace, as the console does, and so do the npm descriptions of `@kindgi/capabilities`, `@kindgi/memory` and `@kindgi/policy-contract` and the types package's `SPEC.md`. What you type keeps `tenant`: `tenantId`, `TenantId` and `forTenant`. So does the multi-tenant text.
+- 1365f49: The spec schemas' descriptions, the doc text of the types a pack author reads, and the indexer's `check-id-unprefixed` warning call the place a workspace, as the console does. The policy spec's title is Workspace policy. What you type keeps `tenant`: `tenantId`, the `kindgi-tenant-id` header, `KINDGI_PACK_TENANT_ID`, the scope and context-slot value `tenant`, and error codes such as `pack-tenant-mismatch`. So does the multi-tenant text: a cross-tenant call is still refused by that name.
+
 ## 0.4.0
 
 ### Patch Changes

@@ -1,5 +1,31 @@
 # @kindgi/handler-runtime
 
+## 0.5.0
+
+### Patch Changes
+
+- c8395f7: `kindgi dev` on a pack with no primitives yet no longer leaves the runtime warning that the pack service isn't answering. No pack service starts until the first primitive, so the runtime's check at startup found nothing to answer it. Now the local pack service answers that check for the pack: its id and version from the config, no tools and no checks. So the runtime's startup line names the pack with 0 tools and 0 checks. The first primitive starts the pack service as before. In `@kindgi/handler-runtime`, the pack service supervisor has `serveEmpty(pack)`. While no child serves, `GET /v1/info` answers 200 with that pack, no tools and no checks, and `artifactVersion` `none`. `/readyz` and calls still answer 503, and the next `start` or `stop` ends it. Its argument's type, `PackIdentity`, is exported from `@kindgi/handler-runtime/pack-service`.
+- 1ed72e3: The doc comments and READMEs call the place a workspace, as the console does, and so do the npm descriptions of `@kindgi/capabilities`, `@kindgi/memory` and `@kindgi/policy-contract` and the types package's `SPEC.md`. What you type keeps `tenant`: `tenantId`, `TenantId` and `forTenant`. So does the multi-tenant text.
+- 1365f49: The spec schemas' descriptions, the doc text of the types a pack author reads, and the indexer's `check-id-unprefixed` warning call the place a workspace, as the console does. The policy spec's title is Workspace policy. What you type keeps `tenant`: `tenantId`, the `kindgi-tenant-id` header, `KINDGI_PACK_TENANT_ID`, the scope and context-slot value `tenant`, and error codes such as `pack-tenant-mismatch`. So does the multi-tenant text: a cross-tenant call is still refused by that name.
+- Updated dependencies [6421d6f]
+- Updated dependencies [04813e4]
+- Updated dependencies [215b6c1]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [f3515c2]
+- Updated dependencies [71c4e12]
+- Updated dependencies [fda29c0]
+- Updated dependencies [25d902a]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [8327900]
+- Updated dependencies [1365f49]
+  - @kindgi/env-schema@0.5.0
+  - @kindgi/schema@0.5.0
+  - @kindgi/tools@0.5.0
+  - @kindgi/log@0.5.0
+  - @kindgi/types@0.5.0
+  - @kindgi/flow@0.5.0
+  - @kindgi/sandbox@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

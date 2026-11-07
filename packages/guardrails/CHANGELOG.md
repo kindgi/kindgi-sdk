@@ -1,5 +1,25 @@
 # @kindgi/guardrails
 
+## 0.5.0
+
+### Patch Changes
+
+- 95494bb: An agent that lists a guardrail more than once now runs its check once a step, so an llm-judge check is called, and billed, once. An unknown id listed twice is named once in `unresolved-guardrail`. A retried step whose guardrail checks came to none now records that, so the outcome counts hold only the last attempt's checks; a first attempt with none still writes nothing. A `GuardrailOutcomeSink` of your own gets that record with empty `checks`, and should leave the step with no outcomes, as recording a step again replaces what it recorded. Each step of a turn now removes the listener it adds to its run's abort signal when it settles, so a turn of more than ten steps no longer logs `MaxListenersExceededWarning`.
+- 6421d6f: The server's messages call the place a workspace, as the console and the CLI do. Among them are the lookups that find nothing in it, the slug conflicts, its limits and policies (the model router's reasons among them), its render and compile budgets, and the pack service's `KINDGI_PACK_TENANT_ID` checks. What you match on keeps `tenant`: the error codes, `tenantId`, the scope value `tenant` and the paths. So do the tenant admin role and the system routes' messages, which are for the operator of a runtime that serves several workspaces. A rename's answer follows its route: `PATCH /v1/tenant` says workspace, and the operator's `PATCH /v1/system/tenants/{tenantId}` says tenant.
+- 1ed72e3: The doc comments and READMEs call the place a workspace, as the console does, and so do the npm descriptions of `@kindgi/capabilities`, `@kindgi/memory` and `@kindgi/policy-contract` and the types package's `SPEC.md`. What you type keeps `tenant`: `tenantId`, `TenantId` and `forTenant`. So does the multi-tenant text.
+- 1365f49: The spec schemas' descriptions, the doc text of the types a pack author reads, and the indexer's `check-id-unprefixed` warning call the place a workspace, as the console does. The policy spec's title is Workspace policy. What you type keeps `tenant`: `tenantId`, the `kindgi-tenant-id` header, `KINDGI_PACK_TENANT_ID`, the scope and context-slot value `tenant`, and error codes such as `pack-tenant-mismatch`. So does the multi-tenant text: a cross-tenant call is still refused by that name.
+- Updated dependencies [6421d6f]
+- Updated dependencies [af5b037]
+- Updated dependencies [25d902a]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [8327900]
+- Updated dependencies [1365f49]
+  - @kindgi/capabilities@0.5.0
+  - @kindgi/schema@0.5.0
+  - @kindgi/types@0.5.0
+  - @kindgi/compliance@0.5.0
+  - @kindgi/bounds@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes
