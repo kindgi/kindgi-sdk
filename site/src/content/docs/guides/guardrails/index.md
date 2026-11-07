@@ -30,7 +30,8 @@ each answer the model writes.
   the model was given too, so its check can compare an answer with what an
   earlier turn said or fetched
   ([See the earlier turns](write-a-guardrail/#see-the-earlier-turns)).
-  Python, Java and Scala guardrails have no `sees`.
+  A Python, Java or Scala pack's guardrail can't set `sees`; a guardrail
+  registered through the API can.
 - **What a check keeps in memory doesn't last.** It lives in the process
   that runs the pack's code. `kindgi dev` loses it on every reload and
   restart, and a deployment loses it whenever an instance stops. With more

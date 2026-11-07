@@ -133,35 +133,15 @@ export function buildRunTrace(input: {
   const replyOf = new Map<string, number>();
 
   for (const msg of input.appended) {
-    if (msg.role === 'agent' && typeof msg.content === 'object' && msg.content !== null) {
-      const structured = msg.content as {
-        readonly toolCalls?: readonly {
-          readonly id: string;
-          readonly name: string;
-          readonly arguments: Readonly<Record<string, unknown>>;
-        }[];
-      };
-      if (structured.toolCalls !== undefined) {
-        for (const call of structured.toolCalls) {
-          replyOf.set(call.id, msg.sequence);
-          if (ran !== undefined && !ran.has(`${msg.sequence}:${call.id}`)) continue;
-          toolCalls.push({
-            toolId: call.name as never,
-            toolName: call.name,
-            arguments: call.arguments,
-            at: msg.createdAt,
-          });
-        }
-      }
+    for (const call of storedCallsOf(msg)) {
+      replyOf.set(call.id, msg.sequence);
+      if (ran !== undefined && !ran.has(`${msg.sequence}:${call.id}`)) continue;
+      toolCalls.push(callRecordOf(call, msg));
     }
     if (msg.role === 'tool' && msg.toolCall !== undefined) {
       const { invocationId } = msg.toolCall;
       if (ran !== undefined && !ran.has(`${replyOf.get(invocationId)}:${invocationId}`)) continue;
-      toolResults.push({
-        toolCallId: msg.toolCall.invocationId,
-        output: msg.content,
-        at: msg.createdAt,
-      });
+      toolResults.push(resultRecordOf(msg, invocationId));
     }
   }
 
@@ -257,11 +237,7 @@ interface TurnSoFar {
 function addToTurn(turn: TurnSoFar, msg: ConversationMessage): void {
   if (msg.role === 'tool') {
     if (msg.toolCall !== undefined) {
-      turn.toolResults.push({
-        toolCallId: msg.toolCall.invocationId,
-        output: msg.content,
-        at: msg.createdAt,
-      });
+      turn.toolResults.push(resultRecordOf(msg, msg.toolCall.invocationId));
     }
     return;
   }
@@ -269,21 +245,35 @@ function addToTurn(turn: TurnSoFar, msg: ConversationMessage): void {
     turn.output = msg.content;
     return;
   }
-  // A reply that asks for calls is kept as `{ text, toolCalls }`.
-  const structured = msg.content as {
-    readonly toolCalls?: readonly {
-      readonly name: string;
-      readonly arguments: Readonly<Record<string, unknown>>;
-    }[];
+  for (const call of storedCallsOf(msg)) turn.toolCalls.push(callRecordOf(call, msg));
+}
+
+/** A call, as a reply that asks for calls is kept: `{ text, toolCalls }`. */
+interface StoredCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
+/** The calls a stored agent reply asks for; none for an answer or any other message. */
+function storedCallsOf(msg: ConversationMessage): readonly StoredCall[] {
+  if (msg.role !== 'agent' || typeof msg.content !== 'object' || msg.content === null) return [];
+  return (msg.content as { readonly toolCalls?: readonly StoredCall[] }).toolCalls ?? [];
+}
+
+/** A stored call as the trace records it, at its reply's time. */
+function callRecordOf(call: StoredCall, reply: ConversationMessage): ToolCallRecord {
+  return {
+    toolId: call.name as never,
+    toolName: call.name,
+    arguments: call.arguments,
+    at: reply.createdAt,
   };
-  for (const call of structured.toolCalls ?? []) {
-    turn.toolCalls.push({
-      toolId: call.name as never,
-      toolName: call.name,
-      arguments: call.arguments,
-      at: msg.createdAt,
-    });
-  }
+}
+
+/** A tool's stored message as the trace records its result. */
+function resultRecordOf(msg: ConversationMessage, invocationId: string): ToolResultRecord {
+  return { toolCallId: invocationId, output: msg.content, at: msg.createdAt };
 }
 
 function textOf(content: ConversationMessage['content']): string {

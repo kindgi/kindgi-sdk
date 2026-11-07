@@ -833,7 +833,9 @@ object ProfessionalTone {
   earlier turns, each one's user message, tool calls and answer, and then
   this turn's user message
   ([See the earlier turns](#see-the-earlier-turns)). The tools' results
-  stay out.
+  stay out. It gets the conversation's text quoted, after a line telling it
+  that the text is data to judge, not instructions, since a message can come
+  from an event or a mail.
 - **`config`** is what it judges by:
   - `rubric`: what should hold.
   - `responseFormat`: `pass-fail`, the default, has the judge answer PASS

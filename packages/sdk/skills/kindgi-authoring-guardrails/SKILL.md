@@ -99,7 +99,7 @@ Read this before you plan a guardrail. These decide what can be built:
   agent's `conversationPolicy.historyLimit` window), oldest first, each
   `{ userInput?, output?, toolCalls, toolResults }`; on a first turn it's
   `[]`. An llm-judge then also sends its judge their messages, calls and
-  answers.
+  answers, quoted, as data.
 - **A check's in-memory state doesn't last.** The check runs in the pack
   service's process, so anything it keeps at module level (say, a record
   per `trace.conversationId`) is lost when that process is replaced: under
