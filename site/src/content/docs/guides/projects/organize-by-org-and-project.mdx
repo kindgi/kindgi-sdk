@@ -344,6 +344,28 @@ mine = kindgi.projects.create(slug="mine", name="Mine", test_for=me.user_id)
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/com/acme/app/CustomerOrg.java
+String userId = kindgi.identity().whoami().userId(); // signed in as a person
+if (userId == null) throw new IllegalStateException("Sign in as a person: a test project is a person's own");
+CreateResourceResult mine = kindgi.projects().create(
+    ProjectSpec.builder().slug("mine").name("Mine").testFor(userId).build());
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/app/CustomerOrg.scala
+val userId = Option(kindgi.identity().whoami().userId)
+  .getOrElse(throw new IllegalStateException("Sign in as a person: a test project is a person's own"))
+val mine = kindgi.projects().create(
+  ProjectSpec.builder().slug("mine").name("Mine").testFor(userId).build())
+```
+
+</TabItem>
 </Tabs>
 
 - **One each.** A second for the same person answers
