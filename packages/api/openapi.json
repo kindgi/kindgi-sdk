@@ -27823,7 +27823,7 @@
           },
           "label": {
             "type": "string",
-            "description": "What people see: an email address, a login."
+            "description": "What people see: an email address, a login, a Page's name."
           }
         }
       },

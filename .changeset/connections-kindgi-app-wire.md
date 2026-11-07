@@ -1,6 +1,7 @@
 ---
 "@kindgi/api": patch
 "@kindgi/client": patch
+"@kindgi/connections-inmemory": patch
 ---
 
 **The connections API for an app that connects through Kindgi's own app.** Everything is new and optional, and a server with no such app sends none of it:
@@ -10,4 +11,4 @@
 - When the business shared several accounts that fit the app and none was picked, the finish answers `kind: 'pick-account'`, and the request, still `pending`, lists them in `accounts` (`{ id, label }` each). The person picks one and starts the request again with `accountId`, which can't go with `installationId` or `newInstallation`.
 - The finish takes what Kindgi's connect step sends back: `state`, with `error` when the connect didn't happen, and never a `code`.
 
-The TypeScript client's types and the Python client's models gain the same fields.
+The TypeScript client's types and the Python client's models gain the same fields. The in-memory binding (`@kindgi/connections-inmemory`) refuses `accountId` (`bad-input`, `accountId`): it holds no app that connects through Kindgi's own app.

@@ -12002,7 +12002,7 @@ class ConnectionAccount(BaseModel):
     """
     label: str
     """
-    What people see: an email address, a login.
+    What people see: an email address, a login, a Page's name.
     """
 
 

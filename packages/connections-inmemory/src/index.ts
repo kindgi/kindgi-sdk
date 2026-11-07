@@ -1426,8 +1426,19 @@ export function createInMemoryConnections(
     return ok(request);
   }
 
-  /** A GitHub App's pick: either field, never both, and on a GitHub App only. */
+  /**
+   * A GitHub App's pick: either field, never both, and on a GitHub App only.
+   * An account pick (`accountId`) is never one of this binding's: it holds no
+   * app that connects through Kindgi's own app.
+   */
   function checkPick(entry: AppEntry, input: StartInput): Outcome<true> {
+    if (input.accountId !== undefined) {
+      return refuse(
+        'bad-input',
+        "`accountId` is for an app that connects through Kindgi's own app",
+        { field: 'accountId' },
+      );
+    }
     for (const field of ['installationId', 'newInstallation'] as const) {
       if (entry.signIn.kind !== 'github-app' && input[field] !== undefined) {
         return refuse('bad-input', `\`${field}\` is a GitHub App's only`, { field });

@@ -16740,7 +16740,10 @@ export const ConnectionAccountSchema: JsonSchema = {
   description: 'Whose account a connection is at the app.',
   properties: {
     id: { type: 'string', description: "The account's stable id at the app." },
-    label: { type: 'string', description: 'What people see: an email address, a login.' },
+    label: {
+      type: 'string',
+      description: "What people see: an email address, a login, a Page's name.",
+    },
   },
 };
 
