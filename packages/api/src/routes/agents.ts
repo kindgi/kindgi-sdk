@@ -13,12 +13,13 @@ import {
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
+import { aFewAtOnce } from '../a-few-at-once.js';
 import type {
   AgentPublishOutcome,
   AgentRegistryBinding,
   AgentVersionRecord,
 } from '../agent-binding.js';
-import type { AgentPinBindings } from '../agent-pin-binding.js';
+import type { AgentPinBindings, Pin } from '../agent-pin-binding.js';
 import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { nextFreeAgentVersion } from '../derive-agent-version.js';
@@ -70,6 +71,13 @@ import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+
+/**
+ * How many of an agent's projects `GET /:agentId/projects` builds rows for
+ * at once. A row reads one pin change at most, and each pin change is read
+ * once a request, so this is also the most pin-change reads at once.
+ */
+const PROJECT_ROWS_AT_ONCE = 4;
 
 /**
  * Agents resource routes.
@@ -416,7 +424,8 @@ export function agentsRouter(
   // pins and Latest wired, each says what runs there (`whatRunsByProject`),
   // and the answer gives the highest version, which numbers the next one.
   // A version the caller can't see is left out (`seenVersions`), as
-  // `GET …/pinned` leaves it out.
+  // `GET …/pinned` leaves it out. Each pin change is read once, and the rows
+  // a few at a time (`PROJECT_ROWS_AT_ONCE`), in the projects' order.
   r.get('/:agentId/projects', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
@@ -464,7 +473,17 @@ export function agentsRouter(
       ].map(String),
     );
     const shown = (version: Semver) => visible.has(version as unknown as string);
-    const data = await Promise.all(rows.map((row) => projectRow(tenantId, agentPins, row, shown)));
+    // Each pin change is read once: the projects a tenant or org pin covers
+    // share it.
+    const changeReads = new Map<string, Promise<Pin | null>>();
+    const changeOf = (changeId: string): Promise<Pin | null> => {
+      const read = changeReads.get(changeId) ?? agentPins.changes.get(tenantId, changeId);
+      changeReads.set(changeId, read);
+      return read;
+    };
+    const data = await aFewAtOnce(rows, PROJECT_ROWS_AT_ONCE, (row) =>
+      projectRow(row, shown, changeOf),
+    );
     return c.json({
       data,
       ...(highest !== null && shown(highest.version) && { highest: { version: highest.version } }),
@@ -473,10 +492,9 @@ export function agentsRouter(
 
   /** One project's row: what runs there and why, and the segment pins inside it. */
   async function projectRow(
-    tenantId: TenantId,
-    agentPins: AgentPinBindings,
     { projectId, runs, pin, segments }: WhatRunsInProject,
     shown: (version: Semver) => boolean,
+    changeOf: (changeId: string) => Promise<Pin | null>,
   ) {
     const seen = segments.filter((s) => shown(s.version));
     const bySegment =
@@ -504,7 +522,7 @@ export function agentsRouter(
       };
     }
     // A pin: when it was set, and who asked for the pin change that set it.
-    const change = pin === undefined ? null : await agentPins.changes.get(tenantId, pin.changeId);
+    const change = pin === undefined ? null : await changeOf(pin.changeId);
     return {
       projectId,
       follows: 'pin',
