@@ -160,6 +160,13 @@ refused, whether made, changed, verified or deleted, since their runs read
 those in every project. It still reads workspace-wide facts, its project's and its
 org's, and its person's own.
 
+A key or session limited to a person's own test project reads only the
+facts in it: not workspace-wide facts, its org's, or its person's own made
+elsewhere. Their own facts made in it are read. A run there recalls the same:
+whatever its agent's `retrieval` asks for, no fact without a project reaches
+its turn. It doesn't remember a fact for the whole workspace either: `remember`
+with `scope: 'tenant'` answers that it wasn't remembered.
+
 An end user is `participantId` on a conversation or a fact. Give an id your
 app uses for the person, never their email or name: ids stay on records an
 [erasure](../erase-a-persons-data/) keeps.

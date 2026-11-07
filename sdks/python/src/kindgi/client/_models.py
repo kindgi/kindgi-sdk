@@ -1047,7 +1047,7 @@ class PackEnvScope(BaseModel):
 
 class PackEnvNameStatus(BaseModel):
     """
-    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project. Never a value.
+    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project; a person's own test project's, at the project alone. Never a value.
     """
 
     model_config = ConfigDict(
@@ -9582,7 +9582,7 @@ class DeploymentValue(BaseModel):
         Field(alias="foundAt"),
     ] = None
     """
-    Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`).
+    Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`); in a person's own test project, the project only.
     """
     problem: str | None = None
     """
@@ -10726,6 +10726,10 @@ class Project(BaseModel):
     """
     The company-wide GitHub connection the project opens its block changes' pull requests through; absent while none is set. A connection removed since reads as none.
     """
+    test_for: Annotated[str | None, Field(alias="testFor")] = None
+    """
+    The user this project is a test project for; absent on every other project. A test project is one person's own: at most one per person in the workspace, with no org, and nobody else joins it. It never goes into production, it's in no environment order and has no repo connection, and its runs reach only what's made in it.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
 
@@ -10786,6 +10790,10 @@ class ProjectSpec(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     is_default: Annotated[bool | None, Field(alias="isDefault")] = None
+    test_for: Annotated[str | None, Field(alias="testFor", min_length=1)] = None
+    """
+    Make your own test project: your own user id. Any member of the workspace makes one, once, without being its admin, and becomes its admin. Not with `orgId` or `isDefault`, and only on a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated`.
+    """
 
 
 class ProjectPatch(BaseModel):

@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a person's own test project.** `projects.create` takes
+  `test_for`, the caller's own user id, and `Project` and `ProjectSpec` gain
+  `test_for`. A test project's refusals, `project-test-already-exists` and
+  `project-is-a-test-project`, raise `ConflictError`. The docstrings of
+  `deployments.pack_env`, `system_deployments.get_pack_env` and
+  `PackEnvNameStatus` say a test project's names are looked for at the
+  project alone.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

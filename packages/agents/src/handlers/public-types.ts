@@ -65,6 +65,16 @@ export interface InvokeAgentInput {
    * `ToolContext.orgId`, its guardrails as `trace.orgId`.
    */
   readonly orgId?: OrgId;
+  /**
+   * `true` when the project is a person's own test project
+   * (`Project.testFor`): the runtime resolves it from the project, never
+   * from input. Its runs reach only what's made in it, so its turns
+   * recall no fact without a project (`RetrievalRun.projectIsTest`), and
+   * the `remember` tool refuses a workspace-wide fact there. A turn
+   * resumed after a park gets it the same way
+   * (`ResumeAgentTurnInput.projectIsTest`).
+   */
+  readonly projectIsTest?: boolean;
   readonly agent: Agent;
   readonly conversationId: ConversationId;
   /** Why the caller chose this agent version; recorded on the run (`RunAgentRef.via`). */

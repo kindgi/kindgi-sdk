@@ -45,7 +45,7 @@ rejected promise means the backend failed.
 | `TeamBinding.update` | `team-not-found`, `slug-conflict` |
 | `TeamMembershipBinding.add` | `team-not-found` |
 | `TeamMembershipBinding.updateRole` | `team-not-found`, `team-membership-not-found` |
-| `ProjectBinding.create` | `slug-conflict`, `project-default-already-exists` |
+| `ProjectBinding.create` | `slug-conflict`, `project-default-already-exists`, `project-test-already-exists` |
 | `ProjectBinding.update` | `project-not-found`, `slug-conflict` |
 | `ProjectMembershipBinding.add` | `project-not-found` |
 | `ProjectMembershipBinding.updateRole` | `project-not-found`, `project-membership-not-found` |
@@ -58,9 +58,14 @@ projects, left without an org, would take a slug a project without one
 already has (the Kindgi runtime's storage does; the in-memory adapter
 doesn't detach projects). Each
 `kind` is also the error code the `@kindgi/api` routes answer with: a
-`slug-conflict` or `project-default-already-exists` is a `409`, a
-`*-not-found` a `404`. The conformance suites in `tests/` pin every
-outcome.
+`slug-conflict`, `project-default-already-exists` or
+`project-test-already-exists` is a `409`, a `*-not-found` a `404`. The
+conformance suites in `tests/` pin every outcome.
+
+`project-test-already-exists` comes from a binding that keeps test
+projects (`ProjectBinding.keepsTestProjects`): a second test project for
+the same person in the workspace, whatever its slug. A binding without the marker isn't
+given one: the API answers `501 project-test-unsupported` first.
 
 ## Design directives
 

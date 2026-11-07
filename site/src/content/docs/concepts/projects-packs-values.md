@@ -81,6 +81,11 @@ project holds:
   tool isn't run: `reference-out-of-scope`,
   `tool "<id>" isn't registered in this project, its org or the workspace`.
 
+A person's own test project (`testFor`) is a project only they're in. Its
+runs reach only what's made in it: no fact kept for the whole workspace, no
+company connection, and it never goes into production
+([A person's own test project](../../guides/projects/organize-by-org-and-project/#a-persons-own-test-project)).
+
 ## One tool for several clients
 
 A pack's tool stays in its own project, so there are two ways to give
@@ -112,7 +117,8 @@ A run uses four kinds of values, each kept in its own place.
 - **A tool's secrets,** in `ctx.secrets`. Where a tool version reads each
   secret is decided once, when that version is registered, and recorded on
   it. Kindgi looks in the tool's project, then that project's org, then the
-  workspace, and records the first that holds the secret. With authorization
+  workspace (in a person's own test project, in the project alone), and
+  records the first that holds the secret. With authorization
   on, only the scopes whoever registers it administers count. If none holds
   the secret yet, a deploy (runtime 0.1.9 or later) records where its
   `--sync-secrets` writes: the project the deploy named, or the workspace for
@@ -128,7 +134,8 @@ A run uses four kinds of values, each kept in its own place.
   a scope recorded for them: when the endpoint is registered, or when the
   trigger names its secret.
 - **A tool's env values,** in `ctx.env`. Each call reads the run's
-  project's value, else its org's, else the workspace's. A name none of them
+  project's value, else its org's, else the workspace's (in a person's own
+  test project, the project's value only). A name none of them
   sets takes its default
   ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)).
 - **The pack service's own environment,** in `process.env` or

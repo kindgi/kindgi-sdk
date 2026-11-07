@@ -152,6 +152,14 @@ export interface Project {
    * gone since: a reader treats that as none.
    */
   readonly repoConnectionId?: string;
+  /**
+   * The person this project is a test project for; absent on every other
+   * project. A test project is one person's own: at most one per person
+   * per workspace, set only at create, with no org, nobody else joins it,
+   * and it never goes into production. Its runs reach only what's made in
+   * it.
+   */
+  readonly testFor?: UserId;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -167,6 +175,11 @@ export interface ProjectSpec {
    * projects created via `POST /v1/projects` default to `false`.
    */
   readonly isDefault?: boolean;
+  /**
+   * `Project.testFor`. Set only here, at create; `ProjectPatch` doesn't
+   * take it.
+   */
+  readonly testFor?: UserId;
 }
 
 export interface ProjectPatch {

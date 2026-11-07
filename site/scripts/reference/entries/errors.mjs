@@ -3647,6 +3647,41 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/projects'],
   },
+  'project-test-already-exists': {
+    description:
+      "You already have a test project in this workspace, so a second one can't be created. A person has one at most.",
+    details: [],
+    seeAlso: ['POST /v1/projects'],
+  },
+  'project-test-not-yours': {
+    description:
+      "A test project is made by the person it's for: `testFor` must be your own user id, and a key limited to a project can't make one.",
+    details: [],
+    seeAlso: ['POST /v1/projects'],
+  },
+  'project-test-unsupported': {
+    description:
+      "This runtime's project store doesn't keep test projects, so it makes none. A runtime whose store keeps them makes one for any member; here, making a project takes admin on the workspace, with `testFor` or without.",
+    details: [],
+    seeAlso: ['POST /v1/projects'],
+  },
+  'project-test-needs-isolated-runtime': {
+    description:
+      "This runtime doesn't hold test projects. They need `KINDGI_TENANT_HOST_ACCESS=isolated`, which refuses tenants the private networks and the server's own credentials.",
+    details: [],
+    seeAlso: ['POST /v1/projects'],
+  },
+  'project-is-a-test-project': {
+    description:
+      "The project is a person's own test project, and this change isn't one it takes: nobody else joins it, it moves into no org, it never goes into production, and it's in no environment order and has no repo connection.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the test project',
+      },
+    ],
+    seeAlso: ['POST /v1/projects'],
+  },
   'tenant-not-found': {
     description: "The workspace your key belongs to doesn't exist.",
     details: [

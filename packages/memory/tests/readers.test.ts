@@ -44,6 +44,21 @@ describe('isReadableBy', () => {
     expect(isReadableBy(scope(s), run)).toBe(expected);
   });
 
+  test('readers limited to a test project see only facts in a project they read', () => {
+    const inTest: MemoryReaders = {
+      projectIds: [acme],
+      orgIds: [org],
+      userIds: ['u-1' as UserId],
+      projectFactsOnly: true,
+    };
+    expect(isReadableBy(scope({}), inTest)).toBe(false);
+    expect(isReadableBy(scope({ orgId: org }), inTest)).toBe(false);
+    expect(isReadableBy(scope({ userId: 'u-1' as UserId }), inTest)).toBe(false);
+    expect(isReadableBy(scope({ projectId: acme }), inTest)).toBe(true);
+    expect(isReadableBy(scope({ projectId: acme, userId: 'u-1' as UserId }), inTest)).toBe(true);
+    expect(isReadableBy(scope({ projectId: globex }), inTest)).toBe(false);
+  });
+
   test("a fact in globex's project never reaches acme", () => {
     expect(isReadableBy(scope({ projectId: globex }), { projectIds: [acme] })).toBe(false);
   });

@@ -13,9 +13,11 @@
  *
  * `create` enforces the `Project.isDefault = true` uniqueness
  * guardrail at write time: creating a second default in the same
- * tenant resolves to `project-default-already-exists`. A project's
- * slug is unique within its org, and a project without an org's among
- * the tenant's projects without one (`slug-conflict`).
+ * tenant resolves to `project-default-already-exists`, and a second
+ * test project for the same person (`Project.testFor`) to
+ * `project-test-already-exists`. A project's slug is unique within its
+ * org, and a project without an org's among the tenant's projects
+ * without one (`slug-conflict`).
  */
 
 import type {
@@ -175,6 +177,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     return false;
   }
 
+  function personAlreadyHasTestProject(tenantId: TenantId, userId: UserId): boolean {
+    for (const row of projectRows.values()) {
+      if (row.tenantId === tenantId && row.testFor === userId) return true;
+    }
+    return false;
+  }
+
   /**
    * Is `slug` held by another project (not `exceptId`) where a project of
    * `orgId` lives: in that org, or, without an org, among the tenant's
@@ -199,20 +208,41 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     return false;
   }
 
+  /**
+   * Why `create` refuses `spec`, or `undefined` when it doesn't, with
+   * `orgMissing` already read. It doesn't yield, so `create` checks and
+   * inserts in one step: two creates at once can't both pass.
+   */
+  function createRefusal(
+    tenantId: TenantId,
+    spec: ProjectSpec,
+    orgMissing: boolean,
+  ): ProjectCreateOutcome | undefined {
+    // The isDefault guardrail first: a caller asking for the default
+    // wants to hear that one exists, whatever its slug.
+    if (spec.isDefault === true && tenantAlreadyHasDefault(tenantId)) {
+      return { kind: 'project-default-already-exists' };
+    }
+    if (spec.testFor !== undefined && personAlreadyHasTestProject(tenantId, spec.testFor)) {
+      return { kind: 'project-test-already-exists' };
+    }
+    if (spec.orgId !== undefined && orgMissing) return { kind: 'org-not-found', orgId: spec.orgId };
+    if (slugTaken(tenantId, spec.orgId, spec.slug)) {
+      return { kind: 'slug-conflict', slug: spec.slug };
+    }
+    return undefined;
+  }
+
   const projects: ProjectBinding = {
+    keepsTestProjects: true,
     async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
+      // The org is read first, the one read that waits: the rest is
+      // checked and the row inserted with no wait between.
+      const orgMissing =
+        spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false;
+      const refused = createRefusal(tenantId, spec, orgMissing);
+      if (refused !== undefined) return refused;
       const isDefault = spec.isDefault === true;
-      // The isDefault guardrail first: a caller asking for the default
-      // wants to hear that one exists, whatever its slug.
-      if (isDefault && tenantAlreadyHasDefault(tenantId)) {
-        return { kind: 'project-default-already-exists' };
-      }
-      if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
-        return { kind: 'org-not-found', orgId: spec.orgId };
-      }
-      if (slugTaken(tenantId, spec.orgId, spec.slug)) {
-        return { kind: 'slug-conflict', slug: spec.slug };
-      }
       const id = nextProjectId();
       const now = nowTimestamp();
       const row: Project = {
@@ -225,6 +255,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         updatedAt: now,
         ...(spec.orgId !== undefined ? { orgId: spec.orgId } : {}),
         ...(spec.description !== undefined ? { description: spec.description } : {}),
+        ...(spec.testFor !== undefined ? { testFor: spec.testFor } : {}),
       };
       projectRows.set(id, row);
       return { kind: 'ok', projectId: id };

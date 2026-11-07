@@ -76,6 +76,24 @@ export function deniesHostReach(level: TenantHostAccess, reach: HostReach): bool
   return DENIED[level].has(reach);
 }
 
+/**
+ * What a level must refuse for the runtime to hold a person's own test
+ * project, whose runs reach only what's made in it: everything but the
+ * public internet.
+ */
+const TEST_PROJECT_DENIES: readonly HostReach[] = [
+  'exec',
+  'metadata-network',
+  'loopback',
+  'private-network',
+  'server-credentials',
+];
+
+/** Whether a runtime at `level` may hold test projects (`Project.testFor`). */
+export function holdsTestProjects(level: TenantHostAccess): boolean {
+  return TEST_PROJECT_DENIES.every((reach) => deniesHostReach(level, reach));
+}
+
 /** `value` as a level, or `undefined` when it isn't one. */
 export function parseTenantHostAccess(value: string): TenantHostAccess | undefined {
   return (TENANT_HOST_ACCESS_LEVELS as readonly string[]).includes(value)

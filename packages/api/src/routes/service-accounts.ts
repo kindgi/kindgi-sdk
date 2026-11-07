@@ -4,7 +4,8 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import type { Cursor, Result, TenantId } from '@kindgi/types';
+import type { ProjectBinding } from '@kindgi/platform';
+import type { Cursor, ProjectId, Result, TenantId } from '@kindgi/types';
 
 import { callerRef, isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -17,6 +18,7 @@ import type {
   ServiceAccountGrantTarget,
 } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
+import { projectIsATestProjectError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 import { parseAssignableProjectRole } from './project-roles.js';
 
@@ -39,10 +41,15 @@ const MAX_DESCRIPTION_LENGTH = 500;
  * that runs as its project, never here. Its grant is fixed, so the binding
  * refuses a grant or ungrant on it (409 `service-account-project-owned`);
  * a tenant admin may unregister it, which stops the triggers that run as it.
+ *
+ * With `projects`, a grant on a person's own test project is refused, at
+ * create or after (409 `project-is-a-test-project`): nobody else joins one,
+ * a service account no more than a person.
  */
 export function serviceAccountsRouter(
   binding: ServiceAccountBinding,
   authorizer?: Authorizer,
+  options: { readonly projects?: Pick<ProjectBinding, 'get'> } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -62,6 +69,8 @@ export function serviceAccountsRouter(
     if (body.kind === 'err') return fail(c, body.error);
     const parsed = parseCreateBody(body.value);
     if (parsed.kind === 'err') return fail(c, parsed.error);
+    const onTest = await testProjectGrant(options.projects, tenantOf(c), parsed.value.grants);
+    if (onTest !== undefined) return fail(c, onTest);
     const createdBy = callerRef(c);
     const created = await binding.create({
       tenantId: tenantOf(c),
@@ -98,6 +107,8 @@ export function serviceAccountsRouter(
     if (body.kind === 'err') return fail(c, body.error);
     const grant = parseGrant(body.value);
     if (grant.kind === 'err') return fail(c, grant.error);
+    const onTest = await testProjectGrant(options.projects, tenantOf(c), [grant.value]);
+    if (onTest !== undefined) return fail(c, onTest);
     const serviceAccountId = c.req.param('serviceAccountId');
     return respond(
       c,
@@ -154,6 +165,26 @@ function tenantOf(c: Context<AppEnv>): TenantId {
 function fail(c: Context<AppEnv>, error: WireError): Response {
   c.status(statusFor(error.code) as never);
   return c.json(toWireError(error, c.get('requestId')));
+}
+
+/** The refusal of a grant on a person's own test project, if `grants` holds one. */
+async function testProjectGrant(
+  projects: Pick<ProjectBinding, 'get'> | undefined,
+  tenantId: TenantId,
+  grants: readonly ServiceAccountGrant[],
+): Promise<WireError | undefined> {
+  if (projects === undefined) return undefined;
+  for (const grant of grants) {
+    if (grant.kind !== 'project') continue;
+    const project = await projects.get(tenantId, grant.projectId as ProjectId);
+    if (project?.testFor !== undefined) {
+      return projectIsATestProjectError(
+        grant.projectId,
+        "A test project is one person's: nobody else joins it",
+      );
+    }
+  }
+  return undefined;
 }
 
 function notFound(serviceAccountId: string): WireError {

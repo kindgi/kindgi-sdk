@@ -1789,7 +1789,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.serviceAccountBinding !== undefined) {
-    v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
+    v1.route(
+      '/service-accounts',
+      serviceAccountsRouter(input.serviceAccountBinding, authorizer, {
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   // Mount the reviewer roster sub-resource BEFORE the approvals router
   // so `/v1/approvals/reviewers/*` resolves here rather than being
@@ -2504,6 +2509,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.identityDirectory,
         input.serviceAccountBinding,
+        { hostAccess: input.tenantHostAccess ?? 'deployed' },
       ),
     );
   }
@@ -2604,6 +2610,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
     );
   }
@@ -2624,6 +2631,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         binding: input.environmentOrders,
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
     );
   }

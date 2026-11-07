@@ -13,6 +13,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { AppEnv } from '../types.js';
+import { projectIsATestProjectError } from './hierarchy-errors.js';
 import { promoteOnlyDeploymentIn } from './promote-only-builds.js';
 
 /**
@@ -68,6 +69,9 @@ export interface ProjectProductionRouterOptions {
  *   of its projects are in production, or more. The binding reads the
  *   limit, counts and sets in one step, so a limit changed meanwhile is
  *   the one counted against. Taking a project out is never refused.
+ * - **A test project** (`Project.testFor`) never goes into production:
+ *   turning it on there is `409 project-is-a-test-project`. Its work goes
+ *   live from a production project.
  * - **A promote-only build:** turning it on is refused with
  *   `409 promote-only-build` while a promote-only build was deployed into
  *   the project rather than promoted there, serving or not
@@ -110,6 +114,17 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
 
     const project = await projects.get(tenantId, projectId);
     if (project === undefined) return refuse(c, requestId, projectNotFound(projectId));
+    // `Project.testFor` never changes, so this read can't go stale.
+    if (production && project.testFor !== undefined) {
+      return refuse(
+        c,
+        requestId,
+        projectIsATestProjectError(
+          projectId as unknown as string,
+          'A test project never goes into production: put its work live from a production project',
+        ),
+      );
+    }
 
     // The gate and the promote-only check guard going into production, not
     // staying there: a project already in production answers its repeat

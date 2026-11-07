@@ -99,6 +99,8 @@ describe('fromWire — conflicts', () => {
   it.each([
     'slug-conflict',
     'project-default-already-exists',
+    'project-test-already-exists',
+    'project-is-a-test-project',
     'registry-read-only',
     'nothing-runs-in-scope',
     'not-pinned',

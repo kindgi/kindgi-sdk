@@ -7,10 +7,11 @@ import { ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
-import type { ConnectionBinding } from '../connection-binding.js';
+import type { ConnectionBinding, ConnectionRecord } from '../connection-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { projectIsATestProjectError } from './hierarchy-errors.js';
 
 export interface ProjectRepoConnectionRouterOptions {
   readonly projects: ProjectBinding;
@@ -63,27 +64,26 @@ export function projectRepoConnectionRouter(
     if (projects.setRepoConnection === undefined || connections === undefined) {
       return refuse(c, requestId, unsupported());
     }
-    if ((await projects.get(tenantId, projectId)) === undefined) {
-      return refuse(c, requestId, projectNotFound(projectId));
+    const project = await projects.get(tenantId, projectId);
+    if (project === undefined) return refuse(c, requestId, projectNotFound(projectId));
+    // A test project's runs reach no company connection; `Project.testFor`
+    // never changes, so this read can't go stale.
+    if (project.testFor !== undefined) {
+      return refuse(
+        c,
+        requestId,
+        projectIsATestProjectError(
+          projectId as unknown as string,
+          'A test project has no repo connection: its runs reach no company connection',
+        ),
+      );
     }
 
-    const connection = await connections.get({ tenantId, connectionId });
-    if (connection === null || connection.removedAt !== undefined) {
-      return refuse(c, requestId, {
-        code: 'connection-not-found',
-        message: `No connection with id "${connectionId}"`,
-        connectionId,
-      });
-    }
-    if (connection.app !== GITHUB || connection.owner.kind !== 'company') {
-      return refuse(c, requestId, {
-        code: 'repo-connection-not-company-github',
-        message: `Connection "${connectionId}" isn't a company-wide GitHub connection: connect GitHub for the company, then use that connection`,
-        connectionId,
-        app: connection.app,
-        owner: connection.owner.kind,
-      });
-    }
+    const unfit = connectionRefusal(
+      await connections.get({ tenantId, connectionId }),
+      connectionId,
+    );
+    if (unfit !== undefined) return refuse(c, requestId, unfit);
 
     const outcome = await projects.setRepoConnection(tenantId, projectId, connectionId);
     if (outcome.kind === 'project-not-found') {
@@ -115,6 +115,33 @@ export function projectRepoConnectionRouter(
 type Refusal = { readonly code: string; readonly message: string } & Readonly<
   Record<string, unknown>
 >;
+
+/**
+ * Why `connection` can't be a project's repo connection, or `undefined`
+ * when it can: it's a live, company-wide GitHub connection.
+ */
+function connectionRefusal(
+  connection: ConnectionRecord | null,
+  connectionId: string,
+): Refusal | undefined {
+  if (connection === null || connection.removedAt !== undefined) {
+    return {
+      code: 'connection-not-found',
+      message: `No connection with id "${connectionId}"`,
+      connectionId,
+    };
+  }
+  if (connection.app !== GITHUB || connection.owner.kind !== 'company') {
+    return {
+      code: 'repo-connection-not-company-github',
+      message: `Connection "${connectionId}" isn't a company-wide GitHub connection: connect GitHub for the company, then use that connection`,
+      connectionId,
+      app: connection.app,
+      owner: connection.owner.kind,
+    };
+  }
+  return undefined;
+}
 
 function refuse(c: Context<AppEnv>, requestId: string, refusal: Refusal) {
   c.status(statusFor(refusal.code) as never);

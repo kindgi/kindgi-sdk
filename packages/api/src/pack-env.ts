@@ -37,7 +37,7 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { emitResolveEvent, resolveEvent } from '@kindgi/compliance';
 import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import type { EnvName, OrgId, ProjectId, TenantId } from '@kindgi/types';
+import type { EnvName, ProjectId, TenantId } from '@kindgi/types';
 
 import type {
   EnvBinding,
@@ -573,7 +573,11 @@ async function servedProject(
   return input.projectId ?? (await deps.projects?.getDefault(input.tenantId))?.id ?? undefined;
 }
 
-/** The scopes a deployment's names are looked for at, narrowest first. */
+/**
+ * The scopes a deployment's names are looked for at, narrowest first:
+ * `secretScopeChain`'s for its project (a person's own test project: the
+ * project alone).
+ */
 async function chainFor(
   deps: PackEnvDeps,
   tenantId: TenantId,
@@ -582,8 +586,7 @@ async function chainFor(
   const tenant: Scope = { kind: 'tenant', tenantId };
   if (projectId === undefined) return [tenant];
   const project = await deps.projects?.get(tenantId, projectId);
-  const orgId: OrgId | undefined = project?.orgId;
-  return secretScopeChain({ kind: 'project', tenantId, projectId }, orgId);
+  return secretScopeChain({ kind: 'project', tenantId, projectId }, project);
 }
 
 async function readPackEnv(

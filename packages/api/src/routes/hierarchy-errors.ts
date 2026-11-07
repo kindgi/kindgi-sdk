@@ -60,6 +60,62 @@ export function projectDefaultAlreadyExistsError() {
 }
 
 /**
+ * `409 project-test-already-exists`: the person a new test project is for
+ * already has one in the workspace. A person has one at most.
+ */
+export function projectTestAlreadyExistsError() {
+  return {
+    code: 'project-test-already-exists',
+    message: 'You already have a test project in this workspace',
+  } as const;
+}
+
+/**
+ * `403 project-test-not-yours`: a test project is made by the person it's
+ * for, on their own: `testFor` must be the caller's own user id, and a key
+ * limited to a project makes none.
+ */
+export function projectTestNotYoursError(why: string) {
+  return { code: 'project-test-not-yours', message: why } as const;
+}
+
+/**
+ * `409 project-test-needs-isolated-runtime`: this runtime doesn't hold test
+ * projects. A test project's runs reach only what's made in it, which needs
+ * a runtime that refuses its tenants the private networks and the server's
+ * own credentials: `KINDGI_TENANT_HOST_ACCESS=isolated`.
+ */
+export function projectTestNeedsIsolatedRuntimeError() {
+  return {
+    code: 'project-test-needs-isolated-runtime',
+    message:
+      "This runtime doesn't hold test projects: they need KINDGI_TENANT_HOST_ACCESS=isolated, which refuses tenants the private networks and the server's own credentials",
+  } as const;
+}
+
+/**
+ * `501 project-test-unsupported`: the project store that makes this
+ * runtime's projects doesn't keep test projects (its binding has no
+ * `keepsTestProjects`), so it makes none.
+ */
+export function projectTestUnsupportedError() {
+  return {
+    code: 'project-test-unsupported',
+    message: "This runtime's project store doesn't keep test projects, so it makes none",
+  } as const;
+}
+
+/**
+ * `409 project-is-a-test-project`: the change isn't one a person's own test
+ * project takes. Nobody else joins it, it moves into no org, it never goes
+ * into production, and it's in no environment order and has no repo
+ * connection. `why` says which.
+ */
+export function projectIsATestProjectError(projectId: string, why: string) {
+  return { code: 'project-is-a-test-project', message: why, projectId } as const;
+}
+
+/**
  * `409 project-in-environment-order`: the project is a member of an
  * environment order, so it can't be deleted or moved to another parent.
  * Clear it from the order first. The answer names the order (`details.orderId`).

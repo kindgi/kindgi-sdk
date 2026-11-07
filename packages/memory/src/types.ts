@@ -66,6 +66,16 @@ export interface MemoryReaders {
    * an app's own credential, acting for all of its end users.
    */
   readonly onBehalfOfProjectIds?: readonly ProjectId[];
+  /**
+   * Only facts whose project is one of `projectIds`: no fact without a
+   * project, the reader's own user facts from elsewhere included, and no
+   * org-wide or workspace-wide fact. A reader limited to a person's own
+   * test project (`Project.testFor`), whose runs reach only what's made in
+   * it. Inside the project, `userIds` applies as it does anywhere. It
+   * holds for recall too (`isRecallReadableBy`): no conversation without
+   * a project, its person's own included.
+   */
+  readonly projectFactsOnly?: true;
 }
 
 /**

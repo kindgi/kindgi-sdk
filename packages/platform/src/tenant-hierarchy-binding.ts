@@ -72,6 +72,8 @@ export interface CreateProjectParams {
    * The person who creates it, made its owner. Absent when no person is
    * behind the key (a service account's): no one is made
    * its owner, and the workspace's admins reach it through its parent.
+   * With `spec.testFor`, no one is made its owner: the person it's for
+   * is made its `admin` (`tuplesForCreate`'s `testFor`).
    */
   readonly creatorUserId?: UserId;
   readonly spec: ProjectSpec;
@@ -82,6 +84,8 @@ export type CreateProjectError =
   /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
   | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }
+  /** `spec.testFor` was set and the workspace already has a test project for that person. */
+  | { readonly code: 'test-conflict'; readonly message: string; readonly cause?: unknown }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 
 export interface AddProjectMemberParams {
@@ -310,6 +314,16 @@ export type RenameTenantOutcome =
  * Deployments supply the implementation; tests can substitute a mock.
  */
 export interface TenantHierarchyBinding {
+  /**
+   * `true` when `createProject` keeps `spec.testFor`: the project as
+   * `ProjectBinding.keepsTestProjects` keeps it, its person made its
+   * `admin` and never its `owner`, with the tuples to match
+   * (`tuplesForCreate`), and a second for the same person refused
+   * (`test-conflict`). Absent: the API makes no test project through it
+   * (`501 project-test-unsupported`), and making any project takes
+   * `admin` on the workspace.
+   */
+  readonly keepsTestProjects?: true;
   createOrg(params: CreateOrgParams): Promise<Result<{ readonly orgId: OrgId }, CreateOrgError>>;
   createTeam(
     params: CreateTeamParams,

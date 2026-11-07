@@ -58,6 +58,8 @@ export interface RememberRun {
   readonly participantId?: string;
   /** The Kindgi user the run acts for. */
   readonly userId?: UserId;
+  /** The run's project is a person's own test project (`Project.testFor`). */
+  readonly projectIsTest?: boolean;
 }
 
 export type RememberTarget =
@@ -103,6 +105,14 @@ export function rememberTarget(scope: RememberScope, run: RememberRun): Remember
       }
       return ok(inProject);
     case 'tenant':
+      // A test project's runs reach only what's made in it, and a
+      // workspace-wide fact reaches every project.
+      if (run.projectIsTest === true) {
+        return {
+          kind: 'refused',
+          reason: "Not remembered: a test project's runs remember only inside it.",
+        };
+      }
       return ok({ tenantId: run.tenantId });
   }
 }

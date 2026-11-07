@@ -8,7 +8,9 @@
  * scope only, never another.
  *
  * At registration, the named secret is looked for at the item's own scope,
- * then its project's org, then the tenant, but only at the scopes the
+ * then its project's org, then the tenant (a person's own test project's
+ * item: at the project alone, so it never reads what's set for the
+ * workspace), but only at the scopes the
  * person registering administers (as reading or writing a secret there
  * needs). The first that has it is recorded. If none has it yet (an item
  * registered before its secret is set), the broadest scope they administer
@@ -31,16 +33,9 @@
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { emitResolveEvent } from '@kindgi/compliance';
 import type { Logger } from '@kindgi/log';
-import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type { Project, ProjectBinding, Scope } from '@kindgi/platform';
 import type { ToolManifest } from '@kindgi/tools';
-import type {
-  EnvName,
-  OrgId,
-  ProjectId,
-  RecordedSecretScope,
-  Result,
-  TenantId,
-} from '@kindgi/types';
+import type { EnvName, ProjectId, RecordedSecretScope, Result, TenantId } from '@kindgi/types';
 import type { Context } from 'hono';
 
 import type { Authorizer } from './middleware/authorize.js';
@@ -54,11 +49,21 @@ import type {
 } from './secrets-binding.js';
 import type { AppEnv } from './types.js';
 
-/** The scopes a secret named by an item at `item` is looked for at, narrowest first. */
-export function secretScopeChain(item: Scope, orgId: OrgId | undefined): readonly Scope[] {
+/**
+ * The scopes a secret named by an item at `item` is looked for at, narrowest
+ * first. `project` is a project item's project, as read: its org comes
+ * next, unless it's a person's own test project (`testFor`), whose items
+ * look at the project alone.
+ */
+export function secretScopeChain(
+  item: Scope,
+  project: Pick<Project, 'orgId' | 'testFor'> | null | undefined,
+): readonly Scope[] {
   const tenant: Scope = { kind: 'tenant', tenantId: item.tenantId };
   if (item.kind === 'tenant') return [tenant];
   if (item.kind === 'org') return [item, tenant];
+  if (project?.testFor !== undefined) return [item];
+  const orgId = project?.orgId;
   return [
     item,
     ...(orgId !== undefined ? [{ kind: 'org' as const, tenantId: item.tenantId, orgId }] : []),
@@ -251,14 +256,12 @@ export async function secretScopesFor(
   fallback?: Scope,
 ): Promise<Readonly<Record<string, RecordedSecretScope | null>> | undefined> {
   if (deps.secrets === undefined || names.length === 0) return undefined;
-  const orgId =
-    item.kind === 'project'
-      ? (await deps.projects?.get(item.tenantId, item.projectId))?.orgId
-      : undefined;
+  const project =
+    item.kind === 'project' ? await deps.projects?.get(item.tenantId, item.projectId) : undefined;
   const administers = callerAdministers(c, deps.authorizer, item.tenantId);
   return namedSecretScopes({
     secrets: deps.secrets,
-    chain: secretScopeChain(item, orgId),
+    chain: secretScopeChain(item, project),
     ...(administers !== undefined && { administers }),
     ...(fallback !== undefined && { fallback }),
     names,
