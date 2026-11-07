@@ -33,7 +33,7 @@ const administers =
 const ask = (secrets: ReturnType<typeof has>, admin?: ReturnType<typeof administers>) =>
   namedSecretScope({
     secrets: secrets as never,
-    chain: secretScopeChain(project, orgId),
+    chain: secretScopeChain(project, { orgId }),
     ...(admin !== undefined && { administers: admin }),
     envName: 'test' as EnvName,
     name: 'x',
@@ -41,7 +41,7 @@ const ask = (secrets: ReturnType<typeof has>, admin?: ReturnType<typeof administ
 
 describe('secretScopeChain', () => {
   test("a project's item: the project, its org, the tenant; an org's: the org, the tenant", () => {
-    expect(secretScopeChain(project, orgId)).toEqual([project, org, tenant]);
+    expect(secretScopeChain(project, { orgId })).toEqual([project, org, tenant]);
     expect(secretScopeChain(project, undefined)).toEqual([project, tenant]);
     expect(secretScopeChain(org, undefined)).toEqual([org, tenant]);
     expect(secretScopeChain(tenant, undefined)).toEqual([tenant]);
@@ -79,7 +79,7 @@ describe('a fallback: what a name set nowhere is recorded at', () => {
   ) =>
     namedSecretScope({
       secrets: secrets as never,
-      chain: secretScopeChain(project, orgId),
+      chain: secretScopeChain(project, { orgId }),
       ...(admin !== undefined && { administers: admin }),
       envName: 'test' as EnvName,
       name: 'x',
@@ -124,7 +124,7 @@ describe('a fallback: what a name set nowhere is recorded at', () => {
           return null;
         },
       } as never,
-      chain: secretScopeChain(project, orgId),
+      chain: secretScopeChain(project, { orgId }),
       envName: undefined,
       name: 'x',
       fallback: project,
@@ -149,7 +149,7 @@ describe('findNamedSecretScope', () => {
   ) =>
     findNamedSecretScope({
       secrets: secrets as never,
-      chain: secretScopeChain(project, orgId),
+      chain: secretScopeChain(project, { orgId }),
       ...(admin !== undefined && { administers: admin }),
       envName: envName === 'none' ? undefined : envName,
       name: 'x',

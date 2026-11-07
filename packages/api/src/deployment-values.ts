@@ -151,6 +151,9 @@ export interface DeploymentValuesInput {
  *   ready, each registered provider's key is listed;
  * - the pack service's own env (`packEnv`).
  *
+ * In a person's own test project, a tool's secrets and env values are
+ * looked for at the project alone.
+ *
  * Tools first (in contents order, secrets then env), then model keys by
  * provider, then the pack's env. Never a value.
  */
@@ -160,8 +163,8 @@ export async function deploymentValues(
 ): Promise<DeploymentValue[]> {
   const { deployment, projectId } = input;
   const tenantId = deployment.tenantId;
-  const orgId = (await deps.projects?.get(tenantId, projectId))?.orgId;
-  const chain = secretScopeChain({ kind: 'project', tenantId, projectId }, orgId);
+  const project = await deps.projects?.get(tenantId, projectId);
+  const chain = secretScopeChain({ kind: 'project', tenantId, projectId }, project);
   const out: DeploymentValue[] = [];
   const seenTools = new Set<string>();
   for (const { id, version } of deployment.contents.tools) {

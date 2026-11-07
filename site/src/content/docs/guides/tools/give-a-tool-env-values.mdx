@@ -190,7 +190,8 @@ where no scope sets one.
   Tool "my-pack.find-order": the schema for needsSpec.env.ORDERS_REGION doesn't compile: strict mode: unknown keyword: "enmu"
   ```
 - **On every call**, Kindgi resolves each declared name for the call: the
-  project's value, else its org's, else the workspace's. It reads them in the
+  project's value, else its org's, else the workspace's (in a person's own
+  test project, the project's value only). It reads them in the
   env the runtime serves, which `KINDGI_ENV` names. Under `kindgi dev`, the
   env is `local`. A name no scope sets gets its `default`. A required name
   with no value, or a value that doesn't fit its schema, fails the call

@@ -117,7 +117,8 @@ A run uses four kinds of values, each kept in its own place.
 - **A tool's secrets,** in `ctx.secrets`. Where a tool version reads each
   secret is decided once, when that version is registered, and recorded on
   it. Kindgi looks in the tool's project, then that project's org, then the
-  workspace, and records the first that holds the secret. With authorization
+  workspace (in a person's own test project, in the project alone), and
+  records the first that holds the secret. With authorization
   on, only the scopes whoever registers it administers count. If none holds
   the secret yet, a deploy (runtime 0.1.9 or later) records where its
   `--sync-secrets` writes: the project the deploy named, or the workspace for

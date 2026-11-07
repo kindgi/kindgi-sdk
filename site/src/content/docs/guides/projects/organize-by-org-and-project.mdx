@@ -361,6 +361,9 @@ mine = kindgi.projects.create(slug="mine", name="Mine", test_for=me.user_id)
   connection: each answers `409 project-is-a-test-project`. Its work goes
   live from a production project.
 - **Its person writes its secrets** without the `secrets:write` capability.
+  Its tools, MCP servers, webhook triggers and deployments read only the
+  secrets and env values set in it, never the workspace's or an org's, so
+  set theirs there.
 - **What's made elsewhere stays out.** A run there remembers nothing for
   the whole workspace, and a key or session limited to it reads only the
   facts in it
