@@ -784,7 +784,7 @@
               "required": [
                 "what"
               ],
-              "description": "`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.",
+              "description": "`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait that isn't an approval's, a connect's or one of `tokens`, or whose approval, connect or token can't be read. `no-open-wait`: the journal shows none; the runtime picks the run up again.",
               "properties": {
                 "what": {
                   "type": "string",
@@ -66788,6 +66788,16 @@
               }
             }
           },
+          "403": {
+            "description": "With an authorization store, not a tenant admin; with a store or without one, bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`ifRevision` was set and did not match the stored revision.",
             "content": {
@@ -66849,7 +66859,7 @@
             }
           }
         },
-        "description": "Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.",
+        "description": "Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -74400,7 +74410,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74498,7 +74508,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74617,7 +74627,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74703,7 +74713,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -74840,7 +74850,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {

@@ -1647,8 +1647,8 @@ const WITHOUT_STORE_ADMIN =
 /**
  * A change to a tenant-wide setting (`tenantResourceAccess`), and every
  * call to one only a tenant admin uses (`tenantAdminAccess`: webhook
- * endpoints, compliance): a tenant admin's, with an authorization store or
- * without one.
+ * endpoints, compliance, connection apps): a tenant admin's, with an
+ * authorization store or without one.
  */
 const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
   '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
@@ -10413,7 +10413,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.config.upsert',
     summary: 'Upsert a workspace config entry',
     description:
-      'Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
+      'Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10425,6 +10425,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
+      '403': ErrorResponse(
+        'With an authorization store, not a tenant admin; with a store or without one, bearer token missing `secrets:write` (a secret) or `env:write` (an env or config entry) capability.',
+      ),
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
     },
   },
@@ -12293,7 +12296,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of registrations.', schema: ref('ConnectionAppPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('An `includeRemoved` other than `true` or `false` (`bad-input`).'),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
     },
   },
   {
@@ -12314,7 +12317,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
   },
@@ -12331,7 +12334,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The registration.', schema: ref('ConnectionApp') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`appId` is not a UUID (`bad-input`).'),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
     },
   },
@@ -12353,7 +12356,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
@@ -12385,7 +12388,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         '`appId` is not a UUID, or `withConnections` is not a boolean (`bad-input`).',
       ),
-      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
       '409': ErrorResponse(
         'Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).',

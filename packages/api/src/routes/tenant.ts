@@ -16,7 +16,9 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
+import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 import { readTenantPatch, renameAnswer } from './tenant-rename.js';
 
 /**
@@ -60,7 +62,11 @@ import { readTenantPatch, renameAnswer } from './tenant-rename.js';
  *                         OR `sensitive === true`; else to
  *                         `EnvBinding.set`. Returns 200 with `{ entry }`
  *                         on ok, 409 `tenant-config-revision-conflict`
- *                         when `ifRevision` mismatches.
+ *                         when `ifRevision` mismatches. Asks the
+ *                         capability of the binding it writes, as
+ *                         `/v1/secrets` and `/v1/env` do: `secrets:write`
+ *                         for a secret, `env:write` for an env or config
+ *                         entry.
  *
  * Env dimension. The wire shape doesn't carry `envName`, but both
  * bindings require it. `env` and `secret` entries live under the env the
@@ -222,9 +228,11 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       ref('tenant', c.get('tenantId') as unknown as string),
     );
     r.use('/config', admin);
-    // Renaming the tenant is a tenant-wide write too.
-    r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
   }
+  // Renaming the tenant is a tenant-wide write too: `admin` on the tenant
+  // with a store, a tenant admin without one.
+  const renameAccess = tenantResourceAccess(authorizer);
+  r.use('/', async (c, next) => (c.req.method === 'PATCH' ? renameAccess(c, next) : next()));
 
   // ---------- GET / ----------
   r.get('/', async (c) => {
@@ -483,6 +491,14 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     // secrets binding regardless of `kind`. `kind: 'secret'` always
     // routes to secrets.
     const wantsSecrets = kind === 'secret' || explicitSensitive === true;
+
+    // The capability of the binding written, with a store or without one,
+    // as `/v1/secrets` and `/v1/env` ask it. A secret key that exists
+    // takes a new version, which `/v1/secrets` also does under
+    // `secrets:write`. Asked before the binding is read, so a caller
+    // without it gets the same 403 whichever names exist.
+    const missing = capabilityRefusal(c, authorizer, wantsSecrets ? 'secrets:write' : 'env:write');
+    if (missing !== undefined) return missing;
 
     if (wantsSecrets) {
       if (secretsBinding === undefined) {
