@@ -212,10 +212,10 @@ export interface ConnectRequestRecord {
    */
   readonly installations?: readonly ConnectRequestInstallation[];
   /**
-   * An app's through Kindgi's own app, while it's `pending`: the accounts
-   * the business shared that fit the app, when the finish found several
-   * and none was picked. They pick one and start again (`startRequest`'s
-   * `accountId`).
+   * For an app that connects through Kindgi's own app, while the request
+   * is `pending`: the accounts the business shared that fit the app, when
+   * the finish found several and none was picked. They pick one and start
+   * again (`startRequest`'s `accountId`).
    */
   readonly accounts?: readonly ConnectionAccount[];
   readonly connectionId?: string;

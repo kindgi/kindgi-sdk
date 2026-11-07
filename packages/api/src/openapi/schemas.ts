@@ -17385,7 +17385,7 @@ export const ConnectRequestSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/ConnectionAccount' },
       description:
-        "An app's through Kindgi's own app, while it's `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.",
+        "For an app that connects through Kindgi's own app, while the request is `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.",
     },
     connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
     connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
@@ -17499,7 +17499,7 @@ export const StartConnectBodySchema: JsonSchema = {
       minLength: 1,
       maxLength: 64,
       description:
-        "An app's through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.",
+        "For an app that connects through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.",
     },
   },
 };

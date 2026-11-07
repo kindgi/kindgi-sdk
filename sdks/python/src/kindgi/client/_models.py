@@ -12488,7 +12488,7 @@ class StartConnectBody(BaseModel):
     """
     account_id: Annotated[str | None, Field(alias="accountId", max_length=64, min_length=1)] = None
     """
-    An app's through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.
+    For an app that connects through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.
     """
 
 
@@ -18771,7 +18771,7 @@ class ConnectRequest(BaseModel):
     """
     accounts: list[ConnectionAccount] | None = None
     """
-    An app's through Kindgi's own app, while it's `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.
+    For an app that connects through Kindgi's own app, while the request is `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.
     """
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
