@@ -1,6 +1,6 @@
 ---
 title: Correct a run's output
-description: Record whether a finished run's decisions and answer were right, and what was right instead, from your app, the CLI or the console, see where each correction goes, and weight corrections by corrector group.
+description: Record whether the decisions and answer of a run that completed with an output were right, and what was right instead, from your app, the CLI or the console, see where each correction goes, and weight corrections by corrector group.
 sidebar:
   order: 1
 ---
@@ -11,10 +11,10 @@ This guide records whether what a run did and returned was right, counts
 some people's corrections more than others, and queues the runs that need a
 correction.
 
-A **correction** says whether a finished run's decisions, the tools it
-called, were right, whether its answer was right, and what was right
-instead. For an answer that is a ranked list, it says which items were
-right. People who know the work, your users or your experts, correct it.
+A **correction** is about a run that completed with an output. It says
+whether the run's decisions, the tools it called, were right, whether its
+answer was right, and what was right instead. For an answer that is a
+ranked list, it says which items were right. People who know the work, your users or your experts, correct it.
 Each correction goes to whoever fixes it, and moves on until it's fixed.
 The corrections also tell you how an agent or flow version does: they're
 the cases of the agent's [test set](../build-a-test-set/), and you
@@ -24,8 +24,8 @@ console page.
 
 ## Before you start
 
-- **A finished run to correct,** and its id, on a runtime such as `kindgi dev`,
-  with Kindgi 0.2's CLI. [List runs](../../runs/list-runs/) finds one.
+- **A run to correct,** one that completed with an output, and its id, on a
+  runtime such as `kindgi dev`, with Kindgi 0.2's CLI. [List runs](../../runs/list-runs/) finds one.
 - **Write access to the run's project,** when authorization is on.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
   Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
@@ -225,8 +225,8 @@ object RecordCorrection {
   empty `--why=` clears the why. A correction that was being fixed or with
   the owner starts again, sorted afresh, and the CLI says which it replaced.
 
-The run now has the correction. Only a finished run can be corrected, and
-each item's pointer must find something.
+The run now has the correction. Only a run that completed with an output
+can be corrected, and each item's pointer must find something.
 [Corrections](../expert-queue-reference/#corrections) has the rules and the
 refusals.
 
