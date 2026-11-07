@@ -194,6 +194,7 @@ locals {
     database_url     = "${var.name_prefix}-database-url"     # postgres://…@/kindgi?host=/cloudsql/<connection name>, or …@<private ip>:5432/kindgi?sslmode=require
     api_token        = "${var.name_prefix}-api-token"        # KINDGI_API_TOKEN, the seeded bearer
     public_token_key = "${var.name_prefix}-public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY
+    pagination_key   = "${var.name_prefix}-pagination-key"   # 32 random bytes, base64: KINDGI_PAGINATION_KEY (at pagination_key_version)
     license_key      = "${var.name_prefix}-license-key"      # KINDGI_LICENSE_KEY (kgi_lk_…), issued by Kindgi
     }, local.postgres_secrets ? {
     secrets_aad_key = "${var.name_prefix}-secrets-aad-key" # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (secrets_backend = "postgres" only)
@@ -223,9 +224,12 @@ resource "google_secret_manager_secret_iam_member" "server_reads" {
 
 # The server's own secret settings (var.server_secret_env, e.g. sign-in's):
 # the operator created them; the server gets read access to exactly these.
-# One in another project is granted there, not here (README).
+# One in another project is granted there, not here (README). The previous
+# page-cursor key in the module's own secret is read already (server_reads):
+# a second grant of the same role on it would take that read away with it
+# when the entry goes after a rotation.
 resource "google_secret_manager_secret_iam_member" "server_reads_its_secrets" {
-  for_each  = { for name, ref in var.server_secret_env : name => ref if ref.project == null }
+  for_each  = { for name, ref in var.server_secret_env : name => ref if ref.project == null && ref.secret != local.server_secrets.pagination_key }
   secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.server.email}"
