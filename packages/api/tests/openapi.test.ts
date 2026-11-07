@@ -389,6 +389,7 @@ describe('OpenAPI — public route is reachable without auth', () => {
 
 interface SpecResponse {
   readonly description?: string;
+  readonly content?: unknown;
   readonly headers?: Readonly<Record<string, { readonly $ref?: string }>>;
 }
 
@@ -486,6 +487,19 @@ describe('OpenAPI — Retry-After and the answers every call can get', () => {
       }
     }
     expect(unmarked.sort()).toEqual(Object.keys(SENDS_NO_RETRY_AFTER).sort());
+  });
+
+  // Hono answers a HEAD with its GET route and sends no body, so the shared
+  // answers a HEAD gets declare none.
+  test('a HEAD declares no body on its 429 or 503', () => {
+    const { entries } = specEntries();
+    const heads = entries.filter(({ method }) => method === 'head');
+    expect(heads.length).toBeGreaterThan(0);
+    for (const entry of heads) {
+      for (const status of ['429', '503']) {
+        expect(entry.op.responses[status]?.content, where(entry, status)).toBeUndefined();
+      }
+    }
   });
 
   test('every write that takes an Idempotency-Key declares the 409 a same-key request in flight gets', () => {

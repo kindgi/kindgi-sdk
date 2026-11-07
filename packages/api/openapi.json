@@ -51823,17 +51823,10 @@
             "description": "No blob with that id under this workspace."
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"api-requests\"`, on a runtime that sets workspace limits (Kindgi Cloud): this workspace's limit on API requests a minute is reached, so the request wasn't run; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"api-requests\"`, on a runtime that sets workspace limits (Kindgi Cloud): this workspace's limit on API requests a minute is reached, so the request wasn't run; `Retry-After` says when to send it again. No body, as with any `HEAD`.",
             "headers": {
               "Retry-After": {
                 "$ref": "#/components/headers/RetryAfter"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
               }
             }
           },

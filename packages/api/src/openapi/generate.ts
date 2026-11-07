@@ -440,6 +440,12 @@ const REQUEST_LIMIT: ResponseSpec = {
   retryAfter: true,
 };
 
+/** The same on a `HEAD`: the status and `Retry-After`, with no body. */
+const REQUEST_LIMIT_HEAD: ResponseSpec = {
+  description: `${REQUEST_LIMIT_TEXT} No body, as with any \`HEAD\`.`,
+  retryAfter: true,
+};
+
 /**
  * What a write that takes an `Idempotency-Key` answers while the same key's
  * first request still runs — see `takesIdempotencyKey`. A write's own 409
@@ -479,7 +485,7 @@ function responsesWithShared(op: OperationSpec): Readonly<Record<string, Respons
     responses['413'] = REQUEST_TOO_LARGE;
   }
   if (answersRequestLimit(op) && responses['429'] === undefined) {
-    responses['429'] = REQUEST_LIMIT;
+    responses['429'] = op.method === 'head' ? REQUEST_LIMIT_HEAD : REQUEST_LIMIT;
   }
   if (takesIdempotencyKey(op)) {
     const own = responses['409'];
