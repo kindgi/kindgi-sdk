@@ -791,8 +791,9 @@ async function pinCarried(
 /**
  * A carried version's rights check, answered after the move committed: a
  * refusal (a 403) as it is. Any other answer is a store the check couldn't
- * reach (the authorizer has logged its error), which throws: the promotion
- * answers `500`, not the `503` that says nothing ran.
+ * reach, or a database too busy for the check's read (the error is logged
+ * either way), which throws: the promotion answers `500`, not the `503`
+ * that says nothing ran.
  */
 function refusedAfterMove(denied: Response): Response {
   if (refuses(denied)) return denied;

@@ -17,6 +17,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   starts.** Python's base image sets it in every pack's image, so the
   `env-dropped` line warned at every start. The service still drops it like
   any name the pack doesn't declare: a pack that reads it declares it.
+- `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
+  runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
+  runtime has a license key too, and answers `licensed`. What you pass or
+  read doesn't change.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's
