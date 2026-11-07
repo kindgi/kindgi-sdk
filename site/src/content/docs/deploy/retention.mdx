@@ -536,7 +536,7 @@ then every hour, in the tenants it serves:
 | Audit events | Kept for |
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
-| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
+| Run outcomes (`run-outcome`), test runs' ends (`test-run`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
 | Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access, connections and the choices of them, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
@@ -564,6 +564,18 @@ describes:
   and SHA-256, never the answer or the link.
 - **A held answer dropped** (`wait-token-discarded`): one record for each
   answer held for a wait the run never reached, with the answer's SHA-256.
+
+A test run's end is recorded (runtime X.Y.Z or later):
+
+- **A test run's end** (`test-run`): one record for each
+  [test run](../../guides/improve/compare-an-agent-version/), however it
+  ends: completed, failed (one the runtime interrupted, too) or cancelled.
+  It's written with the end itself, so no test run ends without one; test
+  runs that ended before the upgrade have none. It says how the test run
+  ended and whether it was a dry run, names the test set and its version
+  and the agent or flow it tried, and holds the result's summary numbers,
+  such as how many cases passed. It never holds a case, an answer or an
+  error message.
 
 ### On legal hold
 
