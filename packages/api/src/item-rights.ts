@@ -278,8 +278,8 @@ export function createItemRights(
 
   /**
    * `projects` for a page of one kind's items: those the request hasn't
-   * asked yet in one `projectsOfMany`, the others as already asked. An item
-   * with no projects is missing from the map.
+   * asked yet in one `projectsOfMany`, the others as already asked. An id
+   * that names no item is missing from the map.
    */
   async function projectsOfMany(c: Ctx, kind: OrderItemKind, ids: readonly string[]) {
     const seen = seenBy(c);
