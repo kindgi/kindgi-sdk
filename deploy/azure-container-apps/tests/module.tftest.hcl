@@ -166,6 +166,11 @@ run "new_vnet_shape_meets_the_contract" {
     condition     = azurerm_container_app.server.template[0].container[0].startup_probe[0].path == "/health" && azurerm_container_app.pack.template[0].container[0].startup_probe[0].path == "/readyz"
     error_message = "C-RT-4/C-PK-2: startup probes on /health and /readyz."
   }
+  # C-RT-4: the first start has 10 minutes to run the migrations, as on Cloud Run.
+  assert {
+    condition     = azurerm_container_app.server.template[0].container[0].startup_probe[0].interval_seconds == 5 && azurerm_container_app.server.template[0].container[0].startup_probe[0].failure_count_threshold == 120
+    error_message = "C-RT-4: the server's startup probe waits 600 s, 120 tries 5 s apart."
+  }
   # C-SEC-1: no secret has a value in the configuration.
   assert {
     condition     = alltrue([for s in azurerm_container_app.server.secret : s.value == null]) && alltrue([for s in azurerm_container_app.pack.secret : s.value == null])
