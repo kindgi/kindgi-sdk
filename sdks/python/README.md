@@ -319,8 +319,11 @@ Without arguments, the client takes `KINDGI_API_URL` and `KINDGI_API_TOKEN`
 from the environment. In development, when they're unset, it uses the running
 `kindgi dev` (the nearest `.kindgirc.json` at or above the working directory)
 and warns once (`KindgiConfigWarning`) to put them in your env file (`.env` /
-`.env.local`). Production (`KINDGI_ENV` or `NODE_ENV` set to `production`)
-never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
+`.env.local`). The two go together: with only one of them set, it takes
+nothing from `.kindgirc.json`, unless the URL is that `kindgi dev`'s own, and
+raises `ValueError`, naming the file and what to set. Production
+(`KINDGI_ENV` or `NODE_ENV` set to `production`) never reads
+`.kindgirc.json`. It's the same lookup as the TypeScript SDK's
 `createClient()`.
 
 - A request body is a model from `kindgi.client.models`, a mapping, or its
