@@ -60,7 +60,9 @@ With authorization on:
   workspace's first admin, the person it was created with on a runtime
   serving many tenants, holds every one but `secrets:reveal`, and no other
   person holds any. A key carries those it was made with
-  ([API keys](#api-keys)).
+  ([API keys](#api-keys)). A person writes the secrets of their own test
+  project without `secrets:write`
+  ([A person's own test project](../../guides/projects/organize-by-org-and-project/#a-persons-own-test-project)).
 
 Lists hold only what the caller may read.
 

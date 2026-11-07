@@ -162,6 +162,7 @@ async function remember(
     conversationId: ctx.input.conversationId,
     ...(participantId !== undefined && { participantId }),
     ...(userId !== undefined && { userId }),
+    ...(ctx.input.projectIsTest === true && { projectIsTest: true }),
   });
   if (target.kind === 'refused') return notRemembered(target.reason);
   const toolIds = [...(ctx.tools?.byName.keys() ?? [])].filter((id) => id !== REMEMBER_TOOL_ID);

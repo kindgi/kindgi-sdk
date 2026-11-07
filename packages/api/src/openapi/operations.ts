@@ -9406,7 +9406,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`. Making a project takes admin on the workspace, except a person's own test project (`testFor`, your own user id): any member makes one, once (`409 project-test-already-exists`), and only for themselves (`403 project-test-not-yours`), with no `orgId` and not as the default, on a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` (`409 project-test-needs-isolated-runtime`). Its person becomes its admin.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9449,7 +9449,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
+      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. `testFor` is set only when a project is made, and a test project moves into no org (`409 project-is-a-test-project`).',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9991,7 +9991,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
+      "Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it. A person's own test project (`testFor`) takes no other members and keeps its person: `409 project-is-a-test-project`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10073,7 +10073,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.production.set',
     summary: 'Put a project in production, or take it out',
     description:
-      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production. A test project (`testFor`) never goes into production: `409 project-is-a-test-project`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
@@ -10100,7 +10100,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.repoConnection.set',
     summary: "Set a project's repo connection",
     description:
-      "The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the workspace's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.",
+      "The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the workspace's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections. A test project (`testFor`) has no repo connection: `409 project-is-a-test-project`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
@@ -10166,7 +10166,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.teamGrants.add',
     summary: 'Give a team a role on a project',
     description:
-      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
+      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it. A test project (`testFor`) is given to no team: `409 project-is-a-test-project`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
@@ -10249,6 +10249,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects/{projectId}/memberships/{userId}',
     operationId: 'projects.memberships.remove',
     summary: 'Remove a user from a project (idempotent)',
+    description:
+      "A person's own test project (`testFor`) takes no other members and keeps its person: `409 project-is-a-test-project`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10285,6 +10287,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects/{projectId}/memberships/{userId}',
     operationId: 'projects.memberships.updateRole',
     summary: "Change an existing project member's role",
+    description:
+      "A person's own test project (`testFor`) takes no other members and keeps its person: `409 project-is-a-test-project`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10465,7 +10469,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'environmentOrders.setTenant',
     summary: "Set the workspace's environment order",
     description:
-      'Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the workspace and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.',
+      'Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the workspace and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before. A test project (`testFor`) is in no order: `409 project-is-a-test-project`.',
     tags: ['environments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10510,7 +10514,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'environmentOrders.setOrg',
     summary: "Set an org's environment order",
     description:
-      "Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.",
+      "Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before. A test project (`testFor`) is in no order: `409 project-is-a-test-project`.",
     tags: ['environments'],
     security: 'bearer',
     parameters: [

@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a person's own test project.** `projects.create` takes
+  `test_for`, the caller's own user id, and `Project` and `ProjectSpec` gain
+  `test_for`. A test project's refusals, `project-test-already-exists` and
+  `project-is-a-test-project`, raise `ConflictError`.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

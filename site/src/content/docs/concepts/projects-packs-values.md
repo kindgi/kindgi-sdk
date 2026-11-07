@@ -81,6 +81,11 @@ project holds:
   tool isn't run: `reference-out-of-scope`,
   `tool "<id>" isn't registered in this project, its org or the workspace`.
 
+A person's own test project (`testFor`) is a project only they're in. Its
+runs reach only what's made in it: no fact kept for the whole workspace, no
+company connection, and it never goes into production
+([A person's own test project](../../guides/projects/organize-by-org-and-project/#a-persons-own-test-project)).
+
 ## One tool for several clients
 
 A pack's tool stays in its own project, so there are two ways to give

@@ -13,6 +13,10 @@
  *   the same tenant resolves to `project-default-already-exists`
  *   (in-memory adapter enforces at write time; Postgres impl enforces
  *   via partial-unique-index).
+ * - One test project per person per tenant (`testFor`): a second for the
+ *   same person in the same tenant resolves to
+ *   `project-test-already-exists`; another person, another tenant, or the
+ *   same person once theirs is deleted, may make one.
  * - Slug uniqueness within an org (and, for projects without an org,
  *   among those): `create` and `update` (a new slug, or a move to
  *   another org) resolve to `slug-conflict`; another org, or another
@@ -566,6 +570,35 @@ export function runProjectBindingConformance(
       });
       const got = await projects.getDefault(T2);
       expect(got?.id).toBe(d2);
+    });
+  });
+
+  describe(`${label} — a person's own test project`, () => {
+    it('testFor round-trips, and the project is no default', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'Mine', slug: 'mine', testFor: U1 });
+      const got = await projects.get(T1, id);
+      expect(got?.testFor).toBe(U1);
+      expect(got?.isDefault).toBe(false);
+      const other = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+      expect((await projects.get(T1, other))?.testFor).toBeUndefined();
+    });
+
+    it('a second for the same person in the same tenant → project-test-already-exists', async () => {
+      const { projects } = makeBinding();
+      await createProject(projects, T1, { name: 'Mine', slug: 'mine', testFor: U1 });
+      expect(await projects.create(T1, { name: 'Mine 2', slug: 'mine-2', testFor: U1 })).toEqual({
+        kind: 'project-test-already-exists',
+      });
+    });
+
+    it('another person, another tenant, or the same person after a delete may make one', async () => {
+      const { projects } = makeBinding();
+      const first = await createProject(projects, T1, { name: 'Mine', slug: 'mine', testFor: U1 });
+      await createProject(projects, T1, { name: 'Theirs', slug: 'theirs', testFor: U2 });
+      await createProject(projects, T2, { name: 'Mine', slug: 'mine', testFor: U1 });
+      expect(await projects.delete(T1, first)).toEqual({ kind: 'ok' });
+      await createProject(projects, T1, { name: 'Mine again', slug: 'mine-again', testFor: U1 });
     });
   });
 

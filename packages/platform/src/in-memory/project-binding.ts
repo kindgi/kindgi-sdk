@@ -13,8 +13,9 @@
  *
  * `create` enforces the `Project.isDefault = true` uniqueness
  * guardrail at write time: creating a second default in the same
- * tenant resolves to `project-default-already-exists`. A project's
- * slug is unique within its org, and a project without an org's among
+ * tenant resolves to `project-default-already-exists`, and a second
+ * test project for the same person (`Project.testFor`) to
+ * `project-test-already-exists`. A project's slug is unique within its org, and a project without an org's among
  * the tenant's projects without one (`slug-conflict`).
  */
 
@@ -141,6 +142,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     return false;
   }
 
+  function personAlreadyHasTestProject(tenantId: TenantId, userId: UserId): boolean {
+    for (const row of projectRows.values()) {
+      if (row.tenantId === tenantId && row.testFor === userId) return true;
+    }
+    return false;
+  }
+
   /**
    * Is `slug` held by another project (not `exceptId`) where a project of
    * `orgId` lives: in that org, or, without an org, among the tenant's
@@ -173,6 +181,9 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
         return { kind: 'project-default-already-exists' };
       }
+      if (spec.testFor !== undefined && personAlreadyHasTestProject(tenantId, spec.testFor)) {
+        return { kind: 'project-test-already-exists' };
+      }
       if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
         return { kind: 'org-not-found', orgId: spec.orgId };
       }
@@ -191,6 +202,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         updatedAt: now,
         ...(spec.orgId !== undefined ? { orgId: spec.orgId } : {}),
         ...(spec.description !== undefined ? { description: spec.description } : {}),
+        ...(spec.testFor !== undefined ? { testFor: spec.testFor } : {}),
       };
       projectRows.set(id, row);
       return { kind: 'ok', projectId: id };

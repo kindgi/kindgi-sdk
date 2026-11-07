@@ -10,6 +10,7 @@ import type { ProjectId, TenantId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { projectIsATestProjectError } from './hierarchy-errors.js';
 
 /**
  * The production gate: whether putting a project in production needs the
@@ -55,6 +56,9 @@ export interface ProjectProductionRouterOptions {
  *   of its projects are in production, or more. The binding reads the
  *   limit, counts and sets in one step, so a limit changed meanwhile is
  *   the one counted against. Taking a project out is never refused.
+ * - **A test project** (`Project.testFor`) never goes into production:
+ *   turning it on there is `409 project-is-a-test-project`. Its work goes
+ *   live from a production project.
  * - **Repeats answer 200 unchanged:** setting what's already set writes
  *   nothing, and keeps the first `productionSince`.
  * - **The answer:** `{ projectId, productionSince }`, `null` when it's out
@@ -91,6 +95,17 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
 
     const project = await projects.get(tenantId, projectId);
     if (project === undefined) return refuse(c, requestId, projectNotFound(projectId));
+    // `Project.testFor` never changes, so this read can't go stale.
+    if (production && project.testFor !== undefined) {
+      return refuse(
+        c,
+        requestId,
+        projectIsATestProjectError(
+          projectId as unknown as string,
+          'A test project never goes into production: put its work live from a production project',
+        ),
+      );
+    }
 
     // The gate guards going into production, not staying there: a project
     // already in production answers its repeat unchanged. The binding

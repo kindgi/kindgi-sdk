@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { tuplesForCreate } from '@kindgi/authz';
-import type { Scope } from '@kindgi/platform';
-import type { Cursor, EnvName, TenantId } from '@kindgi/types';
+import { type Principal, tuplesForCreate } from '@kindgi/authz';
+import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type { Cursor, EnvName, ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -45,7 +45,8 @@ import { auditWrite } from './write-audit.js';
  *     eventsUrl }`; sync rotation returns 201 with the outcome inline.
  *
  * Capability gates:
- *   - `secrets:write`   → POST /
+ *   - `secrets:write`   → POST /, except a person writing at their own test
+ *     project's scope (`Project.testFor`), who needs no capability there
  *   - `secrets:rotate`  → POST /:name/rotate
  *   - `secrets:revoke`  → DELETE /:name (soft)
  *   - `secrets:revoke:hard` → DELETE /:name?hard=true
@@ -88,12 +89,37 @@ export interface SecretsRouterOptions {
    * (`refuseUnservedValue`). Reads and revokes pass. Absent: any env.
    */
   readonly servedEnv?: ServedEnvRule;
+  /**
+   * Optional. Where `POST /` reads a project scope's project: a person
+   * writing in their own test project (`Project.testFor`) needs no
+   * `secrets:write` there. Absent: every write needs it.
+   */
+  readonly projects?: Pick<ProjectBinding, 'get'>;
 }
 
 export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
-  const { secretsBinding, rotationStatusStore, authorizer, auditEvents, servedEnv } = options;
+  const { secretsBinding, rotationStatusStore, authorizer, auditEvents, servedEnv, projects } =
+    options;
   const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
   const r = new Hono<AppEnv>();
+
+  /**
+   * Whether `POST /`'s body writes at the project scope of the caller's own
+   * test project (`Project.testFor` is the caller), where its person needs
+   * no `secrets:write`. `Project.testFor` never changes, so the read can't
+   * go stale.
+   */
+  async function writesOwnTestProject(c: Context<AppEnv>, tenantId: TenantId): Promise<boolean> {
+    if (projects === undefined) return false;
+    const principal = c.get('principal') as Principal | undefined;
+    if (principal?.actor.kind !== 'user') return false;
+    const body: unknown = await c.req.json().catch(() => undefined);
+    if (body === null || typeof body !== 'object') return false;
+    const scope = validateBodyScope((body as Record<string, unknown>).scope, tenantId);
+    if (scope.kind === 'err' || scope.scope.kind !== 'project') return false;
+    const project = await projects.get(tenantId, scope.scope.projectId as ProjectId);
+    return project?.testFor !== undefined && (project.testFor as string) === principal.actor.id;
+  }
 
   // Authorization PEP — scope-anchored.
   // STRICT-READ: `admin` on the scope; a `reader` grant on one secret
@@ -326,7 +352,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const tenantId = c.get('tenantId') as TenantId;
 
     const missing = capabilityRefusal(c, authorizer, 'secrets:write');
-    if (missing !== undefined) return missing;
+    if (missing !== undefined && !(await writesOwnTestProject(c, tenantId))) return missing;
 
     let body: unknown;
     try {

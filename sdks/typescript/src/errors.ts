@@ -324,6 +324,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'approval-not-decided':
     case 'slug-conflict':
     case 'project-default-already-exists':
+    case 'project-test-already-exists':
+    case 'project-is-a-test-project':
     case 'registry-read-only':
     case 'policy-scope-taken':
     case 'policy-scope-changed':

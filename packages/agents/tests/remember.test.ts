@@ -77,6 +77,8 @@ async function rememberTurn(options: {
   readonly principal?: unknown;
   readonly writer?: boolean;
   readonly pending?: boolean;
+  /** The run's project is a person's own test project. */
+  readonly projectIsTest?: boolean;
   /** The turn's `authorizeToolCall`; what it's asked is in `Turn.asked`. */
   readonly authorize?: (input: {
     readonly toolId: string;
@@ -107,6 +109,7 @@ async function rememberTurn(options: {
       agent,
       ...(options.participantId !== undefined && { participantId: options.participantId }),
       ...(options.principal !== undefined && { principal: options.principal }),
+      ...(options.projectIsTest === true && { projectIsTest: true }),
     },
     bindings: {
       conversationBinding: {
@@ -303,6 +306,19 @@ describe('the remember tool in a turn', () => {
     });
   });
 
+  test("a test project's run keeps no workspace-wide fact, and nothing is written", async () => {
+    const turn = await rememberTurn({
+      policy: { types: ['preference'], scope: 'tenant' },
+      args: { type: 'preference', content: 'Prefers email' },
+      projectIsTest: true,
+    });
+    expect(turn.writes).toEqual([]);
+    expect(outputOf(turn)).toEqual({
+      status: 'not-remembered',
+      reason: "Not remembered: a test project's runs remember only inside it.",
+    });
+  });
+
   test('a text of only spaces is not remembered, and nothing is written', async () => {
     const turn = await rememberTurn({
       policy: { types: ['preference'], scope: 'same-user' },
@@ -443,6 +459,17 @@ describe('where a remembered fact goes', () => {
   test('same-project without a project is refused', () => {
     const { projectId: _none, ...noProject } = run;
     expect(rememberTarget('same-project', noProject).kind).toBe('refused');
+  });
+
+  test("a test project's run remembers only inside it", () => {
+    const inTest = { ...run, projectIsTest: true };
+    expect(rememberTarget('tenant', inTest).kind).toBe('refused');
+    expect(rememberTarget('same-project', inTest)).toMatchObject({
+      scope: { tenantId, projectId },
+    });
+    expect(rememberTarget('same-conversation', inTest)).toMatchObject({
+      scope: { tenantId, projectId, threadId: conversationId },
+    });
   });
 });
 

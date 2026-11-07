@@ -2504,6 +2504,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.identityDirectory,
         input.serviceAccountBinding,
+        { hostAccess: input.tenantHostAccess ?? 'deployed' },
       ),
     );
   }
@@ -2600,6 +2601,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
     );
   }
@@ -2620,6 +2622,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         binding: input.environmentOrders,
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
     );
   }

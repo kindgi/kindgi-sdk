@@ -24,6 +24,7 @@ import type { IdentityDirectoryBinding } from '../identity-directory-binding.js'
 import type { Authorizer } from '../middleware/authorize.js';
 import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
+import { type TenantHostAccess, holdsTestProjects } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import {
@@ -32,6 +33,10 @@ import {
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
   projectInEnvironmentOrderError,
+  projectIsATestProjectError,
+  projectTestAlreadyExistsError,
+  projectTestNeedsIsolatedRuntimeError,
+  projectTestNotYoursError,
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
@@ -45,13 +50,21 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *                                          `?limit=` / `?cursor=` / `?orgId=` /
  *                                          `?nameContains=`.
  *   - `POST   /`                         — create; body `{ name, slug,
- *                                          orgId?, description?, isDefault? }`;
- *                                          201 `{ id }`; 409 `slug-conflict`
- *                                          when its org (or, without an org,
- *                                          the tenant's projects without one)
- *                                          has a project with that slug, or
+ *                                          orgId?, description?, isDefault?,
+ *                                          testFor? }`; 201 `{ id }`; 409
+ *                                          `slug-conflict` when its org (or,
+ *                                          without an org, the tenant's
+ *                                          projects without one) has a
+ *                                          project with that slug, or
  *                                          `project-default-already-exists`
- *                                          for a second default.
+ *                                          for a second default. Admin on
+ *                                          the workspace, except a person's
+ *                                          own test project (`testFor`, their
+ *                                          own user id), which any member
+ *                                          makes once: 403
+ *                                          `project-test-not-yours`, 409
+ *                                          `project-test-already-exists` or
+ *                                          `project-test-needs-isolated-runtime`.
  *   - `GET    /default`                  — returns the tenant's default
  *                                          project or 404 `project-not-found`;
  *                                          read on it, as `GET /:projectId`.
@@ -75,6 +88,9 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *   - `PATCH  /:projectId/memberships/:userId`
  *                                        — updateRole via `{ role }`; 204 or
  *                                          404 `project-membership-not-found`.
+ *
+ * A test project is one person's: the membership writes, and a PATCH that
+ * moves it into an org, answer 409 `project-is-a-test-project`.
  */
 export function projectsRouter(
   binding: ProjectBinding,
@@ -103,8 +119,61 @@ export function projectsRouter(
    * deleted project's account is unregistered with it.
    */
   serviceAccounts?: Pick<ServiceAccountBinding, 'projectAccounts' | 'unregister'>,
+  options: {
+    /**
+     * `KINDGI_TENANT_HOST_ACCESS`. Only a runtime that holds test projects
+     * (`holdsTestProjects`: `isolated`) makes one. Default `deployed`.
+     */
+    readonly hostAccess?: TenantHostAccess;
+  } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  const hostAccess = options.hostAccess ?? 'deployed';
+
+  /** A 409 `project-is-a-test-project` for `projectId`, saying `why`. */
+  function testProjectRefused(c: Context<AppEnv>, projectId: ProjectId, why: string) {
+    const error = projectIsATestProjectError(projectId as unknown as string, why);
+    c.status(statusFor(error.code) as never);
+    return c.json(toWireError(error, c.get('requestId')));
+  }
+
+  /**
+   * Why a create with `testFor` is refused, or `undefined`. A person makes
+   * their own test project, themselves: not for someone else, not with a
+   * key limited to a project, not in an org, not as the default, and only
+   * on a runtime that holds test projects.
+   */
+  function testCreateRefusal(
+    c: Context<AppEnv>,
+    b: Record<string, unknown>,
+  ): { readonly code: string; readonly message: string } | undefined {
+    if (typeof b.testFor !== 'string' || b.testFor.length === 0) {
+      return { code: 'bad-input', message: '`testFor` must be a non-empty string when present' };
+    }
+    if (b.orgId !== undefined) {
+      return { code: 'bad-input', message: 'A test project is in no org: leave out `orgId`' };
+    }
+    if (b.isDefault === true) {
+      return {
+        code: 'bad-input',
+        message: "A test project isn't the workspace's default: leave out `isDefault`",
+      };
+    }
+    const principal = c.get('principal') as Principal | undefined;
+    if (principal?.actor.kind !== 'user' || (principal.actor.id as string) !== b.testFor) {
+      return projectTestNotYoursError(
+        "A test project is made by the person it's for: `testFor` must be your own user id",
+      );
+    }
+    const keyProject = c.get('tokenProjectId');
+    if (keyProject !== undefined) {
+      return projectTestNotYoursError(
+        `This key is limited to project ${keyProject}, so it makes no project`,
+      );
+    }
+    if (!holdsTestProjects(hostAccess)) return projectTestNeedsIsolatedRuntimeError();
+    return undefined;
+  }
 
   /**
    * Change a member's role. With an authorizer, the row and its FGA tuple
@@ -265,9 +334,18 @@ export function projectsRouter(
   //   other /:projectId/memberships[/:userId]    → admin on project
   //   GET /                                       → list-filter by can_read
   if (authorizer !== undefined) {
+    // Making a project takes admin on the workspace, except a person's own
+    // test project (`testFor`): any member of the workspace makes their
+    // own, and the handler checks it's theirs. A body that isn't JSON takes
+    // admin.
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
-      const mw = authorizer.authorize('admin', (ctx) =>
+      const peek: unknown = await c.req.json().catch(() => undefined);
+      const forTest =
+        peek !== null &&
+        typeof peek === 'object' &&
+        (peek as Record<string, unknown>).testFor !== undefined;
+      const mw = authorizer.authorize(forTest ? 'read' : 'admin', (ctx) =>
         ref('tenant', ctx.get('tenantId') as unknown as string),
       );
       return mw(c, next);
@@ -361,12 +439,20 @@ export function projectsRouter(
         ),
       );
     }
+    if (b.testFor !== undefined) {
+      const refused = testCreateRefusal(c, b);
+      if (refused !== undefined) {
+        c.status(statusFor(refused.code) as never);
+        return c.json(toWireError(refused, requestId));
+      }
+    }
     const spec: ProjectSpec = {
       name: b.name,
       slug: b.slug,
       ...(b.description !== undefined && { description: b.description as string }),
       ...(b.orgId !== undefined && { orgId: b.orgId as unknown as OrgId }),
       ...(b.isDefault !== undefined && { isDefault: b.isDefault as boolean }),
+      ...(b.testFor !== undefined && { testFor: b.testFor as UserId }),
     };
     // With an authorizer, create through the tenant-hierarchy binding —
     // it writes FGA tuples atomically. The tuples are what makes downstream
@@ -388,7 +474,9 @@ export function projectsRouter(
               ? orgNotFoundError(result.error.orgId as unknown as string)
               : result.error.code === 'default-conflict'
                 ? projectDefaultAlreadyExistsError()
-                : { code: 'internal-server-error', message: result.error.message };
+                : result.error.code === 'test-conflict'
+                  ? projectTestAlreadyExistsError()
+                  : { code: 'internal-server-error', message: result.error.message };
         c.status(statusFor(error.code) as never);
         return c.json(toWireError(error, requestId));
       }
@@ -404,7 +492,9 @@ export function projectsRouter(
           ? slugConflictError('project', outcome.slug)
           : outcome.kind === 'org-not-found'
             ? orgNotFoundError(outcome.orgId as unknown as string)
-            : projectDefaultAlreadyExistsError();
+            : outcome.kind === 'project-test-already-exists'
+              ? projectTestAlreadyExistsError()
+              : projectDefaultAlreadyExistsError();
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
@@ -465,6 +555,13 @@ export function projectsRouter(
           },
           requestId,
         ),
+      );
+    }
+    if (project.testFor !== undefined) {
+      return testProjectRefused(
+        c,
+        projectId,
+        "A test project is one person's: nobody else joins it",
       );
     }
     let body: unknown;
@@ -559,6 +656,15 @@ export function projectsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const projectId = c.req.param('projectId') as ProjectId;
     const userId = c.req.param('userId') as UserId;
+    // Its person stays as long as the project: a workspace admin removes
+    // the project instead.
+    if ((await binding.get(tenantId, projectId))?.testFor !== undefined) {
+      return testProjectRefused(
+        c,
+        projectId,
+        'A test project keeps its person: remove the project instead',
+      );
+    }
     // With an authorizer, the row and its FGA tuple go together, or not
     // at all: removing the row alone would leave the permission in place.
     if (authorizer !== undefined) {
@@ -609,6 +715,9 @@ export function projectsRouter(
     if (role.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
+    }
+    if ((await binding.get(tenantId, projectId))?.testFor !== undefined) {
+      return testProjectRefused(c, projectId, "A test project's person keeps their role");
     }
     const updated = await updateMemberRole(tenantId, projectId, userId, role.value);
     if (updated.kind === 'refused') {
@@ -692,6 +801,15 @@ export function projectsRouter(
       );
     }
     const b = body as Record<string, unknown>;
+    if (b.testFor !== undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`testFor` is set only when a project is made' },
+          requestId,
+        ),
+      );
+    }
     const shaped: { -readonly [K in keyof ProjectPatch]: ProjectPatch[K] } = {};
     if (b.name !== undefined) {
       if (typeof b.name !== 'string') {
@@ -767,6 +885,13 @@ export function projectsRouter(
       const tenant = ref('tenant', tenantId as unknown as string);
       const refused = await deniedBy(authorizer, c, 'admin', tenant);
       if (refused !== undefined) return refused;
+      // `Project.testFor` never changes, so this read can't go stale.
+      if (
+        shaped.orgId !== null &&
+        (await binding.get(tenantId, projectId))?.testFor !== undefined
+      ) {
+        return testProjectRefused(c, projectId, 'A test project is in no org');
+      }
     }
     const outcome = await binding.update(tenantId, projectId, shaped);
     if (outcome.kind === 'project-not-found') {
@@ -888,6 +1013,7 @@ function serializeProject(p: Project): Record<string, unknown> {
     }),
     sortEndUserCorrections: p.sortEndUserCorrections === true,
     ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
+    ...(p.testFor !== undefined && { testFor: p.testFor as unknown as string }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,
   };

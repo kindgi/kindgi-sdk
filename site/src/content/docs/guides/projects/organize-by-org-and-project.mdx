@@ -320,6 +320,54 @@ To give several clients' projects one tool, run it as an MCP server and
 register it for their org or the workspace
 ([Give some projects its tools](../../tools/mcp-servers/#give-some-projects-its-tools)).
 
+## A person's own test project
+
+Anyone in the workspace can make one test project of their own, to try work
+in before it reaches a shared project. It's a project with `testFor`, their
+own user id, set when it's made, and only by them:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const { userId } = await kindgi.identity.whoami();
+if (userId === undefined) throw new Error("Sign in as a person: a test project is a person's own");
+const mine = await kindgi.projects.create({ slug: 'mine', name: 'Mine', testFor: userId });
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+me = kindgi.identity.whoami()  # signed in as a person
+mine = kindgi.projects.create(slug="mine", name="Mine", test_for=me.user_id)
+```
+
+</TabItem>
+</Tabs>
+
+- **One each.** A second for the same person answers
+  `409 project-test-already-exists`. The workspace's admins delete one, and
+  then its person can make another.
+- **Only by its person.** `testFor` must be the caller's own user id, so
+  nobody makes one for someone else, a workspace admin included, and a key
+  limited to a project makes none: `403 project-test-not-yours`. Any member
+  makes their own; making any other project takes admin on the workspace.
+- **Nobody else is in it.** Its person is its `admin`, never its owner.
+  Adding a member or a team, or changing or removing its person, answers
+  `409 project-is-a-test-project`.
+- **It stays a test project.** It's in no org and isn't the default. It
+  never goes into production, into an environment order or onto a repo
+  connection: each answers `409 project-is-a-test-project`. Its work goes
+  live from a production project.
+- **Its person writes its secrets** without the `secrets:write` capability.
+- **What's made elsewhere stays out.** A run there remembers nothing for
+  the whole workspace, and a key or session limited to it reads only the
+  facts in it
+  ([Who sees what](../../agents/memory-reference/#who-sees-what)).
+- **Only an isolated runtime holds them** (`KINDGI_TENANT_HOST_ACCESS=isolated`).
+  Anywhere else, making one answers `409 project-test-needs-isolated-runtime`.
+
 ## Read a customer's work
 
 The lists take a `scope`: one project's, or every project's in an org.

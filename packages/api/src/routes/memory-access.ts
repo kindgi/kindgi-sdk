@@ -20,7 +20,7 @@ import type { Context } from 'hono';
 import { type Principal, ref } from '@kindgi/authz';
 import type { MemoryReaders, MemoryScope } from '@kindgi/memory';
 import type { ProjectBinding } from '@kindgi/platform';
-import type { OrgId, ProjectId, UserId } from '@kindgi/types';
+import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
@@ -29,8 +29,11 @@ import { type ProjectRow, allProjects } from './readable-projects.js';
 
 export interface MemoryAccessDeps {
   readonly authorizer?: Authorizer;
-  /** The tenant's projects, to check one by one when the authorizer can't list them. */
-  readonly projects?: Pick<ProjectBinding, 'list'>;
+  /**
+   * The tenant's projects, to check one by one when the authorizer can't
+   * list them, and to tell whether a key's project is a test project.
+   */
+  readonly projects?: Pick<ProjectBinding, 'list' | 'get'>;
 }
 
 /** The caller's user id, when the caller is a Kindgi user. */
@@ -115,7 +118,23 @@ export async function memoryReadersFor(
     orgIds: orgs,
     ...(user !== undefined && { userIds: [user] }),
     onBehalfOfProjectIds: writable,
+    ...((await limitedToTestProject(c, deps)) && { projectFactsOnly: true }),
   };
+}
+
+/**
+ * Whether the caller's key or session is limited to a person's own test
+ * project (`Project.testFor`), whose callers read only its own facts.
+ * `Project.testFor` never changes, so the read can't go stale.
+ */
+async function limitedToTestProject(c: Context<AppEnv>, deps: MemoryAccessDeps): Promise<boolean> {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined || deps.projects === undefined) return false;
+  const project = await deps.projects.get(
+    c.get('tenantId') as TenantId,
+    keyProject as unknown as ProjectId,
+  );
+  return project?.testFor !== undefined;
 }
 
 /**

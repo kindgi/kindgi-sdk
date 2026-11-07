@@ -122,11 +122,14 @@ interface Harness {
 function harness(authz: AuthzCheckBinding = checkOnly): Harness {
   const memory = inMemoryMemory();
   const projectLists: number[] = [];
+  const projects = [project(projectA, orgA), project(projectB)];
   const projectBinding = {
     list: async () => {
       projectLists.push(1);
-      return { items: [project(projectA, orgA), project(projectB)] };
+      return { items: projects };
     },
+    // A caller limited to a project: whether it's a test project.
+    get: async (_tenantId: TenantId, id: ProjectId) => projects.find((p) => p.id === id),
   } as unknown as ProjectBinding;
   const app = createApp({
     ...createStubAppBindings(),

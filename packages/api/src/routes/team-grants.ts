@@ -19,7 +19,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
-import { membershipNotKeptInStepError } from './hierarchy-errors.js';
+import { membershipNotKeptInStepError, projectIsATestProjectError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -131,6 +131,14 @@ export function projectTeamGrantsRouter(deps: TeamGrantsDeps): Hono<AppEnv> {
     }
     const project = await projects.get(tenantId, projectId);
     if (project === undefined) return projectNotFound(c, projectId);
+    if (project.testFor !== undefined) {
+      const error = projectIsATestProjectError(
+        projectId as unknown as string,
+        "A test project is one person's: no team is given it",
+      );
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, c.get('requestId')));
+    }
     const team = await teams.get(tenantId, teamId);
     if (team === undefined) return teamNotFound(c, teamId);
 

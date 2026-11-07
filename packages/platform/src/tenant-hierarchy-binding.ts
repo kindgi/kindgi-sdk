@@ -72,6 +72,8 @@ export interface CreateProjectParams {
    * The person who creates it, made its owner. Absent when no person is
    * behind the key (a service account's): no one is made
    * its owner, and the workspace's admins reach it through its parent.
+   * With `spec.testFor`, no one is made its owner: the person it's for
+   * is made its `admin` (`tuplesForCreate`'s `testFor`).
    */
   readonly creatorUserId?: UserId;
   readonly spec: ProjectSpec;
@@ -82,6 +84,8 @@ export type CreateProjectError =
   /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
   | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }
+  /** `spec.testFor` was set and the workspace already has a test project for that person. */
+  | { readonly code: 'test-conflict'; readonly message: string; readonly cause?: unknown }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 
 export interface AddProjectMemberParams {

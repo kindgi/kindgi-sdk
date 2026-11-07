@@ -6,6 +6,7 @@ import { type Context, Hono } from 'hono';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
+import type { ProjectBinding } from '@kindgi/platform';
 import type { OrgId, ProjectId, TenantId } from '@kindgi/types';
 
 import { callerIdentity, isTenantAdmin } from '../caller.js';
@@ -18,6 +19,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { projectIsATestProjectError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -77,8 +79,14 @@ export function environmentOrdersRouter(deps: {
   readonly binding: EnvironmentOrderBinding;
   readonly auditEvents?: AuditEventBinding;
   readonly authorizer?: Authorizer;
+  /**
+   * Optional. The projects an order names: a person's own test project
+   * (`Project.testFor`) is in no order, and naming one answers 409
+   * `project-is-a-test-project`.
+   */
+  readonly projects?: Pick<ProjectBinding, 'get'>;
 }): Hono<AppEnv> {
-  const { binding, auditEvents, authorizer } = deps;
+  const { binding, auditEvents, authorizer, projects } = deps;
   const r = new Hono<AppEnv>();
 
   r.get('/', async (c) => {
@@ -113,7 +121,9 @@ export function environmentOrdersRouter(deps: {
   });
 
   r.get('/tenant', (c) => getOrder(c, binding, authorizer, { kind: 'tenant' }));
-  r.put('/tenant', (c) => setOrder(c, binding, auditEvents, authorizer, { kind: 'tenant' }));
+  r.put('/tenant', (c) =>
+    setOrder(c, binding, auditEvents, authorizer, projects, { kind: 'tenant' }),
+  );
 
   r.get('/orgs/:orgId', (c) => {
     const orgId = c.req.param('orgId') as OrgId;
@@ -121,7 +131,7 @@ export function environmentOrdersRouter(deps: {
   });
   r.put('/orgs/:orgId', (c) => {
     const orgId = c.req.param('orgId') as OrgId;
-    return setOrder(c, binding, auditEvents, authorizer, { kind: 'org', orgId });
+    return setOrder(c, binding, auditEvents, authorizer, projects, { kind: 'org', orgId });
   });
 
   return r;
@@ -150,6 +160,7 @@ async function setOrder(
   binding: EnvironmentOrderBinding,
   auditEvents: AuditEventBinding | undefined,
   authorizer: Authorizer | undefined,
+  projects: Pick<ProjectBinding, 'get'> | undefined,
   parent: EnvironmentOrderParent,
 ): Promise<Response> {
   const requestId = c.get('requestId');
@@ -177,6 +188,16 @@ async function setOrder(
   if (typeof parsed === 'string') {
     c.status(statusFor('bad-input') as never);
     return c.json(toWireError({ code: 'bad-input', message: parsed }, requestId));
+  }
+  // `Project.testFor` never changes, so these reads can't go stale.
+  for (const projectId of parsed) {
+    if ((await projects?.get(tenantId, projectId))?.testFor === undefined) continue;
+    const error = projectIsATestProjectError(
+      projectId as unknown as string,
+      'A test project is in no environment order',
+    );
+    c.status(statusFor(error.code) as never);
+    return c.json(toWireError(error, requestId));
   }
 
   const outcome = await binding.set({ tenantId, parent, projectIds: parsed });

@@ -138,6 +138,13 @@ export type EntityRef =
       readonly id: ProjectId;
       readonly tenantId: TenantId;
       readonly orgId?: OrgId;
+      /**
+       * The person a test project is for (`Project.testFor`). They're made
+       * its `admin`, never its `owner`, whoever creates it: an owner may
+       * delete the project, and only the workspace's admins remove a test
+       * project.
+       */
+      readonly testFor?: UserId;
     }
   | {
       readonly kind: 'team';
@@ -250,26 +257,8 @@ export function tuplesForCreate(entity: EntityRef, creatorUserId?: UserId): Tupl
       return tuples;
     }
 
-    case 'project': {
-      const tuples: TupleIntent[] = [
-        {
-          operation: 'write',
-          user:
-            entity.orgId !== undefined ? orgObject(entity.orgId) : tenantObject(entity.tenantId),
-          relation: 'parent',
-          object: projectObject(entity.id),
-        },
-      ];
-      if (creatorUserId !== undefined) {
-        tuples.push({
-          operation: 'write',
-          user: userSubject(creatorUserId),
-          relation: 'owner',
-          object: projectObject(entity.id),
-        });
-      }
-      return tuples;
-    }
+    case 'project':
+      return projectTuples(entity, creatorUserId);
 
     case 'agent':
     case 'flow':
@@ -331,6 +320,41 @@ export function tuplesForCreate(entity: EntityRef, creatorUserId?: UserId): Tupl
         },
       ];
   }
+}
+
+/**
+ * A project's tuples: its parent (its org, or the workspace), and its
+ * person: a test project's (`testFor`) as `admin`, else its creator as
+ * `owner`.
+ */
+function projectTuples(
+  entity: Extract<EntityRef, { readonly kind: 'project' }>,
+  creatorUserId: UserId | undefined,
+): TupleIntent[] {
+  const tuples: TupleIntent[] = [
+    {
+      operation: 'write',
+      user: entity.orgId !== undefined ? orgObject(entity.orgId) : tenantObject(entity.tenantId),
+      relation: 'parent',
+      object: projectObject(entity.id),
+    },
+  ];
+  if (entity.testFor !== undefined) {
+    tuples.push({
+      operation: 'write',
+      user: userSubject(entity.testFor),
+      relation: 'admin',
+      object: projectObject(entity.id),
+    });
+  } else if (creatorUserId !== undefined) {
+    tuples.push({
+      operation: 'write',
+      user: userSubject(creatorUserId),
+      relation: 'owner',
+      object: projectObject(entity.id),
+    });
+  }
+  return tuples;
 }
 
 export function tuplesForDelete(entity: EntityRef): TupleIntent[] {

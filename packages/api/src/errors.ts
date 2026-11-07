@@ -638,6 +638,15 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // second default project.
   'slug-conflict': 409,
   'project-default-already-exists': 409,
+  // A person's second test project in the workspace.
+  'project-test-already-exists': 409,
+  // A test project made for someone else, or by a key limited to a project.
+  'project-test-not-yours': 403,
+  // A test project on a runtime that isn't `KINDGI_TENANT_HOST_ACCESS=isolated`.
+  'project-test-needs-isolated-runtime': 409,
+  // A change a test project doesn't take: a member, an org, production, an
+  // environment order or a repo connection.
+  'project-is-a-test-project': 409,
   'tenant-not-found': 404,
   'tenant-config-not-found': 404,
   'tenant-config-revision-conflict': 409,

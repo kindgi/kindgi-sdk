@@ -16,10 +16,17 @@ import type { MemoryReaders, MemoryScope } from './types.js';
  *   - its participant, or the project on behalf of all of them;
  *   - its thread, or the project on behalf of all of them.
  * A fact naming none of them is workspace-wide: every reader sees it. The
- * session is not a container.
+ * session is not a container. With `projectFactsOnly`, a fact with no
+ * project is seen by no reader.
  */
 export function isReadableBy(scope: MemoryScope, readers: MemoryReaders): boolean {
   if (readers.all === true) return true;
+  if (readers.projectFactsOnly === true && scope.projectId === undefined) return false;
+  return hasEveryContainer(scope, readers);
+}
+
+/** Whether `readers` have each container `scope` names (`isReadableBy`). */
+function hasEveryContainer(scope: MemoryScope, readers: MemoryReaders): boolean {
   const project = scope.projectId;
   const has = <T>(ids: readonly T[] | undefined, id: T) => ids?.includes(id) === true;
   const onBehalf = project !== undefined && has(readers.onBehalfOfProjectIds, project);

@@ -11,6 +11,7 @@ import type { ConnectionBinding } from '../connection-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { projectIsATestProjectError } from './hierarchy-errors.js';
 
 export interface ProjectRepoConnectionRouterOptions {
   readonly projects: ProjectBinding;
@@ -63,8 +64,19 @@ export function projectRepoConnectionRouter(
     if (projects.setRepoConnection === undefined || connections === undefined) {
       return refuse(c, requestId, unsupported());
     }
-    if ((await projects.get(tenantId, projectId)) === undefined) {
-      return refuse(c, requestId, projectNotFound(projectId));
+    const project = await projects.get(tenantId, projectId);
+    if (project === undefined) return refuse(c, requestId, projectNotFound(projectId));
+    // A test project's runs reach no company connection; `Project.testFor`
+    // never changes, so this read can't go stale.
+    if (project.testFor !== undefined) {
+      return refuse(
+        c,
+        requestId,
+        projectIsATestProjectError(
+          projectId as unknown as string,
+          'A test project has no repo connection: its runs reach no company connection',
+        ),
+      );
     }
 
     const connection = await connections.get({ tenantId, connectionId });
