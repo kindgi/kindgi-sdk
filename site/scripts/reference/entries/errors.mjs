@@ -97,9 +97,9 @@ export const ERROR_ENTRIES = {
   },
   'schema-validation-failed': {
     description:
-      "The API doesn't send this code. A flow definition with this problem is answered `validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition with this problem is answered `validation-failed`, with the problem in `details.issues`. A deployment checks less of a flow's shape: its id and version, that its nodes and edges are lists, and that its inline schemas compile. A problem there is answered `deployment-validation-failed`, with the problem in `details.issues`; a field or a shape it doesn't know is passed over.",
     details: [],
-    seeAlso: ['#validation-failed', 'guides/flows/write-a-flow'],
+    seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },
   'scope-invalid': {
     description:
@@ -489,15 +489,15 @@ export const ERROR_ENTRIES = {
   },
   'duplicate-node-id': {
     description:
-      "The API doesn't send this code. A flow definition that uses a node id twice is answered `validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition that uses a node id twice is answered `validation-failed`, with the problem in `details.issues`. A deployment whose pack carries such a flow is answered `deployment-validation-failed`, and the flow's issue in `details.issues` starts `duplicate-node-id: `.",
     details: [],
-    seeAlso: ['#validation-failed', 'guides/flows/write-a-flow'],
+    seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },
   'duplicate-edge-id': {
     description:
-      "The API doesn't send this code. A flow definition that uses an edge id twice is answered `validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition that uses an edge id twice is answered `validation-failed`, with the problem in `details.issues`. A deployment whose pack carries such a flow is answered `deployment-validation-failed`, and the flow's issue in `details.issues` starts `duplicate-edge-id: `.",
     details: [],
-    seeAlso: ['#validation-failed', 'guides/flows/write-a-flow'],
+    seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },
   'agent-version-mismatch': {
     description:
@@ -3188,7 +3188,7 @@ export const ERROR_ENTRIES = {
   },
   'deployment-validation-failed': {
     description:
-      "The deployment's manifest has invalid definitions, or a tool names a model provider's key. Each problem is listed in `details.issues`; fix them and deploy again.",
+      "The deployment's manifest has invalid definitions, or a tool names a model provider's key. Each problem is listed in `details.issues`; fix them and deploy again. A flow that fails the graph checks (a cycle, an edge to or from a step that doesn't exist, no edge from `$start`) is listed with a message that starts with the check's code, such as `cycle-detected: `.",
     details: [
       {
         key: 'issues',

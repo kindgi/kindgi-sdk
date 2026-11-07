@@ -2290,6 +2290,89 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
+  /** An index of one tool and one flow of two of its steps, `a` then `b`, joined by `edges`. */
+  function stepsIndex(edges: readonly unknown[], extra: Record<string, unknown> = {}) {
+    return {
+      v: 1,
+      artifactVersion: '20260920.1',
+      publishedAt: '2026-09-20T14:32:07.104Z',
+      tools: [
+        {
+          id: 'acme.noop',
+          description: 'Does nothing.',
+          version: '1.0.0',
+          input: { type: 'object' },
+          output: { type: 'object' },
+          modulePath: './tools/noop.js',
+        },
+      ],
+      guardrails: [],
+      agents: [],
+      flows: [
+        {
+          id: 'acme.steps',
+          version: '1.0.0',
+          nodes: [
+            { id: 'a', kind: 'tool', ref: 'acme.noop' },
+            { id: 'b', kind: 'tool', ref: 'acme.noop' },
+          ],
+          edges,
+          kernelPayloadVersion: 1,
+          modulePath: 'flows/steps.py',
+          ...extra,
+        },
+      ],
+    };
+  }
+
+  test("a flow that fails loadFlow's graph checks → 400 with the check's code, as a Python or Java indexer writes one; nothing is deployed", async () => {
+    const cycle = [
+      { id: 'e1', from: '$start', to: 'a' },
+      { id: 'e2', from: 'a', to: 'b' },
+      { id: 'e3', from: 'b', to: 'a' },
+      { id: 'e4', from: 'b', to: '$end' },
+    ];
+    const noStart = [
+      { id: 'e1', from: 'a', to: 'b' },
+      { id: 'e2', from: 'b', to: '$end' },
+    ];
+    for (const [edges, why] of [
+      [cycle, /^cycle-detected: Flow "acme\.steps" contains a cycle: /],
+      [noStart, /^missing-start-edge: /],
+    ] as const) {
+      const fixture = buildSignedDeploy({ index: stepsIndex(edges) });
+      const { app, deploymentRegistry } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+      };
+      expect(body.error.code).toBe('deployment-validation-failed');
+      expect(body.error.details?.issues).toEqual([
+        {
+          primitive: 'flow',
+          index: 0,
+          id: 'acme.steps',
+          path: '',
+          message: expect.stringMatching(why),
+        },
+      ]);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    }
+  });
+
+  test('a flow whose graph passes deploys, with a field this version doesn’t know', async () => {
+    const linear = [
+      { id: 'e1', from: '$start', to: 'a' },
+      { id: 'e2', from: 'a', to: 'b' },
+      { id: 'e3', from: 'b', to: '$end' },
+    ];
+    const fixture = buildSignedDeploy({ index: stepsIndex(linear, { shape: 'from a newer CLI' }) });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    expect((await post(app, fixture.wire)).status).toBe(201);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
   test("an agent's output that isn't an object → 400 at /output", async () => {
     for (const output of [null, 'json', [{ type: 'object' }]]) {
       const fixture = buildSignedDeploy({ index: indexWith(output) });
