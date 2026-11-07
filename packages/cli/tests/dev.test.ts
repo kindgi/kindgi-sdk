@@ -50,6 +50,7 @@ import { defaultSdkSkillsRoot } from '../src/commands/init.js';
 import { syncSkills } from '../src/commands/skills.js';
 import { LocalPortsRefused } from '../src/dev/blocked.js';
 import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
+import { NO_DEV_LICENSE_KEY } from '../src/dev/license-key.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
 import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
 import type {
@@ -239,6 +240,14 @@ function makeFixtures(
   } as const;
 
   const runners: DevRunners = {
+    // A key from the shell, as a laptop has one: dev-license-key.test.ts
+    // checks the real lookup.
+    licenseKey: async () => ({
+      kind: 'ok',
+      key: 'kgi_lk_dev-test.key',
+      from: 'KINDGI_LICENSE_KEY',
+      what: "Acme's non-production key, until 2099-01-01 (99 days)",
+    }),
     detectSandbox: async () => ({ kind: 'available', engine: 'seatbelt' }),
     checkPackPython: async (python) => {
       pythonChecks.push(python);
@@ -579,6 +588,51 @@ describe('kindgi dev — argument validation', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('kindgi dev needs Postgres');
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('no license key: refused before anything starts, saying how to get one', async () => {
+    const fixtures = makeFixtures();
+    const asked: unknown[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      licenseKey: async (input) => {
+        asked.push(input);
+        return { kind: 'error', message: NO_DEV_LICENSE_KEY };
+      },
+    };
+    const start = vi.spyOn(runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, HOME: '/h' },
+      devRunners: runners,
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(`kindgi dev: ${NO_DEV_LICENSE_KEY}\n`);
+    expect(asked).toEqual([{ env: expect.objectContaining({ HOME: '/h' }), home: '/h' }]);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  test('the license key goes to the runtime; with --runtime-url none is asked for or passed', async () => {
+    const fixtures = makeFixtures();
+    const start = vi.spyOn(fixtures.runners, 'startApiServer');
+    const own = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(own.exitCode).toBe(0);
+    expect(start.mock.calls[0]?.[0].licenseKey).toBe('kgi_lk_dev-test.key');
+
+    const attached = makeFixtures();
+    const asked = vi.spyOn(attached.runners, 'licenseKey');
+    const attach = vi.spyOn(attached.runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(attached),
+      argv: ['dev', '--no-watch', `--path=${packDir}`, '--runtime-url=http://127.0.0.1:4000'],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(asked).not.toHaveBeenCalled();
+    expect(attach.mock.calls[0]?.[0]).not.toHaveProperty('licenseKey');
   });
 
   test('--port must parse as an integer 0..65535', async () => {

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
-import type { Context, Next } from 'hono';
+import type { Context } from 'hono';
 
 import type { ConversationBinding } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
@@ -95,19 +95,19 @@ export function provenanceRouter(
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404 (`read` on the tenant).
     // An id that isn't a run id is never looked up (its uuid cast would
-    // fail the query as a 500).
-    const onRunProject = async (c: Context<AppEnv>, next: Next) => {
+    // fail the query as a 500). The run is read in the middleware's
+    // resource getter, so a database too busy for it answers 503 on any
+    // method, as nothing ran.
+    const onRunProject = authorizer.authorize('read', async (c: Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
       const run = UUID_RE.test(runId)
         ? await options.runBinding?.getRun(tenantId, runId as RunId)
         : undefined;
-      const at =
-        run === undefined || run === null
-          ? ref('tenant', tenantId as unknown as string)
-          : ref('project', run.projectId as unknown as string);
-      return authorizer.authorize('read', () => at)(c, next);
-    };
+      return run === undefined || run === null
+        ? ref('tenant', tenantId as unknown as string)
+        : ref('project', run.projectId as unknown as string);
+    });
     r.use('/:runId', async (c, next) =>
       isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
     );

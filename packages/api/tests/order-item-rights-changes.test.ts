@@ -150,10 +150,10 @@ const rec = (id: string, version: string, projectId: ProjectId) => ({
 
 /**
  * A registry of one kind: the versions it reads, and every other method
- * (a change) recorded in `changed` before it fails, so a test sees the
- * request got past the checks to the handler.
+ * (a change) recorded in `changed` before it fails (with `thrown`, when
+ * given), so a test sees the request got past the checks to the handler.
  */
-function registry(idKey: string, changed: string[]) {
+function registry(idKey: string, changed: string[], thrown?: () => Error) {
   const records = [
     rec(SERVED, '0.9.0', STAGING),
     rec(SERVED, '1.0.0', STAGING),
@@ -175,7 +175,7 @@ function registry(idKey: string, changed: string[]) {
       if (name === 'readOnly') return undefined;
       return async () => {
         changed.push(name);
-        throw new Error(`test: ${name} reached`);
+        throw thrown?.() ?? new Error(`test: ${name} reached`);
       };
     },
   });
@@ -235,22 +235,72 @@ function pinsFake(changed: string[]) {
   return pinStore;
 }
 
-/** The app over every kind. Without `served`, no item-projects binding: every item has one project. */
-function harness(opts: { served?: boolean } = {}) {
+/**
+ * The app over every kind. Without `served`, no item-projects binding: every
+ * item has one project. `fails` makes a binding throw: the item-projects
+ * read (`projectsOf`), the authorization check (`check`), or a registry's
+ * change (`change`). With `flowPins`, flows have pinned versions, so their
+ * pin writes are checked (`pinRightsMiddleware`); every pin store method
+ * fails, recorded in `changed`.
+ */
+function harness(
+  opts: {
+    served?: boolean;
+    fails?: { projectsOf?: () => Error; check?: () => Error; change?: () => Error };
+    flowPins?: boolean;
+  } = {},
+) {
   const changed: string[] = [];
   const registries = Object.fromEntries([
-    ...KINDS.map((k) => [k.registry, registry(k.idKey, changed)]),
-    ['guardrailRegistry', registry('guardrailId', changed)],
+    ...KINDS.map((k) => [k.registry, registry(k.idKey, changed, opts.fails?.change)]),
+    ['guardrailRegistry', registry('guardrailId', changed, opts.fails?.change)],
   ]) as unknown as Partial<CreateAppInput>;
   const items = itemProjects(rows());
+  const projectsOf = opts.fails?.projectsOf;
   const authz = grantsAuthz(PEOPLE);
+  const check = opts.fails?.check;
+  const authzCheckBinding =
+    check === undefined
+      ? authz.authz.authzCheckBinding
+      : {
+          ...authz.authz.authzCheckBinding,
+          check: async () => {
+            throw check();
+          },
+          checkBatch: async () => {
+            throw check();
+          },
+        };
+  const pinStore = new Proxy(
+    {},
+    {
+      get(_target, name) {
+        if (typeof name !== 'string' || name === 'then') return undefined;
+        return async () => {
+          changed.push(`pinnedVersions.${name}`);
+          throw new Error(`test: pinnedVersions.${name} reached`);
+        };
+      },
+    },
+  );
   const app = createApp({
     ...createStubAppBindings(),
     ...registries,
     agentPins: pinsFake(changed),
     resolveToken,
-    authz: authz.authz,
-    ...(opts.served !== false && { itemProjects: items }),
+    authz: { ...authz.authz, authzCheckBinding },
+    ...(opts.served !== false && {
+      itemProjects:
+        projectsOf === undefined
+          ? items
+          : {
+              ...items,
+              projectsOf: async () => {
+                throw projectsOf();
+              },
+            },
+    }),
+    ...(opts.flowPins === true && { pinnedVersions: pinStore }),
     environmentOrders: environmentOrders([[STAGING, PROD]]),
   } as CreateAppInput);
   const call = async (who: string, method: string, path: string, body?: unknown) => {
@@ -267,6 +317,7 @@ function harness(opts: { served?: boolean } = {}) {
     const text = await res.text();
     return {
       status: res.status,
+      retryAfter: res.headers.get('retry-after'),
       text,
       body: JSON.parse(text) as Record<string, any>,
       /** The checks this request asked. */
@@ -685,5 +736,79 @@ describe("agentPinChangeRefusal: the one check a change to what's pinned asks", 
     expect(outcome).toEqual({
       thrown: 'The authorizer neither allowed the change nor refused it',
     });
+  });
+});
+
+/** What the storage throws when the database was too busy for a read: the mark, the driver's error as its cause. */
+const busy = () =>
+  Object.assign(
+    new Error('Tenant-scoped query failed: canceling statement due to lock timeout', {
+      cause: new Error('canceling statement due to lock timeout'),
+    }),
+    { code: 'database-busy' },
+  );
+
+/** What the authorization binding throws when its store can't be reached. */
+const unreachable = () =>
+  Object.assign(new Error("the authorization store couldn't be reached"), {
+    code: 'authz-backend-unavailable',
+  });
+
+describe('an item an order carries, when its reads or checks fail before the handler', () => {
+  // The item's own middleware and the pin gates read which projects serve it,
+  // and check on them, before the handler runs: nothing ran, so a write
+  // answers the 503 that says so.
+  const unregister = `/v1/agents/${SERVED}/versions/1.0.0/unregister`;
+
+  test('a write the projects read was too busy for answers 503 database-busy', async () => {
+    const { call, changed } = harness({ fails: { projectsOf: busy } });
+    const res = await call('both', 'POST', unregister);
+    expect(res.status, res.text).toBe(503);
+    expect(res.retryAfter).toBe('5');
+    expect(res.body.error.code).toBe('database-busy');
+    expect(res.text).not.toContain('lock timeout');
+    expect(changed).toEqual([]);
+  });
+
+  test("a write whose check on the item's projects can't reach the store answers 503 authz-backend-unavailable", async () => {
+    const { call, changed } = harness({ fails: { check: unreachable } });
+    const res = await call('both', 'POST', unregister);
+    expect(res.status, res.text).toBe(503);
+    expect(res.retryAfter).toBe('5');
+    expect(res.body.error.code).toBe('authz-backend-unavailable');
+    expect(changed).toEqual([]);
+  });
+
+  test('an agent pin the projects read was too busy for answers 503 database-busy', async () => {
+    const { call, changed } = harness({ fails: { projectsOf: busy } });
+    const res = await call('both', 'POST', `/v1/agents/${SERVED}/pinned/pin`, {
+      version: '1.0.0',
+      scope: project(PROD),
+    });
+    expect(res.status, res.text).toBe(503);
+    expect(res.retryAfter).toBe('5');
+    expect(res.body.error.code).toBe('database-busy');
+    expect(changed).toEqual([]);
+  });
+
+  test('a flow pin the projects read was too busy for answers 503 database-busy', async () => {
+    const { call, changed } = harness({ fails: { projectsOf: busy }, flowPins: true });
+    const res = await call('both', 'POST', `/v1/flows/${SERVED}/pinned/pin`, {
+      version: '1.0.0',
+      scope: project(PROD),
+    });
+    expect(res.status, res.text).toBe(503);
+    expect(res.retryAfter).toBe('5');
+    expect(res.body.error.code).toBe('database-busy');
+    expect(changed).toEqual([]);
+  });
+
+  test("the handler's own write the database was too busy for still answers 500", async () => {
+    // Past the checks, the handler may have written part of its work.
+    const { call, changed } = harness({ fails: { change: busy } });
+    const res = await call('both', 'POST', unregister);
+    expect(changed.length, res.text).toBeGreaterThan(0);
+    expect(res.status, res.text).toBe(500);
+    expect(res.retryAfter).toBeNull();
   });
 });

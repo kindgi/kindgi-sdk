@@ -21,6 +21,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `ToolSecretRef.env_name` is optional: `None` when a tool's ref names no env.
   An older `kindgi` fails to read such a tool, or a page of tools that holds
   one, so upgrade it with the runtime.
+- `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
+  runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
+  runtime has a license key too, and answers `licensed`. What you pass or
+  read doesn't change.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

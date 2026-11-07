@@ -42,10 +42,11 @@ runs for you.
 
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or
 your email address for a license key, which starts with `kgi_lk_`. The key is
-the runtime image's password on its registry, `registry.kindgi.com`. Log in
-there once with it. The CLI asks for the key without showing it, hands it to
-`docker login` (Kindgi keeps no copy), and checks that you can pull the image
-it runs:
+the runtime image's password on its registry, `registry.kindgi.com`, and the
+runtime that `kindgi dev` runs needs it too. Log in there once with it. The CLI
+asks for the key without showing it, hands it to `docker login`, keeps one copy
+for `kindgi dev` in `~/.kindgi/license/license-key`, readable only by you, and
+checks that you can pull the image it runs:
 
 ```sh
 npx --yes @kindgi/cli@0.2 auth registry
@@ -53,12 +54,13 @@ npx --yes @kindgi/cli@0.2 auth registry
 ```
 
 ```text
-✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.
+✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store, and kindgi dev's copy is in ~/.kindgi/license/license-key, readable only by you. When your key renews, log in again with the new one.
 ✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.
 ```
 
 The `docker login registry.kindgi.com --username kindgi` that
-access.kindgi.com shows logs in too, without the check.
+access.kindgi.com shows logs in too, without the check and without the copy:
+`kindgi dev` then reads the key from `KINDGI_LICENSE_KEY` in your shell.
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `arm64`). Questions or trouble: contact@kindgi.com.
@@ -66,9 +68,9 @@ The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 ### Check this machine
 
 `kindgi doctor` checks what Kindgi needs: Node (or Python and uv), Docker,
-access to the runtime image and, in a project's folder, the project, its
-dependencies, its model key, the runtime and a provider. Each check that
-fails says how to fix it, and it exits `1` until nothing does:
+access to the runtime image, a license key and, in a project's folder, the
+project, its dependencies, its model key, the runtime and a provider. Each
+check that fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
 npx --yes @kindgi/cli@0.2 doctor
