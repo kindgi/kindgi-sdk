@@ -6,7 +6,9 @@
 
 2. **A check whose `evaluate` always returns `passed: true`.** If you
    are stubbing the check, give the guardrail `action: { 'on-violation':
-   'log-only' }` so it is honest about not being enforced.
+   'log-only' }` so it is honest about not being enforced. An
+   `llm-judge` guardrail's pass-only check isn't a stub: the judge
+   enforces the guardrail, so keep its action.
 
 3. **Calling a model from a pack check.** Pack checks receive empty
    `bindings`; there is no provider registry to route through. Declare
