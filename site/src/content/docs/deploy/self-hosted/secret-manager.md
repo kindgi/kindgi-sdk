@@ -398,10 +398,15 @@ values there:
   `secret-provider-unavailable` ("set it again in a few minutes"), and so
   does another `--hard` revoke of it.
 - **If the erase doesn't finish,** because the secret manager answers an
-  error, writes to the secret keep landing while it erases, or the erase
-  takes over 10 minutes, the revoke answers an error that says so. The
-  secret stays revoked, so no read shows it, but a value may still be in
-  the secret manager: revoke it with `--hard` again to erase it.
+  error or writes to the secret keep landing while it erases, the revoke
+  answers an error that says so. The secret stays revoked, so no read
+  shows it, but a value may still be in the secret manager: revoke it with
+  `--hard` again to erase it.
+- **If the erase takes over 10 minutes,** sets of the name and other
+  `--hard` revokes are no longer held off. If one comes in, the revoke
+  answers an error that says so: the secret manager may still hold a
+  value, or a set made since may have lost the value it wrote. Set it
+  again, or revoke it with `--hard` again, to settle it.
 - **If the revoke gets no answer** because the runtime stopped partway
   through the erase, sets of the name and another `--hard` revoke answer
   `secret-provider-unavailable` for up to 10 minutes. Then revoke it with
