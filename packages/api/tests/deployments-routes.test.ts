@@ -2809,6 +2809,102 @@ describe('POST /v1/deployments — rollback', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
+  /**
+   * An app whose deploy registers a tool and a guardrail, then has its agent
+   * refused (`project-not-found`), so the deploy rolls both back. `hooks` are
+   * the catalog caches' write hooks.
+   */
+  function refusedAgentApp(
+    hooks: Pick<Parameters<typeof createApp>[0], 'onToolWrite' | 'onGuardrailWrite'>,
+  ) {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.verify-citation',
+            description: 'x',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+          },
+        ],
+        guardrails: [
+          {
+            id: 'acme.no-fabricated-quotes',
+            kind: 'zero-llm',
+            check: 'must-cite',
+            action: { 'on-violation': 'halt' },
+          },
+        ],
+        agents: [
+          {
+            id: 'acme.drafting',
+            version: '1.0.0',
+            name: 'Drafting',
+            instructions: 'do it',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+      },
+    });
+    const made = makeApp({
+      fixture,
+      agentRegistry: makeInMemoryAgentRegistry({ refuseAgentId: 'acme.drafting' }),
+      extra: hooks,
+    });
+    const deploy = async () => {
+      const res = await made.app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      return { status: res.status, body: (await res.json()) as { error: { code: string } } };
+    };
+    return { ...made, deploy };
+  }
+
+  test('a rollback tells the catalog caches about each tool and guardrail it unregistered, last write first, once each is gone', async () => {
+    const told: string[] = [];
+    const made = refusedAgentApp({
+      onToolWrite: async ({ toolId, version, kind }) => {
+        const left = await made.toolRegistry.get({ tenantId, toolId });
+        told.push(`tool ${toolId}@${version} ${kind}${left === null ? '' : ', still there'}`);
+      },
+      onGuardrailWrite: async ({ guardrailId, kind }) => {
+        const left = await made.guardrailRegistry.get({ tenantId, guardrailId });
+        told.push(`guardrail ${guardrailId} ${kind}${left === null ? '' : ', still there'}`);
+      },
+    });
+
+    expect((await made.deploy()).status).toBe(404);
+    // A cache that reads again on the notice finds the deploy's writes undone.
+    expect(told).toEqual([
+      'guardrail acme.no-fabricated-quotes unregister',
+      'tool acme.verify-citation@1.0.0 unregister',
+    ]);
+  });
+
+  test("a catalog cache whose hook fails doesn't stop the rollback telling the others, or change the deploy's answer", async () => {
+    const told: string[] = [];
+    const made = refusedAgentApp({
+      onToolWrite: ({ toolId, version, kind }) =>
+        void told.push(`tool ${toolId}@${version} ${kind}`),
+      onGuardrailWrite: () => {
+        throw new Error('the guardrail cache is down');
+      },
+    });
+
+    const res = await made.deploy();
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('project-not-found');
+    expect(told).toEqual(['tool acme.verify-citation@1.0.0 unregister']);
+  });
+
   test("a tool whose id is an MCP endpoint's tool → 409 tool-kind-mismatch, naming the endpoint; rolled back, nothing deployed", async () => {
     const tool = (id: string) => ({
       id,
@@ -5756,14 +5852,24 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy', () =>
     });
   });
 
-  test('a redeploy that fails again unregisters the version it reinstated', async () => {
+  test('a redeploy that fails again unregisters the version it reinstated, and tells the catalog caches each time', async () => {
     const tools = makeRetiringToolRegistry();
-    const { deploy } = setup(tools, { failures: 2 });
+    const told: string[] = [];
+    const { deploy } = setup(tools, {
+      failures: 2,
+      extra: {
+        onToolWrite: ({ toolId, version, kind }) => void told.push(`${toolId}@${version} ${kind}`),
+      },
+    });
 
     expect((await deploy()).status).toBe(500);
+    // The version it published.
+    expect(told).toEqual(['acme.score@1.0.0 unregister']);
     expect((await deploy()).status).toBe(500);
     expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
     expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+    // The version it reinstated.
+    expect(told).toEqual(['acme.score@1.0.0 unregister', 'acme.score@1.0.0 unregister']);
 
     expect((await deploy()).status).toBe(201);
     expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
@@ -6353,6 +6459,7 @@ function twoImages(
     first?: SignedDeploy;
     toolRegistry?: ToolRegistryBinding;
     logger?: Logger;
+    writes?: string[];
   } = {},
 ) {
   const first =
@@ -6366,6 +6473,7 @@ function twoImages(
     ...(opts.refreshes === true && { refreshes: true }),
     ...(opts.toolRegistry !== undefined && { toolRegistry: opts.toolRegistry }),
     ...(opts.logger !== undefined && { extra: { logger: opts.logger } }),
+    ...(opts.writes !== undefined && { writes: opts.writes }),
     extraTrust: [
       {
         keyId: SECOND_KEY_ID,
@@ -6575,13 +6683,15 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     ).not.toBeNull();
   });
 
-  test("registered again, then a guardrail the rollback can't unregister is warned, by name", async () => {
+  test("registered again, then a guardrail the rollback can't unregister is warned, by name, and still told to the catalog caches", async () => {
     const fixture = buildSignedDeploy({ index: indexWith('20260920.1') });
     const logger = recordingLogger();
+    const writes: string[] = [];
     const { app, guardrailRegistry } = makeApp({
       fixture,
       deploymentRegistry: makeFailingDeploymentBinding(1),
       extra: { logger },
+      writes,
     });
     const register = guardrailRegistry.register.bind(guardrailRegistry);
     let answered = false;
@@ -6610,6 +6720,11 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
         message: `deploy rollback: couldn't unregister guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
         fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
       },
+    ]);
+    // No cache was told about the write it kept either: a cache told reads what's there.
+    expect(writes).toEqual([
+      'guardrail acme.no-fabricated-quotes unregister',
+      'tool acme.verify-citation@1.0.0 unregister',
     ]);
   });
 });
@@ -7103,7 +7218,7 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
     });
   });
 
-  test('a deploy refused after refreshing puts the old pointer and schema back', async () => {
+  test('a deploy refused after refreshing puts the old pointer and schema back, and tells the catalog caches', async () => {
     // The later image also brings a guardrail whose id lives in another project.
     const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
     index.guardrails.push({
@@ -7117,8 +7232,13 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       keyId: SECOND_KEY_ID,
       index: index as Record<string, unknown>,
     });
-    const made = twoImages(second, { refreshes: true });
+    const writes: string[] = [];
+    const made = twoImages(second, { refreshes: true, writes });
     expect((await made.deploy(made.first)).status).toBe(201);
+    expect(writes.splice(0)).toEqual([
+      'tool acme.verify-citation@1.0.0 publish',
+      'guardrail acme.no-fabricated-quotes register',
+    ]);
     await made.guardrailRegistry.register({
       tenantId,
       projectId: randomUUID() as ProjectId,
@@ -7137,6 +7257,11 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       schema: undefined,
       tool: '20260920.1',
     });
+    // Told as the refresh would be: what a cache reads again is the old pointer and schema.
+    expect(writes).toEqual([
+      'guardrail acme.no-fabricated-quotes register',
+      'tool acme.verify-citation@1.0.0 publish',
+    ]);
   });
 
   test("an old pointer or schema the rollback can't put back is warned, by name, last write first", async () => {
