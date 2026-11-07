@@ -570,7 +570,7 @@ export const ERROR_ENTRIES = {
   },
   'run-erased': {
     description:
-      "An erasure cleared the run's content (a person's words were removed), so there is nothing to correct or replay.",
+      "An erasure cleared the run's content (a person's words were removed), so it can't be corrected, replayed or made a test case.",
     details: [],
   },
   'flow-gone': {
@@ -2720,7 +2720,7 @@ export const ERROR_ENTRIES = {
   },
   'run-not-finished': {
     description:
-      "The run hasn't completed with an output, so there's nothing to correct. Wait until it completes.",
+      'The run has no output: it is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none). A run still going can be corrected, or made a test case, once it completes with an output. A run that ended without one never can.',
     details: [],
   },
   'item-not-found': {

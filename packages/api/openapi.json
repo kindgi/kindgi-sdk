@@ -39020,7 +39020,7 @@
             }
           },
           "409": {
-            "description": "`run-not-finished`: the run has no output yet.",
+            "description": "`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49718,7 +49718,7 @@
             }
           },
           "409": {
-            "description": "`run-not-finished`: the run has no output to correct yet.",
+            "description": "`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).",
             "content": {
               "application/json": {
                 "schema": {
