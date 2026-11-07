@@ -7,7 +7,7 @@
 - 3. Forgetting the `Result` unwrap.
 - 4. `handler` and `spec` together.
 - 5. `{placeholder}` in `urlTemplate` without a matching input key.
-- 6. An HTTP tool's `secretRef` in the wrong env.
+- 6. Naming an env in an HTTP tool's `secretRef`.
 - 7. Reading a secret from `process.env` in a tool that runs for many tenants.
 - 8. Bumping `version` on every dev save.
 - 9. A package a tool imports, listed only in `devDependencies`.
