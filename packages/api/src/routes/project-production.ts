@@ -113,7 +113,8 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
 
     // The gate and the promote-only check guard going into production, not
     // staying there: a project already in production answers its repeat
-    // unchanged. The binding checks the limit.
+    // unchanged. The binding checks the limit, and the promote-only builds
+    // again in its own step.
     if (production && project.productionSince === undefined) {
       const refused = await entryRefusal(tenantId, projectId);
       if (refused !== undefined) return refuse(c, requestId, refused);
@@ -126,6 +127,10 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     if (outcome.kind === 'limit-reached') {
       return refuse(c, requestId, limitRefusal(outcome, projectId));
     }
+    if (outcome.kind === 'promote-only-build') {
+      // Deployed after the check above, seen in the binding's own step.
+      return refuse(c, requestId, promoteOnlyRefusal(outcome, projectId));
+    }
     return c.json({
       projectId: projectId as unknown as string,
       productionSince: outcome.productionSince as unknown as string | null,
@@ -135,8 +140,10 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
   /**
    * Why the project can't go into production now, or `undefined`: the
    * gate, then a promote-only build deployed into it (not promoted), which
-   * would be in production without a promotion. Read before the binding writes,
-   * so a deploy landing in the same moment isn't seen.
+   * would be in production without a promotion. Read before the binding
+   * writes, so a deploy landing in the same moment isn't seen here; a
+   * binding that keeps deployments in its own store sees it in its step
+   * (`promote-only-build`).
    */
   async function entryRefusal(
     tenantId: TenantId,
@@ -236,7 +243,10 @@ async function readProduction(c: Context<AppEnv>): Promise<boolean | Refusal> {
 }
 
 /** The refusal of a project that holds a promote-only build. */
-function promoteOnlyRefusal(held: Deployment, projectId: ProjectId): Refusal {
+function promoteOnlyRefusal(
+  held: Pick<Deployment, 'deploymentId' | 'signerKeyId'>,
+  projectId: ProjectId,
+): Refusal {
   return {
     code: 'promote-only-build',
     message: `Project "${projectId as unknown as string}" holds deployment ${held.deploymentId}, a build that reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). A project a promote-only build was deployed into (not promoted) never goes into production. Put another project after this one in its environment order (a tenant admin makes one), turn production on there, and promote into it.`,

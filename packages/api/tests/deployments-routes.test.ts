@@ -29,6 +29,7 @@ import type {
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
+import { PROMOTE_ONLY_KEY_PREFIX } from '../src/deployment-envelope.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
@@ -2586,6 +2587,47 @@ describe('POST /v1/deployments — 500s route through the central handler', () =
     expect(JSON.parse(raw).error.code).toBe('internal-server-error');
     expect(raw).not.toContain('row rejected');
     expect(raw).not.toContain('artifact_version');
+    // Rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a project put in production while the deploy runs is 409 promote-only-build, and rolls back', async () => {
+    // A key id with the prefix makes the build promote-only. The default
+    // project isn't in production, so the route's own check passes, and the
+    // registry's step is the one that sees the project in production.
+    const keyId = `${PROMOTE_ONLY_KEY_PREFIX}acme-release` as SigningKeyId;
+    const fixture = buildSignedDeploy({ keyId });
+    const registered: DeploymentRegisterInput[] = [];
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async (input) => {
+        registered.push(input);
+        return { kind: 'project-in-production' };
+      },
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({
+      fixture,
+      deploymentRegistry,
+      extraTrust: [
+        { keyId, tenantId, publicKey: Buffer.from(fixture.publicKeyRaw).toString('base64') },
+      ],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code: 'promote-only-build',
+      details: { signerKeyId: keyId, projectId: DEFAULT_PROJECT_ID },
+    });
+    expect(registered.map((input) => input.promoteOnly)).toEqual([true]);
     // Rolled back.
     expect(
       await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),

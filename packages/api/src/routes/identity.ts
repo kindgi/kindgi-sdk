@@ -10,6 +10,7 @@ import {
   type ProjectRole,
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
+  ref,
 } from '@kindgi/authz';
 import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
@@ -24,6 +25,7 @@ import type {
 } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { AUTHZ_UNAVAILABLE_RETRY_AFTER_S } from '../middleware/error-mapper.js';
+import { personWideRefusal } from '../middleware/key-project.js';
 import type { MyAccess, MyAccessBinding, RoleCapabilities } from '../my-access-binding.js';
 import type {
   PersonGrant,
@@ -333,6 +335,9 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     if (!isOwn(c, userId) && !(await isTenantAdmin(c, authorizer))) {
       return denied(c, "Only a tenant admin reads someone else's sessions");
     }
+    // Your own, unless limited to a project: they're yours in every one.
+    const limited = personWideRefusal(c, authorizer, 'read', ref('user', userId), SESSIONS_REACH);
+    if (limited !== undefined) return limited;
 
     const page = await directory.listSessions({ tenantId, userId });
     return c.json({
@@ -480,6 +485,9 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     if (!isOwn(c, userId) && !(await isTenantAdmin(c, authorizer))) {
       return denied(c, "Only a tenant admin revokes someone else's sessions");
     }
+    // Signing out everywhere is never one project's to do.
+    const limited = personWideRefusal(c, authorizer, 'write', ref('user', userId), SESSIONS_REACH);
+    if (limited !== undefined) return limited;
 
     let outcome: Awaited<ReturnType<IdentityDirectoryBinding['revokeAllSessions']>>;
     try {
@@ -526,6 +534,9 @@ const unsupported = (c: Context<AppEnv>) => {
   );
 };
 
+/** Why a caller limited to a project neither reads nor revokes its person's sessions. */
+const SESSIONS_REACH = "its person's sessions reach beyond it";
+
 /** Whether `userId` is the caller's own. */
 const isOwn = (c: Context<AppEnv>, userId: string) =>
   (c.get('userId') as unknown as string | undefined) === userId;
@@ -553,7 +564,14 @@ function mountPersonGrants(
     if (binding === undefined) return unsupported(c);
     const grants = await binding.read({ tenantId: c.get('tenantId') as TenantId, userId });
     if (grants === null) return notFound(c, userId);
-    return c.json(serializePersonGrants(grants));
+    // A caller limited to a project, only its memberships there, as
+    // `/me/permissions` lists them.
+    const keyProject = c.get('tokenProjectId') as string | undefined;
+    const shown =
+      keyProject === undefined
+        ? grants
+        : { ...grants, projects: grants.projects.filter((p) => p.projectId === keyProject) };
+    return c.json(serializePersonGrants(shown));
   });
 
   for (const action of ['grant', 'ungrant'] as const) {
