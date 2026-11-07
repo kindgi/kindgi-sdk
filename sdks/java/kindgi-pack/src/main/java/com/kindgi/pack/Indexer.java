@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -55,7 +56,8 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>Fails loud, but per file: a class that fails to load, defines a primitive of the wrong kind
  * for its package, or (a public class) defines nothing is a file error, and the rest of the pack
- * still indexes. A helper class is package-private, or a record, an enum or an interface.
+ * still indexes. So is an agent, a flow or a tool whose own version isn't an exact semver. A
+ * helper class is package-private, or a record, an enum or an interface.
  */
 final class Indexer {
   static final int INDEX_ENVELOPE_VERSION = 1;
@@ -72,6 +74,12 @@ final class Indexer {
 
   private static final DateTimeFormatter PUBLISHED_AT =
       DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+
+  /** An exact semver 2.0 version ({@code 1.2.3}, {@code 1.2.3-rc.1}), as the Python SDK's {@code SEMVER}. */
+  private static final Pattern SEMVER = Pattern.compile(
+      "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)"
+          + "(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+          + "(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?");
 
   private final PackConfig config;
   private final ClassLoader loader;
@@ -215,6 +223,14 @@ final class Indexer {
           entry = build(primitive, rel);
         } catch (EntryException e) {
           fileErrors.add(manifestError(rel, e.getMessage()));
+          continue;
+        }
+        // An agent's, a flow's and a tool's own version is an exact semver. A tool with none takes
+        // the pack's, from kindgi.config.json, which isn't this file's.
+        String own = primitive instanceof Tool ? ((Tool<?, ?>) primitive).version() : (String) entry.get("version");
+        if (own != null && !SEMVER.matcher(own).matches()) {
+          fileErrors.add(manifestError(rel, kind + " '" + id + "': version must be an exact semver (e.g. 1.2.3), got '"
+              + own + "'"));
           continue;
         }
         // Several versions of one primitive may sit side by side (an agent version pins the one

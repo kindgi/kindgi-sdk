@@ -86,7 +86,9 @@ Maven project:
 ```
 
 - `pack.id` prefixes every id in the pack (`acme.greet`). Every tool takes
-  `pack.version` unless it sets its own `version`.
+  `pack.version` unless it sets its own `version`. An agent's, a flow's and a
+  tool's own version is an exact semver (`1.2.3`, `1.2.3-rc.1`): the indexer
+  refuses another, such as `0.1`, as an error of its file.
 - `env` names the process environment the service needs (`required`: unset
   or empty, the service isn't ready) or reads when set (`optional`).
 - `discovery` (optional) says where the primitives are. The defaults are
