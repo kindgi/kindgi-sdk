@@ -9,6 +9,7 @@ const DIGEST = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
 const PIN = {
   image: `registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${DIGEST}`,
+  registry: 'registry.kindgi.com',
   tag: '0.4.0',
   digest: DIGEST,
 };
@@ -23,7 +24,7 @@ test('the image the CLI pins passes, by tag and by digest', () => {
     'docker pull registry.kindgi.com/kindgi/runtime:0.4.0',
     `  registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${DIGEST}`,
     'The image is `registry.kindgi.com/kindgi/runtime:0.4.0`.',
-    'It runs kindgi/runtime:0.4.0.',
+    'It runs registry.kindgi.com/kindgi/runtime:0.4.0.',
   ].join('\n');
   assert.deepEqual(problems(source), []);
   assert.equal(check(source, PIN).counted, 4);
@@ -37,13 +38,13 @@ test('another tag fails, in code and in prose', () => {
         'docker pull registry.kindgi.com/kindgi/runtime:0.3.0',
         '```',
         'Pull `registry.kindgi.com/kindgi/runtime:0.4` first.',
-        'Or kindgi/runtime:latest.',
+        'Or registry.kindgi.com/kindgi/runtime:latest.',
       ].join('\n'),
     ),
     [
       '2: registry.kindgi.com/kindgi/runtime:0.3.0: tag 0.3.0, not 0.4.0',
       '4: registry.kindgi.com/kindgi/runtime:0.4: tag 0.4, not 0.4.0',
-      '5: kindgi/runtime:latest: tag latest, not 0.4.0',
+      '5: registry.kindgi.com/kindgi/runtime:latest: tag latest, not 0.4.0',
     ],
   );
 });
@@ -52,10 +53,32 @@ test("another digest fails, with the pin's tag too", () => {
   assert.deepEqual(problems(`  registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${OTHER}`), [
     `1: registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${OTHER}: digest bbbbbbbbbbbb…, not the pin's aaaaaaaaaaaa…`,
   ]);
-  assert.deepEqual(problems(`kindgi/runtime:0.3.0@sha256:${OTHER}`), [
-    `1: kindgi/runtime:0.3.0@sha256:${OTHER}: tag 0.3.0, not 0.4.0`,
-    `1: kindgi/runtime:0.3.0@sha256:${OTHER}: digest bbbbbbbbbbbb…, not the pin's aaaaaaaaaaaa…`,
+  assert.deepEqual(problems(`registry.kindgi.com/kindgi/runtime:0.3.0@sha256:${OTHER}`), [
+    `1: registry.kindgi.com/kindgi/runtime:0.3.0@sha256:${OTHER}: tag 0.3.0, not 0.4.0`,
+    `1: registry.kindgi.com/kindgi/runtime:0.3.0@sha256:${OTHER}: digest bbbbbbbbbbbb…, not the pin's aaaaaaaaaaaa…`,
   ]);
+});
+
+test('another registry fails, and so does none, which Docker reads as Docker Hub', () => {
+  assert.deepEqual(
+    problems(
+      [
+        'docker pull ghcr.io/kindgi/runtime:0.4.0',
+        `  localhost:5000/kindgi/runtime:0.4.0@sha256:${DIGEST}`,
+        'docker pull kindgi/runtime:0.4.0',
+        'The `kindgi/runtime` image.',
+        'docker pull docker.io/kindgi/runtime:0.3.0',
+      ].join('\n'),
+    ),
+    [
+      '1: ghcr.io/kindgi/runtime:0.4.0: registry ghcr.io, not registry.kindgi.com',
+      `2: localhost:5000/kindgi/runtime:0.4.0@sha256:${DIGEST}: registry localhost:5000, not registry.kindgi.com`,
+      '3: kindgi/runtime:0.4.0: no registry (Docker Hub), not registry.kindgi.com',
+      '4: kindgi/runtime: no registry (Docker Hub), not registry.kindgi.com',
+      '5: docker.io/kindgi/runtime:0.3.0: registry docker.io, not registry.kindgi.com',
+      '5: docker.io/kindgi/runtime:0.3.0: tag 0.3.0, not 0.4.0',
+    ],
+  );
 });
 
 test('a reference with no tag, or a placeholder, names no release', () => {
@@ -64,14 +87,31 @@ test('a reference with no tag, or a placeholder, names no release', () => {
     'docker pull registry.kindgi.com/kindgi/runtime:<version>',
     '     registry.kindgi.com/kindgi/runtime:<version>@sha256:<digest>',
     '✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.',
-    'kindgi/runtime:{{kindgi.version}}',
+    'registry.kindgi.com/kindgi/runtime:{{kindgi.version}}',
   ].join('\n');
   assert.deepEqual(problems(source), []);
   assert.equal(check(source, PIN).counted, 5);
 });
 
-test('another image whose name starts the same is not the runtime', () => {
-  assert.deepEqual(problems('docker pull kindgi/runtime-tools:0.1.0 kindgi/runtimes:1'), []);
+test('emphasis or a tag right after a reference is not part of it', () => {
+  const source = [
+    '**registry.kindgi.com/kindgi/runtime:0.4.0**',
+    '_registry.kindgi.com/kindgi/runtime:0.4.0_',
+    'registry.kindgi.com/kindgi/runtime:0.4.0<br/>',
+    `*registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${DIGEST}*`,
+    '**registry.kindgi.com/kindgi/runtime:0.3.0**',
+  ].join('\n');
+  assert.deepEqual(problems(source), [
+    '5: registry.kindgi.com/kindgi/runtime:0.3.0: tag 0.3.0, not 0.4.0',
+  ]);
+  assert.equal(check(source, PIN).counted, 5);
+});
+
+test('another image whose name starts or ends the same is not the runtime', () => {
+  const source =
+    'docker pull registry.kindgi.com/kindgi/runtime-tools:0.1.0 kindgi/runtimes:1 notkindgi/runtime:1';
+  assert.deepEqual(problems(source), []);
+  assert.equal(check(source, PIN).counted, 0);
 });
 
 test('the old registry fails anywhere, with what its reference names', () => {
@@ -118,7 +158,7 @@ test("a # line in a code block or the front matter is not a heading, and doesn't
   const source = [
     '---',
     '### Runtime 0.1.5.1',
-    'description: Pull kindgi/runtime:0.3.0.',
+    'description: Pull registry.kindgi.com/kindgi/runtime:0.3.0.',
     '---',
     '### Runtime 0.1.5.1',
     '```sh',
@@ -135,16 +175,17 @@ test("a # line in a code block or the front matter is not a heading, and doesn't
     '```',
   ].join('\n');
   assert.deepEqual(problems(source, ['### Runtime 0.1.5.1']), [
-    '3: kindgi/runtime:0.3.0: tag 0.3.0, not 0.4.0',
+    '3: registry.kindgi.com/kindgi/runtime:0.3.0: tag 0.3.0, not 0.4.0',
     '16: registry.kindgi.com/kindgi/runtime:0.1.5.1: tag 0.1.5.1, not 0.4.0',
   ]);
 });
 
 test("the pin is read from this checkout's runtime-image.ts", () => {
   const pin = pinnedImage();
+  assert.match(pin.registry, /^[a-z0-9.-]+(?::\d+)?$/);
   assert.match(pin.tag, /^\d+\.\d+\.\d+/);
   assert.match(pin.digest, /^[0-9a-f]{64}$/);
-  assert.equal(pin.image.endsWith(`/kindgi/runtime:${pin.tag}@sha256:${pin.digest}`), true);
+  assert.equal(pin.image, `${pin.registry}/kindgi/runtime:${pin.tag}@sha256:${pin.digest}`);
 });
 
 test('a pin it cannot read stops the check', () => {
@@ -154,6 +195,7 @@ test('a pin it cannot read stops the check', () => {
     ),
     {
       image: `registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${DIGEST}`,
+      registry: 'registry.kindgi.com',
       tag: '0.4.0',
       digest: DIGEST,
     },
@@ -161,6 +203,8 @@ test('a pin it cannot read stops the check', () => {
   for (const source of [
     "export const DEFAULT_RUNTIME_IMAGE = 'registry.kindgi.com/kindgi/runtime:0.4.0';",
     `export const DEFAULT_RUNTIME_IMAGE = 'registry.kindgi.com/kindgi/runtime@sha256:${DIGEST}';`,
+    `export const DEFAULT_RUNTIME_IMAGE = 'kindgi/runtime:0.4.0@sha256:${DIGEST}';`,
+    `export const DEFAULT_RUNTIME_IMAGE = 'registry.kindgi.com/mirror/kindgi/runtime:0.4.0@sha256:${DIGEST}';`,
     `export const OTHER_IMAGE = 'registry.kindgi.com/kindgi/runtime:0.4.0@sha256:${DIGEST}';`,
   ]) {
     assert.throws(() => pinnedImage(source), /runtime-image\.ts has no DEFAULT_RUNTIME_IMAGE/);

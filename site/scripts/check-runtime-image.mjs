@@ -13,12 +13,16 @@
  * - **Another tag:** `kindgi/runtime:0.3.0` where the CLI pins 0.4.0.
  * - **Another digest:** `kindgi/runtime:…@sha256:<digest>` with a digest
  *   that isn't the pin's.
+ * - **Another registry:** `ghcr.io/kindgi/runtime`, or a bare
+ *   `kindgi/runtime`, which Docker pulls from Docker Hub, where the CLI pins
+ *   registry.kindgi.com.
  * - **The old registry:** `quay.io/kindgi`, where the runtime was before
  *   registry.kindgi.com.
  *
- * A reference with no tag names no release, and a placeholder isn't one,
- * so they're fine: a placeholder is a tag or digest that starts with neither
- * a letter nor a digit (`<version>`, `…`). Release notes pages
+ * A reference with no tag names no release, and nor does a placeholder, so
+ * they're fine: `<version>`, or a tag or digest that starts with neither a
+ * letter nor a digit (`…`). Emphasis or a tag right after a reference
+ * (`**`, `_`, `<br/>`) isn't part of it. Release notes pages
  * (`releases/`) aren't read, and nor are the sections in `OLDER_RELEASES`,
  * such as operate.md's steps for an older release, which name the image
  * that release ran. A section runs from its heading to the next heading of
@@ -44,30 +48,35 @@ export const OLDER_RELEASES = [
 
 /**
  * A runtime image reference, `[<registry>/]kindgi/runtime[:<tag>][@sha256:<digest>]`:
- * the tag and the digest each run to the first character that ends one in
- * prose or code.
+ * the registry is a host, with a port or without; the tag and the digest
+ * each run to the first character that ends one in prose, code or markup.
  */
 const REFERENCE =
-  /(?:[\w.-]+(?::\d+)?\/)?kindgi\/runtime(?![\w-])(?::([^\s@`'"()[\]{},;|]+))?(?:@sha256:([^\s`'"()[\]{},;|]+))?/g;
+  /(?<![A-Za-z0-9.-])(?:([A-Za-z0-9.-]+(?::\d+)?)\/)?kindgi\/runtime(?![\w-])(?::([^\s@`'"()[\]{},;|*<>]+))?(?:@sha256:([^\s`'"()[\]{},;|*<>]+))?/g;
+const OLD = 'quay.io';
 const OLD_REGISTRY = /\bquay\.io\/kindgi\b/g;
-/** A reference as written: up to the first character that ends one in prose or code. */
-const END = /^[^\s`'"()[\]{},;|]+/;
+/** A reference as written: up to the first character that ends one in prose, code or markup. */
+const END = /^[^\s`'"()[\]{},;|*<>]+/;
+/** What ends a sentence or emphasis after a reference, not part of it. */
+const TAIL = /[.:_]+$/;
 /** A value that names a release, not a placeholder for one. */
 const CONCRETE = /^[A-Za-z0-9]/;
 
 /**
  * The image this checkout's CLI pins, from the source of runtime-image.ts:
- * the whole reference, its tag and its digest.
+ * the whole reference, its registry, its tag and its digest.
  */
 export function pinnedImage(source = readFileSync(PIN, 'utf8')) {
   const image = source.match(/export const DEFAULT_RUNTIME_IMAGE\s*=\s*'([^']+)'/)?.[1];
-  const parts = image?.match(/\/kindgi\/runtime:([\w.-]+)@sha256:([0-9a-f]{64})$/);
+  const parts = image?.match(
+    /^([A-Za-z0-9.-]+(?::\d+)?)\/kindgi\/runtime:([\w.-]+)@sha256:([0-9a-f]{64})$/,
+  );
   if (!parts) {
     throw new Error(
       "check-runtime-image: runtime-image.ts has no DEFAULT_RUNTIME_IMAGE = '<registry>/kindgi/runtime:<tag>@sha256:<digest>'",
     );
   }
-  return { image, tag: parts[1], digest: parts[2] };
+  return { image, registry: parts[1], tag: parts[2], digest: parts[3] };
 }
 
 /** Where the front matter ends: the index of the line after its closing `---`, or 0. */
@@ -123,11 +132,23 @@ function linesOf(source, older) {
   return { lines: result, seen };
 }
 
-/** What's wrong with one reference's tag and digest against `pin`: nothing, either, or both. */
-function referenceProblems(rawTag, rawDigest, pin) {
+/**
+ * What's wrong with a reference's registry against `pin`'s, if anything.
+ * The old registry has its own problem.
+ */
+function registryProblem(registry, pin) {
+  if (registry === pin.registry || registry === OLD) return undefined;
+  return registry
+    ? `registry ${registry}, not ${pin.registry}`
+    : `no registry (Docker Hub), not ${pin.registry}`;
+}
+
+/** What's wrong with one reference against `pin`: its registry, tag and digest, each or none. */
+function referenceProblems(registry, rawTag, rawDigest, pin) {
   const problems = [];
-  // A sentence's full stop isn't the tag's.
-  const tag = rawTag?.replace(/[.:]+$/, '');
+  const elsewhere = registryProblem(registry, pin);
+  if (elsewhere) problems.push(elsewhere);
+  const tag = rawTag?.replace(TAIL, '');
   if (tag && CONCRETE.test(tag) && tag !== pin.tag) problems.push(`tag ${tag}, not ${pin.tag}`);
   const digest = rawDigest?.match(/^[0-9a-f]+/i)?.[0];
   if (rawDigest && CONCRETE.test(rawDigest) && digest !== pin.digest) {
@@ -162,10 +183,10 @@ export function check(source, pin, older = []) {
       const reference = line.slice(match.index).match(END)[0];
       problems.push({ line: number, reference, problem: 'the old registry, quay.io' });
     }
-    for (const [written, rawTag, rawDigest] of found) {
+    for (const [written, registry, rawTag, rawDigest] of found) {
       // A sentence's full stop isn't the reference's.
-      const reference = written.replace(/[.:]+$/, '');
-      for (const problem of referenceProblems(rawTag, rawDigest, pin)) {
+      const reference = written.replace(TAIL, '');
+      for (const problem of referenceProblems(registry, rawTag, rawDigest, pin)) {
         problems.push({ line: number, reference, problem });
       }
     }
@@ -217,7 +238,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `check-runtime-image: OK, ${counted} runtime image reference(s), none names another release than ${pin.tag}; ${skipped} in older-release sections.`,
+    `check-runtime-image: OK, ${counted} runtime image reference(s), none names another image than ${pin.registry}'s ${pin.tag}; ${skipped} in older-release sections.`,
   );
 }
 
