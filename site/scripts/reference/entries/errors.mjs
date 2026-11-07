@@ -3716,13 +3716,15 @@ export const ERROR_ENTRIES = {
     ],
   },
   'secret-revoked': {
-    description: "The secret was revoked, so its value can't be read or rotated.",
+    description:
+      "The secret was revoked, so its value can't be read or rotated. A set can get it too, when a hard revoke began while it was writing: what it wrote isn't served.",
     details: [
       {
         key: 'name',
         meaning: 'the revoked secret name (in binding results)',
       },
     ],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-version-not-found': {
     description: 'The secret exists but has no version with the number you asked for.',
