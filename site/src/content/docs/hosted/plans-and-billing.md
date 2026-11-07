@@ -23,18 +23,22 @@ page**. The link it opens works once, for a few minutes, so open it from
 the billing page each time.
 
 Stripe's billing page changes neither your plan nor the billing contact,
-and it can't end your subscription: only your billing page does those.
+and it can't end your subscription: only the workspace's billing page does
+those.
 
 ## The billing contact
 
 The billing contact is who Stripe sends your workspace's invoices to: a
 name and an email. It needn't be an admin; it can be your accounts team's
-address. At sign-up it's filled in with yours, and you can change it there.
+address. At sign-up it's filled in with yours: change it on the form then,
+or later on the billing page
+([Change the billing contact](#change-the-billing-contact)).
 
 Besides the invoices, the billing contact gets:
 
 - **The email if the workspace is suspended,** for invoices that weren't
-  paid or a subscription that was cancelled.
+  paid or a subscription that ended outside Kindgi
+  ([Stop paying](#stop-paying)).
 - **The emails if the workspace is closed:** when it's closed, and once
   it's deleted, after the 30 days to export it
   ([Close your workspace](../close-your-workspace/#what-closing-does)).
@@ -75,10 +79,11 @@ subscription from the billing page. It ends at once:
   projects out in the console first, then stop again.
 - **The workspace stays,** with everything in it.
 
-A subscription cancelled outside Kindgi, with projects still in
-production, suspends the workspace instead: nothing in it runs, its data
-is kept, and you can still read and export it. Paying again from the
-billing page lifts it.
+A subscription that ends outside Kindgi, not by a stop from the billing
+page or by a close (for example, one ended on Stripe's side), suspends the
+workspace instead while it has projects in production: nothing in it
+runs, its data is kept, and you can still read and export it. Paying again
+from the billing page lifts it.
 
 To end the workspace as well, [close it](../close-your-workspace/).
 

@@ -22,8 +22,8 @@ At [platform.kindgi.com/cloud/signup](https://platform.kindgi.com/cloud/signup),
 give your name, your work email and your organization, and choose **Email
 me a link**. The form expires after an hour.
 
-"Too many sign-ups from here" is a limit on sign-ups from one place: try
-again in an hour.
+"Too many sign-ups from here" is a limit on sign-ups from one network
+address, and for one email address: try again in an hour.
 
 ## 2. Open the link
 
@@ -40,10 +40,10 @@ instead.
 
 ## 3. Give your organization's details
 
-- **Billing:** the organization's legal name; the billing contact and
-  billing email, filled in with yours; its address and two-letter country;
-  and its GST/HST or VAT number, if it has one. Stripe sends the invoices
-  to the billing email
+- **Billing:** the organization's legal name; **Billing contact** (a name)
+  and **Billing email**, filled in with yours; its address and two-letter
+  country; and its GST/HST or VAT number, if it has one. Stripe sends the
+  invoices to the billing email
   ([The billing contact](../plans-and-billing/#the-billing-contact)).
 - **The terms:** accept the Kindgi Cloud terms and the data processing
   addendum on behalf of your organization.
@@ -54,7 +54,9 @@ Then choose **Create the workspace**.
 
 "Setting up your workspace" moves on by itself, in a few seconds, and an
 email, "_Your organization_'s Kindgi workspace is ready", follows. Choose
-**Sign in**: the console opens with your email filled in.
+**Sign in**: the console's sign-in page opens with your email filled in,
+and you sign in from there
+([Signing in to the console](../../concepts/security/#signing-in-to-the-console)).
 
 The workspace starts with one project, First Project. A deploy goes there
 unless you name another project.
@@ -65,8 +67,9 @@ ready.
 
 ## Withdraw a sign-up
 
-A sign-up that's still waiting can be withdrawn, from the link in the
-email that says it's waiting. We don't create the workspace, and we delete
+A sign-up that's still waiting for room for its workspace ("We're adding
+capacity", above) can be withdrawn, from the link in the email that says
+it's waiting. We don't create the workspace, and we delete
 the sign-up's details within 30 days, except the terms you accepted.
 
 Once the workspace is made, [close it](../close-your-workspace/) instead.
@@ -76,4 +79,5 @@ sent, is deleted 7 days after its link expired.
 
 ## Next
 
+- [Deploy your agent](../deploy-your-agent/)
 - [Your plan and billing](../plans-and-billing/)
