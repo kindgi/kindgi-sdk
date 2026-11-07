@@ -396,7 +396,9 @@ values there:
 
 - **While it erases,** setting the name again answers
   `secret-provider-unavailable` ("set it again in a few minutes"), and so
-  does another `--hard` revoke of it.
+  does another `--hard` revoke of it. A set that was already writing when
+  the revoke began answers `secret-revoked`: what it wrote isn't served,
+  and the error says what becomes of it.
 - **If the erase doesn't finish,** because the secret manager answers an
   error or writes to the secret keep landing while it erases, the revoke
   answers an error that says so. The secret stays revoked, so no read
