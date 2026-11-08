@@ -266,9 +266,14 @@ With `pack_accounts = "per-tenant"`, each tenant listed in `pack_tenants`
 gets an account of its own
 ([A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)).
 Turning it on is one-way: going back to shared isn't supported. A tenant
-leaves `pack_tenants` only after its deployments are retired. Its pack code
-can read only its own `kp-` secrets and the `pack_secret_readers` secrets
-listed for it. Other things stay shared: every tenant's pack code can
+leaves `pack_tenants` only after its deployments are retired. Once its pack
+services have moved to its account and `pack_shared_account` is `false`
+(step 3 in
+[A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)),
+its pack code can read only its own `kp-` secrets and the
+`pack_secret_readers` secrets listed for it. Until then, a pack service
+still on `$N-pack` reads every `kp-` secret. Other things stay shared:
+every tenant's pack code can
 connect to each instance in `pack_cloud_sql_instances`, read each bucket in
 `pack_bucket_readers`, and call each service in `pack_run_invokers`. So list
 there only what every tenant may reach. The pack orchestrator acts as every

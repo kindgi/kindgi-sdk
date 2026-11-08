@@ -679,10 +679,13 @@ is for tenants that trust one another's pack code.
 gets an account of its own**
 ([A pack account per tenant](#a-pack-account-per-tenant)). Turning it on is
 one-way: going back to shared isn't supported. A tenant leaves
-`pack_tenants` only after its deployments are retired. Its pack code can
-read only its own `kp-` secrets and the `pack_secret_readers` secrets listed
-for it. Other things stay shared: every tenant's pack code can connect to
-each instance in `pack_cloud_sql_instances`, read each bucket in
+`pack_tenants` only after its deployments are retired. Once its pack
+services have moved to its account and `pack_shared_account` is `false`
+(step 3 in [A pack account per tenant](#a-pack-account-per-tenant)), its
+pack code can read only its own `kp-` secrets and the `pack_secret_readers`
+secrets listed for it. Until then, a pack service still on `$N-pack` reads
+every `kp-` secret. Other things stay shared: every tenant's pack code can
+connect to each instance in `pack_cloud_sql_instances`, read each bucket in
 `pack_bucket_readers`, and call each service in `pack_run_invokers`. So list
 there only what every tenant may reach. The pack orchestrator acts as every
 tenant's account and gives each service its values, so it's trusted with
@@ -778,6 +781,9 @@ pack_secret_readers = [
 ]
 ```
 
+On a new installation, set `pack_shared_account = false` from the start:
+there are no pack services to move, so `$N-pack` isn't needed.
+
 - **Each tenant's account** is `kp-t` and 16 hex digits, from a hash of
   `name_prefix` and the tenant's id, so two installations in one project
   never share one. Its pack services' secrets are named under the same key
@@ -790,12 +796,12 @@ pack_secret_readers = [
 - **What every tenant gets, as `$N-pack` does:** `roles/cloudsql.client` on
   the instances in `pack_cloud_sql_instances`, `pack_bucket_readers` with
   their prefixes, and `pack_run_invokers`.
-- **What the plan refuses:** `"per-tenant"` with one tenant; `pack_tenants`
-  in shared mode; an id that isn't a uuid, or one listed twice in any case;
-  more than 93 tenants; with `"per-tenant"`, a `pack_secret_readers` entry
-  without `tenants`, or with a tenant `pack_tenants` doesn't list; `tenants`
-  on an entry in shared mode; and `pack_shared_account = false` in shared
-  mode.
+- **What the plan refuses:** `"per-tenant"` with `tenancy = "single"`;
+  `pack_tenants` in shared mode; an id that isn't a uuid, or one listed
+  twice in any case; more than 93 tenants; with `"per-tenant"`, a
+  `pack_secret_readers` entry without `tenants`, or with a tenant
+  `pack_tenants` doesn't list; `tenants` on an entry in shared mode; and
+  `pack_shared_account = false` in shared mode.
 
 A tenant not in `pack_tenants` has nowhere to run pack services: its
 deployments wait with `tenant-not-provisioned`. Add it and apply. A tenant
