@@ -537,7 +537,7 @@ export const ERROR_ENTRIES = {
   },
   'agent-project-mismatch': {
     description:
-      "The agent belongs to a different project than the one you named; an agent stays in the project its first version went to. Publish its versions there. The answer doesn't name that project.",
+      "The agent belongs to a different project than the one you named; an agent stays in the project its first version went to. Publish its versions there. The answer doesn't name that project, since you may not be able to read it. A deploy's answer says when it's a test project: your own, or one you can read, by name and id, and another person's by its kind alone.",
     details: [
       {
         key: 'agentId',
