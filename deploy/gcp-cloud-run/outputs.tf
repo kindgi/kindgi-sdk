@@ -47,7 +47,7 @@ output "orchestrator_key_steps" {
        first version of ${google_secret_manager_secret.orchestrator_key.secret_id}${local.server_iam_guarded ? " (the server is behind Cloud Run IAM: your gcloud account needs roles/run.invoker on it)" : ""}:
 
        KEY=$(curl -sS -X POST "${google_cloud_run_v2_service.server.uri}/v1/system/keys" \${local.mint_id_token_header}
-         -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=${google_secret_manager_secret.server["api_token"].secret_id})") \
+         -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access ${coalesce(var.api_token_version, "latest")} --secret=${google_secret_manager_secret.server["api_token"].secret_id})") \
          -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
          -d '{"scopes": ["system:deployments", "system:pack-env"], "label": "pack orchestrator"}' \
          | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \

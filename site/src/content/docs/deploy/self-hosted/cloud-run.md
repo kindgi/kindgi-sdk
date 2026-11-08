@@ -299,6 +299,13 @@ module pins it and refuses `latest`, which each instance would read again
 when it starts. The server's startup lines then say
 `Page cursors: sealed (key from KINDGI_PAGINATION_KEY)`.
 
+The API token's and the public run token key's versions go in
+`api_token_version` and `public_token_key_version` the same way: `"1"`,
+the ones you added, and the example files have them. Every instance then
+holds the same token and accepts the run tokens another signed. Unset, the
+server reads both at `latest`, so a version added later would reach only the
+instances started after it.
+
 **The database user** is a built-in Cloud SQL user. It isn't a superuser. But
 it has `CREATEROLE`, and owns the database through `cloudsqlsuperuser`, which
 is what the runtime needs. An IAM database user has neither.
@@ -1051,7 +1058,13 @@ to, so set it to the deployment's before any `gcloud` command for it
   deployment whose `server_secret_env` sets `KINDGI_PAGINATION_KEY` itself
   is refused at plan. The module's README has the steps that keep its key,
   under
-  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading). From
+  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading).
+  `api_token_version` and `public_token_key_version` can stay unset: the
+  server reads both at `latest`, as before. To pin them, set each to the
+  version your server reads, normally `1`
+  (`gcloud secrets versions list $N-api-token` lists them, and the same for
+  `$N-public-token-key`), and apply. The values the server holds don't
+  change, so no token or console session ends. From
   a module copy that set only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
   is on (the default). From a module copy that doesn't turn on Cloud
@@ -1135,9 +1148,12 @@ to, so set it to the deployment's before any `gcloud` command for it
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
   - the switch, and the way back.
-- **Rotate a secret:** add a version, then roll a new revision of the
-  runtime's service
+- **Rotate a secret the server reads at `latest`** (the database URL, the
+  license key and the export signing key): add a version, then roll a new
+  revision of the runtime's service
   (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`).
+  The API token and the public run token key rotate this way only while
+  their versions are unset.
   The orchestrator's key is pinned: mint a new one as in
   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator), add it as
   the secret's next version, set `orchestrator_key_version` to it and apply.
@@ -1161,6 +1177,19 @@ to, so set it to the deployment's before any `gcloud` command for it
 
   A previous key without `pagination_key_version`, at the version the
   server seals with, or at `latest`, is refused at plan.
+- **Rotate the API token or the public run token key:** add a version, set
+  `api_token_version` or `public_token_key_version` to it, and apply.
+  Pinned, the new revision holds the new one on every instance.
+  - Once the new revision serves, the old API token is refused: switch
+    whatever holds it, an app or a shell's `KINDGI_API_TOKEN`, to the new
+    one. With one tenant, the console sessions it opened end too, so their
+    users sign in again. Keys minted with it, the orchestrator's system key
+    among them, stay.
+  - Run tokens signed with the old key are refused (`auth-missing`) once
+    the new revision serves: a page following a run with one needs a fresh
+    token from your backend, as when one expires
+    ([Follow a run from the browser](../../../guides/runs/follow-from-the-browser/#2-hand-the-page-a-token)).
+    The tokens your backend mints from then on are signed with the new key.
 - **A pack service's logs:** each deployment's service logs under its own
   `kp-…` name, and the orchestrator's passes under the Job,
   `$N-pack-orchestrator`.

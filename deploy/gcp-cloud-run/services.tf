@@ -193,12 +193,15 @@ resource "google_cloud_run_v2_service" "server" {
           value = env.value[1]
         }
       }
+      # The bearer the server seeds. Pinned (var.api_token_version), every
+      # instance and every revision holds the same token. Unset, it's
+      # `latest`, read at each instance's start, as before the variable.
       env {
         name = "KINDGI_API_TOKEN"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.server["api_token"].secret_id
-            version = "latest"
+            version = coalesce(var.api_token_version, "latest")
           }
         }
       }
@@ -291,12 +294,16 @@ resource "google_cloud_run_v2_service" "server" {
           }
         }
       }
+      # The key public run tokens are signed with. Pinned
+      # (var.public_token_key_version), every instance accepts the tokens
+      # another signed. Unset, it's `latest`, read at each instance's start,
+      # as before the variable.
       env {
         name = "KINDGI_PUBLIC_TOKEN_SIGNING_KEY"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.server["public_token_key"].secret_id
-            version = "latest"
+            version = coalesce(var.public_token_key_version, "latest")
           }
         }
       }
