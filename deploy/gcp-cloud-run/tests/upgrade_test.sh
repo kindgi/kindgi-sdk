@@ -1171,12 +1171,13 @@ assert_out "A webhook receiver, or code that reads approvals, sees 0.4.0's names
 assert_out "A stdio MCP server that keeps a credential in config.env still works,"
 assert_out "change judging=<level> to"
 assert_out "The plan moves the deployment to a pack service for each deployment,"
-assert_out "STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet."
 assert_out "Two new migrations: three new tables (connection_choices,"
 assert_out "The migrations fill nothing in: each connection keeps working, with"
 assert_out "Before you upgrade, check your console links' labels."
 assert_out "Before you connect a second company account of an app, choose for the"
+assert_out "A person's account label is no longer recorded: when a call runs on a"
 assert_out "To list Google calendars, add this scope to your Google Cloud"
+assert_out "On a server serving many tenants, run this once after the upgrade,"
 assert_out "0.5.0 doesn't change the module."
 assert_out "Three new migrations: a table of renamed projects' old slugs"
 assert_out "The migrations fill nothing in: each project keeps everyone-can-run"
@@ -1224,12 +1225,13 @@ reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
 run "yes" --to 0.5.0-rc.0
 assert_rc 0 "0.4.0 -> 0.5.0-rc.0 runs"
 assert_out "crossing: 0.5.0$"
-assert_out "STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet."
 assert_out "Two new migrations: three new tables (connection_choices,"
 assert_out "The migrations fill nothing in: each connection keeps working, with"
 assert_out "Before you upgrade, check your console links' labels."
 assert_out "Before you connect a second company account of an app, choose for the"
+assert_out "A person's account label is no longer recorded: when a call runs on a"
 assert_out "To list Google calendars, add this scope to your Google Cloud"
+assert_out "On a server serving many tenants, run this once after the upgrade,"
 assert_out "0.5.0 doesn't change the module."
 if grep -q -e "Eighteen new migrations" -e "Steps that finish the switch" "$OUT"; then fail "0.4.0's steps shown for a run from 0.4.0"; else pass; fi
 assert_out "0.6.0 (this module's changes only; the runtime goes to 0.5.0-rc.0):"
@@ -1240,7 +1242,45 @@ assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.5.0-rc.
 assert_out "plan check: it changes the image(s)"
 assert_out "0.4.0 -> 0.5.0-rc.0 applied"
 
-# 48d. 0.5.0 -> 0.6.0's candidate: it crosses 0.6.0 alone, whose steps print
+# The orchestrator's schedule in a plan, its retry config before ($1) and
+# after ($2).
+schedule_retry() {
+  jq -cn --argjson b "$1" --argjson a "$2" '[{address: "google_cloud_scheduler_job.orchestrator[0]", mode: "managed",
+    type: "google_cloud_scheduler_job", name: "orchestrator", index: 0,
+    change: {actions: ["update"],
+      before: {name: "kindgi-pack-orchestrator", schedule: "* * * * *", retry_config: $b},
+      after: {name: "kindgi-pack-orchestrator", schedule: "* * * * *", retry_config: $a},
+      after_unknown: {}}}]'
+}
+
+# 48d. The same with the orchestrator on: its Job takes the new image beside
+# the server, and the plan gives its schedule back the one attempt (a retry
+# count of 0) that Cloud Scheduler hands back no retry config for, as every
+# plan from 0.4.0 does. That changes nothing, so the check passes.
+case_start "0.4.0 to 0.5.0-rc.0, the orchestrator on"
+reset_env; export STUB_TAGS="0.4.0" STUB_PLAN_CHANGES="$(jq -cn --argjson j "$JOB_IMAGE" --argjson s "$(schedule_retry '[]' '[{"retry_count":0}]')" '$j + $s')"; V_OKV="1"
+run "yes" --to 0.5.0-rc.0
+assert_rc 0 "0.4.0 -> 0.5.0-rc.0 with the orchestrator on runs"
+if grep -q "PLAN CHECK" "$OUT"; then fail "the schedule's one attempt stopped the plan check"; else pass; fi
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.4.0 -> 0.5.0-rc.0 applied"
+
+# 48e. A retry count the schedule holds, or one other than 0, is a change:
+# the check names it and stops, and nothing is applied.
+for pair in '[{"retry_count":3}] [{"retry_count":0}] a count of 3 set to 0' '[] [{"retry_count":2}] a count of 2 added'; do
+  read -r before after label <<<"$pair"
+  case_start "the schedule's retry config, $label: a change"
+  reset_env; export STUB_TAGS="0.4.0" STUB_PLAN_CHANGES="$(jq -cn --argjson j "$JOB_IMAGE" --argjson s "$(schedule_retry "$before" "$after")" '$j + $s')"; V_OKV="1"
+  run "yes" --to 0.5.0-rc.0
+  assert_rc 1 "$label stops it"
+  assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+  assert_file_has "$OUT" "    google_cloud_scheduler_job.orchestrator[0]: changes retry_config.retry_count" "the change, by its path"
+  assert_absent "$STUB_MARKER_APPLY" "apply"
+  assert_varfile_unchanged
+done
+
+# 48f. 0.5.0 -> 0.6.0's candidate: it crosses 0.6.0 alone, whose steps print
 # and whose module changes nothing by itself, so the plan changes only the
 # image, and there's no switch to make.
 case_start "0.5.0 to 0.6.0-rc.0"
