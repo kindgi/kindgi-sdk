@@ -58,7 +58,8 @@ interface DeployRefusal {
  * `<primitive>-project-mismatch`, as publishing it on its own does: a
  * deploy never moves it, and the route's answer names the fix the runtime
  * has (`projectMismatchFix`). The project it belongs to (`projectId`) is
- * for the log, never the answer.
+ * for the log. The answer names it only when it's a test project the
+ * caller may know of (`liveInTestProject`).
  *
  * A tool whose id is of another kind (an MCP endpoint's tool, where the
  * pack's is published here, or the other way round) answers
@@ -72,7 +73,7 @@ export class PublishRefused extends Error {
     | `${PublishedPrimitive}-project-mismatch`
     | 'tool-kind-mismatch'
     | DeployRefusal['code'];
-  /** With `…-project-mismatch`: the project the primitive belongs to, for the log only. */
+  /** With `…-project-mismatch`: the project the primitive belongs to, for the log, and named in the answer only as `liveInTestProject` says. */
   readonly projectId?: ProjectId;
   /** With `tool-kind-mismatch`: the MCP endpoint whose tool the id is, when it's one's. */
   readonly endpointId?: string;
@@ -144,16 +145,52 @@ export const PROJECT_MISMATCH = 'it belongs to another project';
  * environment order, which holds only projects with the same parent
  * (one org, or none), and promotes a build only to the environment right
  * after. With neither, there's no fix to name.
+ *
+ * A test project (`Project.testFor`) joins no environment order, so where
+ * the items are live in one (`testProject: 'holder'`), or the deploy goes
+ * into one (`'target'`), the order fix can't be done, and the words say
+ * why instead.
  */
-export function projectMismatchFix(runtime: {
-  readonly perDeploymentPacks: boolean;
-  readonly environmentOrders: boolean;
-}): string | undefined {
+export function projectMismatchFix(
+  runtime: {
+    readonly perDeploymentPacks: boolean;
+    readonly environmentOrders: boolean;
+  },
+  testProject?: 'holder' | 'target',
+): string | undefined {
   if (runtime.perDeploymentPacks) {
     return 'one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id';
   }
   if (runtime.environmentOrders) {
+    if (testProject === 'holder') {
+      return "this runtime runs one pack service, so a copy of the pack wouldn't run, and a test project joins no environment order, so its builds can't be promoted to another project";
+    }
+    if (testProject === 'target') {
+      return "this runtime runs one pack service, so a copy of the pack wouldn't run, and a test project joins no environment order: it takes only ids no other project holds";
+    }
     return "this runtime runs one pack service, so a copy of the pack wouldn't run: if both projects are in the same org, or neither is in an org, put them in one environment order (`kindgi environments set`), this one right after the one it belongs to, and `kindgi promote` the build to this one instead of deploying it; otherwise they can't share an order until both are in the same org, or neither is in an org (a project not in an order can move)";
   }
   return undefined;
+}
+
+/**
+ * Where a deploy's `<primitive>-project-mismatch` is live, when that's a
+ * test project, as far as the caller may know it: their own, or one they
+ * can read, by name and id; another person's, by its kind alone. Any other
+ * project is never named, as `PublishRefused` says.
+ */
+export type TestProjectHolder =
+  | { readonly kind: 'own'; readonly name: string; readonly projectId: ProjectId }
+  | { readonly kind: 'readable'; readonly name: string; readonly projectId: ProjectId }
+  | { readonly kind: 'another-persons' };
+
+/** A test project holder (`TestProjectHolder`), as `: it's live in …` for the answer. */
+export function liveInTestProject(holder: TestProjectHolder): string {
+  if (holder.kind === 'own') {
+    return `: it's live in your test project "${holder.name}" (${holder.projectId})`;
+  }
+  if (holder.kind === 'readable') {
+    return `: it's live in the test project "${holder.name}" (${holder.projectId})`;
+  }
+  return ": it's live in another person's test project";
 }

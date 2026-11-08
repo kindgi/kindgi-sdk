@@ -24,9 +24,12 @@ project is refused with a `409`, and nothing is written. Its code names the
 kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
 `test-set-project-mismatch`.
 The refusal doesn't name the project it belongs to, since you may not be
-able to read that project. A deploy that includes one is refused whole and
-deploys nothing, even when that agent or flow is unchanged. Publish new
-versions in its own project.
+able to read that project. A deploy's refusal says when it's a test
+project: your own, or one you can read, by name and id, and another
+person's by its kind alone. A test project joins no environment order, so
+the refusal names no order to put them in. A deploy that includes one is
+refused whole and deploys nothing, even when that agent or flow is
+unchanged. Publish new versions in its own project.
 
 Reading an agent, flow, tool, test cases or guardrail says which project
 it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
@@ -381,7 +384,10 @@ val mine = kindgi.projects().create(
 - **It stays a test project.** It's in no org and isn't the default. It
   never goes into production, into an environment order or onto a repo
   connection: each answers `409 project-is-a-test-project`. Its work goes
-  live from a production project.
+  live from a production project. An agent, flow or tool first published
+  in it stays in it: deploying the same ids into another project is
+  refused, saying they're live in your test project, and a test project
+  takes only ids no other project holds.
 - **Its person writes its secrets** without the `secrets:write` capability.
   Its tools, MCP servers, webhook triggers and deployments read only the
   secrets and env values set in it, never the workspace's or an org's, so

@@ -14,7 +14,7 @@ import {
   validateBlock,
 } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { ref, tuplesForCreate } from '@kindgi/authz';
+import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -35,7 +35,7 @@ import {
 } from '@kindgi/guardrails';
 import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
 import type { Logger } from '@kindgi/log';
-import type { ProjectBinding } from '@kindgi/platform';
+import type { Project, ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
@@ -113,6 +113,8 @@ import {
   PROJECT_MISMATCH,
   PublishRefused,
   ReferencesRefused,
+  type TestProjectHolder,
+  liveInTestProject,
   projectMismatchFix,
 } from '../publish-refused.js';
 import {
@@ -1157,6 +1159,13 @@ export function deploymentsRouter(
     // named, else the default's (where a deploy naming none lands).
     const entryProjectId =
       targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
+    // Where a refusal's project mismatch may name a test project.
+    const refusedPlace: RefusedDeployPlace = {
+      tenantId,
+      projectId: entryProjectId,
+      projects: bindings.projectBinding,
+      authorizer,
+    };
     if (bindings.environmentOrders !== undefined) {
       const later =
         entryProjectId === undefined
@@ -1249,7 +1258,7 @@ export function deploymentsRouter(
         );
       }
       if (plan.kind === 'refused') {
-        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
+        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime, refusedPlace);
       }
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
@@ -1281,7 +1290,7 @@ export function deploymentsRouter(
         validated.tools,
       );
       if (plan.kind === 'refused') {
-        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
+        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime, refusedPlace);
       }
       packTools = plan.planned;
     }
@@ -1497,7 +1506,7 @@ export function deploymentsRouter(
       // that outcome's own status and code. Anything else propagates to the
       // central error handler (a 500 for this write).
       if (cause instanceof PublishRefused) {
-        return publishRefusedResponse(c, requestId, cause, packRuntime);
+        return publishRefusedResponse(c, requestId, cause, packRuntime, refusedPlace);
       }
       if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
       // An unregistered agent or flow version naming what its project doesn't
@@ -2201,18 +2210,34 @@ function isBranchName(value: string): boolean {
   );
 }
 
+/**
+ * Where a refused deploy went, for a project mismatch's answer: the
+ * tenant, the project the deploy goes into (the named one, else the
+ * default's), the projects, to read the holder and the target, and the
+ * authorizer, to check the caller may read the holder.
+ */
+interface RefusedDeployPlace {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId | undefined;
+  readonly projects: ProjectBinding | undefined;
+  readonly authorizer: Authorizer | undefined;
+}
+
 /** `400 deployment-validation-failed`, naming each issue. */
 /**
  * A primitive the deploy refused to publish (`PublishRefused`), with that
  * outcome's own status and code. A project mismatch logs the project the
- * primitive belongs to, which the answer never names, and names the fix
- * this runtime has (`projectMismatchFix`).
+ * primitive belongs to and names the fix this runtime has
+ * (`projectMismatchFix`). The answer names that project only when it's a
+ * test project, as far as the caller may know it (`liveInTestProject`),
+ * and drops the order fix when either side is a test project.
  */
-function publishRefusedResponse(
+async function publishRefusedResponse(
   c: Context<AppEnv>,
   requestId: string,
   cause: PublishRefused,
   runtime: Parameters<typeof projectMismatchFix>[0],
+  place: RefusedDeployPlace,
 ) {
   if (cause.projectId !== undefined) {
     c.get('log').info(`${cause.message}: deploy refused`, {
@@ -2221,12 +2246,16 @@ function publishRefusedResponse(
       ownerProjectId: cause.projectId as unknown as string,
     });
   }
+  const test = cause.code.endsWith('-project-mismatch')
+    ? await testProjectSides(c, cause, place)
+    : {};
+  const liveIn = test.holder === undefined ? '' : liveInTestProject(test.holder);
   c.status(statusFor(cause.code) as never);
   return c.json(
     toWireError(
       {
         code: cause.code,
-        message: `${cause.message}${fixOf(cause, runtime)}; nothing was deployed`,
+        message: `${cause.message}${liveIn}${fixOf(cause, runtime, test.side)}; nothing was deployed`,
         primitive: cause.primitive,
         id: cause.id,
         ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
@@ -2237,10 +2266,68 @@ function publishRefusedResponse(
   );
 }
 
+/**
+ * For a project mismatch: the holder, when it's a test project, as the
+ * caller may know it, and which side of the deploy is a test project (the
+ * holder first). A read that fails answers neither, so the refusal keeps
+ * today's words rather than becoming a 500.
+ */
+async function testProjectSides(
+  c: Context<AppEnv>,
+  cause: PublishRefused,
+  place: RefusedDeployPlace,
+): Promise<{ readonly holder?: TestProjectHolder; readonly side?: 'holder' | 'target' }> {
+  if (place.projects === undefined) return {};
+  try {
+    if (cause.projectId !== undefined) {
+      const holder = await place.projects.get(place.tenantId, cause.projectId);
+      if (holder?.testFor !== undefined) {
+        return { holder: await testProjectAsKnown(c, holder, place.authorizer), side: 'holder' };
+      }
+    }
+    if (place.projectId !== undefined) {
+      const target = await place.projects.get(place.tenantId, place.projectId);
+      if (target?.testFor !== undefined) return { side: 'target' };
+    }
+  } catch (e) {
+    c.get('log').warn(
+      `a refused deploy's projects weren't read, so its answer names none: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  return {};
+}
+
+/**
+ * A test project holder as the caller may know it: their own, whatever
+ * their key is limited to; one they can read (every project, with no
+ * authorizer); else another person's. A store that can't answer throws,
+ * and `testProjectSides` keeps today's words.
+ */
+async function testProjectAsKnown(
+  c: Context<AppEnv>,
+  holder: Project,
+  authorizer: Authorizer | undefined,
+): Promise<TestProjectHolder> {
+  const principal = c.get('principal') as Principal | undefined;
+  if (principal?.actor.kind === 'user' && principal.actor.id === holder.testFor) {
+    return { kind: 'own', name: holder.name, projectId: holder.id };
+  }
+  const reads =
+    authorizer === undefined ||
+    (await authorizer.can(c, 'read', ref('project', holder.id as unknown as string)));
+  return reads
+    ? { kind: 'readable', name: holder.name, projectId: holder.id }
+    : { kind: 'another-persons' };
+}
+
 /** A project mismatch's fix, as ` (<fix>)`, when this runtime has one; else nothing. */
-function fixOf(cause: PublishRefused, runtime: Parameters<typeof projectMismatchFix>[0]): string {
+function fixOf(
+  cause: PublishRefused,
+  runtime: Parameters<typeof projectMismatchFix>[0],
+  testProject: 'holder' | 'target' | undefined,
+): string {
   if (!cause.code.endsWith('-project-mismatch')) return '';
-  const fix = projectMismatchFix(runtime);
+  const fix = projectMismatchFix(runtime, testProject);
   return fix === undefined ? '' : ` (${fix})`;
 }
 
