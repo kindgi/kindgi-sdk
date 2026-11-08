@@ -45,6 +45,11 @@ secrets_aad_key_version = "1"
 # Pinned, never "latest", so every instance and revision seals cursors with the same key.
 pagination_key_version = "1"
 
+# The versions of the API token and the public run token key the server reads: the first ones added (README step 3).
+# Pinned, never "latest", so every instance holds the same token and accepts the run tokens another signed.
+api_token_version        = "1"
+public_token_key_version = "1"
+
 # Set after the first apply, once the orchestrator's key is minted and added
 # (README, "5. The pack orchestrator"). Pinned, never "latest".
 # orchestrator_key_version = "1"

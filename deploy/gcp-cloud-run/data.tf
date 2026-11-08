@@ -192,8 +192,8 @@ locals {
   # Secret containers, by role. Each value is added out of band.
   server_secrets = merge({
     database_url     = "${var.name_prefix}-database-url"     # postgres://…@/kindgi?host=/cloudsql/<connection name>, or …@<private ip>:5432/kindgi?sslmode=require
-    api_token        = "${var.name_prefix}-api-token"        # KINDGI_API_TOKEN, the seeded bearer
-    public_token_key = "${var.name_prefix}-public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY
+    api_token        = "${var.name_prefix}-api-token"        # KINDGI_API_TOKEN, the seeded bearer (at api_token_version)
+    public_token_key = "${var.name_prefix}-public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY (at public_token_key_version)
     pagination_key   = "${var.name_prefix}-pagination-key"   # 32 random bytes, base64: KINDGI_PAGINATION_KEY (at pagination_key_version)
     license_key      = "${var.name_prefix}-license-key"      # KINDGI_LICENSE_KEY (kgi_lk_…), issued by Kindgi
     }, local.postgres_secrets ? {

@@ -490,6 +490,26 @@ variable "pagination_key_version" {
   }
 }
 
+variable "api_token_version" {
+  description = "The Secret Manager version of <name_prefix>-api-token the server reads as KINDGI_API_TOKEN, the bearer it seeds, \"1\" for a new deployment (the first version added): the same token on every instance and every revision. null (the default) reads \"latest\", as before the module had this variable: each instance reads it when it starts, so once a version is added, an instance started later would take a different token than its peers. To rotate, add a version, set this to it and apply."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.api_token_version == null || can(regex("^[1-9][0-9]*$", var.api_token_version))
+    error_message = "api_token_version is a version number (\"1\" for a new deployment), never \"latest\": each instance reads latest when it starts, so once a version is added, two instances could take different tokens."
+  }
+}
+
+variable "public_token_key_version" {
+  description = "The Secret Manager version of <name_prefix>-public-token-key the server reads as KINDGI_PUBLIC_TOKEN_SIGNING_KEY, \"1\" for a new deployment (the first version added): the key public run tokens are signed with, the same on every instance and every revision, so any instance accepts a token another signed. null (the default) reads \"latest\", as before the module had this variable: each instance reads it when it starts, so once a version is added, an instance started later would refuse its peers' tokens. To rotate, add a version, set this to it and apply."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.public_token_key_version == null || can(regex("^[1-9][0-9]*$", var.public_token_key_version))
+    error_message = "public_token_key_version is a version number (\"1\" for a new deployment), never \"latest\": each instance reads latest when it starts, so once a version is added, one instance could refuse the run tokens another signed."
+  }
+}
+
 variable "secrets_backend" {
   description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under the module's Cloud KMS key, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no AAD key), so a pack gets its plain env values and cloud secrets (pack_secret_readers), never a secret stored in Kindgi; for a deployment whose model uses the service's own credentials. The KMS key exists either way: each pack endpoint's token is sealed under it."
   type        = string
