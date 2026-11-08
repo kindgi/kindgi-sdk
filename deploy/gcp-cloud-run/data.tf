@@ -212,6 +212,14 @@ resource "google_secret_manager_secret" "server" {
       }
     }
   }
+  # A secret's replication can't change: a new one replaces the secret, and
+  # a replace deletes every version in it. So a secret keeps the replication
+  # it has: one the operator made and the module took over by import (README,
+  # Upgrading), and each of the module's secrets when the region changes (the
+  # export and orchestrator keys' too).
+  lifecycle {
+    ignore_changes = [replication]
+  }
   depends_on = [google_project_service.apis]
 }
 
@@ -250,6 +258,10 @@ resource "google_secret_manager_secret" "export_signing_key" {
         location = var.region
       }
     }
+  }
+  # Kept as it is, as the server's secrets are: a replace deletes the key.
+  lifecycle {
+    ignore_changes = [replication]
   }
   depends_on = [google_project_service.apis]
 }

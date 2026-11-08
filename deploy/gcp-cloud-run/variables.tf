@@ -9,7 +9,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Region for Cloud Run, Cloud SQL, Artifact Registry and the KMS key ring."
+  description = "Region for Cloud Run, Cloud SQL, Artifact Registry, the KMS key ring and the module's Secret Manager secrets. A secret stays in the region it was made in: changing this doesn't move it."
   type        = string
   default     = "northamerica-northeast2"
 }

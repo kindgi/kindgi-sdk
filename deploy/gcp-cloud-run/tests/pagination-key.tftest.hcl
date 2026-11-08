@@ -5,8 +5,9 @@
 # provider and keeps its state for the next, so the runs are in order: a
 # deployment before the key has a version (a new one at its first apply, or
 # one upgraded from a module copy before the key), the key at its first
-# version, a rotation that keeps the version before it, and the apply that
-# drops that one once its cursors are out of date. A file of its own, since
+# version, a rotation that keeps the version before it, the apply that drops
+# that one once its cursors are out of date, and a plan that leaves the
+# module's secrets their replication. A file of its own, since
 # module.tftest.hcl's runs are each from nothing.
 
 mock_provider "google" {
@@ -45,6 +46,9 @@ variables {
   seed_tenant_id          = "00000000-0000-0000-0000-000000000001"
   seed_user_id            = "00000000-0000-0000-0000-000000000002"
   secrets_aad_key_version = "1"
+  # The export signing key's secret too, so the last run plans all three of
+  # the module's kinds of secret.
+  export_signing = "secret"
 }
 
 # The key's secret and the server's read access to it come first, and the
@@ -151,5 +155,38 @@ run "after_the_rotation_the_key_before_goes" {
   assert {
     condition     = google_secret_manager_secret_iam_member.server_reads["pagination_key"].secret_id == google_secret_manager_secret.server["pagination_key"].id
     error_message = "The server's read access to the key's secret is still the module's own after the previous key goes."
+  }
+}
+
+# A secret the module took over by import keeps the replication it was made
+# with (README, Upgrading), and the module's secrets keep theirs when the
+# region changes: a new one would replace the secret, and a replace deletes
+# every version, the key with them. The mock imports nothing, so a plan in
+# another region stands in for a replication that differs.
+run "the_key_keeps_its_replication" {
+  command = plan
+
+  variables {
+    pagination_key_version = "2"
+    region                 = "europe-west1"
+  }
+
+  assert {
+    condition = [
+      for r in google_secret_manager_secret.server["pagination_key"].replication[0].user_managed[0].replicas : r.location
+    ] == ["northamerica-northeast2"]
+    error_message = "A secret keeps its replication: a new one would replace it and delete the key."
+  }
+  assert {
+    condition = [
+      for r in google_secret_manager_secret.export_signing_key[0].replication[0].user_managed[0].replicas : r.location
+    ] == ["northamerica-northeast2"]
+    error_message = "The export signing key's secret keeps its replication too: a new one would delete the key."
+  }
+  assert {
+    condition = [
+      for r in google_secret_manager_secret.orchestrator_key.replication[0].user_managed[0].replicas : r.location
+    ] == ["northamerica-northeast2"]
+    error_message = "The orchestrator key's secret keeps its replication too: a new one would delete the key."
   }
 }
