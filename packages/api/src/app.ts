@@ -639,10 +639,12 @@ export interface CreateAppInput {
    */
   readonly license?: LicenseStatusBinding;
   /**
-   * Optional. Which runtime this is: its release and whether it runs in
-   * development mode, as `GET /v1/runtime` answers any caller of a tenant,
-   * with `tenancy` (`single` when unset). Without it the route isn't
-   * mounted (404), as on a runtime that doesn't report it.
+   * Optional. Which runtime this is: its release, whether it runs in
+   * development mode and whether it serves connections (`connections`, whose
+   * `reason` reaches the wire only in development mode), as `GET /v1/runtime`
+   * answers any caller of a tenant, with `tenancy` (`single` when unset).
+   * Without it the route isn't mounted (404), as on a runtime that doesn't
+   * report it.
    */
   readonly runtime?: RuntimeInfoInput;
   /**

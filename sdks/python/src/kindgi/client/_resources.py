@@ -5315,7 +5315,7 @@ class RuntimeResource:
     def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
         """Which runtime answers. `GET /v1/runtime`
 
-        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.
+        Its version, how many tenants it serves, whether it runs in development mode, and whether it serves connections to other apps: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["runtime.get"],
@@ -15651,7 +15651,7 @@ class AsyncRuntimeResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
         """Which runtime answers. `GET /v1/runtime`
 
-        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.
+        Its version, how many tenants it serves, whether it runs in development mode, and whether it serves connections to other apps: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["runtime.get"],

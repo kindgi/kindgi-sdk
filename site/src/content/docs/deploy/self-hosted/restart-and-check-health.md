@@ -121,8 +121,9 @@ While Postgres is unreachable, `/ready` answers `503` with
 `{"ok":true}`.
 
 `/v1/runtime` says which runtime answers: its release, how many tenants it
-serves, and whether it runs in development mode. Any of the tenant's tokens
-reads it, whatever its rights:
+serves, whether it runs in development mode, and whether it serves
+connections to other apps. Any of the tenant's tokens reads it, whatever its
+rights:
 
 ```sh
 curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
@@ -135,8 +136,13 @@ curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\
 `version` is the release, or what the build gave otherwise (`dev` when it
 gave none). `tenancy` is `single` for a runtime that serves one tenant and
 `multi` for one that serves many, as
-[`KINDGI_TENANCY`](../../../reference/env-vars/#kindgi_tenancy) sets it. The
-clients read it as `client.runtime.get()`, in TypeScript and in Python.
+[`KINDGI_TENANCY`](../../../reference/env-vars/#kindgi_tenancy) sets it.
+`connections` says whether the runtime serves connections to other apps:
+`{"on":true}`, or `{"on":false}` when it doesn't. A runtime in development
+mode also gives a `reason` when they're off, in its own words; one in
+production never does. A runtime that doesn't say leaves the field out, as in
+the answer above. The clients read it as `client.runtime.get()`, in
+TypeScript and in Python.
 
 Point a load balancer's or a platform's readiness check at `/ready`, or
 `/health`, and never at `/`. `/` leads to the console with a `302`. Without
