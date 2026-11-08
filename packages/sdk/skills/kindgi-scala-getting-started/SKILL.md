@@ -68,7 +68,7 @@ runtime. It's built for Scala 2.13 and 3.3. In those packages:
 You need a JDK 17 or later (`JAVA_HOME`) and sbt.
 
 ```sh
-npx --yes @kindgi/cli@0.4 init my-pack --template=scala   # or: uvx --from "kindgi-cli>=0.4,<0.5" kindgi init …
+npx --yes @kindgi/cli@0.5 init my-pack --template=scala   # or: uvx --from "kindgi-cli>=0.5,<0.6" kindgi init …
 cd my-pack
 sbt test           # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
@@ -110,7 +110,7 @@ to one worktree, and so does an env file git doesn't track, such as
 In the app's directory (where its `build.sbt` is):
 
 ```sh
-npx --yes @kindgi/cli@0.4 init   # --pack-id=<id> if the build's name doesn't make one
+npx --yes @kindgi/cli@0.5 init   # --pack-id=<id> if the build's name doesn't make one
 ./kindgiw dev
 ```
 
