@@ -81,9 +81,10 @@ with its window:
 - **A free/busy** joins their busy times.
 - **What a list can read:** Google reads only a calendar the account owns,
   one whose entry shows `access: "owner"` and no `owner`, since its event
-  permission reaches no other. Outlook reads each with the same permission
-  as the main one. When Google or Microsoft refuses a calendar, the call
-  fails and names it.
+  permission reaches no other. Outlook reads with `Calendars.ReadBasic`, and
+  Microsoft's pages name a wider permission for a calendar someone else
+  shares with the account. When Google or Microsoft refuses a calendar, the
+  call fails and names it.
 - **Outlook's free/busy** reads at most 1000 events across the calendars.
   Past that, it fails: ask for a shorter window or fewer calendars.
 
