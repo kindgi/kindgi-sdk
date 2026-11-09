@@ -86,6 +86,12 @@ function world(opts: {
   lookup?: ModelKeyLookup;
   noEnvName?: boolean;
   packEnv?: DeploymentValuesDeps['packEnv'];
+  /**
+   * `get` answers a revoked secret, with its `revokedAt`, as a store that
+   * breaks `SecretBinding`'s contract would. By default it answers `null`,
+   * as the contract says.
+   */
+  revokedGets?: boolean;
 }): DeploymentValuesDeps {
   const stored = opts.stored ?? {};
   return {
@@ -93,7 +99,9 @@ function world(opts: {
     secrets: {
       get: async ({ scope, envName: env, name }) => {
         const key = at(scope, env, name);
-        return key in stored ? ({ name, ...stored[key] } as never) : null;
+        if (!(key in stored)) return null;
+        if (stored[key]?.revokedAt !== undefined && opts.revokedGets !== true) return null;
+        return { name, ...stored[key] } as never;
       },
     },
     projects: { get: async () => ({ orgId }) as never },
@@ -179,9 +187,12 @@ describe('a tool version: its secrets and the env it has no default for', () => 
   });
 
   test('a revoked secret where it is recorded is revoked', async () => {
+    // A tool's secret reads `revoked` only from a store whose `get` answers
+    // one, which the contract rules out.
     const deps = world({
       stored: { 'project:prod:ACME_TOKEN': { revokedAt: '2026-01-01T00:00:00Z' } },
       env: ['project:prod:ACME_REGION'],
+      revokedGets: true,
     });
     expect(
       await values(deps, deployment({ tools: [{ id: 'acme.search', version: '1.0.0' }] })),
@@ -209,6 +220,7 @@ describe('a tool version: its secrets and the env it has no default for', () => 
         'project:prod:ACME_DKIM': {},
         'tenant:prod:ACME_SIGNING': { revokedAt: '2026-01-01T00:00:00Z' },
       },
+      revokedGets: true,
     });
     expect(await values(deps, d)).toEqual([
       { name: 'ACME_BEARER', kind: 'secret', neededBy: mailer, problem: 'missing' },
@@ -279,7 +291,8 @@ describe('model keys: by provider, for every agent version shipped or carried', 
     const deps = world({
       agents: { 'acme.matcher@1.0.0': 'anthropic' },
       registered: { anthropic: 'ANTHROPIC_KEY' },
-      stored: { 'project:prod:ANTHROPIC_KEY': {} },
+      // Revoked there: the store's `get` answers `null`, as the contract says.
+      stored: { 'project:prod:ANTHROPIC_KEY': { revokedAt: '2026-01-01T00:00:00Z' } },
       lookup,
     });
     expect(await values(deps, ships)).toEqual([
@@ -292,6 +305,53 @@ describe('model keys: by provider, for every agent version shipped or carried', 
       },
     ]);
     expect(asked).toEqual([`anthropic in ${prod}`]);
+  });
+
+  test("revoked by the lookup's word though the store has no record there; not revoked and none there, missing", async () => {
+    const lookup =
+      (revokedAt?: string): ModelKeyLookup =>
+      async () => ({
+        scope: { kind: 'project', tenantId, projectId: prod },
+        envName: 'prod',
+        name: 'ANTHROPIC_KEY',
+        ...(revokedAt !== undefined && { revokedAt }),
+      });
+    const deps = (l: ModelKeyLookup) =>
+      world({
+        agents: { 'acme.matcher@1.0.0': 'anthropic' },
+        registered: { anthropic: 'ANTHROPIC_KEY' },
+        lookup: l,
+      });
+    expect(await values(deps(lookup('2026-01-01T00:00:00Z')), ships)).toEqual([
+      {
+        name: 'ANTHROPIC_KEY',
+        kind: 'model-key',
+        neededBy: anthropic,
+        foundAt: 'project',
+        problem: 'revoked',
+      },
+    ]);
+    expect(await values(deps(lookup()), ships)).toEqual([
+      { name: 'ANTHROPIC_KEY', kind: 'model-key', neededBy: anthropic, problem: 'missing' },
+    ]);
+  });
+
+  test('a store whose get answers a revoked key anyway: revoked where it is read', async () => {
+    const deps = world({
+      agents: { 'acme.matcher@1.0.0': 'anthropic' },
+      registered: { anthropic: 'ANTHROPIC_KEY' },
+      stored: { 'tenant:prod:ANTHROPIC_KEY': { revokedAt: '2026-01-01T00:00:00Z' } },
+      revokedGets: true,
+    });
+    expect(await values(deps, ships)).toEqual([
+      {
+        name: 'ANTHROPIC_KEY',
+        kind: 'model-key',
+        neededBy: anthropic,
+        foundAt: 'tenant',
+        problem: 'revoked',
+      },
+    ]);
   });
 
   test('no preference, or an unregistered one: any provider with its key will do', async () => {

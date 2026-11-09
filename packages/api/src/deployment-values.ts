@@ -382,15 +382,17 @@ async function modelKey(
     neededBy: { type: 'provider' as const, id: entry.metadata.id },
   };
   if (deps.secrets === undefined) return base;
+  const foundAt = location.scope.kind;
+  // Revoked where a run looks first, by the lookup's word: asked before the
+  // store, whose `get` answers `null` for a revoked key (`SecretBinding`'s
+  // contract), which would read as `missing`.
+  if (location.revokedAt !== undefined) return { ...base, foundAt, problem: 'revoked' };
   const found = await deps.secrets.get({
     scope: location.scope,
     envName: location.envName as EnvName,
     name: location.name,
   });
   if (found === null) return { ...base, problem: 'missing' };
-  const foundAt = location.scope.kind;
-  if (location.revokedAt !== undefined || found.revokedAt !== undefined) {
-    return { ...base, foundAt, problem: 'revoked' };
-  }
+  if (found.revokedAt !== undefined) return { ...base, foundAt, problem: 'revoked' };
   return { ...base, foundAt };
 }
