@@ -323,7 +323,7 @@ version and every version that's waiting read the same values:
 - [Kindgi Cloud's limits](../limits/): the limits every workspace has, and
   how to ask for more.
 - [A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project):
-  give each client an org and a project, and deploy a pack of its own into
-  it, made with `kindgi init`.
+  give each client a project, and deploy a pack of its own into it, made
+  with `kindgi init`.
 - [Ask before a tool runs](../../guides/approvals/ask-before-a-tool-runs/):
   a person approves before an agent changes something.
