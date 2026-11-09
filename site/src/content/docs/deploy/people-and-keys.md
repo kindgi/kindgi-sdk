@@ -469,6 +469,19 @@ Make longer-lived keys with one of those, such as the 90-day key in
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
+  A body names a project with `projectId`, `scope.projectId`,
+  `improve.projectId`, or `scopeKind: 'project'` with `scopeId`, and a
+  query with `scopeKind` and `scopeId`. Setting or clearing the workspace's
+  or an org's environment order names other projects, so it's refused the
+  same way (runtime 0.6.0 or later). On a runtime without an
+  [authorization store](../authorization/), a write above the key's
+  project, to the workspace (such as its settings, a new project, or a
+  secret, env value or MCP endpoint for the whole workspace or an org), to
+  an org or to a team, is refused with `403 key-project-mismatch` too
+  (runtime 0.6.0 or later); with one, the authorization model refuses it
+  with `permission-denied`, as before. Without a store, a write to an
+  existing item by its id is judged as before, except a memory fact's,
+  which goes by the fact's scope, as writing one does.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -516,6 +529,16 @@ ID                                    FOR                                       
 A tenant admin sees everyone's, and `--for=user:<id>` narrows it to one
 person's. Someone else's key reads as `404`. `kindgi tokens revoke
 <token-id>` refuses the key from its next request on, with `401`.
+
+A key or session with limits, one limited to a project or with the
+`member` role, lists, reads and revokes only those of your keys within its
+limits: the keys limited to the same project and, for `member`, the
+`member` keys (runtime 0.6.0 or later). Those are the keys no wider than
+itself, and every key it can make is among them. Reading or revoking one
+of your keys beyond its limits answers `403`, naming its own limit
+(`key-project-mismatch`, or `permission-denied` for an `admin` key), and
+says nothing about that key. A key or session without limits sees what it
+did before: a tenant admin's, every key; anyone else's, all of their own.
 
 ## Service accounts
 

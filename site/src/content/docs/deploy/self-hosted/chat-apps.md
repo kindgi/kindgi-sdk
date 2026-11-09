@@ -60,11 +60,11 @@ On a runtime without an [authorization store](../../authorization/), the
 line adds `(no per-project permissions)`. Anyone signed in can then see and
 run every agent, and Claude gets the same access.
 
-Only agents and flows their builders offer in chat show up there. Each
-person gets a tool for each of those they can see in Kindgi, and running one
-still takes their permission to run it.
-
-<!-- To confirm: the page that tells builders how to offer an agent in chat, to link from the paragraph above. -->
+Only agents and flows their builders offer in chat show up there
+([an agent's](../../../guides/agents/write-an-agent/#offer-it-in-a-chat-app)
+and [a flow's](../../../guides/flows/write-a-flow/#offer-it-in-a-chat-app)
+`mcp`). Each person gets a tool for each of those they can see in Kindgi,
+and running one still takes their permission to run it.
 
 ## Give people the address
 

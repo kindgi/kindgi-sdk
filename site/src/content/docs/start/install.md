@@ -325,9 +325,13 @@ workspace root's or the pack folder's. It says which when it starts:
   KINDGI_DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
   ```
 
-  `kindgi dev` then starts no Postgres. A URL passed with `--database-url` is
-  on the command line, where another user on the machine can read it with
-  `ps`: keep the flag for a URL with no password.
+  `kindgi dev` then starts no Postgres. A URL can list several hosts,
+  `postgres://<user>:<password>@<host-1>:5432,<host-2>:5432/<database>`, or
+  name them in `?host=`: on macOS, on Windows and under Docker Desktop,
+  `kindgi dev` reaches each local host in it from the runtime's container
+  (CLI 0.6.0 or later). A URL passed with `--database-url` is on the
+  command line, where another user on the machine can read it with `ps`:
+  keep the flag for a URL with no password.
 - **Starting over:** `kindgi dev --reset` drops the project's database after
   asking, and makes a new token. `--yes` skips the question, for scripts;
   without a terminal to ask on and without `--yes`, it refuses. Your own

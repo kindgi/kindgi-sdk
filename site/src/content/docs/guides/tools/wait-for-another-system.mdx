@@ -477,10 +477,10 @@ again.
   server logs a warning the first time it makes one. `kindgi dev` sets it
   to the dev server's own address.
 - **Logs:** the runtime's own request line writes the link's route as
-  `/v1/wait-tokens/:token`, never the token. A proxy or a load balancer in
-  front of it writes the whole path, so keep its access log out of shared
-  logs, or redact the token after `/v1/wait-tokens/` there. On hosted
-  Kindgi, the platform's request log has the whole path too.
+  `/v1/wait-tokens/:token/complete`, never the token. A proxy or a load
+  balancer in front of it writes the whole path, so keep its access log out
+  of shared logs, or redact the token after `/v1/wait-tokens/` there. On
+  hosted Kindgi, the platform's request log has the whole path too.
 - **CPU between requests:** the run goes on after the link's `200`, so the
   runtime needs CPU outside requests, as it does for runs in the background.
   If resuming fails, the runtime's sweep resumes the run within about a

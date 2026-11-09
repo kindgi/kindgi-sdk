@@ -94,7 +94,7 @@ object, whose `ok` is `false` when a check fails; it also exits `1` then
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.8",
+  "cliVersion": "0.6.0",
   "project": {
     "dir": "…/my-agents",
     "language": "node"

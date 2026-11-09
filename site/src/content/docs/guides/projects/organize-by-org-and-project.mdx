@@ -228,12 +228,18 @@ Another project in its org has the slug "support" (for a project without an org:
 The slug "support" was another project's until it was renamed, and it stays that project's. Choose another slug.
 ```
 
+The refusal's `details.heldAs` says which: `'slug'` for a slug another
+project has now, `'old-slug'` for one it had before a rename.
+
 **Changing a project's slug.** A rename is one change: a taken slug is
 refused, as above, and nothing changes. The project's id stays, and the
 runtime goes by the id, so the project's pages in the console, its runs, keys
 and triggers, and what's deployed into it keep working, with no redeploy.
 With the runtime 0.6.0 or later, its old slug stays the project's: no other
-project in the workspace can take it, in any org. Only the CLI looks a slug
+project in the workspace can take it, in any org. The project's
+`formerSlugs` (`former_slugs` in Python) lists its old slugs, newest first,
+and is empty for a project never renamed; an earlier runtime leaves it out.
+Only the CLI looks a slug
 up, each time it runs, wherever you name a project by its slug:
 `kindgi deploy --project`, say, or an environment's `project` in your pack
 config (`environments.<name>.project`). Every command that names a project

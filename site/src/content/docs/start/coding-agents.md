@@ -416,12 +416,12 @@ It says what it did in each folder, then prints the same as JSON (with
 Synced ./.claude/skills/ and ./.agents/skills/
 
 .claude/skills/
-  = kindgi-authoring-agents @0.4.6
+  = kindgi-authoring-agents @0.4.14
 …
   0 added, 0 updated, 9 unchanged, 0 skipped-modified, 0 local-only
 
 .agents/skills/
-  = kindgi-authoring-agents @0.4.6
+  = kindgi-authoring-agents @0.4.14
 …
   0 added, 0 updated, 9 unchanged, 0 skipped-modified, 0 local-only
 
