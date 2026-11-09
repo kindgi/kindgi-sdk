@@ -38,8 +38,8 @@ Facebook Pages, and under **For** choose **The company**:
    console. A link someone sent you to Meta's page does nothing without
    this step.
 2. **At Meta,** pick the business portfolio and the Pages to share with
-   Kindgi, and allow what's asked: posting on the Page as the Page and
-   deleting what it posted, and seeing its name and posts.
+   Kindgi, and allow what's asked: posting on the Page as the Page,
+   editing or deleting its posts, and seeing its name and posts.
 3. **Back in Kindgi,** the connection shows the Page's name. If you shared
    several Pages, Kindgi asks which one this connection is for.
 

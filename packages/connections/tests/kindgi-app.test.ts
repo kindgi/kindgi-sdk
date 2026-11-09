@@ -116,6 +116,11 @@ describe('defineApp, for an app Kindgi connects through its own app', () => {
       { owners: ['member', 'company'] },
       /owners must be \["company"\] for a "kindgi-app" sign-in/,
     ],
+    [
+      'a member as the only owner',
+      { owners: ['member'] },
+      /owners must be \["company"\] for a "kindgi-app" sign-in/,
+    ],
   ])('refuses %s', (_name, patch, message) => {
     expect(() => defineApp(withAcmeSocial(patch))).toThrow(message);
   });
@@ -148,7 +153,7 @@ describe('the Facebook Pages entry', () => {
     expect(facebookPages.permissions).toEqual({
       'posts.write': {
         grants: 'pages_manage_posts',
-        says: 'Post on the Page as the Page, and delete what it posted',
+        says: 'Post on the Page as the Page, and edit or delete its posts',
         changes: true,
       },
       'pages.read': {

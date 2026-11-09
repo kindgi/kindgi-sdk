@@ -29,7 +29,7 @@ export const facebookPages = defineApp({
   permissions: {
     'posts.write': {
       grants: 'pages_manage_posts',
-      says: 'Post on the Page as the Page, and delete what it posted',
+      says: 'Post on the Page as the Page, and edit or delete its posts',
       changes: true,
     },
     'pages.read': {

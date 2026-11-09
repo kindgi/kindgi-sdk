@@ -11,9 +11,10 @@ import { defineApp } from './define.js';
  *
  * - **Sign-in:** Facebook Login for Business, through Kindgi's connect step,
  *   with this entry's own configuration at Meta: it asks for the
- *   permissions below, on Instagram accounts, and none that posts on the
- *   business's Facebook Pages, so its token can't. The token is the business's, not a
- *   person's, and Meta sets it never to expire, so there's no refresh.
+ *   permissions below, on Instagram accounts. None of them posts on the
+ *   business's Facebook Pages, so its token can't. The token is the
+ *   business's, not a person's, and Meta sets it never to expire, so
+ *   there's no refresh.
  * - **Whose account:** an Instagram professional account the admin shared
  *   with Kindgi's app when they said yes: its id, labelled with its
  *   `@username`. When they shared several, the console asks which.
