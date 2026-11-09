@@ -820,10 +820,11 @@ mcp={"expose": True},
 </Tabs>
 
 With `expose: true`, the flow's id must be a tool's name: letters, digits,
-`_`, `-` and `.`, at most 123 characters. Otherwise loading the flow fails
-with `invalid-mcp-exposure`. `readOnly` and `destructive` (true or false)
-become the tool's `readOnlyHint` and `destructiveHint`; left out, no hint is
-sent, and the chat app applies the protocol's defaults.
+`_`, `-` and `.`, at most 123 characters. Otherwise the flow is refused:
+loading it fails with `invalid-mcp-exposure`, and Python's `Flow` raises a
+`DefinitionError` when it's made. `readOnly` and `destructive` (true or
+false) become the tool's `readOnlyHint` and `destructiveHint`; left out, no
+hint is sent, and the chat app applies the protocol's defaults.
 
 ## Next
 
