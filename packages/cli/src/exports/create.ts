@@ -81,10 +81,8 @@ export interface Manifest {
   readonly neverExported: readonly string[];
 }
 
-/** The output, clock and pauses `kindgi exports create` uses: tests inject them; production leaves them out. */
+/** The clock and pauses `kindgi exports create` uses: tests inject them; production leaves them out. */
 export interface ExportsSeam {
-  /** Where each kind's line goes, as it ends. Default: stderr. */
-  readonly progress?: (line: string) => void;
   readonly now?: () => Date;
   /** The pause before a `5xx` is sent again. Default: a timer. */
   readonly pause?: (ms: number, signal?: AbortSignal) => Promise<void>;

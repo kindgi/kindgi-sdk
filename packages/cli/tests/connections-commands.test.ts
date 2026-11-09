@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { KindgiApiError, fromWire } from '@kindgi/client';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { ConnectionsSeam } from '../src/commands/connections.js';
 import { runCli } from '../src/main.js';
@@ -30,15 +30,19 @@ async function run(
   connectionsSeam: ConnectionsSeam = { interactive: () => false },
   stopSignal?: AbortSignal,
 ) {
-  return runCli({
+  // What it says as it goes (`ctx.progress`), as the CLI streams it to stderr.
+  const progress: string[] = [];
+  const outcome = await runCli({
     argv: [...argv, '--url=https://x', '--token=t'],
     env: {},
     cwd,
     home,
     clientFactory: () => client as never,
     connectionsSeam,
+    progress: (text) => progress.push(text),
     ...(stopSignal !== undefined && { stopSignal }),
   });
+  return { ...outcome, progress };
 }
 
 function recorder() {
@@ -149,12 +153,11 @@ function listing(
 }
 
 /** A waiting connect's seam: a person at the terminal, no real pauses, a clock before the link expires. */
-function waitingSeam(lines: string[], overrides: Partial<ConnectionsSeam> = {}): ConnectionsSeam {
+function waitingSeam(overrides: Partial<ConnectionsSeam> = {}): ConnectionsSeam {
   return {
     interactive: () => true,
     pause: async () => {},
     now: () => new Date('2026-10-24T02:01:00.000Z'),
-    progress: (line) => lines.push(line),
     ...overrides,
   };
 }
@@ -336,7 +339,7 @@ describe('kindgi connections connect', () => {
         connectionEntries: { list: rec('entries', ENTRIES) },
         connections: { connect: rec('connect', REQUEST) },
       },
-      waitingSeam([], {
+      waitingSeam({
         confirm: async (question) => {
           asked.push(question);
           return question.includes('gmail.readonly');
@@ -362,7 +365,7 @@ describe('kindgi connections connect', () => {
         connectionEntries: { list: rec('entries', ENTRIES) },
         connections: { connect: rec('connect', REQUEST) },
       },
-      waitingSeam([], { confirm: async () => false }),
+      waitingSeam({ confirm: async () => false }),
     );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
@@ -411,21 +414,19 @@ describe('kindgi connections connect', () => {
 
   test('--json prints the request and does not wait, even at a terminal', async () => {
     const { calls, rec } = recorder();
-    const lines: string[] = [];
     const out = await run(
       ['connections', 'connect', 'google', '--permissions=gmail.send', '--json'],
       { connections: { connect: rec('connect', REQUEST), getRequest: rec('getRequest', REQUEST) } },
-      waitingSeam(lines),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(0);
     expect(JSON.parse(out.stdout).connectUrl).toBe(REQUEST.connectUrl);
     expect(calls.map(([name]) => name)).toEqual(['connect']);
-    expect(lines).toEqual([]);
+    expect(out.progress).toEqual([]);
   });
 
   test('at a terminal: shows the link, waits, and says whose account it connected', async () => {
     const { calls, rec, seq } = recorder();
-    const lines: string[] = [];
     const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
     const out = await run(
       ['connections', 'connect', 'google', '--permissions=gmail.send'],
@@ -436,18 +437,59 @@ describe('kindgi connections connect', () => {
           get: rec('get', CONNECTION),
         },
       },
-      waitingSeam(lines),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(0);
-    expect(lines.join('')).toContain(
+    expect(out.progress.join('')).toContain(
       `Open this link to connect google:\n  ${REQUEST.connectUrl}\n`,
     );
-    expect(lines.join('')).toContain('Waiting for the connect to finish');
+    expect(out.progress.join('')).toContain('Waiting for the connect to finish');
     expect(calls.map(([name]) => name)).toEqual(['connect', 'getRequest', 'getRequest', 'get']);
     expect(out.stdout).toBe(
       `Connected ana@acme.example at google (connection ${CONNECTION_ID}).\n`,
     );
     expect(out.stderr).toBe('');
+  });
+
+  test('at a terminal, given no progress to stream to, the link still goes out before the wait: to stderr', async () => {
+    const { rec, seq } = recorder();
+    const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
+    const written: string[] = [];
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const out = await runCli({
+        argv: [
+          'connections',
+          'connect',
+          'google',
+          '--permissions=gmail.send',
+          '--url=https://x',
+          '--token=t',
+        ],
+        env: {},
+        cwd,
+        home,
+        clientFactory: () =>
+          ({
+            connections: {
+              connect: rec('connect', REQUEST),
+              getRequest: seq('getRequest', [REQUEST, done]),
+              get: rec('get', CONNECTION),
+            },
+          }) as never,
+        connectionsSeam: waitingSeam(),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(written.join('')).toContain(
+        `Open this link to connect google:\n  ${REQUEST.connectUrl}\n`,
+      );
+      expect(out.stderr).toBe('');
+    } finally {
+      write.mockRestore();
+    }
   });
 
   describe("a person's second connection: which of theirs their agents use", () => {
@@ -474,7 +516,7 @@ describe('kindgi connections connect', () => {
               list,
             },
           },
-          waitingSeam([]),
+          waitingSeam(),
         ),
       };
     };
@@ -534,7 +576,7 @@ describe('kindgi connections connect', () => {
           get: rec('get', { ...CONNECTION, owner: { kind: 'company' } }),
         },
       },
-      waitingSeam([]),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toBe(
@@ -560,7 +602,7 @@ describe('kindgi connections connect', () => {
           get: rec('get', CONNECTION),
         },
       },
-      waitingSeam([]),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(1);
     expect(calls.map(([name]) => name)).toEqual(['connect', 'getRequest', 'get']);
@@ -593,7 +635,7 @@ describe('kindgi connections connect', () => {
           getRequest: rec('getRequest', { ...REQUEST, state: 'declined', ...extra }),
         },
       },
-      waitingSeam([]),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
@@ -619,7 +661,7 @@ describe('kindgi connections connect', () => {
           getRequest: rec('getRequest', { ...REQUEST, state, ...extra }),
         },
       },
-      waitingSeam([]),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
@@ -636,7 +678,7 @@ describe('kindgi connections connect', () => {
           getRequest: rec('getRequest', { ...REQUEST, state: 'cancelled' }),
         },
       },
-      waitingSeam([]),
+      waitingSeam(),
     );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe('The connect ended cancelled: nothing connected.\n');
@@ -647,7 +689,7 @@ describe('kindgi connections connect', () => {
     const out = await run(
       ['connections', 'connect', 'google', '--permissions=gmail.send'],
       { connections: { connect: rec('connect', REQUEST), getRequest: rec('getRequest', REQUEST) } },
-      waitingSeam([], { now: () => new Date('2026-10-24T03:00:00.000Z') }),
+      waitingSeam({ now: () => new Date('2026-10-24T03:00:00.000Z') }),
     );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe('The link expired before the connect finished: nothing connected.\n');
@@ -660,7 +702,7 @@ describe('kindgi connections connect', () => {
     const out = await run(
       ['connections', 'connect', 'google', '--permissions=gmail.send'],
       { connections: { connect: rec('connect', REQUEST), getRequest: rec('getRequest', REQUEST) } },
-      waitingSeam([], { pause: async () => stop.abort() }),
+      waitingSeam({ pause: async () => stop.abort() }),
       stop.signal,
     );
     expect(out.exitCode).toBe(130);
@@ -688,7 +730,6 @@ describe('kindgi connections connect', () => {
 
     test('at a terminal: the link first, then it still waits, saying nothing once connected', async () => {
       const { calls, rec, seq } = recorder();
-      const lines: string[] = [];
       const results: string[] = [];
       const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
       const out = await run(
@@ -700,11 +741,11 @@ describe('kindgi connections connect', () => {
             get: rec('get', CONNECTION),
           },
         },
-        waitingSeam(lines, { result: (line) => results.push(line) }),
+        waitingSeam({ result: (line) => results.push(line) }),
       );
       expect(out.exitCode).toBe(0);
       expect(results).toEqual([LINK]);
-      expect(lines).toEqual([]);
+      expect(out.progress).toEqual([]);
       expect(calls.map(([name]) => name)).toEqual(['connect', 'getRequest', 'getRequest', 'get']);
       expect(out.stdout).toBe('');
       expect(out.stderr).toBe('');
@@ -729,7 +770,7 @@ describe('kindgi connections connect', () => {
             get: rec('get', CONNECTION),
           },
         },
-        waitingSeam([], { result: (line) => results.push(line) }),
+        waitingSeam({ result: (line) => results.push(line) }),
       );
       expect(out.exitCode).toBe(1);
       expect(results).toEqual([LINK]);
@@ -873,7 +914,7 @@ describe('kindgi connections connect --label and --reconnect', () => {
             get: rec('get', connection),
           },
         },
-        waitingSeam([]),
+        waitingSeam(),
       );
     };
     expect((await said(SUPPORT)).stdout).toBe(
