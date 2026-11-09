@@ -15,7 +15,11 @@ schemas), so they match the release they document.
   and Scala SDKs have, and what to do where one lacks a feature.
 - **[HTTP API](api/):** every route, its parameters, request and response
   bodies, and the errors it answers, with a request example for each. From
-  the API's OpenAPI specification.
+  the API's OpenAPI specification. Within `/v1/`, a response can gain fields
+  in a later release. The TypeScript, Python and Java clients accept fields
+  they don't know. A client you generate from the specification must too, so
+  set its generator to allow them, even though the response schemas say
+  `"additionalProperties": false`.
 - **[TypeScript](typescript/sdk/):** `@kindgi/sdk`, by the path you import
   from:
   - `@kindgi/sdk/define`: defining tools, agents, flows and checks;
