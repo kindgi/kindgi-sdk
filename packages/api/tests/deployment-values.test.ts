@@ -9,12 +9,13 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Scope } from '@kindgi/platform';
-import type { EnvName, OrgId, ProjectId, TenantId } from '@kindgi/types';
+import type { EnvName, OrgId, ProjectId, RecordedSecretScope, TenantId } from '@kindgi/types';
 
 import type { CarriedVersion } from '../src/carried-versions.js';
 import type { Deployment, DeploymentContents } from '../src/deployment-binding.js';
 import { deploymentValues } from '../src/deployment-values.js';
 import type { DeploymentValuesDeps, ModelKeyLookup } from '../src/deployment-values.js';
+import type { SecretGetInput } from '../src/secrets-binding.js';
 
 const tenantId = 't-1' as TenantId;
 const prod = 'p-prod' as ProjectId;
@@ -25,6 +26,13 @@ const envName = 'prod' as EnvName;
 type Stored = Record<string, { revokedAt?: string } | undefined>;
 
 const at = (scope: Scope, env: string, name: string) => `${scope.kind}:${env}:${name}`;
+
+/** `scope`, then each wider one a store's walk reads: its org, then the tenant. */
+const walkFrom = (scope: Scope): Scope[] => [
+  scope,
+  ...(scope.kind === 'project' ? [{ kind: 'org' as const, tenantId, orgId }] : []),
+  ...(scope.kind === 'tenant' ? [] : [{ kind: 'tenant' as const, tenantId }]),
+];
 
 const tools: Record<string, object> = {
   'acme.search@1.0.0': {
@@ -92,6 +100,12 @@ function world(opts: {
    * as the contract says.
    */
   revokedGets?: boolean;
+  /** A `secretLocate` that walks as the stores' `locate` does: the scope asked, then wider. */
+  locates?: boolean;
+  /** Each tool version's recorded secret scopes (`secretScopes`). */
+  recorded?: Record<string, RecordedSecretScope | null>;
+  /** The project each tool version was made in (`madeInProjectId`). */
+  madeIn?: ProjectId;
 }): DeploymentValuesDeps {
   const stored = opts.stored ?? {};
   return {
@@ -104,13 +118,30 @@ function world(opts: {
         return { name, ...stored[key] } as never;
       },
     },
+    ...(opts.locates === true && {
+      secretLocate: async ({ scope, envName: env, name }: SecretGetInput) => {
+        for (const wider of walkFrom(scope)) {
+          const key = at(wider, env, name);
+          if (key in stored) return { scope: wider, ...stored[key] };
+        }
+        return null;
+      },
+    }),
     projects: { get: async () => ({ orgId }) as never },
     ...(opts.administers !== undefined && {
       administers: async (scope: Scope) => opts.administers?.includes(scope.kind) === true,
     }),
     tools: {
       get: async () => null,
-      getVersion: async ({ toolId, version }) => (tools[`${toolId}@${version}`] ?? null) as never,
+      getVersion: async ({ toolId, version }) => {
+        const tool = tools[`${toolId}@${version}`];
+        if (tool === undefined) return null;
+        return {
+          ...tool,
+          ...(opts.recorded !== undefined && { secretScopes: opts.recorded }),
+          ...(opts.madeIn !== undefined && { madeInProjectId: opts.madeIn }),
+        } as never;
+      },
     },
     agents: {
       getVersion: async ({ agentId, version }) => {
@@ -258,6 +289,95 @@ describe('a tool version: its secrets and the env it has no default for', () => 
       ],
     });
     expect(await values(deps, twice)).toHaveLength(2);
+  });
+});
+
+describe("the deployment's own project (`asRecorded`): a tool's secret where its version recorded it", () => {
+  const own = (deps: DeploymentValuesDeps, d: Deployment) =>
+    deploymentValues(deps, { deployment: d, carried: [], projectId: prod, asRecorded: true });
+  const onlySearch = deployment({ tools: [{ id: 'acme.search', version: '1.0.0' }] });
+  const atProject: RecordedSecretScope = { kind: 'project', projectId: prod };
+  const revokedHere = {
+    'project:prod:ACME_TOKEN': { revokedAt: '2026-01-01T00:00:00Z' },
+    'tenant:prod:ACME_TOKEN': {},
+  };
+  const token = { name: 'ACME_TOKEN', kind: 'secret', neededBy: search } as const;
+
+  test('recorded at the project and revoked there, with a live one at the tenant: revoked, as a run there refuses', async () => {
+    for (const madeIn of [undefined, prod]) {
+      const deps = world({
+        stored: revokedHere,
+        locates: true,
+        recorded: { ACME_TOKEN: atProject },
+        ...(madeIn !== undefined && { madeIn }),
+      });
+      expect((await own(deps, onlySearch))[0]).toEqual({
+        ...token,
+        foundAt: 'project',
+        problem: 'revoked',
+      });
+      // A promotion's check doesn't read the record: the tenant's answers.
+      expect((await values(deps, onlySearch))[0]).toEqual({ ...token, foundAt: 'tenant' });
+    }
+  });
+
+  test("a store with no locate: read there only, so missing, never the tenant's", async () => {
+    const deps = world({ stored: revokedHere, recorded: { ACME_TOKEN: atProject } });
+    expect((await own(deps, onlySearch))[0]).toEqual({ ...token, problem: 'missing' });
+  });
+
+  test('read at the recorded scope, not the narrowest that holds it', async () => {
+    const deps = world({
+      stored: { 'project:prod:ACME_TOKEN': {}, 'tenant:prod:ACME_TOKEN': {} },
+      locates: true,
+      recorded: { ACME_TOKEN: { kind: 'tenant' } },
+    });
+    expect((await own(deps, onlySearch))[0]).toEqual({ ...token, foundAt: 'tenant' });
+  });
+
+  test('revoked only wider than the recorded scope: missing, as a run reads nothing where it looks', async () => {
+    const deps = world({
+      stored: { 'tenant:prod:ACME_TOKEN': { revokedAt: '2026-01-01T00:00:00Z' } },
+      locates: true,
+      recorded: { ACME_TOKEN: atProject },
+    });
+    expect((await own(deps, onlySearch))[0]).toEqual({ ...token, problem: 'missing' });
+  });
+
+  test('recorded as read nowhere, or a name the record lacks: missing, optional or not, as a run refuses either', async () => {
+    const mailer = { type: 'tool', id: 'acme.mailer', version: '1.0.0' } as const;
+    const deps = world({
+      stored: { 'project:prod:ACME_DKIM': {}, 'tenant:prod:ACME_BEARER': {} },
+      locates: true,
+      recorded: { ACME_BEARER: null, ACME_SMTP_KEY: null },
+    });
+    const d = deployment({ tools: [{ id: 'acme.mailer', version: '1.0.0' }] });
+    expect(await own(deps, d)).toEqual([
+      { name: 'ACME_BEARER', kind: 'secret', neededBy: mailer, problem: 'missing' },
+      { name: 'ACME_SMTP_KEY', kind: 'secret', neededBy: mailer, problem: 'missing' },
+      { name: 'ACME_DKIM', kind: 'secret', neededBy: mailer, problem: 'missing' },
+      { name: 'ACME_SIGNING', kind: 'secret', neededBy: mailer, problem: 'missing' },
+    ]);
+  });
+
+  test("made in another project of its order: as a promotion would record it, since a deploy's record here isn't on the version", async () => {
+    const stage = 'p-stage' as ProjectId;
+    const elsewhere = world({
+      stored: revokedHere,
+      locates: true,
+      recorded: { ACME_TOKEN: { kind: 'project', projectId: stage } },
+      madeIn: stage,
+    });
+    expect((await own(elsewhere, onlySearch))[0]).toEqual({ ...token, foundAt: 'tenant' });
+  });
+
+  test("from before scopes were recorded: the tenant's only, as a run reads it", async () => {
+    const unrecorded = world({ stored: revokedHere, locates: true });
+    expect((await own(unrecorded, onlySearch))[0]).toEqual({ ...token, foundAt: 'tenant' });
+    const projectOnly = world({ stored: { 'project:prod:ACME_TOKEN': {} }, locates: true });
+    expect((await own(projectOnly, onlySearch))[0]).toEqual({ ...token, problem: 'missing' });
+    // A promotion's check walks, so it finds the project's.
+    expect((await values(projectOnly, onlySearch))[0]).toEqual({ ...token, foundAt: 'project' });
   });
 });
 

@@ -48,6 +48,7 @@ import { scopeResourceRef } from './routes/scope-params.js';
 import type {
   SecretBinding,
   SecretError,
+  SecretGetInput,
   SecretRecord,
   SecretResolveInput,
   SecretResolveOutcome,
@@ -65,6 +66,16 @@ export function secretScopeChain(item: Scope, orgId: OrgId | undefined): readonl
     tenant,
   ];
 }
+
+/**
+ * Where a secret store's `resolve` would read a secret, revoked or not;
+ * `null`: nowhere. `get` never answers a revoked one, so this is how a
+ * check tells revoked from unset. The runtime supplies its stores'
+ * `locate`.
+ */
+export type SecretLocate = (
+  input: SecretGetInput,
+) => Promise<{ scope: Scope; revokedAt?: string } | null>;
 
 export interface NamedSecretScopeInput {
   readonly secrets: Pick<SecretBinding, 'get'>;
