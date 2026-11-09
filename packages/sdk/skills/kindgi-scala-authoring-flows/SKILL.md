@@ -8,15 +8,16 @@ description: >
   `policy` (`edge(Map(…))`), branches that join again, inputMapping from
   runInput / nodeOutputs, typed agent output in a flow, the flow's declared
   output, loops and fanout, and running a flow (runs start --flow, in the
-  background, as a dry run) and reading its journal. Load this whenever you
-  are authoring or editing code in a Scala pack's flows packages (a pack
-  whose `kindgi.config.json` says `"language": "scala"`), defining a flow,
-  or when the user asks to add, change or debug one. Scala tools are
-  covered by kindgi-scala-authoring-tools, Scala agents by
+  background, as a dry run) and reading its journal, and starting one from a
+  schedule, a new mail or a webhook. Load this whenever you are authoring or
+  editing code in a Scala pack's flows packages (a pack whose
+  `kindgi.config.json` says `"language": "scala"`), defining a flow, or when
+  the user asks to add, change or debug one. Scala tools are covered by
+  kindgi-scala-authoring-tools, Scala agents by
   kindgi-scala-authoring-agents.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -328,6 +329,12 @@ From another terminal in the pack directory, while `kindgi dev` runs:
   and has no `writes`, `deletes`, `spawns-run`, `emits-event` or
   `external-side-effect` effect. The first other tool stops the run with
   `dry-run-effectful-tool`, and everything before it really ran.
+
+A schedule, a new mail or a webhook can start the runs instead, with no
+one typing a command. Before making one for a flow, read
+[start-from-a-trigger.md](start-from-a-trigger.md): what each gives the
+flow as its input, which ones the runtime serves, and the tool steps
+those runs refuse.
 
 ## Iterating on a flow
 
