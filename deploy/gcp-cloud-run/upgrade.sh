@@ -1397,9 +1397,7 @@ EOT
    - 0.5.0 doesn't change the module.
 EOT
       ;;
-    # NEXT: the release that ships the server's 10-minute startup probe (see
-    # plan_allowed_changes).
-    NEXT)
+    0.6.1)
       cat <<'EOT'
    - The plan also changes the server in place: its startup probe allows
      10 minutes, 120 tries 5 s apart, so a first start has that long to run
@@ -1653,10 +1651,7 @@ plan_allowed_changes() {
             "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
         fi
         ;;
-      # NEXT stands in for the release that ships the server's 10-minute
-      # startup probe, until it has a name: then that name goes here, in
-      # module_changes and in KNOWN_RELEASES.
-      NEXT)
+      0.6.1)
         printf '%s\n' "google_cloud_run_v2_service.server template.containers.startup_probe.failure_threshold"
         ;;
     esac
