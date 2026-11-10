@@ -799,6 +799,23 @@ export function deploymentsRouter(
     }
     const wire = parsed.value;
 
+    // A ledger that doesn't keep builtFrom would register the build without
+    // it, and a promotion, verifying the signature over what the row kept,
+    // would then never move it: refused before anything is read or written.
+    if (wire.builtFrom !== undefined && bindings.deploymentRegistry.keepsBuiltFrom !== true) {
+      c.status(statusFor('built-from-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'built-from-unsupported',
+            message:
+              "This runtime's deployment ledger doesn't keep builtFrom, so a build signed with it could never be promoted. Nothing was registered",
+          },
+          requestId,
+        ),
+      );
+    }
+
     // Extract image digest from imageRef. Must be `<host>/<repo>@sha256:<hex>`.
     const digestFromRef = extractImageDigest(wire.imageRef);
     if (digestFromRef === null) {

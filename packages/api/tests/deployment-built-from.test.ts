@@ -70,11 +70,15 @@ const trustList: SigningKeyBinding = {
   revokeTrusted: notUsed,
 };
 
-/** A binding that keeps `builtFrom`, as one that knows the field does. */
-function ledger(): DeploymentBinding & { readonly rows: Deployment[] } {
+/**
+ * A binding that keeps `builtFrom` and says so, as one that knows the field
+ * does; `keeps: false` is one that doesn't say, as an earlier runtime's.
+ */
+function ledger(keeps: boolean): DeploymentBinding & { readonly rows: Deployment[] } {
   const rows: Deployment[] = [];
   return {
     rows,
+    ...(keeps && { keepsBuiltFrom: true as const }),
     async register(input) {
       const there = rows.find((d) => d.imageDigest === input.imageDigest);
       if (there !== undefined) return { kind: 'already-registered', deployment: there };
@@ -170,8 +174,8 @@ function deploy(opts: { readonly sends?: unknown; readonly signs?: BuiltFrom | n
   };
 }
 
-function harness() {
-  const deployments = ledger();
+function harness({ keeps = true }: { keeps?: boolean } = {}) {
+  const deployments = ledger(keeps);
   const appended: AuditEvent[] = [];
   const auditEvents: AuditEventBinding = {
     async append(events) {
@@ -273,6 +277,24 @@ describe('builtFrom is signed', () => {
     expect(res.body.error.code).toBe('signature-invalid');
     expect(h.deployments.rows).toHaveLength(0);
     expect(h.registered()).toHaveLength(0);
+  });
+});
+
+describe("a ledger that doesn't keep builtFrom", () => {
+  test('a build signed with it: 501 built-from-unsupported, nothing written or recorded', async () => {
+    const h = harness({ keeps: false });
+    const res = await h.post(deploy({ sends: BUILT }));
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('built-from-unsupported');
+    expect(h.deployments.rows).toHaveLength(0);
+    expect(h.registered()).toHaveLength(0);
+  });
+
+  test('a build without it: registered as before', async () => {
+    const h = harness({ keeps: false });
+    expect((await h.post(deploy({}))).status).toBe(201);
+    expect(h.deployments.rows).toHaveLength(1);
+    expect(h.registered()).toHaveLength(1);
   });
 });
 

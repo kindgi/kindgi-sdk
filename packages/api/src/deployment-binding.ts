@@ -119,6 +119,14 @@ export interface DeploymentBinding {
    * Absent: the runtime can't promote (`501 promotions-unsupported`).
    */
   promote?(input: DeploymentPromoteInput): Promise<DeploymentPromoteOutcome>;
+  /**
+   * Set when `register` and `promote` keep a deployment's `builtFrom`.
+   * Absent: `POST /v1/deployments` refuses a build signed with it (`501
+   * built-from-unsupported`) before anything is written, since a
+   * deployment kept without it could never be promoted (a promotion
+   * verifies the signature again, over what the row kept).
+   */
+  readonly keepsBuiltFrom?: true;
 }
 
 // -------------------- record --------------------
@@ -468,8 +476,8 @@ export interface Deployment {
   /**
    * Inside the signed envelope when present: what the build was made from
    * (`BuiltFrom`). Kept so a promotion verifies the signature over it
-   * again; a promoted copy keeps its source's. Absent from a binding that
-   * doesn't keep it, which then promotes only builds signed without it.
+   * again; a promoted copy keeps its source's. A binding that doesn't keep
+   * it (no `DeploymentBinding.keepsBuiltFrom`) is never sent one.
    */
   readonly builtFrom?: BuiltFrom;
   /** Server-side ledger timestamp — when `register` returned OK. ISO-8601. */

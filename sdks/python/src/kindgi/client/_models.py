@@ -9325,7 +9325,7 @@ class DeploymentSource(BaseModel):
 
 class DeploymentBuiltFrom(BaseModel):
     """
-    What a build was made from, as its builder signed it: covered by the signature when present, so the project and the person it names are the signer's word, and the runtime checks the person against who signed in before it registers the build for them. A deployment a promotion made keeps its source's. Absent for a build whose builder doesn't say, and from a runtime that doesn't keep it. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.
+    What a build was made from, as its builder signed it: covered by the signature when present, so the project and the person it names are the signer's word. The runtime keeps it and records it; nothing acts on the person yet. A deployment a promotion made keeps its source's. Absent for a build whose builder doesn't say. A runtime whose deployment ledger doesn't keep it refuses the build (`501 built-from-unsupported`), and one that doesn't know the field checks the signature without it, so the build doesn't verify there.
     """
 
     model_config = ConfigDict(
