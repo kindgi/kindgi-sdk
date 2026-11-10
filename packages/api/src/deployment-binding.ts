@@ -12,7 +12,7 @@ import type {
 } from '@kindgi/types';
 
 import type { PinActor } from './agent-pin-binding.js';
-import type { ProductionEntry } from './deployment-envelope.js';
+import type { BuiltFrom, ProductionEntry } from './deployment-envelope.js';
 import {
   PACK_ENV_PROBLEM_CODES,
   PACK_ENV_SECRET_GIVE_CODES,
@@ -99,7 +99,8 @@ export interface DeploymentBinding {
   /**
    * Promote a deployment into the next environment of its order, in one
    * transaction: a deployment in the target project with the source's
-   * signed fields (its `productionEntry` included), contents, pack, pack checks and git `source` (as
+   * signed fields (its `productionEntry` and `builtFrom` included),
+   * contents, pack, pack checks and git `source` (as
    * `register` writes one, with its routes and pending endpoint) and
    * `promotedFromDeploymentId`, and its own `replaced` (the input's, never
    * the source's); the versions carried with it; and where each tool's
@@ -125,6 +126,14 @@ export interface DeploymentBinding {
    * the record would lose the mark that limits its pack's env read.
    */
   readonly keepsKeyScope?: true;
+  /**
+   * Set when `register` and `promote` keep a deployment's `builtFrom`.
+   * Absent: `POST /v1/deployments` refuses a build signed with it (`501
+   * built-from-unsupported`) before anything is written, since a
+   * deployment kept without it could never be promoted (a promotion
+   * verifies the signature again, over what the row kept).
+   */
+  readonly keepsBuiltFrom?: true;
 }
 
 // -------------------- record --------------------
@@ -143,6 +152,14 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
     signature: d.signature,
     publishedAt: d.publishedAt,
     ...(d.productionEntry !== undefined && { productionEntry: d.productionEntry }),
+    ...(d.builtFrom !== undefined && {
+      builtFrom: {
+        kind: d.builtFrom.kind,
+        projectId: d.builtFrom.projectId,
+        commit: d.builtFrom.commit,
+        requestedBy: d.builtFrom.requestedBy,
+      },
+    }),
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.promotedFromDeploymentId !== undefined && {
@@ -464,6 +481,13 @@ export interface Deployment {
    * keep it, which then promotes only builds signed without it.
    */
   readonly productionEntry?: ProductionEntry;
+  /**
+   * Inside the signed envelope when present: what the build was made from
+   * (`BuiltFrom`). Kept so a promotion verifies the signature over it
+   * again; a promoted copy keeps its source's. A binding that doesn't keep
+   * it (no `DeploymentBinding.keepsBuiltFrom`) is never sent one.
+   */
+  readonly builtFrom?: BuiltFrom;
   /** Server-side ledger timestamp — when `register` returned OK. ISO-8601. */
   readonly activatedAt: string;
   /**
@@ -647,6 +671,8 @@ export interface DeploymentRegisterInput {
   readonly publishedAt: string;
   /** In the signed envelope when the deploy sent it; the binding keeps it verbatim. */
   readonly productionEntry?: ProductionEntry;
+  /** In the signed envelope when the deploy sent it; the binding keeps it verbatim. */
+  readonly builtFrom?: BuiltFrom;
   /**
    * Set when the build is promote-only, by its mark, its key id's prefix
    * or its key's bytes (the route asks the trust list): it reaches a

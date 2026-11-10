@@ -45,7 +45,11 @@ import type {
   VersionDerivation,
 } from '@kindgi/types';
 
-import { type ProductionEntry, canonicalizeEnvelope } from '../src/deployment-envelope.js';
+import {
+  type BuiltFrom,
+  type ProductionEntry,
+  canonicalizeEnvelope,
+} from '../src/deployment-envelope.js';
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentPinBindings,
@@ -125,6 +129,8 @@ function built(opts: {
   readonly endpoint?: DeploymentEndpoint;
   /** Signed into the envelope and kept, as a deploy that sent it keeps it. */
   readonly productionEntry?: ProductionEntry;
+  /** Signed into the envelope and kept, the same way. */
+  readonly builtFrom?: BuiltFrom;
 }): Deployment {
   minute += 1;
   const imageDigest = sha(opts.seed ?? 'build-1');
@@ -135,6 +141,7 @@ function built(opts: {
     tenantId: tenantId as unknown as string,
     publishedAt: '2026-10-01T09:00:00.000Z',
     ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
+    ...(opts.builtFrom !== undefined && { builtFrom: opts.builtFrom }),
   };
   const signed = signEd25519(keys.privateKey, canonicalizeEnvelope(fields));
   if (signed.kind === 'err') throw new Error(signed.error.message);
@@ -150,6 +157,7 @@ function built(opts: {
     signature: Buffer.from(signed.value).toString('base64'),
     publishedAt: fields.publishedAt,
     ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
+    ...(opts.builtFrom !== undefined && { builtFrom: opts.builtFrom }),
     activatedAt: new Date(Date.UTC(2026, 9, 1, 10, minute)).toISOString(),
     ...(opts.projectId !== undefined && { projectId: opts.projectId }),
     packId: 'acme.pack',
@@ -1248,6 +1256,49 @@ describe('a build moves only while it serves and its signature holds', () => {
     expect(gainedRes.status).toBe(400);
     expect(gainedRes.body.error.code).toBe('signature-invalid');
     expect(gained.deployments.rows).toHaveLength(1);
+  });
+
+  const BUILT: BuiltFrom = {
+    kind: 'kept-repo',
+    projectId: '0b6f3c1e-8a2d-4f5b-9c7e-1d2a3b4c5d6e',
+    commit: 'c'.repeat(40),
+    requestedBy: 'user:user-1',
+  };
+
+  test('a build made from a kept repository moves with what it was built from, verified again', async () => {
+    const h = harness({ rows: [built({ id: 'dep-s1', projectId: S1, builtFrom: BUILT })] });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.deployment.builtFrom).toEqual(BUILT);
+    expect(res.body.deployment.promotedFromDeploymentId).toBe('dep-s1');
+  });
+
+  test('builtFrom the deployment no longer keeps, gained or changed: 400 signature-invalid', async () => {
+    const { builtFrom: _from, ...dropped } = built({
+      id: 'dep-s1',
+      projectId: S1,
+      builtFrom: BUILT,
+    });
+    const lost = harness({ rows: [dropped] });
+    expect((await lost.promote('dep-s1', S2)).body.error.code).toBe('signature-invalid');
+
+    const gained = harness({
+      rows: [{ ...built({ id: 'dep-s1', projectId: S1 }), builtFrom: BUILT }],
+    });
+    expect((await gained.promote('dep-s1', S2)).body.error.code).toBe('signature-invalid');
+
+    const changed = harness({
+      rows: [
+        {
+          ...built({ id: 'dep-s1', projectId: S1, builtFrom: BUILT }),
+          builtFrom: { ...BUILT, requestedBy: 'user:user-2' },
+        },
+      ],
+    });
+    const changedRes = await changed.promote('dep-s1', S2);
+    expect(changedRes.status).toBe(400);
+    expect(changedRes.body.error.code).toBe('signature-invalid');
+    expect(changed.deployments.rows).toHaveLength(1);
   });
 });
 

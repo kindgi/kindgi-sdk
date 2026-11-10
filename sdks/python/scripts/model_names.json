@@ -271,6 +271,7 @@
   "DeployCheckResult": ["DeployCheckResult"],
   "DeployCheckStop": ["DeployCheckStop"],
   "DeployReplaceBlock": ["DeployReplaceBlock"],
+  "DeploymentBuiltFrom": ["DeploymentBuiltFrom"],
   "DeploymentCollectionPage": ["DeploymentCollectionPage"],
   "DeploymentContents": ["DeploymentContents"],
   "DeploymentContentsAgent": ["DeploymentContentsAgent"],
