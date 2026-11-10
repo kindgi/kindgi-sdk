@@ -65,7 +65,7 @@ variable "server_billing" {
   description = <<-EOT
     How Cloud Run bills the server, and so when it has CPU.
     "instance" (the default): CPU always allocated. The server's own timers run its background work (schedules, mail polls, webhook deliveries and more; the docs' Cloud Run page, "Scale the server to zero", lists it all).
-    "request": CPU only while a request is in flight, billed for that time (and for any minimum instances while idle). server_min_instances may then be 0. Cloud Scheduler calls the server's tick each minute, which runs the background work that's due, and the server keeps a request to itself open while it has work in flight. Needs server_ingress = "INGRESS_TRAFFIC_ALL", server_max_instances = 1, and server_public or server_invoker_iam_disabled. README, "Scale the server to zero".
+    "request": CPU only while a request is in flight, billed for that time (and for any minimum instances while idle). server_min_instances may then be 0. Cloud Scheduler calls the server's tick each minute, which runs the background work that's due, and the server keeps a request to itself open while it has work in flight. Needs server_ingress = "INGRESS_TRAFFIC_ALL", server_max_instances = 1 (unless server_run_execution = "request"), and server_public or server_invoker_iam_disabled. README, "Scale the server to zero".
   EOT
   type        = string
   default     = "instance"
@@ -77,9 +77,40 @@ variable "server_billing" {
 }
 
 variable "server_max_instances" {
-  description = "Maximum server instances. 1 until multiple replicas are verified: background work (the waitpoint sleeper, sweepers, the webhook worker, schedules) runs in every instance, and scale-in interrupts runs in flight."
+  description = "Maximum server instances. 1 by default. More than 1 with server_run_execution = \"request\", where each run executes in a request of its own that any instance may take. Otherwise keep it at 1: under server_billing = \"request\" it's refused, and with CPU always allocated, background work (the waitpoint sleeper, sweepers, the webhook worker, schedules) runs in every instance, and scale-in interrupts runs in flight."
   type        = number
   default     = 1
+
+  validation {
+    condition     = var.server_max_instances >= 1 && floor(var.server_max_instances) == var.server_max_instances
+    error_message = "server_max_instances is a whole number, 1 or more."
+  }
+}
+
+variable "server_run_execution" {
+  description = <<-EOT
+    Where the server executes runs. Runtime 0.7.0 or later.
+    "local" (the default): in the instance that started them.
+    "request": each run executes inside a request of its own, which a Cloud Tasks queue (<name_prefix>-runs) sends to the server, so the server may run more than one instance (server_max_instances), and any of them takes a run. Needs server_billing = "request". The module makes the queue, turns the Cloud Tasks API on, and lets the server's account add tasks to the queue and name itself in their tokens. README, "More than one server instance".
+  EOT
+  type        = string
+  default     = "local"
+
+  validation {
+    condition     = contains(["local", "request"], var.server_run_execution)
+    error_message = "server_run_execution is \"local\" or \"request\"."
+  }
+}
+
+variable "server_concurrency" {
+  description = "Requests one server instance takes at once (Cloud Run's max_instance_request_concurrency). 80 by default, Cloud Run's own. Each open run stream holds one, and under server_run_execution = \"request\" each executing run holds one more, its own request. Above 1 needs server_cpu of 1 or more. The run queue's requests at once follow it: three quarters of server_max_instances times this (rounded down, at most 5000), so the rest stays free for the API and the console, run streams and the tick. Under server_run_execution = \"request\", server_max_instances times this must be 2 or more."
+  type        = number
+  default     = 80
+
+  validation {
+    condition     = var.server_concurrency >= 1 && var.server_concurrency <= 1000 && floor(var.server_concurrency) == var.server_concurrency
+    error_message = "server_concurrency is a whole number from 1 to 1000."
+  }
 }
 
 variable "nat_static_ip" {

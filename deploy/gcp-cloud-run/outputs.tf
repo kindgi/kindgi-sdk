@@ -70,3 +70,8 @@ output "nat_ip" {
   description = "The static egress address (nat_static_ip = true), for allowlists; null when Google picks it."
   value       = local.direct && var.nat_static_ip ? google_compute_address.nat[0].address : null
 }
+
+output "runs_queue" {
+  description = "The run queue's full name (server_run_execution = \"request\"), for gcloud tasks queues describe and gcloud tasks list; null otherwise."
+  value       = local.runs_in_requests ? local.runs_queue : null
+}

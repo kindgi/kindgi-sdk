@@ -1021,7 +1021,8 @@ without `"request"`:
 - `server_ingress = "INGRESS_TRAFFIC_ALL"`: the request to itself goes to
   its `run.app` URL.
 - `server_max_instances = 1`: that request must reach the instance that sent
-  it.
+  it. Not with `server_run_execution = "request"`
+  ([More than one server instance](#more-than-one-server-instance)).
 - `server_public`, or `server_invoker_iam_disabled`: the request to itself
   carries no Google ID token, so Cloud Run IAM would refuse it.
 
@@ -1031,6 +1032,68 @@ for one to start, and it's billed while idle too.
 The tick logs under `tick`, and the request to itself under `tick.hold`
 ([Logs](../logs/)). A tick that's refused is logged at most once a minute,
 since anyone can call its URL.
+
+## More than one server instance
+
+Under request-based billing the runtime runs one instance: a run executes in
+the instance that started it. With runtime 0.7.0 or later, each run can
+execute inside a request of its own instead, which any instance may take, so
+the runtime runs as many instances as its load needs. In your var file:
+
+```hcl
+server_billing       = "request"
+server_run_execution = "request"
+server_max_instances = 3
+server_concurrency   = 160
+```
+
+Then apply. The module makes a Cloud Tasks queue, `kindgi-runs`, and turns
+the Cloud Tasks API on. From then on:
+
+- **The runtime adds a task to the queue for each run,** and the queue posts
+  it to the runtime's `/internal/execute`, with a Google-signed ID token of
+  the runtime's own service account. Its other work in flight goes the same
+  way, to `/internal/work` and `/internal/drain`. The runtime checks the
+  token itself, and holds no request to itself. The module sets
+  `KINDGI_RUN_EXECUTION`, `KINDGI_SERVICE_ACCOUNT` and `KINDGI_TASKS_QUEUE`.
+- **The queue sends three quarters of the requests the instances take at
+  once,** `server_max_instances` × `server_concurrency` × 3/4, up to 5000,
+  so the rest stays free for the API, the console, run streams and the
+  tick. Past the cap, a task waits in the queue. A task the runtime couldn't
+  take is tried again for about four minutes. Past that, the runtime's
+  lease sweep sends the run again; a run sent twice runs once.
+- **`server_concurrency`** is the requests one instance takes at once, 80 by
+  default. Each open run stream holds one, and each executing run one more.
+- **An instance's heap** is half of `server_memory` unless `server_env` sets
+  it: `NODE_OPTIONS = "--max-old-space-size=1280"` at 2Gi leaves about
+  740 MiB outside it. Template-render workers
+  (`KINDGI_TEMPLATE_RENDER_WORKERS`) each have a heap of their own, outside
+  the runtime's.
+- **Every instance must read the same secrets.** An instance reads them when
+  it starts, so pin each `server_secret_env` entry to a version. The
+  module's own are read at `latest`: after adding a version to one, roll a
+  new revision at once.
+- **Files go to a bucket:** `KINDGI_ARTIFACTS`,
+  `KINDGI_ERASURE_LEDGER_EXPORT` and `KINDGI_TENANT_PURGE_RECORD` name a
+  `gcs:` or `s3:` bucket, never `local:`. An instance's disk is its own.
+- **An instance that stops mid-run** (out of memory, say) holds its runs
+  until their lease runs out (`KINDGI_RUN_LEASE_MS`, 5 minutes by default).
+  The lease sweep then resumes them in another instance.
+- **The runtime's account may add tasks to that queue alone**
+  (`roles/cloudtasks.enqueuer`), and may act as itself
+  (`roles/iam.serviceAccountUser`), so its tasks' tokens may name it.
+  Cloud Tasks' service agent mints those tokens with
+  `roles/cloudtasks.serviceAgent`, which Google gives it when the API is
+  turned on. If a task fails with a permission error naming
+  `service-<project number>@gcp-sa-cloudtasks.iam.gserviceaccount.com`,
+  grant it that role on the project.
+
+The plan refuses `server_run_execution = "request"` without
+`server_billing = "request"`, or with `server_max_instances` ×
+`server_concurrency` under 2. Switching back to `"local"` needs
+`server_max_instances = 1` again, and deletes the queue. Cloud Tasks keeps
+a deleted queue's name for 7 days, so turning it on again within the week
+fails at apply.
 
 ## Staging and production
 
