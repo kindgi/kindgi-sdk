@@ -207,6 +207,12 @@ export interface PackEnvCheckInput {
   readonly envName: EnvName;
   readonly declaration: PackEnvDeclaration;
   /**
+   * The deployment's `keyScope`. `project`: its names are read at its
+   * project only, never its org or the tenant; with no `projectId`,
+   * nowhere.
+   */
+  readonly keyScope?: 'project';
+  /**
    * How a name set only as a secret is told: `'not-yet'` (the default), as
    * `secret-not-yet`, for an orchestrator that doesn't ask for secret
    * values; `'set'`, as set as a secret with no problem, for the owner's
@@ -600,7 +606,12 @@ async function readPackEnv(
   readonly projectId?: ProjectId;
 }> {
   const projectId = await servedProject(deps, input);
-  const chain = await chainFor(deps, input.tenantId, projectId);
+  const chain: readonly Scope[] =
+    input.keyScope === 'project'
+      ? input.projectId === undefined
+        ? []
+        : [{ kind: 'project', tenantId: input.tenantId, projectId: input.projectId }]
+      : await chainFor(deps, input.tenantId, projectId);
   const names: PackEnvNameStatus[] = [];
   const plain = new Map<string, EnvRecord>();
   const secrets = new Map<string, SecretRecord>();

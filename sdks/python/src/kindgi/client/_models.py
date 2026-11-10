@@ -17202,6 +17202,12 @@ class DeploymentRecord(BaseModel):
     """
     When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.
     """
+    key_scope: Annotated[
+        Annotated[Literal["project"] | str, _open.OPEN] | None, Field(alias="keyScope")
+    ] = None
+    """
+    `project`: deployed under a project-only key scope, a server's own setting for the caller's key. Its tools' secrets were recorded at its project only, and its pack's env is read at its project only. Absent for any other deploy, and from a runtime that doesn't keep it.
+    """
     pack_id: Annotated[str | None, Field(alias="packId")] = None
     """
     The pack's id, from the image's index. Absent from a runtime that doesn't keep it.

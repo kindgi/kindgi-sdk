@@ -118,6 +118,13 @@ export interface DeploymentBinding {
    * Absent: the runtime can't promote (`501 promotions-unsupported`).
    */
   promote?(input: DeploymentPromoteInput): Promise<DeploymentPromoteOutcome>;
+  /**
+   * `true` when `register` keeps the input's `keyScope` on the record and
+   * `get` answers it. Absent: a deploy under a project-only key scope is
+   * refused (`500 internal-server-error`) before anything is written, since
+   * the record would lose the mark that limits its pack's env read.
+   */
+  readonly keepsKeyScope?: true;
 }
 
 // -------------------- record --------------------
@@ -141,6 +148,7 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
     ...(d.promotedFromDeploymentId !== undefined && {
       promotedFromDeploymentId: d.promotedFromDeploymentId,
     }),
+    ...(d.keyScope !== undefined && { keyScope: d.keyScope }),
     ...(d.packId !== undefined && { packId: d.packId }),
     ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
     ...(d.packEnv !== undefined && {
@@ -477,6 +485,13 @@ export interface Deployment {
    * Absent for a deployment registered directly.
    */
   readonly promotedFromDeploymentId?: string;
+  /**
+   * `project`: registered under a project-only key scope
+   * (`AppEnv.deployKeyScope`). Its secrets were recorded at its project
+   * only, and its pack's own env reads that project only. Absent:
+   * registered without one, or a promotion.
+   */
+  readonly keyScope?: 'project';
   /** The pack's id, from the image's index (`packId`), when the binding keeps it. */
   readonly packId?: string;
   /**
@@ -675,6 +690,11 @@ export interface DeploymentRegisterInput {
    * deployment keeps them, so whatever runs it can give it their values.
    */
   readonly packEnv?: PackEnvDeclaration;
+  /**
+   * `project`: the deploy ran under a project-only key scope
+   * (`Deployment.keyScope`). Sent only to a binding with `keepsKeyScope`.
+   */
+  readonly keyScope?: 'project';
   /** Where the pack lives in git (`Deployment.source`), when the deploy said. */
   readonly source?: DeploymentSource;
   /** The blocks the deploy put back on purpose (`Deployment.replaced`). */

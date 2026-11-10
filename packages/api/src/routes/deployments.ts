@@ -611,6 +611,7 @@ export function deploymentsRouter(
       {
         tenantId,
         ...(record.projectId !== undefined && { projectId: record.projectId }),
+        ...(record.keyScope !== undefined && { keyScope: record.keyScope }),
         envName,
         declaration: record.packEnv ?? { required: [], optional: [] },
         // The orchestrator gives a secret, or records why it can't on the
@@ -796,6 +797,38 @@ export function deploymentsRouter(
       );
     }
     const wire = parsed.value;
+    // The project-only key scope (`AppEnv.deployKeyScope`): set only by the
+    // server's own middleware, never by the request. Under it the deploy
+    // goes only into the project it names: secrets are recorded at that
+    // project, a tool version recorded wider isn't kept, and the pack's
+    // own env reads that project only.
+    const keyScope = c.get('deployKeyScope') === 'project' ? ('project' as const) : undefined;
+    if (keyScope !== undefined && wire.projectId === undefined) {
+      c.status(statusFor('permission-denied') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'permission-denied',
+            message:
+              'a deploy under a project-only key scope goes only into a named project: send projectId',
+          },
+          requestId,
+        ),
+      );
+    }
+    if (keyScope !== undefined && bindings.deploymentRegistry.keepsKeyScope !== true) {
+      c.status(statusFor('internal-server-error') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'internal-server-error',
+            message:
+              'a deploy under a project-only key scope needs a deploymentRegistry that keeps it (keepsKeyScope); deployment blocked. Wire one into DeploymentsRouterBindings at app-creation time.',
+          },
+          requestId,
+        ),
+      );
+    }
 
     // Extract image digest from imageRef. Must be `<host>/<repo>@sha256:<hex>`.
     const digestFromRef = extractImageDigest(wire.imageRef);
@@ -1279,6 +1312,7 @@ export function deploymentsRouter(
         tenantId,
         targetProjectId,
         validated.tools,
+        keyScope,
       );
       if (plan.kind === 'refused') {
         return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
@@ -1351,6 +1385,7 @@ export function deploymentsRouter(
               { kind: 'project', tenantId, projectId: projectIdForTool },
               toolSecretRefs(tool, bindings.envName),
               deploymentSecretScope(tenantId, wire.projectId),
+              keyScope,
             );
             const outcome = await bindings.toolRegistry.publish({
               tenantId,
@@ -1379,7 +1414,13 @@ export function deploymentsRouter(
             } else if (outcome.kind === 'already-registered') {
               // Compared before the first write where the plan could.
               if (state === 'new' || state === 'publish-decides') {
-                await keepPublishedTool(bindings.toolRegistry, tenantId, tool);
+                await keepPublishedTool(
+                  bindings.toolRegistry,
+                  tenantId,
+                  tool,
+                  projectIdForTool,
+                  keyScope,
+                );
               }
               await reinstateRetiredTool(bindings.toolRegistry, tenantId, tool, rolled);
               await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
@@ -1539,6 +1580,7 @@ export function deploymentsRouter(
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
         ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
+        ...(keyScope !== undefined && { keyScope }),
         packChecks: [
           ...new Set(
             validated.guardrails

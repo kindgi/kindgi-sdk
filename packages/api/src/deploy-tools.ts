@@ -27,13 +27,19 @@
  *   answers `already-registered` (from another project of the
  *   project's environment order), the write compares it
  *   (`keepPublishedTool`), as it does a new one published since the plan.
+ *
+ * Under a project-only key scope (`AppEnv.deployKeyScope`), a version the
+ * registry holds is kept only when a call in the deploy's project reads
+ * each secret it names inside that project (`readsWiderThan`); otherwise
+ * it's refused (`permission-denied`), and nothing is written.
  */
 
 import { type ToolManifest, changedToolFields } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import { PublishRefused } from './publish-refused.js';
-import type { ToolRegistryBinding } from './tool-binding.js';
+import { toolSecretRefs } from './secret-scope.js';
+import type { ToolRecord, ToolRegistryBinding } from './tool-binding.js';
 
 /** What the registry holds under a pack's tool's version, before the deploy writes anything. */
 export type PlannedToolState =
@@ -58,12 +64,17 @@ export type PackToolsPlan =
 
 type ToolReads = Pick<ToolRegistryBinding, 'getVersion' | 'listVersions'>;
 
-/** Each of the pack's tools against the registry, before the deploy writes anything. */
+/**
+ * Each of the pack's tools against the registry, before the deploy writes
+ * anything. `keyScope` `project`: a version held in the deploy's project
+ * that reads wider than it is refused (`readsWiderThan`).
+ */
 export async function planPackTools(
   registry: ToolReads,
   tenantId: TenantId,
   projectId: ProjectId,
   pack: readonly ToolManifest[],
+  keyScope?: 'project',
 ): Promise<PackToolsPlan> {
   const planned: PlannedTool[] = [];
   for (const tool of pack) {
@@ -83,6 +94,9 @@ export async function planPackTools(
     if (fields.length > 0) {
       return { kind: 'refused', refusal: changedVersion(tool, fields, unregistered) };
     }
+    if (keyScope === 'project' && readsWiderThan(stored, tool, projectId)) {
+      return { kind: 'refused', refusal: widerVersion(tool) };
+    }
     planned.push({ tool, state: unregistered ? 'unregistered' : 'kept' });
   }
   return { kind: 'ok', planned };
@@ -95,12 +109,16 @@ export async function planPackTools(
  * throws `PublishRefused` for another one, and the deploy rolls back what
  * it wrote. `getVersion` reads every version publish holds, unregistered
  * ones too, so a version it can't read is a failed read: the deploy rolls
- * back rather than keep a version it didn't compare.
+ * back rather than keep a version it didn't compare. `keyScope` `project`:
+ * one that reads wider than the deploy's project (`projectId`) is refused
+ * too (`readsWiderThan`).
  */
 export async function keepPublishedTool(
   registry: ToolReads,
   tenantId: TenantId,
   tool: ToolManifest,
+  projectId: ProjectId,
+  keyScope?: 'project',
 ): Promise<void> {
   const version = tool.version as unknown as Semver;
   const stored = await registry.getVersion({ tenantId, toolId: tool.id, version });
@@ -110,12 +128,45 @@ export async function keepPublishedTool(
     );
   }
   const fields = changedToolFields(stored, tool);
-  if (fields.length === 0) return;
-  throw changedVersion(
-    tool,
-    fields,
-    await listedUnregistered(registry, tenantId, tool.id, version),
-  );
+  if (fields.length > 0) {
+    throw changedVersion(
+      tool,
+      fields,
+      await listedUnregistered(registry, tenantId, tool.id, version),
+    );
+  }
+  if (keyScope === 'project' && readsWiderThan(stored, tool, projectId)) {
+    throw widerVersion(tool);
+  }
+}
+
+/**
+ * Whether a call in `projectId` of a version the registry holds may read a
+ * secret the tool names outside that project. It reads inside only when
+ * the version was made there (or its store doesn't say where) and records
+ * each name at that project, or as none usable. A name with no record is
+ * read as before any was kept, up to the tenant. A version made in another
+ * project reads, here, what a deploy into this project recorded first,
+ * which the registry's reads don't show: so it counts as wider.
+ */
+function readsWiderThan(stored: ToolRecord, tool: ToolManifest, projectId: ProjectId): boolean {
+  const names = toolSecretRefs(tool, undefined).map((ref) => ref.name);
+  if (names.length === 0) return false;
+  const madeIn = stored.madeInProjectId ?? stored.projectId;
+  if (madeIn !== undefined && madeIn !== projectId) return true;
+  return names.some((name) => {
+    const scope = stored.secretScopes?.[name];
+    if (scope === null) return false;
+    return scope === undefined || scope.kind !== 'project' || scope.projectId !== projectId;
+  });
+}
+
+/** The refusal of a held tool version that reads wider than a project-only key scope's project. */
+function widerVersion(tool: ToolManifest): PublishRefused {
+  return new PublishRefused('tool', `${tool.id}@${tool.version}`, {
+    code: 'permission-denied',
+    reason: `version ${tool.version} is already published, and reads its secrets wider than this project, which a deploy under a project-only key scope doesn't keep; give the pack's tool a new version, or have an admin deploy`,
+  });
 }
 
 /** The refusal of a pack's tool whose version the registry holds with another definition. */

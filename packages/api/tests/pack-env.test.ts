@@ -256,6 +256,51 @@ describe('packEnvCheck: where each declared name is set', () => {
     expect(check.problem).toBeUndefined();
   });
 
+  test("under a project-only key scope, only the project's own value is found", async () => {
+    const s = stores();
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://staging.acme.test');
+    s.setEnv(orgScope, 'REGION', 'eu');
+    s.setEnv(tenantScope, 'LOG_LEVEL', 'info');
+    const input = {
+      tenantId,
+      projectId: staging,
+      envName,
+      declaration: declaration(['API_BASE', 'REGION'], ['LOG_LEVEL']),
+    };
+    const check = await packEnvCheck(s.deps, { ...input, keyScope: 'project' });
+    expect(check.names.map((n) => [n.name, n.scope, n.missing])).toEqual([
+      ['API_BASE', { kind: 'project', id: staging }, false],
+      ['REGION', null, true],
+      ['LOG_LEVEL', null, true],
+    ]);
+    expect(check.problem).toBe('pack-env-missing');
+    // Without it, the org's and the tenant's values are found, as before.
+    const wider = await packEnvCheck(s.deps, input);
+    expect(wider.names.map((n) => n.missing)).toEqual([false, false, false]);
+    // And it serves the project's value only.
+    const read = await served(s.deps, {
+      ...input,
+      declaration: declaration([], ['API_BASE', 'LOG_LEVEL']),
+      deploymentId: 'd-staging',
+      keyScope: 'project',
+    });
+    expect(read.values).toEqual({ API_BASE: 'https://staging.acme.test' });
+  });
+
+  test('under a project-only key scope with no project, no value is found', async () => {
+    const s = stores();
+    s.setEnv(projectScope(defaultProject), 'API_BASE', 'https://default.acme.test');
+    s.setEnv(tenantScope, 'API_BASE', 'https://tenant.acme.test');
+    const check = await packEnvCheck(s.deps, {
+      tenantId,
+      envName,
+      declaration: declaration(['API_BASE']),
+      keyScope: 'project',
+    });
+    expect(check.names[0]).toMatchObject({ missing: true, problem: 'missing' });
+    expect(check.problem).toBe('pack-env-missing');
+  });
+
   test("a project in no org skips the org; another org's value is never read", async () => {
     const s = stores();
     s.setEnv(orgScope, 'REGION', 'eu');

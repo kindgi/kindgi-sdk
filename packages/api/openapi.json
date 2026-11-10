@@ -21470,6 +21470,13 @@
             "minLength": 1,
             "description": "When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly."
           },
+          "keyScope": {
+            "type": "string",
+            "enum": [
+              "project"
+            ],
+            "description": "`project`: deployed under a project-only key scope, a server's own setting for the caller's key. Its tools' secrets were recorded at its project only, and its pack's env is read at its project only. Absent for any other deploy, and from a runtime that doesn't keep it."
+          },
           "packId": {
             "type": "string",
             "description": "The pack's id, from the image's index. Absent from a runtime that doesn't keep it."
@@ -59803,7 +59810,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59873,7 +59880,7 @@
             }
           }
         },
-        "description": "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+        "description": "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. Under a project-only key scope (a server's own setting for the caller's key; the request can't set it), each is recorded at the body's `projectId` only, the pack's env is read there only, and the record says so (`keyScope`). All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
         "parameters": [
           {
             "name": "Idempotency-Key",

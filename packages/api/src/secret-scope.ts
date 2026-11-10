@@ -241,7 +241,11 @@ export function callerAdministers(
  * The scopes to record for the secrets an item at `item` names, by name,
  * as the request's caller registers it; `undefined` without a secrets store
  * (nothing is recorded, as before). `fallback`: what a name set nowhere is
- * recorded at, as `NamedSecretScopeInput.fallback`.
+ * recorded at, as `NamedSecretScopeInput.fallback`. `keyScope` `project`:
+ * only the item's own project is looked at and recorded, never its org or
+ * the tenant; an item not in a project records `null` for every name. It
+ * records even without a secrets store (each name at the project, as one
+ * set nowhere), since a name with no record is read up to the tenant.
  */
 export async function secretScopesFor(
   c: Context<AppEnv>,
@@ -249,21 +253,31 @@ export async function secretScopesFor(
   item: Scope,
   names: readonly NamedSecret[],
   fallback?: Scope,
+  keyScope?: 'project',
 ): Promise<Readonly<Record<string, RecordedSecretScope | null>> | undefined> {
-  if (deps.secrets === undefined || names.length === 0) return undefined;
+  if (names.length === 0) return undefined;
+  if (deps.secrets === undefined && keyScope === undefined) return undefined;
   const orgId =
-    item.kind === 'project'
+    item.kind === 'project' && keyScope === undefined
       ? (await deps.projects?.get(item.tenantId, item.projectId))?.orgId
       : undefined;
   const administers = callerAdministers(c, deps.authorizer, item.tenantId);
   return namedSecretScopes({
-    secrets: deps.secrets,
-    chain: secretScopeChain(item, orgId),
+    secrets: deps.secrets ?? NOTHING_STORED,
+    chain:
+      keyScope === 'project'
+        ? item.kind === 'project'
+          ? [item]
+          : []
+        : secretScopeChain(item, orgId),
     ...(administers !== undefined && { administers }),
     ...(fallback !== undefined && { fallback }),
     names,
   });
 }
+
+/** No secrets store: every name is set nowhere. */
+const NOTHING_STORED: Pick<SecretBinding, 'get'> = { get: async () => null };
 
 /** A secret an item names, and the env it's read in (absent: not known here; see `NamedSecretScopeInput.envName`). */
 export interface NamedSecret {
