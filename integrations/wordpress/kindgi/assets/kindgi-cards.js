@@ -372,6 +372,42 @@
   }
 
   /**
+   * What a tool answered, as the conversation folds it under its step: an
+   * answer in words as it is, line by line (a guardrail's note on a result
+   * it withheld is one); any other answer as indented JSON.
+   */
+  function answerText(result) {
+    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  }
+
+  /**
+   * A running turn's calls so far, in the order the agent asked for them:
+   * the calls from before (`calls`), with what a poll of the run brings
+   * (its `steps` and `answers`). Each call is listed once, however often a
+   * poll brings it again, and its answer, once it comes, is in its place
+   * (`{ result }`, as `stepWords` reads it). An answer to a call the turn
+   * didn't ask for (another turn's, in the same conversation) is left out;
+   * a call with no id can't be matched, so it's its own.
+   */
+  function callsSoFar(calls, steps, answers) {
+    const next = calls.map((call) => ({ ...call }));
+    const byId = new Map(
+      next.filter((call) => call.callId !== null).map((call) => [call.callId, call]),
+    );
+    for (const step of steps) {
+      if (step.callId !== null && byId.has(step.callId)) continue;
+      const call = { callId: step.callId, toolId: step.toolId, answer: undefined };
+      next.push(call);
+      if (call.callId !== null) byId.set(call.callId, call);
+    }
+    for (const answer of answers) {
+      const call = byId.get(answer.callId);
+      if (call !== undefined) call.answer = { result: answer.result };
+    }
+    return next;
+  }
+
+  /**
    * A conversation's address on the Ask page; someone else's names the
    * approval it opens through, which its reader reviews.
    */
@@ -814,6 +850,8 @@
     empty,
     toolName,
     stepWords,
+    answerText,
+    callsSoFar,
     askUrl,
     approvalUrl,
     runUrl,
