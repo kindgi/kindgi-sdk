@@ -19,6 +19,7 @@ import {
   shownLatest,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
@@ -48,7 +49,7 @@ import {
   versionPinnedResponse,
 } from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
-import { parseScopeParams } from './scope-params.js';
+import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
@@ -141,21 +142,7 @@ export function toolsRouter(
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', async () => {
-        try {
-          const body = await c.req.json();
-          const pid =
-            body !== null && typeof body === 'object'
-              ? (body as Record<string, unknown>).projectId
-              : undefined;
-          if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
-        } catch {
-          // POST handler validates + returns 400
-        }
-        return ref('tenant', tenantId as unknown as string);
-      });
-      return mw(c, next);
+      return authorizer.authorize('admin', bodyProjectResourceRef)(c, next);
     });
     r.use('/', async (c, next) => {
       if (!isReadMethod(c.req.method)) return next();
@@ -189,6 +176,18 @@ export function toolsRouter(
         versionNotFound: toolVersionNotFound,
       }),
     );
+  } else {
+    // Without a store, a key or session limited to a project still
+    // registers nothing tenant-wide, and pins nothing tenant- or org-wide
+    // (`holdLimitedCaller`).
+    r.use('/', async (c, next) =>
+      c.req.method === 'POST'
+        ? holdLimitedCaller('admin', bodyProjectResourceRef)(c, next)
+        : next(),
+    );
+    if (pinnedVersions !== undefined) {
+      r.use('/:toolId/*', pinRightsMiddleware('tool', 'toolId', pinDeps));
+    }
   }
 
   /** A version of the tool that isn't there, or that the caller can't see: one 404 for both. */

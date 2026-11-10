@@ -27,8 +27,8 @@ in a secret manager already, Kindgi can keep them there instead.
 - **The server's own identity on your cloud,** with access to that store.
   Kindgi signs in as the server itself: its AWS identity, managed identity,
   service account, Vault token or Kubernetes service account.
-- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.5's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.5` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   `env init` step needs the pack's folder, so it uses `pnpm exec kindgi`.
 
