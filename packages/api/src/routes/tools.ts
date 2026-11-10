@@ -14,8 +14,11 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type ItemRights,
   type ItemServing,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
+  recordedProjects,
   shownLatest,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -112,6 +115,18 @@ export function toolsRouter(
   } = {},
 ): Hono<AppEnv> {
   const { itemRights, pinnedVersions } = options;
+  // Without a store, where a tool's projects are read: the host's, else
+  // its record's (`heldProjects`).
+  const held = heldProjects(options.itemServing, 'tool', (c, id) =>
+    recordedProjects(
+      binding.listVersions({
+        tenantId: c.get('tenantId') as TenantId,
+        toolId: id as ToolId,
+        limit: 1,
+        includeTombstoned: true,
+      }),
+    ),
+  );
   const pinDeps = {
     ...(authorizer !== undefined && { authorizer }),
     ...(itemRights !== undefined && { itemRights }),
@@ -119,6 +134,7 @@ export function toolsRouter(
     ...(options.environmentOrders !== undefined && {
       environmentOrders: options.environmentOrders,
     }),
+    held,
   };
   const pinWrite = (c: Context<AppEnv>) =>
     pinnedVersions !== undefined && isPinWrite(c.req.method, c.req.path);
@@ -183,6 +199,18 @@ export function toolsRouter(
     if (pinnedVersions !== undefined) {
       r.use('/:toolId/*', pinRightsMiddleware('tool', 'toolId', pinDeps));
     }
+    // Nor changes a tool by its id beyond its project, as a store asks it
+    // (`itemHold`): a version. A pin write is held above.
+    r.use(
+      '/:toolId/*',
+      itemHold({
+        kind: 'tool',
+        id: (c) => c.req.param('toolId') ?? '',
+        today: (c) => (pinWrite(c) ? undefined : 'admin'),
+        check: itemPathCheck,
+        held,
+      }),
+    );
   }
 
   /** A version of the tool that isn't there, or that the caller can't see: one 404 for both. */

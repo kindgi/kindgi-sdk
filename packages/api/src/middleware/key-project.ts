@@ -97,22 +97,38 @@ export function holdLimitedCaller(
  * `holdLimitedCaller`'s answer for a resource a handler knows only once
  * it has read the request: the 403 to return, or `undefined` when the
  * caller's limit allows the write. For a runtime without a store; with
- * one, the route asks the authorizer instead.
+ * one, the route asks the authorizer instead. `item` names what the
+ * request names by its id (`'the trigger'`) when `resource` is that
+ * item's project: the refusal then says the item is in that project,
+ * not that the request names it. `relation` says how the item stands to
+ * that project: absent, it's the item's own ("is in"); `'served'`, the
+ * item runs there besides its own ("runs in … too"); `'made-in'`, the
+ * item's new versions are made there ("new versions of … are made in").
  */
 export function limitedCallerRefusal(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
+  item?: string,
+  relation?: 'served' | 'made-in',
 ): Response | undefined {
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
   if (!beyondKeyProject(c, action, resource)) return undefined;
   const otherProject = resource.type === 'project';
+  const where =
+    item === undefined
+      ? `the request names project ${resource.id}`
+      : relation === 'served'
+        ? `${item} runs in project ${resource.id} too`
+        : relation === 'made-in'
+          ? `new versions of ${item} are made in project ${resource.id}`
+          : `${item} is in project ${resource.id}`;
   return refused(c, undefined, {
     action,
     resource,
     message: otherProject
-      ? `${limitedCaller(c)} is limited to project ${keyProject}; the request names project ${resource.id}`
+      ? `${limitedCaller(c)} is limited to project ${keyProject}; ${where}`
       : `${limitedCaller(c)} is limited to project ${keyProject}, and this request changes ${above(resource)}`,
     failing: 'scope',
     code: 'key-project-mismatch',

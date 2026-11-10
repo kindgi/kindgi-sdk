@@ -19,7 +19,14 @@ import { environmentTakesPromotionsResponse, laterEnvironment } from '../environ
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
-import { type ItemRights, itemMiddleware, itemPathCheck } from '../item-rights.js';
+import {
+  type ItemRights,
+  type ItemServing,
+  heldProjects,
+  itemHold,
+  itemMiddleware,
+  itemPathCheck,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -100,6 +107,8 @@ export function guardrailsRouter(
   environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
   /** Rights on a guardrail more than one project serves (`item-rights.ts`); absent → its own. */
   itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, so a change beyond the caller's project is held (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -152,6 +161,25 @@ export function guardrailsRouter(
       c.req.method === 'POST'
         ? holdLimitedCaller('admin', bodyProjectResourceRef)(c, next)
         : next(),
+    );
+    // Nor changes a guardrail by its id beyond its project, as a store
+    // asks it (`itemHold`). Its project: the host's, else its record's.
+    r.use(
+      '/:guardrailId/*',
+      itemHold({
+        kind: 'guardrail',
+        id: (c) => c.req.param('guardrailId') ?? '',
+        today: () => 'admin',
+        check: itemPathCheck,
+        held: heldProjects(itemServing, 'guardrail', async (c, id) => {
+          const found = await binding.get({
+            tenantId: c.get('tenantId') as TenantId,
+            guardrailId: id as GuardrailId,
+          });
+          if (found === null) return undefined;
+          return found.projectId !== undefined ? [found.projectId] : [];
+        }),
+      }),
     );
   }
 

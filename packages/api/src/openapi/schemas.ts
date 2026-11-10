@@ -15557,7 +15557,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.",
+        "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project.",
     },
     runAsServiceAccountId: {
       type: 'string',
@@ -16061,7 +16061,8 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project; absent: the workspace's default project.",
+      description:
+        "The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project.",
     },
     config: {
       type: 'object',
@@ -16351,7 +16352,8 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project. Absent → the workspace's default project.",
+      description:
+        "The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project.",
     },
     runAsServiceAccountId: {
       type: 'string',

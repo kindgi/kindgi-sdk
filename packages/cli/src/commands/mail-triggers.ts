@@ -415,7 +415,8 @@ const create: LeafCommand = {
     ...mailFlags('register'),
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the workspace's default project).",
+      description:
+        "The trigger's project, by id (default: the project the API key or session is limited to, else the workspace's default project).",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),

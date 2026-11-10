@@ -41,9 +41,10 @@ import type {
   RunTrace,
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
-import { type ItemRights, runIn } from '../item-rights.js';
+import { type HeldItems, type ItemRights, limitedStartRefusal, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -151,6 +152,12 @@ export interface RunsRouterOptions {
    * one project.
    */
   readonly itemRights?: ItemRights;
+  /**
+   * Without a store: the projects that serve each agent and flow, where a
+   * project-limited key's or session's run is held (`limitedStart`).
+   * Absent: not held.
+   */
+  readonly held?: HeldItems;
   /** The project a target is registered in: the agent's or flow's own. */
   readonly targetProject: (
     tenantId: TenantId,
@@ -269,6 +276,28 @@ export function runsRouter(
     // As cancel: changing a run is `write` on its project (a project has
     // no `execute`; asking for it refused everyone, T243 A).
     r.use('/:runId/resume', onRunProject('write'));
+  } else {
+    // Without a store, a key or session limited to a project changes no
+    // run beyond it, as the store asks `write` on the run's project, its
+    // own runs too (`limitedCallerRefusal`). A run that isn't there, or an
+    // id that isn't a run's, is the route's own answer.
+    const heldRun = async (c: Context<AppEnv>, next: import('hono').Next) => {
+      const runId = c.req.param('runId') ?? '';
+      if (c.get('tokenProjectId') === undefined || !UUID_RE.test(runId)) return next();
+      const run = await runBinding.getRun(c.get('tenantId') as TenantId, runId as RunId);
+      const held =
+        run === null
+          ? undefined
+          : limitedCallerRefusal(
+              c,
+              'write',
+              ref('project', run.projectId as unknown as string),
+              'the run',
+            );
+      return held ?? next();
+    };
+    r.use('/:runId/cancel', heldRun);
+    r.use('/:runId/resume', heldRun);
   }
 
   // ---------- POST / (start a run — agent | flow) ----------
@@ -313,6 +342,13 @@ export function runsRouter(
       return continued;
     };
 
+    // Without a store, a limited caller's run, held and placed as a store
+    // holds and places it (`limitedStart`).
+    const limited =
+      authorizer === undefined
+        ? await limitedStart(c, options.held, target, parsed.value, conversation)
+        : undefined;
+    if (limited?.refused !== undefined) return limited.refused;
     // An agent or flow more than one project serves, run in one of its
     // projects: that project's right alone (`servedRun`).
     const ran = await servedRun(
@@ -327,7 +363,7 @@ export function runsRouter(
         ? await refusedAsBefore(c, authorizer, options.targetExists, target, parsed.value)
         : ran.refused;
     if (refused !== undefined) return refused;
-    const start = ran?.start ?? parsed.value;
+    const start = ran?.start ?? limited?.start ?? parsed.value;
     // A run filed under a named project runs only what that project
     // reaches (`reference-scope.ts`).
     if (start.projectId !== undefined) {
@@ -1227,6 +1263,83 @@ async function servedRun(
     start: keyed === undefined ? start : { ...start, projectId: keyed as ProjectId },
     refused: await runIn(c, itemRights, target, keyed ?? served.own),
   };
+}
+
+/**
+ * Without a store, a project-limited key's or session's run, held in a
+ * store's order (`servedRun`, then `refusedAsBefore`, then `turnRefusal`):
+ * the target first, where the run lands. An agent's turn continuing a
+ * conversation in one of the projects that serve it, more than one, lands
+ * there: `call` on it. Otherwise `limitedStartRefusal`: an unnamed run of
+ * an agent, or of a flow, the key's project serves among others lands
+ * there, as `servedRun` places it. Then, the target passing, a turn
+ * continuing a conversation in another project (`continuedRefusal`).
+ */
+async function limitedStart(
+  c: Context<AppEnv>,
+  held: HeldItems | undefined,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  start: ParsedStartRunBody,
+  conversation: () => Promise<{ readonly projectId?: string } | null>,
+): Promise<
+  { readonly refused?: Response | undefined; readonly start?: ParsedStartRunBody } | undefined
+> {
+  if (held === undefined || c.get('tokenProjectId') === undefined) return undefined;
+  const continued = (await conversation())?.projectId;
+  const inConversation =
+    target.kind === 'agent' && continued !== undefined && start.projectId === undefined;
+  if (inConversation && (await landsThere(c, held.agents, target.id, continued))) {
+    const refused = limitedCallerRefusal(c, 'call', ref('project', continued), 'the conversation');
+    return refused === undefined ? undefined : { refused };
+  }
+  const item = await limitedStartRefusal(c, {
+    ...target,
+    held: target.kind === 'agent' ? held.agents : held.flows,
+    unnamed: start.projectId === undefined && !inConversation,
+  });
+  if (item?.refused !== undefined) return item;
+  const onConversation = continuedRefusal(c, continued, start.projectId !== undefined);
+  if (onConversation !== undefined) return { refused: onConversation };
+  return item?.placed === undefined || start.projectId !== undefined || inConversation
+    ? undefined
+    : { start: { ...start, projectId: item.placed } };
+}
+
+/**
+ * Without a store, a limited caller's turn continuing a conversation in
+ * another project, its target passing: `write` on it, as `turnRefusal`
+ * asks; or `read` for a run that names its project (the key's), which
+ * `turnRefusal` asks first of a run naming another project than the
+ * conversation's.
+ */
+function continuedRefusal(
+  c: Context<AppEnv>,
+  projectId: string | undefined,
+  named: boolean,
+): Response | undefined {
+  return projectId === undefined
+    ? undefined
+    : limitedCallerRefusal(
+        c,
+        named ? 'read' : 'write',
+        ref('project', projectId),
+        'the conversation',
+      );
+}
+
+/**
+ * Whether an agent's turn continuing a conversation in `projectId` lands
+ * there: more than one project serves the agent, that one among them
+ * (`servedRun`).
+ */
+async function landsThere(
+  c: Context<AppEnv>,
+  held: HeldItems['agents'],
+  agentId: string,
+  projectId: string,
+): Promise<boolean> {
+  const projects = (await held.projects(c, agentId)) ?? [];
+  return projects.length > 1 && projects.includes(projectId as ProjectId);
 }
 
 /**
