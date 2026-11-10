@@ -19,6 +19,7 @@ import {
   type RegisterTriggerInput,
   type RegisterWebhookTriggerInput,
   SCHEDULE_DEFAULTS,
+  type ScheduleResultTarget,
   type TriggerFire,
   type TriggerFirePage,
   type TriggerLifecycleInput,
@@ -166,6 +167,7 @@ export function createInMemoryTriggerRegistry(
               input.startingDeadlineSeconds ?? SCHEDULE_DEFAULTS.startingDeadlineSeconds,
             nextFireAt: null,
             ...toolsAllowed(input.toolsAllowedUnattended),
+            ...resultTargets(input.sendResultsTo),
           }),
         };
       }
@@ -191,7 +193,10 @@ export function createInMemoryTriggerRegistry(
       };
       if (row.kind === 'cron' && input.kind === 'cron') {
         const next = {
-          ...withToolsAllowed(row, input.toolsAllowedUnattended),
+          ...withResultTargets(
+            withToolsAllowed(row, input.toolsAllowedUnattended),
+            input.sendResultsTo,
+          ),
           ...common,
           config: { ...row.config, ...input.config },
           ...(input.target !== undefined && { target: input.target }),
@@ -478,6 +483,7 @@ const CRON_DEFINITION: DefinitionFields<CronTriggerDefinition> = {
   startingDeadlineSeconds: true,
   label: true,
   toolsAllowedUnattended: true,
+  sendResultsTo: true,
 };
 
 const EVENT_DEFINITION: DefinitionFields<EventTriggerDefinition> = {
@@ -601,6 +607,25 @@ function withToolsAllowed<T extends { readonly toolsAllowedUnattended?: readonly
   if (tools === undefined) return row;
   const { toolsAllowedUnattended: _, ...rest } = row;
   return { ...rest, ...toolsAllowed(tools) } as T;
+}
+
+/** A schedule's `sendResultsTo`: only when it names any (absent is none). */
+function resultTargets(targets: readonly ScheduleResultTarget[] | undefined): {
+  sendResultsTo?: readonly ScheduleResultTarget[];
+} {
+  return targets !== undefined && targets.length > 0
+    ? { sendResultsTo: targets.map((t) => ({ to: t.to, on: [...t.on] })) }
+    : {};
+}
+
+/** `row` with its `sendResultsTo` replaced by `targets` (`[]` clears it), or as it is when absent. */
+function withResultTargets(
+  row: CronTriggerRecord,
+  targets: readonly ScheduleResultTarget[] | undefined,
+): CronTriggerRecord {
+  if (targets === undefined) return row;
+  const { sendResultsTo: _, ...rest } = row;
+  return { ...rest, ...resultTargets(targets) };
 }
 
 /** A webhook trigger as registered, its defaults filled in. */

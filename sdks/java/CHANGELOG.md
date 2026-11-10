@@ -10,6 +10,7 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-models`, `kindgi-client`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations()` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules().listDeliveries(triggerId, ...)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `sendResultsTo` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). The runs list takes `completedAfter`, `afterRunId`, `completedBefore` and `startedBy`. A runtime before Kindgi 0.7.0 serves none of them.
 - `kindgi-models`, `kindgi-client`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) gains `connectionId`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it by that id. Approvals from before this change have none.
 
 ## 0.5.0

@@ -13,6 +13,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,

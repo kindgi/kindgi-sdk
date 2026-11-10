@@ -219,6 +219,36 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
               },
+              trigger: {
+                kind: 'object',
+                required: {
+                  triggerId: {
+                    kind: 'string',
+                    format: 'uuid',
+                  },
+                  kind: {
+                    kind: 'string',
+                    enum: ['schedule', 'event', 'webhook', 'mail'],
+                  },
+                  fireId: {
+                    kind: 'string',
+                  },
+                },
+                optional: {
+                  scheduledFor: {
+                    kind: 'string',
+                    format: 'date-time',
+                  },
+                  version: {
+                    kind: 'integer',
+                    minimum: 1,
+                  },
+                },
+              },
+              startedBy: {
+                kind: 'string',
+                enum: ['person', 'key', 'schedule', 'webhook', 'event', 'mail'],
+              },
             },
           },
         },
@@ -563,6 +593,10 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
               url: {
                 kind: 'string',
+              },
+              runId: {
+                kind: 'string',
+                format: 'uuid',
               },
             },
           },

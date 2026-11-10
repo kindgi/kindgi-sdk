@@ -225,6 +225,10 @@
       "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run, not a replay, completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
     },
     {
+      "name": "destinations",
+      "description": "Where schedules send their results: an email to workspace members, a Slack, Teams, Google Chat or Discord channel, or a signed webhook. A destination's URL is write-only, kept in the secrets store and never returned; `host` and `urlRef` say where it goes. Each send is a delivery, with its log, redelivery and a test message. A workspace admin's; a member who can run in a project lists the ones its schedules may use (`?projectId=`), without where they send or who they're for: no `people`, `host`, `urlRef`, `secretRef` or `projects`. Caller-plugged via `DestinationBinding`."
+    },
+    {
       "name": "connections",
       "description": "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the workspace's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `connection-choices` say which company connection an agent or a flow uses for an app in a project; a project's admins set them. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way. Caller-plugged via `ConnectionBinding`."
     },
@@ -634,6 +638,11 @@
           "webhook-url-refused": 400,
           "webhook-secret-not-found": 400,
           "webhook-secret-too-weak": 400,
+          "destination-not-found": 404,
+          "destination-delivery-not-found": 404,
+          "destination-url-refused": 400,
+          "destination-secret-not-found": 400,
+          "destination-secret-too-weak": 400,
           "connection-app-not-found": 404,
           "connection-not-found": 404,
           "connection-request-not-found": 404,
@@ -25634,6 +25643,62 @@
         ],
         "description": "Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path."
       },
+      "ScheduleResultEvent": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "cancelled",
+          "waiting"
+        ],
+        "description": "A schedule's result a place gets: a run that `completed`, `failed` or was `cancelled`, or one `waiting` on a person's yes."
+      },
+      "ScheduleResultTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "to",
+          "on"
+        ],
+        "description": "One place a schedule's results go, and which of them.",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person."
+          },
+          "on": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResultEvent"
+            },
+            "description": "The events it gets."
+          }
+        }
+      },
+      "ScheduleResultTargetInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "to"
+        ],
+        "description": "One place a schedule's results go, as registering or changing one names it.",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person and the deployment sends email."
+          },
+          "on": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResultEvent"
+            },
+            "description": "The events it gets, each kept once. Absent: every event."
+          }
+        }
+      },
       "ScheduleRecord": {
         "type": "object",
         "additionalProperties": false,
@@ -25761,6 +25826,13 @@
               "maxLength": 200
             },
             "description": "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          },
+          "sendResultsTo": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResultTarget"
+            },
+            "description": "Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere."
           },
           "nextFireAt": {
             "type": [
@@ -26045,6 +26117,14 @@
               "maxLength": 200
             },
             "description": "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          },
+          "sendResultsTo": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResultTargetInput"
+            },
+            "description": "Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person and the deployment sends email. Absent or `[]`: nowhere."
           }
         }
       },
@@ -26129,6 +26209,14 @@
               "maxLength": 200
             },
             "description": "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          },
+          "sendResultsTo": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResultTargetInput"
+            },
+            "description": "Replaces where its results go, checked as at registration against the schedule's project and owner as they are now; `[]` clears it, and absent keeps it. The same places and events in another order change nothing."
           }
         }
       },
@@ -27289,6 +27377,13 @@
               "maxLength": 200
             },
             "description": "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          },
+          "sendResultsTo": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResultTarget"
+            },
+            "description": "Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere."
           }
         }
       },
@@ -29316,6 +29411,22 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent",
             "description": "On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6."
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/RunTrigger",
+            "description": "The trigger that started the run, as `GET /v1/runs/{runId}` shows it (a schedule's `triggerId` is its `scheduleId`). Absent on a run no trigger started, and from a runtime that doesn't send it yet."
+          },
+          "startedBy": {
+            "type": "string",
+            "enum": [
+              "person",
+              "key",
+              "schedule",
+              "webhook",
+              "event",
+              "mail"
+            ],
+            "description": "How the run started, as `GET /v1/runs/{runId}`'s `startedBy`. Absent on a run that records none, and from a runtime that doesn't send it yet."
           }
         }
       },
@@ -29431,6 +29542,11 @@
           "url": {
             "type": "string",
             "description": "Its page in the console, when the runtime knows its public address."
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The top-level run that waits on it, when a run asked for it. Absent on an approval no run asked for, and from a runtime that doesn't send it yet."
           }
         }
       },
@@ -29737,6 +29853,407 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/WebhookDelivery"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DestinationKind": {
+        "type": "string",
+        "enum": [
+          "email",
+          "slack",
+          "teams",
+          "google-chat",
+          "discord",
+          "webhook"
+        ],
+        "description": "Where a destination sends. `email` goes to workspace members, each checked when a message is sent; the others post to a URL."
+      },
+      "DestinationContent": {
+        "type": "string",
+        "enum": [
+          "link",
+          "answer"
+        ],
+        "description": "What a message carries. `link`: the run's status and its console link. `answer`: also the run's answer, up to its first 1,000 characters; only on a destination that names `projects`, and never on the `webhook` kind, whose receiver reads the run with its own key."
+      },
+      "DestinationStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "failing"
+        ],
+        "description": "`active`: it takes messages. `failing`: its last delivery got an answer that won't change on a retry (such as a removed webhook's 404 or 410); later messages for it are kept but held until a `sendTest` reaches it."
+      },
+      "DestinationSecretRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "envName",
+          "name"
+        ],
+        "description": "A secret by name in the deployment's secrets store, resolved at tenant scope (the same shape as a webhook endpoint's `secretRef`). The store keeps the value; the destination keeps only this reference.",
+        "properties": {
+          "envName": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "Destination": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "destinationId",
+          "name",
+          "kind",
+          "content",
+          "status",
+          "lastError",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "Where a schedule sends its results. Its URL is never returned: `host` and `urlRef` say where it goes. `GET /v1/destinations?projectId=` answers a caller who is not a workspace admin without `people`, `host`, `urlRef`, `secretRef` and `projects`.",
+        "properties": {
+          "destinationId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DestinationKind"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "`email`: the workspace members it goes to. Absent on the other kinds."
+          },
+          "host": {
+            "type": "string",
+            "description": "The URL's host, on every kind but `email`. The URL itself is never returned."
+          },
+          "urlRef": {
+            "$ref": "#/components/schemas/DestinationSecretRef",
+            "description": "Where its URL is kept, on every kind but `email`."
+          },
+          "secretRef": {
+            "$ref": "#/components/schemas/DestinationSecretRef",
+            "description": "`webhook`: its signing secret, by reference, as a webhook endpoint's."
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The projects whose schedules may use it. Absent: every project's may."
+          },
+          "content": {
+            "$ref": "#/components/schemas/DestinationContent"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DestinationStatus"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is `failing`, as a fixed reason that never holds the URL; `null` when it is `active`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DestinationCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Destination"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateDestinationBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind"
+        ],
+        "description": "`url` or `urlRef` on every kind but `email`, which takes `people`; `secretRef` on `webhook` only.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DestinationKind"
+          },
+          "people": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "`email`: the workspace members it goes to, each checked when a message is sent."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "description": "Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`)."
+          },
+          "urlRef": {
+            "$ref": "#/components/schemas/DestinationSecretRef",
+            "description": "A URL already in the secrets store, by reference, in place of `url`."
+          },
+          "secretRef": {
+            "$ref": "#/components/schemas/DestinationSecretRef",
+            "description": "`webhook` (and needed there): its signing secret, by reference, `whsec_` + base64 of at least 24 random bytes, as a webhook endpoint's."
+          },
+          "projects": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The projects whose schedules may use it. Absent: every project's may."
+          },
+          "content": {
+            "$ref": "#/components/schemas/DestinationContent",
+            "description": "`link` when absent."
+          }
+        }
+      },
+      "UpdateDestinationBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fields to change; absent fields are kept and `kind` never changes. A new `url` rotates the stored one; `urlRef` replaces it.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "people": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "description": "Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`)."
+          },
+          "urlRef": {
+            "$ref": "#/components/schemas/DestinationSecretRef"
+          },
+          "secretRef": {
+            "$ref": "#/components/schemas/DestinationSecretRef"
+          },
+          "projects": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "`null` lets every project's schedules use it again."
+          },
+          "content": {
+            "$ref": "#/components/schemas/DestinationContent"
+          }
+        }
+      },
+      "DestinationDeliveryEvent": {
+        "type": "string",
+        "enum": [
+          "run.finished",
+          "approval.requested",
+          "destination.test",
+          "rate-cap.summary"
+        ],
+        "description": "What a delivery tells: a run that ended, an approval that waits on a person, a test, or, at the end of an hour whose cap (`rate-cap`) left messages out, how many."
+      },
+      "DestinationDeliveryStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "delivered",
+          "failed",
+          "skipped"
+        ],
+        "description": "`pending`: waiting for its next attempt, or held while its destination is `failing`. `delivered`: the destination took it. `failed`: it can't be sent (see `reason`). `skipped`: it was never sent (see `reason`)."
+      },
+      "DestinationDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveryId",
+          "to",
+          "event",
+          "scheduleId",
+          "runId",
+          "approvalId",
+          "status",
+          "reason",
+          "attempts",
+          "nextAttemptAt",
+          "lastAttemptAt",
+          "lastResponseStatus",
+          "lastError",
+          "createdAt",
+          "deliveredAt"
+        ],
+        "properties": {
+          "deliveryId": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string",
+            "description": "The destination's id, or `me`: the schedule owner's own email."
+          },
+          "event": {
+            "$ref": "#/components/schemas/DestinationDeliveryEvent"
+          },
+          "scheduleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The schedule that sent it; `null` for a test."
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The run it is about; `null` for a test or a `rate-cap.summary`."
+          },
+          "approvalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`approval.requested`: the approval that waits; `null` otherwise."
+          },
+          "status": {
+            "$ref": "#/components/schemas/DestinationDeliveryStatus"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise."
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nextAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the next attempt is due; `null` unless `pending` and not held."
+          },
+          "lastAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastResponseStatus": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The HTTP status (or SMTP reply code) of the last attempt; `null` when it got none."
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last attempt failed, as a fixed reason that never holds the URL."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deliveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "DestinationDeliveryCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DestinationDelivery"
             }
           },
           "nextCursor": {
@@ -30485,7 +31002,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
+        "description": "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`; with `completedAfter` or `completedBefore`, `completedAt asc, id asc`, paged by `completedAfter` and `afterRunId` instead of a cursor. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
         "parameters": [
           {
             "name": "limit",
@@ -30634,6 +31151,53 @@
             },
             "required": false,
             "description": "Only runs created strictly before this time."
+          },
+          {
+            "name": "completedAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only runs that ended strictly after this time (`Run.completedAt`), or at exactly this time with an id after `afterRunId`. With it or `completedBefore`, the page is sorted `completedAt asc, id asc`, runs that haven't ended aren't listed, and `cursor` can't be given: no `nextCursor` comes back, and the next page is `completedAfter` and `afterRunId` set to the last run's `completedAt` and `id`. Pass `completedAt` as the API returned it, since its fraction of a second is kept."
+          },
+          {
+            "name": "afterRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "With `completedAfter`: a run that ended at exactly `completedAfter` is listed when its id sorts after this one. The last run of the previous page."
+          },
+          {
+            "name": "completedBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only runs that ended at or before this time (`Run.completedAt`). Sorts and pages as `completedAfter` does."
+          },
+          {
+            "name": "startedBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "person",
+                "key",
+                "schedule",
+                "webhook",
+                "event",
+                "mail"
+              ]
+            },
+            "required": false,
+            "description": "Only runs started this way (`Run.startedBy`). A child run has its parent's, so `startedBy=schedule&topLevel=true` lists the runs schedules started. Runs from before runs recorded it never match."
           },
           {
             "name": "agentVersion",
@@ -49497,7 +50061,7 @@
             }
           },
           "409": {
-            "description": "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "description": "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a destination uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -70240,6 +70804,125 @@
         ]
       }
     },
+    "/v1/schedules/{triggerId}/deliveries": {
+      "get": {
+        "operationId": "schedules.listDeliveries",
+        "summary": "List where a schedule's results went",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of deliveries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationDeliveryCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `status` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment has no destinations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first: each message its `sendResultsTo` sent, to a destination or to `me`, and how it went: pending, delivered, failed or skipped, with the reason. Whoever can read the schedule can read them.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DestinationDeliveryStatus"
+            },
+            "required": false,
+            "description": "Only deliveries with this status."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/schedules/{triggerId}/versions": {
       "get": {
         "operationId": "schedules.listVersions",
@@ -70566,7 +71249,7 @@
             }
           },
           "400": {
-            "description": "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).",
+            "description": "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended`, or a service account or the project's own account named while `sendResultsTo` has `me`, its owner's own email (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -74405,6 +75088,935 @@
             },
             "required": true,
             "description": "The webhook endpoint id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/destinations": {
+      "post": {
+        "operationId": "destinations.create",
+        "summary": "Make a destination",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "201": {
+            "description": "Destination made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Destination"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body, unknown field (`unknown-field`), or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs (`bad-input`, `details.setting`); a person in `people` is no member of the workspace (`bad-input`, `details.userId`); the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A project in `projects` does not exist (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes a named place outside Kindgi that schedules send their results to: a Slack, Teams, Google Chat or Discord channel's incoming webhook, a signed webhook, or workspace members' email. A chat webhook URL lets anyone who has it post to that channel, so `url` is write-only: the runtime keeps it in its secrets store, and the API shows only its `host`. Or name a secret you stored with `urlRef`. A `webhook` destination signs its requests as webhook endpoints do, with the secret `secretRef` names. `content: \"answer\"` sends the run's answer too, up to its first 1,000 characters: it needs `projects`, and the `webhook` kind never takes it.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDestinationBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "destinations.list",
+        "summary": "List destinations",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of destinations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`projectId` is not a UUID (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin, or, with `projectId`, may not make a schedule in that project (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `host`, `urlRef`, `secretRef` and `projects`; a tenant admin sees every field."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/destinations/{destinationId}": {
+      "get": {
+        "operationId": "destinations.get",
+        "summary": "Fetch a destination",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "200": {
+            "description": "The destination.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Destination"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No destination with that id, or it was removed (`destination-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The destination id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "destinations.update",
+        "summary": "Update a destination",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated destination.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Destination"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id (a UUID); malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No destination with that id (`destination-not-found`), or a project in `projects` does not exist (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Absent fields are kept, and `kind` never changes. A new `url` replaces the stored one; `urlRef` replaces where it's kept. `projects: null` lets every project's schedules use it again. The kind's rules hold for the result: `content: \"answer\"` still needs `projects`.",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The destination id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDestinationBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "destinations.remove",
+        "summary": "Remove a destination (soft delete)",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed. No body."
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No destination with that id, or it was removed already (`destination-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Its stored URL is revoked. Schedules that still name it send it nothing: each of their messages is recorded `skipped`, with the reason `destination-removed`.",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The destination id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/destinations/{destinationId}/deliveries": {
+      "get": {
+        "operationId": "destinations.listDeliveries",
+        "summary": "List a destination's deliveries",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of deliveries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationDeliveryCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id (a UUID), or an unknown `status` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No destination with that id (`destination-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first.",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The destination id."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DestinationDeliveryStatus"
+            },
+            "required": false,
+            "description": "Only deliveries with this status."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver": {
+      "post": {
+        "operationId": "destinations.redeliver",
+        "summary": "Redeliver a message",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "202": {
+            "description": "Queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationDelivery"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id, or `deliveryId` a delivery id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No destination with that id (`destination-not-found`), or no delivery with that id for it (`destination-delivery-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The destination id."
+          },
+          {
+            "name": "deliveryId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The delivery id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/destinations/{destinationId}/test": {
+      "post": {
+        "operationId": "destinations.sendTest",
+        "summary": "Send a test message to a destination",
+        "tags": [
+          "destinations"
+        ],
+        "responses": {
+          "202": {
+            "description": "Queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationDelivery"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No destination with that id (`destination-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Queues a `destination.test` message, to check the destination end to end; follow it in the delivery log. A `failing` destination the test reaches goes back to `active`, and its held deliveries still inside their retry window go out, oldest first.",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The destination id."
           },
           {
             "name": "Idempotency-Key",
