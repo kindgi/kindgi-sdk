@@ -25,7 +25,13 @@ import type {
 import type { NodeContext } from '@kindgi/handler';
 import { type ProvenanceBuilder, newBuilder } from '@kindgi/provenance';
 import { defineTool } from '@kindgi/tools';
-import type { AnyTool, FileStoreAnswer, FileToStore, ToolContext } from '@kindgi/tools';
+import type {
+  AnyTool,
+  FileStoreAnswer,
+  FileToStore,
+  FileToUpdate,
+  ToolContext,
+} from '@kindgi/tools';
 import type {
   ConversationId,
   FileValue,
@@ -49,6 +55,7 @@ import {
   admitHistoryFiles,
   agentSeesFiles,
   asFileValue,
+  asMessageFile,
   callFileStore,
   filesLeftOut,
   messagesForCall,
@@ -746,12 +753,43 @@ describe('a tool that stores or reads files', () => {
     expect(binding.signals).toEqual([signal]);
   });
 
+  test('a tool that updates files gets update, keyed by its call, only with a key and a binding that updates', async () => {
+    const base = filesBinding(['art-1']).files;
+    const updates: { readonly call: unknown; readonly file: FileToUpdate }[] = [];
+    const binding: FileBinding = {
+      ...base,
+      update: async (call, file) => {
+        updates.push({ call, file });
+        return { notUpdated: 'rule' };
+      },
+      create: async () => ({ notCreated: 'denied' }),
+    };
+    const tool = { id: 'acme.docs.edit' as ToolId, updatesFiles: true } as const;
+    const file: FileToUpdate = {
+      fileId: 'file-1',
+      expectedVersion: 2,
+      contentType: 'text/markdown',
+      bytes: BYTES,
+    };
+    const files = callFileStore(binding, tool, 'key');
+    expect(Object.keys(files ?? {})).toEqual(['update']);
+    expect(await files?.update?.(file)).toEqual({ notUpdated: 'rule' });
+    expect(updates).toEqual([{ call: { callKey: 'key', toolId: 'acme.docs.edit' }, file }]);
+    // No key to keep a retry to its first version, or a binding that adds no versions: none.
+    expect(callFileStore(binding, tool, undefined)).toBeUndefined();
+    expect(callFileStore(base, tool, 'key')).toBeUndefined();
+    // With store and read too; the model's create is never a tool's.
+    const all = callFileStore(binding, { ...tool, storesFiles: true, readsFiles: true }, 'key');
+    expect(Object.keys(all ?? {}).sort()).toEqual(['read', 'store', 'update']);
+  });
+
   test("a pack's own code and an MCP tool run elsewhere: no files here, whatever they declare", () => {
     const binding = filesBinding(['art-1']).files;
     const tool = {
       id: 'acme.docs.parse' as ToolId,
       storesFiles: true,
       readsFiles: true,
+      updatesFiles: true,
     } as const;
     expect(callFileStore(binding, tool, 'key')).toBeDefined();
     const code = {
@@ -786,6 +824,16 @@ describe("a file's forms", () => {
       type: 'kindgi.file',
       ...recordOf('art-1'),
     });
+  });
+
+  test("a file keeps its fileId and version, so the model's line names them; one alone is dropped", () => {
+    const versioned = { ...recordOf('art-1'), fileId: 'f_1', version: 3 };
+    expect(asFileValue({ ...versioned, rendition: SMALL })).toEqual({
+      type: 'kindgi.file',
+      ...versioned,
+    });
+    expect(asMessageFile(versioned)).toEqual(versioned);
+    expect(asMessageFile({ ...recordOf('art-1'), fileId: 'f_1' })).toEqual(recordOf('art-1'));
   });
 });
 
@@ -958,6 +1006,52 @@ describe('a model call with files', () => {
     const c = call({ agent: seeing, binding: filesBinding([]).files });
     await c.run(withFiles([recordOf('art-1')]));
     expect(c.sent[0]?.messages[1]?.files?.[0]?.notShown).toBe('gone');
+  });
+
+  /**
+   * A binding that keeps file versions: it admits a value that names a
+   * `fileId` and `version` only when its record says the same, with them,
+   * and logs what each value named.
+   */
+  function versionsBinding(record: { readonly fileId: string; readonly version: number }) {
+    const named: [string | undefined, number | undefined][] = [];
+    const files: FileBinding = {
+      admit: async (values) =>
+        values.map((v) => {
+          named.push([v.fileId, v.version]);
+          if (v.fileId === undefined) return recordOf(v.artifactId);
+          return v.fileId === record.fileId && v.version === record.version
+            ? { ...recordOf(v.artifactId), ...record }
+            : undefined;
+        }),
+      read: async () => BYTES,
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
+      shown: async () => {},
+      refuse: async () => {},
+    };
+    return { files, named };
+  }
+
+  test("a file's version is the binding's: the call asks it the version each file names, and one its record doesn't have is a `gone` line", async () => {
+    const binding = versionsBinding({ fileId: 'f_1', version: 2 });
+    const c = call({ agent: seeing, binding: binding.files });
+    await c.run(
+      withFiles([
+        { ...recordOf('art-1'), fileId: 'f_1', version: 2 },
+        { ...recordOf('doc-2'), fileId: 'f_1', version: 3 },
+        recordOf('txt-3'),
+      ]),
+    );
+    expect(binding.named).toEqual([
+      ['f_1', 2],
+      ['f_1', 3],
+      [undefined, undefined],
+    ]);
+    const [shown, gone, plain] = c.sent[0]?.messages[1]?.files ?? [];
+    expect(shown).toEqual({ ...recordOf('art-1'), fileId: 'f_1', version: 2 });
+    expect(gone?.notShown).toBe('gone');
+    expect(plain).toEqual(recordOf('txt-3'));
   });
 
   test('a dry run asks for no form', async () => {

@@ -16,17 +16,20 @@ import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import { type Provenance, type ProvenanceBuilder, newBuilder } from '@kindgi/provenance';
+import { bodyStepKey } from '@kindgi/runtime';
 import type { JournalEntry } from '@kindgi/runtime';
-import { createToolRegistry, defineTool } from '@kindgi/tools';
+import { createToolRegistry, defineTool, toolIdempotencyKey } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { ProvenanceId, RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
+import type { RunFileVersion } from '../src/handlers/files.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
+import { buildPersistProvenanceHandler } from '../src/handlers/persist-provenance.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
-import { addRetrievalNodes } from '../src/handlers/turn-provenance.js';
+import { addFileVersionNodes, addRetrievalNodes } from '../src/handlers/turn-provenance.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type {
   Agent,
@@ -221,7 +224,11 @@ function danglingEdges(dag: Provenance): string[] {
 const edge = (from: string, kind: string, to: string) => ({ from, kind, to });
 
 /** The second iteration's dispatch-tools step, run again after the park. */
-async function rerunParkedStep(ctx: TurnContext, answer: unknown): Promise<void> {
+async function rerunParkedStep(
+  ctx: TurnContext,
+  answer: unknown,
+  fields: Partial<NodeContext> = {},
+): Promise<void> {
   ctx.hitlPolicy = resolveEffectiveHitlPolicy({ tenant: undefined, agent: ctx.input.agent });
   await buildDispatchToolsHandler(ctx)(
     {
@@ -242,6 +249,7 @@ async function rerunParkedStep(ctx: TurnContext, answer: unknown): Promise<void>
     testNodeContext({
       runId,
       waitForToken: (async () => answer) as NodeContext['waitForToken'],
+      ...fields,
     }),
   );
 }
@@ -537,5 +545,133 @@ describe('memory searches', () => {
         { from: 'retrieval:f-1', to: 'input:3', kind: 'influenced-by' },
       ]),
     );
+  });
+});
+
+describe("a turn's file versions", () => {
+  const hash = (c: string) => c.repeat(64);
+  const iteration = (i: number) => ({
+    loopNodeId: 'agent-loop',
+    iteration: i,
+    path: [{ loopNodeId: 'agent-loop', iteration: i }],
+  });
+  const keyOf = (callId: string, i: number) =>
+    toolIdempotencyKey({
+      runId,
+      stepScope: bodyStepKey('dispatch-tools' as never, iteration(i) as never),
+      toolId: 'pack.lookup',
+      callId,
+    });
+  const version = (
+    fileId: string,
+    fileVersion: number,
+    how: RunFileVersion['how'],
+    extra: Partial<RunFileVersion> = {},
+  ): RunFileVersion => ({
+    fileId,
+    fileVersion,
+    contentHash: hash(String(fileVersion)),
+    how,
+    at: AT,
+    ...extra,
+  });
+  const fileEdges = (dag: Provenance) =>
+    dag.edges.filter((e) => e.from.startsWith('file:') || e.to.startsWith('file:'));
+
+  /** Resumed after `c3`'s approval: `c1` ran before the park, `c2` in its step before it, `c3` after. */
+  async function approvedTurn(versions: () => Promise<readonly RunFileVersion[]>) {
+    const ctx = resumedTurn(agent(true));
+    await rehydrateTurnContext(ctx, runId, parkedJournal);
+    await rerunParkedStep(
+      ctx,
+      { decided: 'approve' },
+      { stepScope: bodyStepKey('dispatch-tools' as never, iteration(1) as never) },
+    );
+    ctx.files = { versions } as unknown as NonNullable<TurnContext['files']>;
+    return ctx;
+  }
+
+  test('each is an artifact node, with an edge to the call that made it or was given it, however the call ran', async () => {
+    const ctx = await approvedTurn(async () => [
+      version('f-in', 1, 'input'),
+      version('f-notes', 2, 'made', {
+        fileName: 'notes.md',
+        filePreviousVersion: 1,
+        callKey: keyOf('c1', 0),
+      }),
+      version('f-brief', 3, 'given', { callKey: keyOf('c2', 1) }),
+      version('f-notes', 3, 'made', { filePreviousVersion: 2, callKey: keyOf('c3', 1) }),
+      // The same version, given to a later call: one node, both edges.
+      version('f-notes', 3, 'given', { callKey: keyOf('c3', 1) }),
+      // A key no call of the turn has: kept, with no edge.
+      version('f-other', 1, 'made', { callKey: 'no-such-call' }),
+    ]);
+    await addFileVersionNodes(ctx);
+    const dag = ctx.provenance?.snapshot() as Provenance;
+    expect(dag.nodes.filter((n) => n.id.startsWith('file:')).map((n) => n.id)).toEqual([
+      'file:f-in@v1',
+      'file:f-notes@v2',
+      'file:f-brief@v3',
+      'file:f-notes@v3',
+      'file:f-other@v1',
+    ]);
+    expect(dag.nodes.find((n) => n.id === 'file:f-notes@v2')).toEqual({
+      id: 'file:f-notes@v2',
+      kind: 'artifact',
+      timestamp: AT,
+      contentHash: hash('2'),
+      attributes: {
+        fileId: 'f-notes',
+        fileVersion: 2,
+        fileName: 'notes.md',
+        filePreviousVersion: 1,
+      },
+    });
+    expect(fileEdges(dag)).toEqual([
+      edge('input:3', 'influenced-by', 'file:f-in@v1'),
+      edge('file:f-notes@v2', 'produced', 'tool-call:c1'),
+      edge('tool-call:c2', 'influenced-by', 'file:f-brief@v3'),
+      edge('file:f-notes@v3', 'produced', 'tool-call:c3'),
+      edge('tool-call:c3', 'influenced-by', 'file:f-notes@v3'),
+    ]);
+    expect(danglingEdges(dag)).toEqual([]);
+  });
+
+  test('the record the turn persists has them', async () => {
+    const ctx = await approvedTurn(async () => [version('f-in', 1, 'input')]);
+    await buildPersistProvenanceHandler(ctx)({}, testNodeContext({ runId }));
+    expect(ctx.persistedProvenance?.nodes.map((n) => n.id)).toContain('file:f-in@v1');
+  });
+
+  test('past the cap, one node counts the rest', async () => {
+    const later = '2026-10-02T00:00:00Z' as Timestamp;
+    const ctx = await approvedTurn(async () => [
+      ...Array.from({ length: 1000 }, (_, i) => version(`f-${String(i)}`, 1, 'made')),
+      version('f-late', 1, 'made', { at: later }),
+      version('f-later', 1, 'made'),
+    ]);
+    await addFileVersionNodes(ctx);
+    const dag = ctx.provenance?.snapshot() as Provenance;
+    expect(dag.nodes.filter((n) => n.id.startsWith('file:'))).toHaveLength(1000);
+    expect(dag.nodes.find((n) => n.id === 'truncated:files')).toEqual({
+      id: 'truncated:files',
+      kind: 'event',
+      timestamp: later,
+      attributes: { truncated: { reason: 'files', filesOmitted: 2 } },
+    });
+  });
+
+  test('without the binding, or when it throws, the record has none', async () => {
+    const failing = await approvedTurn(async () => {
+      throw new Error('down');
+    });
+    const before = failing.provenance?.snapshot().nodes.length;
+    await addFileVersionNodes(failing);
+    expect(failing.provenance?.snapshot().nodes).toHaveLength(before ?? -1);
+
+    const ctx = await approvedTurn(async () => []);
+    ctx.files = {} as unknown as NonNullable<TurnContext['files']>;
+    await addFileVersionNodes(ctx);
+    expect(ctx.provenance?.snapshot().nodes.some((n) => n.id.startsWith('file:'))).toBe(false);
   });
 });

@@ -12,6 +12,8 @@ import type { NodeId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/t
 
 import { newBuilder } from './build.js';
 import { signingBytes } from './canonical.js';
+import { MAX_FILE_VERSION_NODES, fileVersionNodes } from './file-version.js';
+import type { ProvenanceFileVersion } from './file-version.js';
 import type { Provenance, ProvenanceEdge, ProvenanceNode } from './types.js';
 
 /**
@@ -50,7 +52,9 @@ export const FLOW_PROVENANCE_VERSION = '1.1.0';
  * within its node budget, by its depth (1: a loop of the flow itself),
  * and at most `iterationsKeptPerEnd` from each end; the rest fold into
  * one node, which counts the loops run inside them too. An id over
- * `maxIdLength` takes a digest form.
+ * `maxIdLength` takes a digest form. Past `maxFileNodes` file versions
+ * (`FlowProvenanceRun.files`), the rest are counted in one node, and the
+ * ones kept are cut like any other node.
  */
 export const FLOW_PROVENANCE_LIMITS = {
   maxNodes: 5000,
@@ -59,6 +63,7 @@ export const FLOW_PROVENANCE_LIMITS = {
   loopNodeBudgets: [2500, 250, 25],
   iterationsKeptPerEnd: 25,
   maxIdLength: 256,
+  maxFileNodes: MAX_FILE_VERSION_NODES,
 } as const;
 
 /** A run a flow run's step started: an agent step's turn, a sub-flow's run. */
@@ -105,6 +110,34 @@ export interface FlowProvenanceRun {
   readonly children: readonly FlowProvenanceChild[];
   /** The results its completed tool steps reused, in the order they were written. */
   readonly reused?: readonly FlowReusedSource[];
+  /**
+   * The file versions the run took or made, oldest first, on a runtime
+   * that keeps file versions: the run's own, never its children's (an
+   * agent step's are its own run's record).
+   */
+  readonly files?: readonly FlowProvenanceFile[];
+  /**
+   * When the run's output is a file: its version, one of `files`. The
+   * output node then carries that version's attributes and sha256.
+   */
+  readonly outputFile?: { readonly fileId: string; readonly fileVersion: number };
+}
+
+/**
+ * A file version a flow run took or made: one `artifact` node per version.
+ * Its edges say how: `input` -> the node (`influenced-by`) for one the
+ * run's input named; the node -> its step (`produced`) for one a tool step
+ * made; its step -> the node (`influenced-by`) for one a step was given.
+ */
+export interface FlowProvenanceFile extends ProvenanceFileVersion {
+  /**
+   * The tool step, as its run row keeps it: the node id, and the scope,
+   * `''` for a step of the flow itself or the JSON of its loop path
+   * (innermost first), as `FlowProvenanceChild`'s. Absent for an input,
+   * and where the step isn't known: the node is kept with no edge. A step
+   * folded into its loop's node has its edge drawn to that node.
+   */
+  readonly step?: { readonly nodeId: string; readonly scope: string };
 }
 
 /** Journal entries the build didn't read, between two pages: past the entries cap. */
@@ -120,7 +153,9 @@ export interface FlowJournalGap {
  * payloads: each entry's kind, node, sequence, time and `facts`. Hand it
  * the journal page by page (`add`), in sequence order; `skip` once where
  * entries weren't read; then `finish`. The record holds no value and no
- * digest of one: ids, kinds, statuses, times and codes.
+ * digest of one: ids, kinds, statuses, times and codes. A file version's
+ * `contentHash` is the sha256 the files API answers for that version, a
+ * stored file's own, never a digest of a step's input or output.
  */
 export interface FlowProvenanceBuilder {
   add(entries: readonly JournalEntryPosition[]): void;
@@ -205,6 +240,13 @@ interface Candidate {
   readonly lastSequence: number;
   readonly node: ProvenanceNode;
   readonly isStep: boolean;
+}
+
+/** An edge between two candidates, by their keys: drawn once their ids are fixed. */
+interface KeyEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: ProvenanceEdge['kind'];
 }
 
 // ---------------------------------------------------------------------
@@ -770,22 +812,115 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         },
       });
     }
+    const files = fileCandidates(folded.hidden);
+    candidates.push(...files.candidates);
     const hasOutput = run.status === 'completed' && run.hasOutput;
     if (hasOutput) {
+      const output = files.outputFile;
       candidates.push({
         key: 'output',
         sequence: Number.POSITIVE_INFINITY,
         lastSequence: Number.POSITIVE_INFINITY,
         isStep: false,
-        node: { id: 'output', kind: 'artifact', timestamp: run.completedAt },
+        node: {
+          id: 'output',
+          kind: 'artifact',
+          timestamp: run.completedAt,
+          ...(output?.contentHash !== undefined && { contentHash: output.contentHash }),
+          ...(output?.attributes !== undefined && { attributes: output.attributes }),
+        },
       });
     }
     candidates.sort((a, b) => a.sequence - b.sequence);
 
     const ids = new Map<string, string>();
     const nodes = candidates.map((c) => fixId(c, ids));
-    const edges = drawEdges(ids, hasOutput, folded.hidden);
+    const edges = drawEdges(ids, hasOutput, folded.hidden, files.edges);
     return cutToCaps(nodes, candidates, edges);
+  }
+
+  /**
+   * The run's file versions as nodes, each placed in journal order by its
+   * step (an input's at the start, one with no known step at the end),
+   * and the edges that say how the run came to each.
+   */
+  function fileCandidates(hidden: Set<string>): {
+    readonly candidates: readonly Candidate[];
+    readonly edges: readonly KeyEdge[];
+    readonly outputFile?: ProvenanceNode;
+  } {
+    const files = fileVersionNodes(run.files ?? []);
+    const edges: KeyEdge[] = [];
+    const placed = new Map<string, number>();
+    const end = Math.max(lastSequence, 0);
+    for (const file of files.kept) {
+      const step =
+        file.step === undefined
+          ? undefined
+          : steps.get(scopeOf(file.step.nodeId, loopPathOf(file.step.scope)));
+      const sequence =
+        file.how === 'input'
+          ? Number.NEGATIVE_INFINITY
+          : step === undefined
+            ? end
+            : file.how === 'made'
+              ? step.lastSequence
+              : step.firstSequence;
+      placed.set(file.nodeId, Math.min(placed.get(file.nodeId) ?? sequence, sequence));
+      if (file.how === 'input') {
+        edges.push({ from: 'input', to: file.nodeId, kind: 'influenced-by' });
+        continue;
+      }
+      const shown = step === undefined ? undefined : shownKeyOf(step, hidden);
+      if (shown === undefined) continue;
+      edges.push(
+        file.how === 'made'
+          ? { from: file.nodeId, to: shown, kind: 'produced' }
+          : { from: shown, to: file.nodeId, kind: 'influenced-by' },
+      );
+    }
+    const candidates: Candidate[] = files.nodes.map((node) => {
+      const sequence = placed.get(node.id) ?? end;
+      return { key: node.id, sequence, lastSequence: sequence, isStep: false, node };
+    });
+    if (files.omitted > 0) {
+      candidates.push({
+        key: 'truncated:files',
+        sequence: end,
+        lastSequence: end,
+        isStep: false,
+        node: {
+          id: 'truncated:files',
+          kind: 'event',
+          timestamp: files.at ?? run.completedAt,
+          attributes: { truncated: { reason: 'files', filesOmitted: files.omitted } },
+        },
+      });
+    }
+    // From the run's own files, not the nodes kept: the output is a node of
+    // its own, so a version past the cap still gives it its fields.
+    const out = run.outputFile;
+    const outputFile =
+      out === undefined
+        ? undefined
+        : fileVersionNodes(
+            (run.files ?? []).filter(
+              (f) => f.fileId === out.fileId && f.fileVersion === out.fileVersion,
+            ),
+          ).nodes[0];
+    return { candidates, edges, ...(outputFile !== undefined && { outputFile }) };
+  }
+
+  /** The node a step is drawn as: its own, or, folded away, its loop's folded node. */
+  function shownKeyOf(step: StepAcc, hidden: Set<string>): string | undefined {
+    let at: StepAcc | undefined = step;
+    while (at !== undefined && hidden.has(at.scope)) {
+      if (at.loopScope === undefined) return undefined;
+      const loop: StepAcc | undefined = steps.get(at.loopScope);
+      if (loop !== undefined && !hidden.has(loop.scope)) return foldedKey(loop.scope);
+      at = loop;
+    }
+    return at === undefined ? undefined : stepKey(at.scope);
   }
 
   /** The node's id: `step:<scope>`, or its digest form when it's long or could meet one. */
@@ -1114,6 +1249,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     ids: Map<string, string>,
     hasOutput: boolean,
     hidden: Set<string>,
+    fileEdges: readonly KeyEdge[],
   ): ProvenanceEdge[] {
     const edges: ProvenanceEdge[] = [];
     const seen = new Set<string>();
@@ -1171,6 +1307,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         add(foldedKey(step.scope), stepKey(step.scope), 'invoked');
       }
     }
+    for (const e of fileEdges) add(e.from, e.to, e.kind);
     if (hasOutput) {
       for (const from of outputSources()) add('output', stepKey(from), 'produced');
     }

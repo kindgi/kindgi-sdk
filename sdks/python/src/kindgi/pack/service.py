@@ -510,6 +510,7 @@ class PackService:
             pauses=pauses,
             stores_files=entry.get("storesFiles") is True,
             reads_files=entry.get("readsFiles") is True,
+            updates_files=entry.get("updatesFiles") is True,
         )
         try:
             result = await self._call(

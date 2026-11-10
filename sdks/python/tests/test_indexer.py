@@ -250,13 +250,14 @@ def test_an_agent_declares_how_it_uses_memory(make_pack: Callable[..., Path]) ->
         'desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help.",'
         ' capabilities=[{"needs": [{"feature": "tool-use"}]}],'
         ' retrieval=[{"types": ["acme.note"], "scope": "same-user", "mode": "both"}],'
-        ' memory={"instructionTypes": ["acme.policy"]})\n'
+        ' memory={"instructionTypes": ["acme.policy"]}, files={"update": True})\n'
     )
     root = full_pack(make_pack, **{"agents/desk.py": memory_agent})
     report, index = index_of(root)
     assert report["fileErrors"] == []
     (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
     assert entry["memory"] == {"instructionTypes": ["acme.policy"]}
+    assert entry["files"] == {"update": True}
     assert entry["retrieval"] == [{"types": ["acme.note"], "scope": "same-user", "mode": "both"}]
 
 

@@ -216,8 +216,8 @@ export interface ToolContext {
    */
   readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
   /**
-   * The call's files, only for a tool that declares `storesFiles` or
-   * `readsFiles`, with only what it declares:
+   * The call's files, only for a tool that declares `storesFiles`,
+   * `readsFiles` or `updatesFiles`, with only what it declares:
    * - `store` (`storesFiles`) checks a file's bytes, stores it as a file
    *   the call's run owns, and answers the file value to return in the
    *   result's top-level `files`, or why it stored nothing. At most
@@ -225,11 +225,17 @@ export interface ToolContext {
    *   `idempotencyKey`.
    * - `read` (`readsFiles`) answers the bytes of a file the call's run may
    *   be shown, or why there are none.
+   * - `update` (`updatesFiles`) adds a version to a file the call's run
+   *   has, given the version it read, and answers the new version, or
+   *   Latest when Latest isn't that version, or why it added none. Absent
+   *   when the call has no `idempotencyKey`.
    *
    * Absent for any other tool, when the runtime has no file store, and from
    * a runtime before pack protocol 2.10.0: a tool then says a file can't
-   * be stored (`notShown: 'store'`) without fetching it. A unit test passes
-   * its own.
+   * be stored (`notShown: 'store'`) without fetching it. From a pack
+   * service, `update` is there only when the runtime says the call may add
+   * versions (`toolFiles.updates`, pack protocol 2.13.0), which a runtime
+   * before 2.13.0 never does. A unit test passes its own.
    */
   readonly files?: FileStore;
 }
@@ -528,6 +534,19 @@ export interface ToolManifest {
    * `spec`, nor an MCP tool. Absent = `false`.
    */
   readonly readsFiles?: boolean;
+  /**
+   * `true` when the tool may add versions to files its run has, such as
+   * a sheet it fills in. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.update`: it sends a file's new bytes
+   * with the version it read, and returns the new version it gets back
+   * in its result's top-level `files`. When the file's Latest isn't the
+   * version it read, it gets Latest back instead. Only a file of the
+   * call's run, and only where the run may write.
+   *
+   * Only a tool with a handler can update files: not one with a
+   * declarative `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly updatesFiles?: boolean;
   /**
    * `true` when the tool's results are text from outside that nobody
    * checked, such as a mail someone sent or a page a search found. An

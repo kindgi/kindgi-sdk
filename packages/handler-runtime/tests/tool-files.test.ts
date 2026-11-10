@@ -11,7 +11,12 @@
 import { type IncomingHttpHeaders, type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { type FileStore, type FileToStore, MAX_STORED_FILE_BYTES } from '@kindgi/tools';
+import {
+  type FileStore,
+  type FileToStore,
+  type FileToUpdate,
+  MAX_STORED_FILE_BYTES,
+} from '@kindgi/tools';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import type {
@@ -132,6 +137,13 @@ const storeOf = (c: HandlerContext | FileStore) => {
   const files = 'tenantId' in c ? c.files : c;
   if (files?.store === undefined) throw new Error('the handler got no files.store');
   return files.store;
+};
+
+/** The handler's `files.update`; throws when it got none. */
+const updateOf = (c: HandlerContext | FileStore) => {
+  const files = 'tenantId' in c ? c.files : c;
+  if (files?.update === undefined) throw new Error('the handler got no files.update');
+  return files.update;
 };
 
 /** The handler's `files.read`; throws when it got none. */
@@ -433,6 +445,146 @@ describe('a tool that reads files', () => {
   });
 });
 
+describe('a tool that updates files', () => {
+  const UPDATES = { store: false, read: false, update: true } as const;
+  /** The tool files a runtime of protocol 2.13.0 sends a call that may update (`url` is set once the link listens). */
+  const updating = () => ({ url, token, updates: true }) as const;
+  const notes: FileToUpdate = {
+    fileId: 'file-1',
+    expectedVersion: 2,
+    contentType: 'text/markdown',
+    bytes: new TextEncoder().encode('# v3'),
+  };
+  const version = { ...stored, artifactId: 'art-3', fileId: 'file-1', version: 3 } as const;
+  const latest = { ...version, artifactId: 'art-2', version: 2 } as const;
+
+  test('gets files.update and nothing else; an update posts the new bytes under the file, with the token and the version it read', async () => {
+    answer = { status: 200, body: { file: version } };
+    const outcome = await run(
+      async (_input, c) => ({
+        has: Object.keys(c.files ?? {}),
+        answer: await updateOf(c)(notes),
+      }),
+      { storesFiles: false, updatesFiles: true },
+      ctx(updating()),
+    );
+    expect(outcome).toEqual({ kind: 'ok', value: { has: ['update'], answer: { file: version } } });
+    expect(received).toEqual([
+      {
+        method: 'POST',
+        path: '/v1/tool-files/file-1/versions',
+        headers: expect.objectContaining({
+          authorization: `Bearer ${token}`,
+          'content-type': 'text/markdown',
+          'kindgi-expected-version': '2',
+        }),
+        body: '# v3',
+      },
+    ]);
+    expect(received[0]?.headers['kindgi-file-name']).toBeUndefined();
+  });
+
+  test("sends a new name percent-encoded, and the file's id percent-encoded under the link", async () => {
+    const update = updateOf(fileStoreOf({ url: `${url}/`, token }, UPDATES));
+    await update({ ...notes, fileId: 'file 1/x', name: 'Notizen März.md' });
+    await update({ ...notes, name: '' });
+    expect(received.map((r) => r.path)).toEqual([
+      '/v1/tool-files/file%201%2Fx/versions',
+      '/v1/tool-files/file-1/versions',
+    ]);
+    expect(received.map((r) => r.headers['kindgi-file-name'])).toEqual([
+      'Notizen%20M%C3%A4rz.md',
+      undefined,
+    ]);
+  });
+
+  test.each([
+    ['the new version', { file: version }] as const,
+    ['Latest, for the same bytes', { same: latest }] as const,
+    ['Latest, for a conflict', { conflict: latest }] as const,
+    ...(['rule', 'denied', 'gone', 'type', 'size', 'storage'] as const).map(
+      (reason) => [`why none was added: ${reason}`, { notUpdated: reason }] as const,
+    ),
+  ])('answers %s, as the runtime says', async (_label, body) => {
+    answer = { status: 200, body };
+    expect(await updateOf(fileStoreOf({ url, token }, UPDATES))(notes)).toEqual(body);
+  });
+
+  test.each([
+    ['a file value missing its sha256', { file: { ...version, sha256: undefined } }],
+    ['a reason no update gives', { notUpdated: 'limit' }],
+    ['nothing', {}],
+  ])("rejects an answer that's %s", async (_label, body) => {
+    answer = { status: 200, body };
+    await expect(updateOf(fileStoreOf({ url, token }, UPDATES))(notes)).rejects.toThrow(
+      "files.update: the runtime's answer isn't a version, Latest or a reason",
+    );
+  });
+
+  test('a refused update fails the call, naming the status and the error code', async () => {
+    answer = {
+      status: 409,
+      body: { error: { code: 'tool-file-token-closed', message: 'closed' } },
+    };
+    const outcome = await run(
+      async (_input, c) => updateOf(c)(notes),
+      { storesFiles: false, updatesFiles: true },
+      ctx(updating()),
+    );
+    expect(outcome.kind === 'err' && outcome.error.message).toContain(
+      'files.update: the runtime answered 409 (tool-file-token-closed)',
+    );
+  });
+
+  test('bytes over the largest any type allows answer size, and nothing is sent', async () => {
+    const update = updateOf(fileStoreOf({ url, token }, UPDATES));
+    await expect(
+      update({ ...notes, bytes: new Uint8Array(MAX_STORED_FILE_BYTES + 1) }),
+    ).resolves.toEqual({ notUpdated: 'size' });
+    expect(received).toEqual([]);
+  });
+
+  test.each([
+    ['no file id', { ...notes, fileId: '' }],
+    ['a version of 0', { ...notes, expectedVersion: 0 }],
+    ['a version that is a fraction', { ...notes, expectedVersion: 1.5 }],
+    ['a name that is not a string', { ...notes, name: 7 }],
+    ['no bytes', { ...notes, bytes: '# v3' }],
+  ])(
+    "a version a JavaScript handler shapes wrong (%s) is refused before it's sent",
+    async (_label, file) => {
+      const update = updateOf(fileStoreOf({ url, token }, UPDATES));
+      await expect(update(file as unknown as FileToUpdate)).rejects.toThrow(TypeError);
+      expect(received).toEqual([]);
+    },
+  );
+
+  test('a call with no idempotency key gets no update: a retry could add a second version', async () => {
+    const outcome = await run(
+      async (_input, c) => ({ has: Object.keys(c.files ?? {}) }),
+      { storesFiles: false, readsFiles: true, updatesFiles: true },
+      ctx(updating(), ''),
+    );
+    expect(outcome).toEqual({ kind: 'ok', value: { has: ['read'] } });
+  });
+
+  test("tool files that don't say updates give no update: a runtime from before 2.13.0 has no route for one", async () => {
+    const reads = await run(
+      async (_input, c) => ({ has: Object.keys(c.files ?? {}) }),
+      { storesFiles: false, readsFiles: true, updatesFiles: true },
+      ctx({ url, token }),
+    );
+    expect(reads).toEqual({ kind: 'ok', value: { has: ['read'] } });
+    const only = await run(
+      async (_input, c) => ({ files: 'files' in c }),
+      { storesFiles: false, updatesFiles: true },
+      ctx({ url, token, updates: 'yes' }),
+    );
+    expect(only).toEqual({ kind: 'ok', value: { files: false } });
+    expect(received).toEqual([]);
+  });
+});
+
 describe('toolFilesOf', () => {
   test.each([
     ['nothing', undefined],
@@ -447,8 +599,10 @@ describe('toolFilesOf', () => {
     expect(toolFilesOf(value)).toBeUndefined();
   });
 
-  test('keeps the link and the token, and nothing else', () => {
+  test('keeps the link, the token and updates, and nothing else', () => {
     expect(toolFilesOf({ url, token, extra: 1 })).toEqual({ url, token });
+    expect(toolFilesOf({ url, token, updates: true })).toEqual({ url, token, updates: true });
+    expect(toolFilesOf({ url, token, updates: 'true' })).toEqual({ url, token });
   });
 });
 

@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
@@ -17,7 +18,15 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { BlobMeta, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ArtifactId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  ArtifactId,
+  FileId,
+  ProjectId,
+  RunId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
@@ -175,17 +184,23 @@ function harness(
       headers: { authorization: `Bearer ${as}` },
       body: form,
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: (await res.json()) as Record<string, any>,
+    };
   };
   const call = async (
     as: string,
     method: string,
     path: string,
     headers: Record<string, string> = {},
+    body?: string,
   ) => {
     const res = await app.request(path, {
       method,
       headers: { authorization: `Bearer ${as}`, ...headers },
+      ...(body !== undefined && { body }),
     });
     const text = await res.text();
     return {
@@ -271,6 +286,17 @@ describe("an artifact answer carries only BlobMeta's properties", () => {
     expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
     const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
     expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test("a blob that is a file's version is listed with its file and version", async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    const fileId = randomUUID() as FileId;
+    const row = h.blobs.rows.get(up.body.blobId)!;
+    h.blobs.rows.set(up.body.blobId, { ...row, fileId, version: 2 });
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([{ ...up.body, fileId, version: 2 }]);
     expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
   });
 });
@@ -629,5 +655,58 @@ describe('the upload cap', () => {
     const r = await h.upload('bob', { projectId: P2 });
     expect(r.status).toBe(201);
     expect((await h.call('bob', 'GET', `/v1/artifacts/${r.body.blobId}`)).text).toBe('hello');
+  });
+});
+
+describe('the artifacts routes go in 0.8.0', () => {
+  test('every answer links to what replaces them, an error too; other routes have no link', async () => {
+    const h = harness();
+    // On the release line's docs, @kindgi/sdk's version's, which a version change moves.
+    const sdk = new URL('../../sdk/package.json', import.meta.url);
+    const [major, minor] = (
+      JSON.parse(readFileSync(sdk, 'utf8')) as { version: string }
+    ).version.split('.');
+    const link = `<https://docs.kindgi.com/v${major}.${minor}/concepts/files-and-versions/#what-080-removes>; rel="deprecation"`;
+    const made = await h.upload('alice');
+    expect([made.status, made.headers.link]).toEqual([201, link]);
+    const blobId = made.body.blobId as string;
+    const answers = [
+      ['alice', 'GET', '/v1/artifacts', 200],
+      ['alice', 'GET', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'HEAD', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'GET', `/v1/artifacts/${randomUUID()}`, 404],
+      ['nobody', 'GET', '/v1/artifacts', 401],
+      ['alice', 'DELETE', `/v1/artifacts/${blobId}`, 200],
+    ] as const;
+    for (const [as, method, path, status] of answers) {
+      const r = await h.call(as, method, path);
+      expect([method, path, r.status, r.headers.link]).toEqual([method, path, status, link]);
+    }
+    // Refused by the upload cap, before the route reads the body.
+    const tooBig = await harness({ maxBytes: 1024 }).upload('alice', {}, 'x'.repeat(2000));
+    expect([tooBig.status, tooBig.headers.link]).toEqual([413, link]);
+    // Refused by the API's own body limit, before any route: a body on a
+    // delete, over hosted's 2 MiB.
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const over = ' '.repeat(2 * 1024 * 1024 + 1);
+      const r = await harness().call(
+        'alice',
+        'DELETE',
+        `/v1/artifacts/${randomUUID()}`,
+        { 'content-length': String(over.length) },
+        over,
+      );
+      expect([r.status, r.json().error.code, r.headers.link]).toEqual([
+        413,
+        'request-too-large',
+        link,
+      ]);
+    } finally {
+      restore();
+    }
+    // `/v1/files` isn't served here: its 404 is no artifacts answer.
+    const other = await h.call('alice', 'GET', '/v1/files');
+    expect([other.status, other.headers.link]).toEqual([404, undefined]);
   });
 });

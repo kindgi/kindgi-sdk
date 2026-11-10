@@ -10,7 +10,9 @@
  */
 
 import type { MessageFile } from '@kindgi/capabilities';
-import type { ProvenanceBuilder } from '@kindgi/provenance';
+import { fileVersionNodes } from '@kindgi/provenance';
+import type { ProvenanceBuilder, ProvenanceEdge } from '@kindgi/provenance';
+import { toolIdempotencyKey } from '@kindgi/tools';
 import type { Timestamp } from '@kindgi/types';
 
 import { REMEMBER_TOOL_ID } from '../remember.js';
@@ -22,6 +24,7 @@ import type {
   RetrievedFact,
 } from '../types.js';
 import type { TurnContext } from './context.js';
+import type { RunFileVersion } from './files.js';
 import type { GateDecision } from './gate-decision.js';
 import type { RememberToolOutput } from './remember-tool.js';
 
@@ -404,4 +407,95 @@ function versionOf(
   return binding === undefined
     ? undefined
     : { resolvedVersion: binding.resolvedVersion, requestedRange: binding.requestedRange };
+}
+
+/**
+ * Keeps the `idempotencyKey` of each call answered by one of `messages`
+ * (its tool messages) with its invocation id (`TurnContext.callKeys`), for
+ * the edges of the file versions it made or was given
+ * (`addFileVersionNodes`): a call that ran before a resume, or before a park
+ * in its own step. A call outside a step has no key.
+ */
+export function noteCallKeys(
+  ctx: TurnContext,
+  runId: string,
+  stepScope: string | undefined,
+  messages: readonly ConversationMessage[],
+): void {
+  if (stepScope === undefined) return;
+  for (const m of messages) {
+    if (m.role !== 'tool' || m.toolCall === undefined) continue;
+    const toolId = m.toolCall.toolId as unknown as string;
+    const callId = m.toolCall.invocationId;
+    ctx.callKeys ??= new Map();
+    ctx.callKeys.set(toolIdempotencyKey({ runId, stepScope, toolId, callId }), callId);
+  }
+}
+
+/**
+ * The run's file versions (`FileBinding.versions`), once, as the turn
+ * persists its record: one `artifact` node per version, with
+ * `FileVersionAttributes` and the sha256 as its `contentHash`. Its edges
+ * say how the turn came to it, as a flow record's do: the turn's input ->
+ * the node (`influenced-by`) for one its input named; the node -> its call
+ * (`produced`) for one a call made; its call -> the node (`influenced-by`)
+ * for one a call was given. A version whose call has no node in the record
+ * is kept with no edge. Past `MAX_FILE_VERSION_NODES` versions, one node
+ * counts the rest. Without the binding's `versions`, or when it throws,
+ * the record has none: it's best-effort, as persisting it is.
+ */
+export async function addFileVersionNodes(ctx: TurnContext): Promise<void> {
+  const provenance = ctx.provenance;
+  if (provenance === undefined) return;
+  const versions = await runFileVersions(ctx);
+  if (versions.length === 0) return;
+  const { nodes, kept, omitted, at } = fileVersionNodes(versions);
+  const known = new Set(provenance.snapshot().nodes.map((n) => n.id));
+  for (const node of nodes) if (!known.has(node.id)) provenance.addNode(node);
+  for (const edge of fileVersionEdges(ctx, kept, known)) provenance.addEdge(edge);
+  if (omitted > 0 && !known.has('truncated:files')) {
+    provenance.addNode({
+      id: 'truncated:files',
+      kind: 'event',
+      timestamp: at ?? (new Date(ctx.startedAt).toISOString() as Timestamp),
+      attributes: { truncated: { reason: 'files', filesOmitted: omitted } },
+    });
+  }
+}
+
+/** The run's file versions from its binding: none without `versions`, or when it throws. */
+async function runFileVersions(ctx: TurnContext): Promise<readonly RunFileVersion[]> {
+  const binding = ctx.files;
+  if (binding?.versions === undefined) return [];
+  try {
+    return await binding.versions();
+  } catch {
+    return [];
+  }
+}
+
+/** The edges of `addFileVersionNodes`, each once, to nodes the record has (`known`). */
+function fileVersionEdges(
+  ctx: TurnContext,
+  kept: readonly (RunFileVersion & { readonly nodeId: string })[],
+  known: ReadonlySet<string>,
+): ProvenanceEdge[] {
+  const input = ctx.userMessage === undefined ? undefined : `input:${ctx.userMessage.sequence}`;
+  const edges = new Map<string, ProvenanceEdge>();
+  for (const file of kept) {
+    const other = file.how === 'input' ? input : callNodeOf(ctx, file.callKey);
+    if (other === undefined || !known.has(other)) continue;
+    const edge: ProvenanceEdge =
+      file.how === 'made'
+        ? { from: file.nodeId, to: other, kind: 'produced' }
+        : { from: other, to: file.nodeId, kind: 'influenced-by' };
+    edges.set(`${edge.from} ${edge.to} ${edge.kind}`, edge);
+  }
+  return [...edges.values()];
+}
+
+/** The node of the call a key was noted for (`TurnContext.callKeys`). */
+function callNodeOf(ctx: TurnContext, callKey: string | undefined): string | undefined {
+  const callId = callKey === undefined ? undefined : ctx.callKeys?.get(callKey);
+  return callId === undefined ? undefined : `tool-call:${callId}`;
 }

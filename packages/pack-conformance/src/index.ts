@@ -83,8 +83,18 @@ export interface PackServiceTarget {
  *   that gets from it, and its handler never sees the link or the token
  *   (pack protocol 2.10.0); the fixture pack has `conformance.store` and
  *   `conformance.read`.
+ * - `file-updates`: a tool that declares `updatesFiles` gets an update that
+ *   posts a version to the call's tool files link, under the file, with the
+ *   version it read (pack protocol 2.13.0); the fixture pack has
+ *   `conformance.update`. A target without `files` has none either.
  */
-export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter' | 'pause' | 'files';
+export type ConformanceFeature =
+  | 'pack-env'
+  | 'log-records'
+  | 'env-filter'
+  | 'pause'
+  | 'files'
+  | 'file-updates';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -111,6 +121,8 @@ export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
 export const FIXTURE_FILES_TOOL_ID = 'conformance.store';
 /** The fixture pack's tool that reads files, for a target that supports `files`. */
 export const FIXTURE_READ_TOOL_ID = 'conformance.read';
+/** The fixture pack's tool that adds versions to files, for a target that supports `file-updates`. */
+export const FIXTURE_UPDATE_TOOL_ID = 'conformance.update';
 export const FIXTURE_CHECK_IDS = [
   'conformance.checks.judged',
   'conformance.checks.min-length',
@@ -449,8 +461,9 @@ interface LinkAnswer {
 }
 
 /**
- * A call's tool files link for the `files` cases: answers a store (`POST`)
- * with `answer` and a read (`GET`) with `readAnswer`, and keeps each
+ * A call's tool files link for the `files` and `file-updates` cases: answers
+ * a store (`POST`) with `answer`, a read (`GET`) with `readAnswer` and an
+ * update (`POST` to a file's `/versions`) with `updateAnswer`, and keeps each
  * request it receives.
  */
 interface FilesLink {
@@ -464,6 +477,7 @@ interface FilesLink {
   }[];
   answer: LinkAnswer;
   readAnswer: LinkAnswer;
+  updateAnswer: LinkAnswer;
   close(): Promise<void>;
 }
 
@@ -474,6 +488,7 @@ async function filesLink(): Promise<FilesLink> {
     received,
     answer: { status: 200, body: {} },
     readAnswer: { status: 200, body: {} },
+    updateAnswer: { status: 200, body: {} },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
   const server = createServer((req, res) => {
@@ -486,7 +501,12 @@ async function filesLink(): Promise<FilesLink> {
         headers: req.headers,
         body: Buffer.concat(chunks).toString(),
       });
-      const { status, body } = req.method === 'GET' ? link.readAnswer : link.answer;
+      const { status, body } =
+        req.method === 'GET'
+          ? link.readAnswer
+          : req.url?.endsWith('/versions') === true
+            ? link.updateAnswer
+            : link.answer;
       if (body instanceof Uint8Array) {
         res.writeHead(status, { 'content-type': 'application/octet-stream' });
         res.end(body);
@@ -499,6 +519,14 @@ async function filesLink(): Promise<FilesLink> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   link.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/tool-files`;
   return link;
+}
+
+/** Whether the target adds versions to files: it supports `files` and `file-updates`. */
+function updatesFiles(target: PackServiceTarget): boolean {
+  return (
+    target.unsupported?.includes('files') !== true &&
+    target.unsupported?.includes('file-updates') !== true
+  );
 }
 
 function toolCall(
@@ -597,6 +625,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         if (target.unsupported?.includes('files') !== true) {
           toolIds.push(FIXTURE_FILES_TOOL_ID, FIXTURE_READ_TOOL_ID);
         }
+        if (updatesFiles(target)) toolIds.push(FIXTURE_UPDATE_TOOL_ID);
         expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
         expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
@@ -1626,7 +1655,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           expect(served().received.length).toBe(from);
         });
 
-        test('a tool that declares neither gets no files, even when the call carries them', async () => {
+        test('a tool that declares none of them gets no files, even when the call carries them', async () => {
           const answer = response(
             await invoke(service, toolCall('conformance.context', {}, { ctx: withFiles() })),
           );
@@ -1638,6 +1667,127 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         });
       },
     );
+
+    describe.skipIf(!updatesFiles(target))('adds versions to files', () => {
+      // Pack protocol 2.13.0: the call's tool files, as the runtime sends them to a tool that
+      // updates files. The link is this suite's own server, which keeps what it receives.
+      const token = 'kgi_tf_conformance-token';
+      const key = '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10';
+      const added = {
+        type: 'kindgi.file',
+        artifactId: 'art-conformance-3',
+        fileId: '5b0c9e2a-7d41-4f3e-9a6b-1c8d2e4f6a70',
+        version: 3,
+        name: 'invoice.txt',
+        contentType: 'text/plain',
+        size: 4,
+        sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+      };
+      const named = {
+        fileId: 'file conformance/1',
+        expectedVersion: 2,
+        name: 'Rechnung März.txt',
+        contentType: 'text/plain',
+        text: 'test',
+      };
+      const served = (): FilesLink => {
+        if (link === undefined) throw new Error('the tool files link is not running');
+        return link;
+      };
+      // A runtime of protocol 2.13.0 says a call may update (`updates`).
+      const updating = () => ({ url: served().url, token, updates: true });
+      const withFiles = () => ({ ...CTX, idempotencyKey: key, toolFiles: updating() });
+      const updateCall = (ctx: object = withFiles(), input: object = named) =>
+        toolCall(FIXTURE_UPDATE_TOOL_ID, input, { ctx });
+
+      test('the index says which tool updates files', () => {
+        const updating = index.tools.filter((t) => t.updatesFiles !== undefined).map((t) => t.id);
+        expect(updating).toEqual([FIXTURE_UPDATE_TOOL_ID]);
+      });
+
+      test('an update posts the bytes under the file, with the version it read and the token, and the handler gets what the runtime answered', async () => {
+        served().updateAnswer = { status: 200, body: { file: added } };
+        const from = served().received.length;
+        const answer = response(await invoke(service, updateCall()));
+        expect(answer).toEqual({
+          v: 2,
+          kind: 'result',
+          output: { updated: true, answer: { file: added } },
+        });
+        const [received] = served().received.slice(from);
+        expect(received?.method).toBe('POST');
+        expect(received?.path).toBe('/v1/tool-files/file%20conformance%2F1/versions');
+        expect(received?.headers.authorization).toBe(`Bearer ${token}`);
+        expect(received?.headers['content-type']).toBe('text/plain');
+        expect(received?.headers['kindgi-expected-version']).toBe('2');
+        expect(received?.headers['kindgi-file-name']).toBe('Rechnung%20M%C3%A4rz.txt');
+        expect(received?.body).toBe('test');
+      });
+
+      test('an update with no name sends none', async () => {
+        served().updateAnswer = { status: 200, body: { file: added } };
+        const from = served().received.length;
+        const unnamed = {
+          fileId: 'file conformance/1',
+          expectedVersion: 2,
+          contentType: 'text/plain',
+          text: 'test',
+        };
+        response(await invoke(service, updateCall(withFiles(), unnamed)));
+        const [received] = served().received.slice(from);
+        expect(received?.headers).not.toHaveProperty('kindgi-file-name');
+      });
+
+      test.each([
+        ['Latest, when it has these bytes already', { same: added }],
+        ["Latest, when it isn't the version the tool read", { conflict: added }],
+        ['why it added none', { notUpdated: 'rule' }],
+      ])('an update that adds no version answers %s', async (_, body) => {
+        served().updateAnswer = { status: 200, body };
+        const answer = response(await invoke(service, updateCall()));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { updated: true, answer: body } });
+      });
+
+      test("a refused update fails the call, and the token isn't in the error", async () => {
+        served().updateAnswer = {
+          status: 409,
+          body: { error: { code: 'tool-file-token-closed', message: 'closed' } },
+        };
+        const answer = response(await invoke(service, updateCall()));
+        expect(answer).toMatchObject({
+          v: 2,
+          kind: 'error',
+          code: 'handler-throw',
+          toolId: FIXTURE_UPDATE_TOOL_ID,
+        });
+        expect(JSON.stringify(answer)).toContain('tool-file-token-closed');
+        expect(JSON.stringify(answer)).not.toContain(token);
+      });
+
+      test('a call from a runtime that sends no tool files: no update', async () => {
+        const from = served().received.length;
+        const answer = response(await invoke(service, updateCall({ ...CTX, idempotencyKey: key })));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { updated: false } });
+        expect(served().received.length).toBe(from);
+      });
+
+      test('a call with no idempotency key: no update', async () => {
+        const from = served().received.length;
+        const answer = response(
+          await invoke(service, updateCall({ ...CTX, toolFiles: updating() })),
+        );
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { updated: false } });
+        expect(served().received.length).toBe(from);
+      });
+
+      test("tool files that don't say updates, as a runtime before 2.13.0 sends them: no update", async () => {
+        const from = served().received.length;
+        const ctx = { ...CTX, idempotencyKey: key, toolFiles: { url: served().url, token } };
+        const answer = response(await invoke(service, updateCall(ctx)));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { updated: false } });
+        expect(served().received.length).toBe(from);
+      });
+    });
 
     describe('checks', () => {
       test('a passing and a failing verdict', async () => {
