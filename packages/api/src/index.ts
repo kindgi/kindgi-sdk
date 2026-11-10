@@ -1399,6 +1399,7 @@ export type {
   SecretVersionRecord,
 } from './secrets-binding.js';
 export {
+  MAX_REVOKE_OLD_AFTER_MS,
   RESERVED_SECRET_NAME_PREFIX,
   SECRET_NAME_ALLOWED,
   SECRET_NAME_MAX_LENGTH,
