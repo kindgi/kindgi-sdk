@@ -397,8 +397,9 @@ What's left after that follows where the values were:
   in your secret manager, every version, then drops its row. A secret
   manager that doesn't answer stops the sweep, and its next run goes on
   from there.
-- **Purging a tenant:** the purge erases every secret the tenant set there,
-  revoked ones too, before any of its rows go. A secret your secret manager
+- **Purging a tenant:** the purge (runtime 0.7.0 or later) erases every
+  secret the tenant set there, revoked ones too, before any of its rows go.
+  A secret your secret manager
   doesn't erase stops the purge, with nothing of the tenant deleted after
   it: fix the server's access to your secret manager, then run the purge
   again ([Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant)).

@@ -600,8 +600,9 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   rows. Run it again once OpenFGA answers.
 - **With your own secret manager**
   ([Keep secrets in your own secret manager](../secret-manager/)), the
-  purge erases each of the tenant's secrets there after its OpenFGA store
-  and before its rows. One your secret manager doesn't erase stops it, with
+  purge (runtime 0.7.0 or later) erases each of the tenant's secrets there
+  after its OpenFGA store and before its rows. One your secret manager
+  doesn't erase stops it, with
   none of its rows deleted (a rate limit is waited out a few times first): `complete: false`, and `leftBecause` names the
   secret manager, its answer and the secret's id. The server's warning in
   its log says where the secret is. Fix the server's access to your secret
@@ -641,16 +642,18 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
 
 - **It deletes the tenant for good:** every row of it, its artifacts' bytes and
   its OpenFGA store. Its tenants row stays, marked purged, with nothing left
-  that signs in. With your own secret manager, it erases the tenant's
-  secrets there before its rows (`secrets: <n> erased in the secret manager`).
+  that signs in. With your own secret manager (runtime 0.7.0 or later), it
+  erases the tenant's secrets there before its rows
+  (`secrets: <n> erased in the secret manager`).
 - **`--dry-run`** says what would be deleted, and changes nothing. With
   secrets a secret manager may still hold, it counts them:
   `secrets a secret manager may still hold: <n> (<secret manager>)`.
 - **Refused (exit 2)** for a tenant that isn't closing or is still in its
   window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
-- **Its secrets in a secret manager need `KINDGI_SECRETS_MANAGER`,** with
-  that secret manager's settings and, on AWS or Azure, the server's identity
+- **Its secrets in a secret manager need `KINDGI_SECRETS_MANAGER`**
+  (runtime 0.7.0 or later), with that secret manager's settings and, on
+  AWS or Azure, the server's identity
   there, as the server has them. Without it, a tenant with secrets a secret
   manager may still hold is refused (exit 2). For a tenant with secrets, it
   first checks it can reach the secret manager, as the server does when it
