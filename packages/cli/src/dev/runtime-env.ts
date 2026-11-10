@@ -169,8 +169,8 @@ const TENANT_EGRESS_NAMES: readonly string[] = [
  * traffic out only through one: `KINDGI_TENANT_EGRESS_PROXY` and
  * `KINDGI_TENANT_EGRESS_NO_PROXY` from `kindgi dev`'s own environment,
  * each only when set and not empty, as they are. The runtime checks them
- * when it starts. A proxy URL can hold a password: they go only into
- * `runtime.env`, never into what `kindgi dev` prints or logs.
+ * when it starts, and refuses a proxy URL that carries credentials. They
+ * go only into `runtime.env`, never into what `kindgi dev` prints or logs.
  */
 export function tenantEgressOf(
   hostEnv: Readonly<Record<string, string | undefined>>,
