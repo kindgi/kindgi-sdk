@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.6"
+version: "0.5.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -83,7 +83,8 @@ answer elsewhere), and don't raise the deadline for it: read
 
 `<pack-id>.<tool-name>` — kebab-case, dot-namespaced. The `<pack-id>`
 prefix scopes the tool to its pack; `<tool-name>` names the operation.
-Enforced by `defineTool` at author time. Examples:
+`defineTool` checks only that the id isn't empty and doesn't start
+with `kindgi_`, which is kept for built-in tools. Examples:
 `acme.verify-citation`, `shop.fetch-order`, `demo.echo`.
 
 ## Wiring the tool onto an agent

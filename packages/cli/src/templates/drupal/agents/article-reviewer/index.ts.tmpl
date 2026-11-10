@@ -1,10 +1,10 @@
-// {{PACK_ID}}.content-reviewer — writes a short note for the editors about
-// an article that was just saved. `{{PACK_ID}}.content-review` runs it on
+// {{PACK_ID}}.article-reviewer — writes a short note for the editors about
+// an article that was just saved. `{{PACK_ID}}.review-article` runs it on
 // each node event Drupal sends.
 //
 // It's the agent that sees outside input, so it can't change anything: it
 // has the site's read tools only. Fixes stay with
-// `{{PACK_ID}}.content-agent`, which editors talk to and which the event
+// `{{PACK_ID}}.style-checker`, which editors talk to and which the event
 // never reaches. The event arrives already checked by
 // `{{PACK_ID}}.check-content-event`, as the step's input: the turn's
 // message is that input as JSON, and the instructions name only its typed
@@ -18,9 +18,9 @@ import type { AgentId, GuardrailId, Semver } from '@kindgi/sdk/types';
 import { READ_TOOLS, drupalTool } from '../../lib/drupal.js';
 
 const defined = defineAgent({
-  id: '{{PACK_ID}}.content-reviewer' as AgentId,
+  id: '{{PACK_ID}}.article-reviewer' as AgentId,
   version: '{{PACK_VERSION}}' as Semver,
-  name: 'Content reviewer',
+  name: 'Article reviewer',
   description:
     'Reviews a saved article for the editors: what changed, what the checks found, and what to look at before it is published.',
   instructions: [
@@ -51,7 +51,7 @@ const defined = defineAgent({
 });
 
 if (defined.kind === 'err') {
-  throw new Error(`{{PACK_ID}}.content-reviewer failed to compile: ${defined.error.message}`);
+  throw new Error(`{{PACK_ID}}.article-reviewer failed to compile: ${defined.error.message}`);
 }
 
 export default defined.value;
