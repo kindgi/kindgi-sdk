@@ -97,6 +97,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'GET /v1/license license-operator-only',
     // Refused before its `since` is read: no 400 for a caller who may not ask.
     'GET /v1/license/usage license-operator-only',
+    // Refused before its body is read: the key is the deployment's to hand over.
+    'PUT /v1/license license-operator-only',
     // A tenant's key never reaches a system route.
     'POST /v1/system/keys system-principal-required',
     'GET /v1/system/keys system-principal-required',
@@ -112,6 +114,7 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/approvals/{approvalId}/complete',
     'GET /v1/license license-operator-only',
     'GET /v1/license/usage license-operator-only',
+    'PUT /v1/license license-operator-only',
     'POST /v1/system/keys system-principal-required',
     'GET /v1/system/keys system-principal-required',
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',

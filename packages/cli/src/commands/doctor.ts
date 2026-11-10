@@ -421,10 +421,7 @@ async function licenseKeyCheck(
       ? `--key ${await ref('KINDGI_LICENSE_KEY_REF', '<where KINDGI_LICENSE_KEY is kept>')}`
       : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
   const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
-  const checked =
-    seam.licensePublicKeys !== undefined
-      ? checkLicenseKey(key, seam.licensePublicKeys)
-      : checkLicenseKey(key);
+  const checked = checkLicenseKey(key, seam.licensePublicKeys);
   if (checked.kind === 'err') {
     return checked.reason === 'unknown-key'
       ? warn(

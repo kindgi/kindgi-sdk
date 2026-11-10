@@ -12,8 +12,10 @@
  *     access.kindgi.com, signed in as the person it's for.
  *   - `renew --key <ref> | --env-file <path>  --renewer <ref>`: asks for the
  *     key's next version, checks it offline, and writes it only when it's
- *     new. One line by shape; exit 1 when refused or failed, so a
- *     scheduler's alerting sees it.
+ *     new. With `--runtime`, a new key goes to the running server first,
+ *     and an unchanged one to a server that runs an older key.
+ *     One line by shape; exit 1 when refused or failed, so a scheduler's
+ *     alerting sees it.
  *
  * `<ref>`: `file:<path>`, `env-file:<path>#<NAME>`,
  * `gcp:projects/<project>/secrets/<name>`,
@@ -26,7 +28,7 @@ import { bearerValueProblem } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { LICENSE_WARN_DAYS, isSelfServe } from '../license/expiry.js';
+import { isSelfServe, warnDaysOf } from '../license/expiry.js';
 import type { LicenseClaims } from '../license/license-key.js';
 import {
   KINDGI_ACCESS_ORIGIN,
@@ -39,6 +41,9 @@ import {
 import {
   type CountsSent,
   PRODUCTION_NO_COUNTS,
+  PUSH_RUNTIME,
+  type PushAnswer,
+  type RuntimeTook,
   networkReason,
   renewLicense,
 } from '../license/renew.js';
@@ -96,11 +101,19 @@ export function accessOrigin(ctx: CommandContext): string {
  * `--runtime <url>` with `--runtime-token <ref>`: the deployment's runtime (its
  * URL, as `KINDGI_API_URL` gives it) and where a token for it is kept (a
  * system key holding `system:license`, or its own token), to read its use
- * since the current key was issued (`GET /v1/license/usage`). Both or
- * neither. Neither value is printed: a URL can hold credentials, and a
- * reference given wrong can be the token itself.
+ * since the current key was issued (`GET /v1/license/usage`), to hand it a
+ * new key before it's written (`PUT /v1/license`), and to see whether it
+ * runs an older key than the one kept (`GET /v1/license`). Both or neither.
+ * Neither value is printed: a URL can hold credentials, and a reference
+ * given wrong can be the token itself.
  */
-function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsage>) | undefined {
+function runtimeOf(ctx: CommandContext):
+  | {
+      readonly usage: (since: Date) => Promise<RenewalUsage>;
+      readonly push: (key: string) => Promise<PushAnswer>;
+      readonly running: () => Promise<Date | undefined>;
+    }
+  | undefined {
   const runtime = stringFlag(ctx, 'runtime');
   const tokenRef = stringFlag(ctx, 'runtime-token');
   if ((runtime === undefined) !== (tokenRef === undefined)) {
@@ -111,7 +124,7 @@ function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsa
   if (runtime === undefined || tokenRef === undefined) return undefined;
   const base = runtimeBase(runtime);
   const tokens = store(ctx, 'runtime-token', tokenRef);
-  return async (since) => {
+  const client = async () => {
     const token = (await tokens.read())?.trim();
     if (token === undefined || token === '') {
       throw new Error(`there's no token in ${tokens.describe}`);
@@ -123,12 +136,120 @@ function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsa
         `the token in ${tokens.describe} can't be sent in a header: it has ${problem}`,
       );
     }
-    try {
-      return await ctx.clientFor(base, token).license.usage({ since });
-    } catch (cause) {
-      throw new Error(usageProblem(base, cause));
-    }
+    return ctx.clientFor(base, token);
   };
+  return {
+    async usage(since) {
+      const api = await client();
+      try {
+        return await api.license.usage({ since });
+      } catch (cause) {
+        throw new Error(usageProblem(base, cause));
+      }
+    },
+    async push(key) {
+      let api: Awaited<ReturnType<typeof client>>;
+      try {
+        api = await client();
+      } catch (cause) {
+        const why = cause instanceof Error ? cause.message : String(cause);
+        return { kind: 'not-handed', said: `${base} wasn't asked (${why})` };
+      }
+      try {
+        await api.license.replace({ key });
+        return { kind: 'taken' };
+      } catch (cause) {
+        return pushAnswer(base, cause);
+      }
+    },
+    // Can't say, for any reason: nothing is handed over on its word.
+    async running() {
+      try {
+        const api = await client();
+        const { expiresAt } = await api.license.get();
+        const at = expiresAt === undefined ? undefined : new Date(expiresAt);
+        return at === undefined || Number.isNaN(at.getTime()) ? undefined : at;
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}
+
+/**
+ * What the runtime said to a key handed to it: refused it (its own check),
+ * can't take one (no `PUT /v1/license`: its own token gets a 404, and its
+ * system keys reach only the license's reads), or wasn't handed it.
+ */
+function pushAnswer(runtime: string, cause: unknown): PushAnswer {
+  if (!(cause instanceof KindgiApiError)) {
+    const why = cause instanceof Error ? cause.message : String(cause);
+    return { kind: 'not-handed', said: `${runtime} couldn't be asked (${why})` };
+  }
+  const error = cause.error;
+  const serverCode = 'serverCode' in error ? error.serverCode : undefined;
+  if (serverCode === 'license-key-refused') {
+    return { kind: 'refused', error: serverCode, message: error.message };
+  }
+  if (error.code === 'not-found' || serverCode === 'system-key-on-tenant-route') {
+    return {
+      kind: 'absent',
+      said: `${runtime} has no PUT /v1/license: a runtime before ${PUSH_RUNTIME}`,
+    };
+  }
+  if (error.code === 'network' && error.cause instanceof SyntaxError) {
+    return {
+      kind: 'not-handed',
+      said: `${runtime} answered, but not as a runtime: a page from a proxy or another server, perhaps`,
+    };
+  }
+  if (error.code === 'network') {
+    const why = error.timeoutMs !== undefined ? 'no answer in time' : networkReason(error.cause);
+    return { kind: 'not-handed', said: `${runtime} couldn't be asked (${why})` };
+  }
+  return { kind: 'not-handed', said: `${runtime} answered: ${error.message}` };
+}
+
+/** What the runtime made of a new key handed to it, as a line. */
+function runtimeLine(
+  runtime: RuntimeTook | undefined,
+  needsRuntime: string | undefined,
+): SaidLine[] {
+  if (runtime === undefined) {
+    return [
+      note(
+        needsRuntime === undefined
+          ? 'The runtime uses the new key from its next start; until then it runs on the one it started with.'
+          : `The runtime uses the new key from its next start, and needs to be ${needsRuntime} or later to start with it; until then it runs on the one it started with.`,
+      ),
+    ];
+  }
+  if (runtime.kind === 'taken') return [note('The runtime took the new key: it runs it now.')];
+  return [
+    warning(
+      `⚠ The runtime didn't take the new key (${runtime.said}): it uses it from its next start; until then it runs on the one it started with.`,
+    ),
+  ];
+}
+
+/**
+ * What the runtime made of the unchanged key, handed to it because it ran
+ * one that expires earlier, as a line; none when it wasn't handed it.
+ */
+function handedOverLine(runtime: RuntimeTook | undefined, kept: string): SaidLine[] {
+  if (runtime === undefined) return [];
+  if (runtime.kind === 'taken') {
+    return [
+      note(
+        `The runtime ran an older key than the one in ${kept}: it took that one, and runs it now.`,
+      ),
+    ];
+  }
+  return [
+    warning(
+      `⚠ The runtime runs an older key than the one in ${kept}, and didn't take it (${runtime.said}): it uses it from its next start.`,
+    ),
+  ];
 }
 
 /** `--runtime`: an http(s) URL with no credentials in it, as its origin and path. */
@@ -335,7 +456,7 @@ const renew: LeafCommand = {
     runtime: {
       type: 'string',
       description:
-        "This deployment's runtime: the renewal carries its use since the current key was issued (counts only), read with --runtime-token.",
+        "This deployment's runtime, reached with --runtime-token: the renewal carries its use since the current key was issued (counts only), a new key goes to it before it's written, and an unchanged one goes to it when it runs an older key.",
     },
     'runtime-token': {
       type: 'string',
@@ -345,7 +466,7 @@ const renew: LeafCommand = {
   },
   async run(ctx): Promise<CommandResult> {
     try {
-      const usage = runtimeUsage(ctx);
+      const runtime = runtimeOf(ctx);
       const keyFlag = stringFlag(ctx, 'key');
       const envFile = stringFlag(ctx, 'env-file');
       if ((keyFlag === undefined) === (envFile === undefined)) {
@@ -360,12 +481,17 @@ const renew: LeafCommand = {
         "where the renewer's private key is (as enroll was given)",
       );
       const origin = accessOrigin(ctx);
+      const keyStore = store(ctx, 'key', keyRef);
       const outcome = await renewLicense(
         {
-          key: store(ctx, 'key', keyRef),
+          key: keyStore,
           renewer: store(ctx, 'renewer', renewerRef),
           origin,
-          ...(usage !== undefined && { usage }),
+          ...(runtime !== undefined && {
+            usage: runtime.usage,
+            push: runtime.push,
+            running: runtime.running,
+          }),
         },
         { fetch: ctx.fetch, ...(ctx.licenseDeps?.renew ?? {}) },
       );
@@ -399,13 +525,9 @@ const renew: LeafCommand = {
         note(`${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`),
         ...countsLine(outcome.counts),
         ...(outcome.kind === 'renewed'
-          ? [
-              note(
-                'The runtime uses the new key from its next start; until then it runs on the one it started with.',
-              ),
-            ]
-          : []),
-        ...(daysLeft <= LICENSE_WARN_DAYS
+          ? runtimeLine(outcome.runtime, outcome.needsRuntime)
+          : handedOverLine(outcome.runtime, keyStore.describe)),
+        ...(daysLeft <= warnDaysOf(outcome.claims)
           ? // The Azure module's expiring alert reads this line's days: the tests
             // run renew against its query (deploy/azure-container-apps).
             [warning(`⚠ ${expiring}`)]
@@ -422,6 +544,8 @@ const renew: LeafCommand = {
           daysLeft,
         },
         ...(outcome.counts !== undefined && { counts: outcome.counts }),
+        ...(outcome.runtime !== undefined && { runtime: outcome.runtime }),
+        ...(outcome.needsRuntime !== undefined && { needsRuntime: outcome.needsRuntime }),
         warnings: lines.filter((l) => l.problem).map((l) => l.text.replace(/^⚠ /, '')),
       };
       return { kind: 'ok', rendered: licenseRendered(ctx, result, lines) };

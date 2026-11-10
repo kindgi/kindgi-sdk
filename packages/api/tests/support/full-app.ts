@@ -777,6 +777,7 @@ export function fullAppInput(): CreateAppInput {
         runs: 0,
         people: 0,
       }),
+      replace: async () => ({ kind: 'taken' }),
     },
     runtime: { version: '0.0.0', development: false },
     systemKeys: {

@@ -210,6 +210,7 @@ function makeApp(tenancy: 'single' | 'multi' | 'unset' = 'multi') {
         runs: 3,
         people: 2,
       }),
+      replace: async () => ({ kind: 'taken' }),
     },
     runtime: { version: '0.0.0', development: false },
   });
@@ -281,7 +282,7 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
     expect(code(r)).toBe('system-key-on-tenant-route');
     // The refusal names every route a system key reaches.
     expect((r.body.error as { message: string }).message).toContain(
-      'it reaches /v1/system/*, GET /v1/license and GET /v1/license/usage only, not GET /v1/tenant',
+      'it reaches /v1/system/*, GET /v1/license, PUT /v1/license and GET /v1/license/usage only, not GET /v1/tenant',
     );
   });
 
@@ -333,6 +334,29 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
     // Any other scope is refused at the fence, as for the license.
     const other = await mintSystemKey(['system:tenants']);
     const refused = await call(other.token, 'GET', usage);
+    expect(refused.status).toBe(403);
+    expect(code(refused)).toBe('system-scope-missing');
+    expect((refused.body.error as { details?: unknown }).details).toMatchObject({
+      scope: 'system:license',
+    });
+  });
+
+  test('a system key holding system:license hands the running server a renewed key', async () => {
+    const { call, code, audit, mintSystemKey } = makeApp();
+    const renewer = await mintSystemKey(['system:license']);
+    const r = await call(renewer.token, 'PUT', '/v1/license', { key: 'kgi_lk_e30.c2ln' });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body).toMatchObject({ mode: 'licensed', name: 'Acme', use: 'production' });
+    expect(audit.at(-1)).toMatchObject({
+      keyId: renewer.id,
+      method: 'PUT',
+      path: '/v1/license',
+      status: 200,
+      scope: 'system:license',
+    });
+    // Any other scope is refused at the fence, as for reading the license.
+    const other = await mintSystemKey(['system:tenants']);
+    const refused = await call(other.token, 'PUT', '/v1/license', { key: 'kgi_lk_e30.c2ln' });
     expect(refused.status).toBe(403);
     expect(code(refused)).toBe('system-scope-missing');
     expect((refused.body.error as { details?: unknown }).details).toMatchObject({
@@ -947,7 +971,11 @@ describe('serving one tenant, every operation in OPERATIONS', () => {
   const LICENSE_KEY = 'kgi_sy_sweep_license';
   const FULL_KEY = 'kgi_sy_sweep_full';
   const BOOT = 'kgi_bt_sweep_single';
-  const LICENSE_OPS: ReadonlySet<string> = new Set(['license.get', 'license.usage']);
+  const LICENSE_OPS: ReadonlySet<string> = new Set([
+    'license.get',
+    'license.replace',
+    'license.usage',
+  ]);
   const bearerOps = OPERATIONS.filter((op) => op.security !== 'public');
 
   async function sweepApp() {
@@ -1000,7 +1028,9 @@ describe('serving one tenant, every operation in OPERATIONS', () => {
           authorization: `Bearer ${token}`,
           ...(withBody && { 'content-type': 'application/json' }),
         },
-        ...(withBody && { body: '{}' }),
+        ...(withBody && {
+          body: op.operationId === 'license.replace' ? '{"key":"kgi_lk_e30.c2ln"}' : '{}',
+        }),
       },
     );
     const code = ((await res.json().catch(() => ({}))) as { error?: { code?: string } }).error
@@ -1018,7 +1048,7 @@ describe('serving one tenant, every operation in OPERATIONS', () => {
     expected: string,
   ) => r.status === 403 && (r.head || r.code === expected);
 
-  test('a key holding system:license gets a yes from GET /v1/license and /usage alone', async () => {
+  test('a key holding system:license gets a yes from GET and PUT /v1/license and /usage alone', async () => {
     const app = await sweepApp();
     const wrong: string[] = [];
     for (const op of bearerOps) {

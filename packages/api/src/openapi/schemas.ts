@@ -3314,6 +3314,48 @@ export const LicenseStatusSchema: JsonSchema = {
         "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.",
     },
     preview: { $ref: '#/components/schemas/LicensePreview' },
+    limits: { $ref: '#/components/schemas/LicenseLimits' },
+  },
+};
+
+export const LicenseLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.",
+  properties: {
+    flows: { $ref: '#/components/schemas/LicenseLimit' },
+    agents: { $ref: '#/components/schemas/LicenseLimit' },
+  },
+};
+
+export const LicenseLimitSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['plan', 'most', 'inUse'],
+  description: 'One count the key limits.',
+  properties: {
+    plan: { type: 'integer', minimum: 1, description: 'The number the key carries.' },
+    most: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The most this runtime runs: past it, it refuses new ones.',
+    },
+    inUse: { type: 'integer', minimum: 0, description: 'How many it counts now.' },
+  },
+};
+
+export const LicenseKeyBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key'],
+  properties: {
+    key: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4096,
+      description: 'The whole license key, `kgi_lk_…`.',
+    },
   },
 };
 
@@ -18228,6 +18270,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['LicenseLimits', LicenseLimitsSchema],
+  ['LicenseLimit', LicenseLimitSchema],
+  ['LicenseKeyBody', LicenseKeyBodySchema],
   ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
