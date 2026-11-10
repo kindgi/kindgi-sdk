@@ -13,7 +13,7 @@ import java.util.Map;
  * final} field of a class under the pack's flows.
  *
  * <pre>{@code
- * public static final Flow FLOW = Flow.define("acme.record-flow")
+ * public static final Flow FLOW = Flow.define("acme.book-expense")
  *     .version("1.0.0")
  *     .toolNode("record", RecordExpense.TOOL)
  *     .edge("e-start", "$start", "record")

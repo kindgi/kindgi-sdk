@@ -1977,7 +1977,7 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         "Run a flow for each new mail in a folder of the company's Outlook mailbox, looking every two minutes.",
-      line: 'kindgi mail-triggers create --flow=acme.triage --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
+      line: 'kindgi mail-triggers create --flow=acme.triage-ticket --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
     },
     {
       purpose:
@@ -2571,7 +2571,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: "Have a flow of a project use one of the project's company Google connections.",
-      line: 'kindgi connection-choices set sales --flow=acme.triage --project=<project-id> --app=google',
+      line: 'kindgi connection-choices set sales --flow=acme.triage-ticket --project=<project-id> --app=google',
     },
     {
       purpose:
@@ -2581,7 +2581,7 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         'Give a tool that only reads three of your own connections, `work` by default: each call names the one it reads.',
-      line: 'kindgi connection-choices set work home school --agent=acme.assistant --tool=acme.calendar.events --default=work --mine',
+      line: 'kindgi connection-choices set work home school --agent=acme.calendar-keeper --tool=acme.calendar.events --default=work --mine',
     },
   ],
   'connection-choices list': [

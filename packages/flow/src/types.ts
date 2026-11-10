@@ -752,9 +752,9 @@ export interface LoopBody {
  */
 export interface Flow {
   /**
-   * Globally-unique flow identifier. Convention:
-   * `<pack-id>.<flow-name>` (kebab-case, dot-namespaced) — e.g.
-   * `acme.brief-review-flow`. The framework's built-in agent-turn
+   * Globally-unique flow identifier: `<pack-id>.<flow-name>`, the
+   * pack's own id, a dot, and a kebab-case name with no dot, verb
+   * first — e.g. `acme.review-brief`. The framework's built-in agent-turn
    * flow is `agent.turn` (`AGENT_TURN_FLOW_ID` in `@kindgi/agents`).
    */
   readonly id: FlowId;

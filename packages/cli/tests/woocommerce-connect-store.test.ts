@@ -504,7 +504,7 @@ describe("the woocommerce starter's connect-store", () => {
     expect(stdout + stderr).not.toContain(password);
     expect(stdout).toContain("✓ Revoked owner's approval password.");
     expect(stdout).toContain(
-      'Connected. Try the store agent: pnpm exec kindgi runs start --agent=acme-shop.store-agent',
+      'Connected. Try the order desk: pnpm exec kindgi runs start --agent=acme-shop.order-desk',
     );
     // Before 7.0, WordPress sends the approval to 127.0.0.1 only on a local
     // site; the wait says what wp-admin shows then, and what to do.

@@ -12,7 +12,7 @@ and which value it gets.
 ## A pack goes into one project
 
 A pack is your app's Kindgi code, in its `kindgi/` folder or a pack of its
-own. Every id in it starts with the pack's id, such as `acme-desk.triage`
+own. Every id in it starts with the pack's id, such as `acme-desk.ticket-classifier`
 ([Packs and primitives](../packs/)).
 
 `kindgi deploy` registers the whole pack in one project: the one

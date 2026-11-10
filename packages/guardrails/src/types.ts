@@ -292,7 +292,7 @@ export interface Guardrail {
    * When this guardrail applies. `{when: 'always'}` fires everywhere;
    * `{when: 'ci-only'}` blocks CI but not runtime; `{when: 'runtime-only'}`
    * enforces at runtime but not CI. Per-agent / per-flow selectors
-   * narrow further (e.g. `{agents: ['acme.support-agent']}`).
+   * narrow further (e.g. `{agents: ['acme.support-desk']}`).
    */
   readonly scope?: Scope;
   /**

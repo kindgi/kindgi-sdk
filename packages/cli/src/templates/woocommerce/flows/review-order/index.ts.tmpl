@@ -1,4 +1,4 @@
-// {{PACK_ID}}.order-review — reviews each new order WooCommerce sends.
+// {{PACK_ID}}.review-order — reviews each new order WooCommerce sends.
 //
 // A webhook trigger starts it: WooCommerce posts the order to Kindgi on
 // `order.created`, Kindgi checks the signature, and the order (the
@@ -11,14 +11,14 @@
 //     from the checked order, its step input.
 //
 // Try it without a store:
-//   kindgi runs start --flow={{PACK_ID}}.order-review --input=@fixtures/order-created.json
+//   kindgi runs start --flow={{PACK_ID}}.review-order --input=@fixtures/order-created.json
 
 import { defineFlow } from '@kindgi/sdk/define';
 
 const defined = defineFlow({
-  id: '{{PACK_ID}}.order-review',
+  id: '{{PACK_ID}}.review-order',
   version: '{{PACK_VERSION}}',
-  name: 'Order review',
+  name: 'Review an order',
   description: "Checks a new WooCommerce order, then has the order reviewer write a review for the store's staff.",
   nodes: [
     {
@@ -58,7 +58,7 @@ const defined = defineFlow({
 });
 
 if (defined.kind === 'err') {
-  throw new Error(`{{PACK_ID}}.order-review failed to compile: ${defined.error.message}`);
+  throw new Error(`{{PACK_ID}}.review-order failed to compile: ${defined.error.message}`);
 }
 
 export default defined.value;

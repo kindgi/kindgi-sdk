@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -311,7 +311,7 @@ object FetchOrder {
   final case class Input(orderId: String)
   final case class Output(id: String, status: String, total: Double)
 
-  val tool: Tool[Input, Output] = Tool[Input, Output]("shop.fetch-order")
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.fetch-order")
     .description("Fetch an order by id from the storefront API.")
     .version("0.1.0")
     .readOnly
