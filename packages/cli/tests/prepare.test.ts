@@ -3,31 +3,37 @@
 // reads-source: packages/cli/src/templates/*/AGENTS.md
 
 /**
- * `kindgi prepare`: Kindgi Cloud's own build step. Over a Node pack and a
- * Python pack with faked build runners (as tests/build.test.ts does), it
- * writes `pack.tgz` and `expected-index.json`, prints one JSON line, and
- * never sends, checks an image or signs. It reads no key, token or profile,
- * and refuses a Node pack whose install reads a settings file (`.npmrc`)
- * before writing anything. It's hidden from `--help`, the reference and
- * their suggestions, and still runs.
+ * `kindgi prepare`: Kindgi Cloud's own build step. Over a Node, a Python and
+ * a Java or Scala pack with faked build runners (as tests/build.test.ts
+ * does), it writes `pack.tgz` and `expected-index.json`, prints one JSON
+ * line, and never sends, checks an image or signs. It reads no key, token
+ * or profile, and refuses a Node pack whose install reads a settings file
+ * (`.npmrc`) before writing anything. It's hidden from `--help`, the
+ * reference and their suggestions, and still runs.
  */
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+} from '../src/build/java-image.js';
 import type {
   BuildRunners,
   EsbuildBundleResult,
+  JvmBuildRunners,
   LocalIndexResult,
   PythonBuildRunners,
   TarPackResult,
 } from '../src/build/runners.js';
+import { DEFAULT_SCALA_BUILD_IMAGE_REF } from '../src/build/scala-image.js';
 import type { Command, LeafCommand } from '../src/commands/types.js';
 import { wiredCommands } from '../src/commands/unwired.js';
 import { commandHelpText, rootHelpText, unknownSubcommandText } from '../src/help.js';
@@ -367,6 +373,192 @@ describe('kindgi prepare — a Python pack', () => {
     expect(out.stdout).toBe('');
     expect(out.stderr).toContain('uv lock');
     expect(existsSync(join(packDir, '.kindgi', 'build', 'pack.tgz'))).toBe(false);
+    expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
+  });
+});
+
+describe('kindgi prepare — a Java or Scala pack', () => {
+  const PACK = { id: 'my-pack', version: '0.1.0' };
+  const JAVA_CONFIG = {
+    pack: PACK,
+    language: 'java',
+    dev: { javaHome: '/opt/jdk-17', maven: ['mvn'] },
+  };
+  const SCALA_CONFIG = { pack: PACK, language: 'scala', dev: { javaHome: '/opt/jdk-17' } };
+
+  const JAVA_FILES: Record<string, string> = {
+    'pom.xml': '<project/>\n',
+    'src/main/java/acme/tools/Echo.java': 'x',
+    'target/classes/Echo.class': 'x',
+  };
+  const SCALA_FILES: Record<string, string> = {
+    'build.sbt': 'scalaVersion := "3.3.8"\n',
+    'project/build.properties': 'sbt.version=1.12.15\n',
+    'src/main/scala/acme/tools/Echo.scala': 'object Echo',
+    // Build output, build-server state and credentials stay out of the image.
+    'target/scala-3.3.8/classes/acme/tools/Echo$.class': 'x',
+    '.bsp/sbt.json': '{}',
+    'credentials.sbt': 'credentials += ???',
+  };
+
+  async function jvmPack(language: 'java' | 'scala', files: Record<string, string>): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    const all = {
+      'kindgi.config.json': JSON.stringify({ language, pack: PACK }),
+      '.env': 'SECRET=1\n',
+      ...files,
+    };
+    for (const [rel, text] of Object.entries(all)) {
+      await mkdir(dirname(join(packDir, rel)), { recursive: true });
+      await writeFile(join(packDir, rel), text, 'utf8');
+    }
+  }
+
+  function withJvm(runners: BuildRunners, compileErrors?: readonly string[]) {
+    const calls = {
+      prepared: [] as unknown[],
+      indexed: [] as unknown[],
+      images: [] as (readonly string[])[],
+      targets: [] as string[],
+      files: [] as (readonly string[])[],
+      contextDirs: [] as string[],
+    };
+    const jvm: JvmBuildRunners = {
+      prepare: async (o) => {
+        calls.prepared.push(o.code);
+        return compileErrors === undefined
+          ? { kind: 'ok' }
+          : { kind: 'err', errors: compileErrors };
+      },
+      runLocalIndexer: async (o) => {
+        calls.indexed.push(o.code);
+        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.images.push([o.buildImageRef, o.runtimeImageRef]);
+        calls.targets.push(o.buildTarget);
+        await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+        calls.contextDirs.push(o.contextDir);
+      },
+    };
+    return { runners: { ...runners, jvm }, calls };
+  }
+
+  function jvmInputs(
+    runners: BuildRunners,
+    config: Record<string, unknown>,
+    argv: readonly string[],
+  ): RunCliInputs {
+    return { ...inputs(runners, argv), buildConfigLoader: async () => config };
+  }
+
+  const cases = [
+    {
+      name: 'Java',
+      language: 'java',
+      config: JAVA_CONFIG,
+      files: JAVA_FILES,
+      tool: { maven: ['mvn'] },
+      images: [DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF],
+      context: ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
+    },
+    {
+      name: 'Scala',
+      language: 'scala',
+      config: SCALA_CONFIG,
+      files: SCALA_FILES,
+      tool: { sbt: ['sbt'] },
+      images: [DEFAULT_SCALA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF],
+      context: [
+        'build.sbt',
+        'kindgi.config.json',
+        'project/build.properties',
+        'src/main/scala/acme/tools/Echo.scala',
+      ],
+    },
+  ] as const;
+
+  for (const c of cases) {
+    test(`a ${c.name} pack: compiles and indexes with the pack's JDK, writes pack.tgz and expected-index.json, and never posts, streams, pulls or signs`, async () => {
+      await jvmPack(c.language, c.files);
+      const faked = fakeRunners();
+      const { runners, calls } = withJvm(faked.runners);
+      const out = await runCli(
+        jvmInputs(runners, c.config, ['prepare', '--target', 'production', `--path=${packDir}`]),
+      );
+      expect(out.exitCode, out.stderr).toBe(0);
+
+      const lines = out.stdout.split('\n');
+      expect(lines).toHaveLength(2);
+      const result = JSON.parse(lines[0] as string) as Record<string, unknown>;
+      expect(await readFile(result.packTgz as string)).toEqual(Buffer.from(TARBALL_BYTES));
+      expect(await readFile(result.expectedIndex as string)).toEqual(
+        Buffer.from(SAMPLE_INDEX_BYTES),
+      );
+      expect(result.counts).toEqual({ tools: 1, guardrails: 0, agents: 0, flows: 0 });
+
+      const code = {
+        language: c.language,
+        java: '/opt/jdk-17/bin/java',
+        javaHome: '/opt/jdk-17',
+        ...c.tool,
+        workDir: join(packDir, '.kindgi', 'build', c.language),
+      };
+      expect(calls.prepared).toEqual([code]);
+      expect(calls.indexed).toEqual([code]);
+      expect(calls.images).toEqual([c.images]);
+      expect(calls.targets).toEqual(['production']);
+      // The pack root minus build output, build-server state and secrets (.env, credentials.sbt).
+      expect(calls.files).toEqual([c.context]);
+      expect(calls.contextDirs).toEqual([join(packDir, '.kindgi', 'build', 'context')]);
+      // The Node indexer and bundler never run; the context is tarred as a Node pack's is.
+      expect(faked.calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 1 });
+      expect(faked.calls).toMatchObject({ post: 0, stream: 0, pull: 0, sign: 0 });
+    });
+  }
+
+  test("a Java pack that doesn't compile fails before indexing, with javac's located errors, and stdout stays empty", async () => {
+    await jvmPack('java', JAVA_FILES);
+    const faked = fakeRunners();
+    const { runners, calls } = withJvm(faked.runners, [
+      'src/main/java/acme/tools/Echo.java:3:1: class expected',
+    ]);
+    const out = await runCli(
+      jvmInputs(runners, JAVA_CONFIG, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain("The pack didn't compile");
+    expect(out.stderr).toContain('src/main/java/acme/tools/Echo.java:3:1: class expected');
+    expect(calls.indexed).toEqual([]);
+    expect(existsSync(join(packDir, '.kindgi', 'build', 'pack.tgz'))).toBe(false);
+    expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
+  });
+
+  test('a Java pack without pom.xml fails before the tar, and stdout stays empty', async () => {
+    const { 'pom.xml': _pom, ...withoutPom } = JAVA_FILES;
+    await jvmPack('java', withoutPom);
+    const faked = fakeRunners();
+    const { runners } = withJvm(faked.runners);
+    const out = await runCli(
+      jvmInputs(runners, JAVA_CONFIG, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain('No pom.xml');
     expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
   });
 });
