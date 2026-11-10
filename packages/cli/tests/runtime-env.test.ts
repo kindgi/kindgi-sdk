@@ -14,6 +14,7 @@ import {
   buildRuntimeEnv,
   runtimeEnvPath,
   shellReferencesOf,
+  tenantEgressOf,
   writeRuntimeEnv,
 } from '../src/dev/runtime-env.js';
 
@@ -112,6 +113,19 @@ describe('buildRuntimeEnv', () => {
     expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
   });
 
+  test('the tenant egress proxy kindgi dev has; a shell reference never sets it', () => {
+    const tenantEgress = {
+      KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128',
+      KINDGI_TENANT_EGRESS_NO_PROXY: '.corp.example',
+    };
+    expect(buildRuntimeEnv({ ...BASE, tenantEgress })).toMatchObject(tenantEgress);
+    const fromReference = buildRuntimeEnv({
+      ...BASE,
+      shellReferences: { KINDGI_TENANT_EGRESS_PROXY: 'http://elsewhere.example:3128' },
+    });
+    expect(fromReference.KINDGI_TENANT_EGRESS_PROXY).toBeUndefined();
+  });
+
   test("every KINDGI_ name it writes is the runtime's, from @kindgi/env-schema", () => {
     const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
     const env = buildRuntimeEnv({
@@ -121,11 +135,39 @@ describe('buildRuntimeEnv', () => {
       publicTokenKeyPath: '/k.pem',
       exportSigningKeyPath: '/e.pem',
       googleCredentialsPath: '/g.json',
+      tenantEgress: tenantEgressOf({
+        KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128',
+        KINDGI_TENANT_EGRESS_NO_PROXY: '.corp.example',
+      }),
     });
     const hostNetwork = buildRuntimeEnv({ ...BASE, apiHost: '127.0.0.1' });
     for (const name of [...Object.keys(env), ...Object.keys(hostNetwork)]) {
       if (name.startsWith('KINDGI_')) expect(names, name).toContain(name);
     }
+  });
+});
+
+describe('tenantEgressOf', () => {
+  test('the two names only, each only when set and not empty, as they are', () => {
+    expect(
+      tenantEgressOf({
+        KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128',
+        KINDGI_TENANT_EGRESS_NO_PROXY: '.corp.example,registry.example',
+        HTTPS_PROXY: 'http://other.example:8080',
+        NO_PROXY: 'localhost',
+        KINDGI_TENANT_HOST_ACCESS: 'public',
+      }),
+    ).toEqual({
+      KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128',
+      KINDGI_TENANT_EGRESS_NO_PROXY: '.corp.example,registry.example',
+    });
+    expect(tenantEgressOf({ KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128' })).toEqual({
+      KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128',
+    });
+    expect(
+      tenantEgressOf({ KINDGI_TENANT_EGRESS_PROXY: '', KINDGI_TENANT_EGRESS_NO_PROXY: undefined }),
+    ).toEqual({});
+    expect(tenantEgressOf({})).toEqual({});
   });
 });
 
@@ -146,6 +188,24 @@ describe('runtime.env on disk', () => {
     const lines = (await readFile(path, 'utf8')).split('\n').filter((l) => !l.startsWith('#'));
     expect(lines).toEqual(['KINDGI_DEV=true', 'ACME_NOTE=two words = fine', '']);
     await expect(writeRuntimeEnv(path, { BAD: 'a\nb' })).rejects.toThrow('has a line break');
+  });
+
+  test('with the tenant egress proxy: its lines, still mode 0600', async () => {
+    const path = runtimeEnvPath(dir);
+    await writeRuntimeEnv(
+      path,
+      buildRuntimeEnv({
+        ...BASE,
+        tenantEgress: tenantEgressOf({
+          KINDGI_TENANT_EGRESS_PROXY: 'http://10.0.0.5:3128',
+          KINDGI_TENANT_EGRESS_NO_PROXY: '.corp.example',
+        }),
+      }),
+    );
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    const lines = (await readFile(path, 'utf8')).split('\n');
+    expect(lines).toContain('KINDGI_TENANT_EGRESS_PROXY=http://10.0.0.5:3128');
+    expect(lines).toContain('KINDGI_TENANT_EGRESS_NO_PROXY=.corp.example');
   });
 
   test("the shell's values for references the env files make and don't define", async () => {

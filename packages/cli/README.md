@@ -200,6 +200,13 @@ One command runs the whole loop on your machine:
   `.kindgi/dev/runtime.env` (mode `0600`) and passed with
   `docker run --env-file`. The runtime reads nothing else from your
   machine.
+- **Behind an egress proxy:** when your network lets traffic out only
+  through a forward proxy, set `KINDGI_TENANT_EGRESS_PROXY` (and, if some
+  hosts skip it, `KINDGI_TENANT_EGRESS_NO_PROXY`) where you run
+  `kindgi dev`: it writes them into `runtime.env` as they are, and never
+  prints them. The runtime sends the hosts your tenant configuration
+  chose, and webhooks, through it. It must be reachable from the
+  container: on Docker Desktop, `127.0.0.1` is the container's own.
 - **Your machine's `localhost`:** calls the runtime makes to `localhost` (your
   app's `run.finished` webhook, an MCP server, a model server you run
   locally) reach your machine. On Docker Desktop they go through
