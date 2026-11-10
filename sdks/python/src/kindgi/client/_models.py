@@ -9197,6 +9197,10 @@ class MyKeyLimits(BaseModel):
     """
     The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
     """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The key's ceiling, when it has one: its project's `role` shows `editor` at most, `capabilities` holds only the actions the ceiling keeps, and the key decides no approval (no `reviewerRole`).
+    """
 
 
 class IdentitySessionSummary(BaseModel):
@@ -15217,6 +15221,10 @@ class MintTokenBody(BaseModel):
     """
     Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.
     """
+    ceiling: Literal["sandbox"] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. Needs `projectId`, the `member` role (or none) and no capabilities, else `bad-input`. A runtime that doesn't authorize can't keep a ceiling: `501 key-ceiling-unsupported`. A store that didn't keep it: the new key is revoked, `500 key-ceiling-not-kept`.
+    """
 
 
 class MintTokenResult(BaseModel):
@@ -15242,6 +15250,10 @@ class MintTokenResult(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -15443,6 +15455,10 @@ class ApiToken(BaseModel):
     """
     The project the key is limited to.
     """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none.
+    """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
     Who minted it: `user:<id>` or `service_account:<id>`.
@@ -15482,6 +15498,10 @@ class Datum4(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -20041,6 +20061,10 @@ class WhoamiResult(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
     The project the caller's API key or session is limited to, when it is.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The caller's API key ceiling, when the key has one.
     """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """

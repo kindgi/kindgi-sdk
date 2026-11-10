@@ -527,6 +527,9 @@
           "cookie-session-not-refreshable": 400,
           "limited-session-not-refreshable": 400,
           "limited-session-cannot-mint": 403,
+          "key-ceiling-refused": 403,
+          "key-ceiling-unsupported": 501,
+          "key-ceiling-not-kept": 500,
           "site-not-found": 404,
           "site-invalid": 400,
           "site-enrollment-refused": 401,
@@ -3171,6 +3174,13 @@
             "type": "string",
             "format": "uuid",
             "description": "Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it."
+          },
+          "ceiling": {
+            "type": "string",
+            "enum": [
+              "sandbox"
+            ],
+            "description": "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. Needs `projectId`, the `member` role (or none) and no capabilities, else `bad-input`. A runtime that doesn't authorize can't keep a ceiling: `501 key-ceiling-unsupported`. A store that didn't keep it: the new key is revoked, `500 key-ceiling-not-kept`."
           }
         }
       },
@@ -3217,6 +3227,13 @@
             "type": "string",
             "format": "uuid",
             "description": "The project the key is limited to."
+          },
+          "ceiling": {
+            "type": "string",
+            "enum": [
+              "sandbox"
+            ],
+            "description": "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none."
           },
           "createdBy": {
             "type": "string",
@@ -4586,6 +4603,13 @@
             "format": "uuid",
             "description": "The project the key is limited to."
           },
+          "ceiling": {
+            "type": "string",
+            "enum": [
+              "sandbox"
+            ],
+            "description": "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none."
+          },
           "createdBy": {
             "type": "string",
             "description": "Who minted it: `user:<id>` or `service_account:<id>`."
@@ -4662,6 +4686,13 @@
                   "type": "string",
                   "format": "uuid",
                   "description": "The project the key is limited to."
+                },
+                "ceiling": {
+                  "type": "string",
+                  "enum": [
+                    "sandbox"
+                  ],
+                  "description": "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none."
                 },
                 "createdBy": {
                   "type": "string",
@@ -19174,6 +19205,13 @@
             "type": "string",
             "description": "The project the caller's API key or session is limited to, when it is."
           },
+          "ceiling": {
+            "type": "string",
+            "enum": [
+              "sandbox"
+            ],
+            "description": "The caller's API key ceiling, when the key has one."
+          },
           "tenantAdmin": {
             "type": "boolean",
             "description": "Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`."
@@ -20815,6 +20853,13 @@
           "projectId": {
             "type": "string",
             "description": "The project the key is limited to: `projects` holds it alone, and no org or team is administered through it."
+          },
+          "ceiling": {
+            "type": "string",
+            "enum": [
+              "sandbox"
+            ],
+            "description": "The key's ceiling, when it has one: its project's `role` shows `editor` at most, `capabilities` holds only the actions the ceiling keeps, and the key decides no approval (no `reviewerRole`)."
           }
         }
       },
@@ -31849,7 +31894,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID); or a `ceiling` this runtime doesn't know, or one without a `projectId`, with an `admin` role or with capabilities (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -31869,7 +31914,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); a key with a ceiling, which mints no keys (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -31909,7 +31954,17 @@
             }
           },
           "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
+            "description": "Server error (unmapped domain code or framework crash); or the key store did not keep the asked `ceiling`, and the new key was revoked (`key-ceiling-not-kept`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "A `ceiling` asked of a runtime that doesn't authorize, which can't keep one (`key-ceiling-unsupported`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -31929,7 +31984,7 @@
             }
           }
         },
-        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.",
+        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. A `ceiling` caps the key below its role and its principal's grants (`sandbox`: what a plain project editor holds in its project); a key with a ceiling mints no keys. Only mounted when the deployment supplies a `TokenAdmin`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -31996,7 +32051,7 @@
             }
           },
           "403": {
-            "description": "A caller with no keys of its own that is not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin (`permission-denied`), or a key with a ceiling, which manages no keys (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32085,7 +32140,7 @@
             }
           },
           "403": {
-            "description": "A caller with no keys of its own that is not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin (`permission-denied`), or a key with a ceiling, which manages no keys (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32174,7 +32229,7 @@
             }
           },
           "403": {
-            "description": "A caller with no keys of its own that is not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin (`permission-denied`), or a key with a ceiling, which manages no keys (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69315,7 +69370,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+            "description": "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names. A key with a ceiling registers and changes no schedule or trigger (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69608,7 +69663,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69747,7 +69802,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69866,7 +69921,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69985,7 +70040,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70372,7 +70427,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70501,7 +70556,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+            "description": "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named. A key with a ceiling registers and changes no schedule or trigger (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70641,6 +70696,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70922,7 +70987,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71061,7 +71126,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71180,7 +71245,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71299,7 +71364,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71686,7 +71751,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+            "description": "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named. A key with a ceiling registers and changes no schedule or trigger (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71826,6 +71891,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72116,6 +72191,16 @@
               }
             }
           },
+          "403": {
+            "description": "A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
             "content": {
@@ -72245,6 +72330,16 @@
               }
             }
           },
+          "403": {
+            "description": "A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id.",
             "content": {
@@ -72354,6 +72449,16 @@
               }
             }
           },
+          "403": {
+            "description": "A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id.",
             "content": {
@@ -72455,6 +72560,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
             "content": {
               "application/json": {
                 "schema": {

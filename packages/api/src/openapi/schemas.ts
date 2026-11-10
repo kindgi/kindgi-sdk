@@ -1587,6 +1587,13 @@ export const ApiKeyPrincipalSchema: JsonSchema = {
   },
 };
 
+const ApiTokenCeilingSchema: JsonSchema = {
+  type: 'string',
+  enum: ['sandbox'],
+  description:
+    "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none.",
+};
+
 const ApiTokenCapabilitiesSchema: JsonSchema = {
   type: 'array',
   items: { type: 'string', minLength: 1, maxLength: 100 },
@@ -1622,6 +1629,10 @@ export const MintTokenBodySchema: JsonSchema = {
       description:
         'Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.',
     },
+    ceiling: {
+      ...ApiTokenCeilingSchema,
+      description: `${ApiTokenCeilingSchema.description} Needs \`projectId\`, the \`member\` role (or none) and no capabilities, else \`bad-input\`. A runtime that doesn't authorize can't keep a ceiling: \`501 key-ceiling-unsupported\`. A store that didn't keep it: the new key is revoked, \`500 key-ceiling-not-kept\`.`,
+    },
   },
 };
 
@@ -1642,6 +1653,7 @@ export const ApiTokenSchema: JsonSchema = {
       format: 'uuid',
       description: 'The project the key is limited to.',
     },
+    ceiling: ApiTokenCeilingSchema,
     createdBy: {
       type: 'string',
       description: 'Who minted it: `user:<id>` or `service_account:<id>`.',
@@ -11405,6 +11417,10 @@ export const WhoamiResultSchema: JsonSchema = {
       type: 'string',
       description: "The project the caller's API key or session is limited to, when it is.",
     },
+    ceiling: {
+      ...ApiTokenCeilingSchema,
+      description: "The caller's API key ceiling, when the key has one.",
+    },
     tenantAdmin: {
       type: 'boolean',
       description:
@@ -11915,6 +11931,11 @@ export const MyKeyLimitsSchema: JsonSchema = {
       type: 'string',
       description:
         'The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.',
+    },
+    ceiling: {
+      ...ApiTokenCeilingSchema,
+      description:
+        "The key's ceiling, when it has one: its project's `role` shows `editor` at most, `capabilities` holds only the actions the ceiling keeps, and the key decides no approval (no `reviewerRole`).",
     },
   },
 };

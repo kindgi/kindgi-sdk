@@ -24,6 +24,7 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { ceilingKeyChangesNoTrigger } from '../middleware/key-ceiling.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
@@ -174,6 +175,8 @@ export function webhooksRouter(
     ownerNotices,
   } = options;
   const r = new Hono<AppEnv>();
+  // A key with a ceiling registers and changes none of these (`key-ceiling.ts`).
+  r.use('/*', ceilingKeyChangesNoTrigger(authorizer));
 
   /** A webhook trigger as the owner rule reads it. */
   const owned = (row: WebhookTriggerRecord): OwnedTrigger => ({

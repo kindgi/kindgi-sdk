@@ -23,7 +23,7 @@ import type {
   SessionSummary,
   UserRecord,
 } from '../identity-directory-binding.js';
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, ceilingKeeps } from '../middleware/authorize.js';
 import { AUTHZ_UNAVAILABLE_RETRY_AFTER_S } from '../middleware/error-mapper.js';
 import { personWideRefusal } from '../middleware/key-project.js';
 import type { MyAccess, MyAccessBinding, RoleCapabilities } from '../my-access-binding.js';
@@ -666,14 +666,17 @@ function mountMyPermissions(
     }
 
     // A key limited to a project acts on no other, and administers no
-    // org or team (`keyCeilingDeny`).
+    // org or team (`keyCeilingDeny`). A key with a ceiling holds no more
+    // than a plain editor of its project, and only what the ceiling keeps
+    // of that (`ceilingKeeps`).
     const keyProject = c.get('tokenProjectId') as string | undefined;
+    const keyCeiling = c.get('tokenCeiling');
     const projects = (access?.projects ?? [])
       .filter((p) => keyProject === undefined || p.projectId === keyProject)
       .map((p) => ({
         projectId: p.projectId,
         name: p.name,
-        role: p.role,
+        role: keyCeiling === undefined ? p.role : atMostEditor(p.role),
         via: p.via.map(serializeAccessPath),
       }));
     const ceiling = <R extends string>(role: R): R | 'member' =>
@@ -705,13 +708,14 @@ function mountMyPermissions(
           tokenId,
           ...(tokenRole !== undefined && { role: tokenRole }),
           ...(keyProject !== undefined && { projectId: keyProject }),
+          ...(keyCeiling !== undefined && { ceiling: keyCeiling }),
         },
       }),
       tokenCapabilities: [...(c.get('capabilities') ?? [])].sort(),
       projects: projects.sort(byName((p) => p.projectId)),
       orgs: orgs.sort(byName((o) => o.orgId)),
       teams: teams.sort(byName((t) => t.teamId)),
-      capabilities: normalizeCapabilities(access?.capabilities ?? {}),
+      capabilities: normalizeCapabilities(access?.capabilities ?? {}, keyCeiling !== undefined),
       ...(readOnlyNotice !== undefined && { readOnlyNotice }),
       ...(licenseOperatorOnly !== undefined && { licenseOperatorOnly }),
     });
@@ -807,18 +811,33 @@ async function reviewerFacts(
   };
 }
 
-/** Every role and project-scoped type, in a fixed order, with the actions the model allows. */
-function normalizeCapabilities(raw: RoleCapabilities): Record<string, Record<string, string[]>> {
+/**
+ * Every role and project-scoped type, in a fixed order, with the actions the
+ * model allows. For a key with a ceiling, only those the ceiling keeps
+ * (`ceilingKeeps`), so a client offers it nothing the server refuses.
+ */
+function normalizeCapabilities(
+  raw: RoleCapabilities,
+  keyCeiling: boolean,
+): Record<string, Record<string, string[]>> {
   const out: Record<string, Record<string, string[]>> = {};
   for (const role of PROJECT_ROLES_BY_RANK) {
     const byType: Record<string, string[]> = {};
     for (const type of PROJECT_SCOPED_TYPES) {
       const allowed = raw[role]?.[type] ?? [];
-      byType[type] = OBJECT_ACTIONS[type].filter((a) => allowed.includes(a));
+      byType[type] = OBJECT_ACTIONS[type].filter(
+        (a) => allowed.includes(a) && (!keyCeiling || ceilingKeeps(a, type)),
+      );
     }
     out[role] = byType;
   }
   return out;
+}
+
+/** A project role as a key with a ceiling holds it: `editor` at most. */
+function atMostEditor(role: ProjectRole): ProjectRole {
+  const rank = PROJECT_ROLES_BY_RANK.indexOf(role);
+  return rank < PROJECT_ROLES_BY_RANK.indexOf('editor') ? 'editor' : role;
 }
 
 function serializeAccessPath(
@@ -969,19 +988,22 @@ function serializeSession(s: SessionSummary): Record<string, unknown> {
 }
 
 /**
- * What an API key adds to whoami: whom it acts for, its id, and what it's
- * limited to, so a client can say "you're acme-ci, limited to project X".
+ * What an API key adds to whoami: whom it acts for, its id, what it's
+ * limited to and its ceiling, so a client can say "you're acme-ci, limited
+ * to project X".
  */
 function keyFacts(c: Context<AppEnv>): Record<string, unknown> {
   const principal = callerPrincipal(c);
   const tokenId = c.get('tokenId') as string | undefined;
   const role = c.get('tokenRole');
   const projectId = c.get('tokenProjectId');
+  const ceiling = c.get('tokenCeiling');
   return {
     ...(principal !== undefined && { principal: principalToWire(principal) }),
     ...(tokenId !== undefined && { tokenId }),
     ...(role !== undefined && { role }),
     ...(projectId !== undefined && { projectId }),
+    ...(ceiling !== undefined && { ceiling }),
   };
 }
 

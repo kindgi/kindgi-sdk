@@ -15,7 +15,9 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
+  API_TOKEN_CEILINGS,
   API_TOKEN_ROLES,
+  type ApiTokenCeiling,
   type ApiTokenRecord,
   type ApiTokenRole,
   type TokenAdmin,
@@ -43,6 +45,11 @@ import { parseTimeInput } from './time-input.js';
  *   refuses `role-exceeds-principal`). Every capability granted must be
  *   one the minter holds. A minter narrowed to a project mints only keys
  *   narrowed to the same project.
+ * - **A ceiling:** a key may be minted with one (`ceiling`,
+ *   `ApiTokenCeiling`), limited to a project, as a `member` key with no
+ *   capabilities. It keeps only what its ceiling keeps, and mints no
+ *   key. A runtime with no authorizer mints none, as nothing there would
+ *   hold the key to it.
  * - **How long it lasts:** a key minted by a key that expires may not
  *   outlive it. Its `expiresAt` must be no later than the minter's, and
  *   present: a later or absent one is refused, 403
@@ -81,6 +88,7 @@ export function tokensRouter(
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
     const refused =
+      ceilingUnsupported(authorizer, parsed.value.ceiling) ??
       systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
@@ -95,10 +103,29 @@ export function tokensRouter(
       ...(parsed.value.label !== undefined && { label: parsed.value.label }),
       ...(parsed.value.expiresAt !== undefined && { expiresAt: parsed.value.expiresAt }),
       ...(parsed.value.projectId !== undefined && { projectId: parsed.value.projectId }),
+      ...(parsed.value.ceiling !== undefined && { ceiling: parsed.value.ceiling }),
       ...(createdBy !== undefined && { createdBy }),
     });
     if (!('token' in minted)) {
       return fail(c, { code: minted.kind, message: minted.message }, requestId);
+    }
+    // A store that didn't keep the ceiling would hand out a key without
+    // it: that key is revoked, and its secret never shown.
+    const ceiling = parsed.value.ceiling;
+    if (ceiling !== undefined && minted.record.ceiling !== ceiling) {
+      await admin.revoke({
+        tenantId,
+        tokenId: minted.record.tokenId,
+        ...(createdBy !== undefined && { revokedBy: createdBy }),
+      });
+      return fail(
+        c,
+        {
+          code: 'key-ceiling-not-kept',
+          message: `The key store didn't keep the ${ceiling} ceiling, so the new key is revoked and not shown`,
+        },
+        requestId,
+      );
     }
     // The key's secret is shown once: an Idempotency-Key repeat doesn't get it.
     withholdFromReplay(c);
@@ -177,9 +204,24 @@ export function tokensRouter(
   return r;
 }
 
-/** A caller with keys of their own, or a tenant admin. */
+/** A caller with keys of their own, or a tenant admin; never a key with a ceiling. */
 function requireOwnerOrAdmin(authorizer: Authorizer | undefined): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    // A key with a ceiling manages no keys. One it minted would outlive it,
+    // and carry its ceiling only if every mint kept it; and the keys its
+    // principal holds are that principal's to list and revoke, not its.
+    const ceiling = c.get('tokenCeiling');
+    if (ceiling !== undefined) {
+      const refusal: Refusal = {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message: `An API key with the ${ceiling} ceiling mints, lists and revokes no keys`,
+        failing: 'scope',
+        code: 'key-ceiling-refused',
+      };
+      recordRefusal(c, authorizer, refusal);
+      return fail(c, refusalError(refusal), c.get('requestId'));
+    }
     if (keyOwner(c) === undefined && !(await isTenantAdmin(c, authorizer))) {
       return fail(
         c,
@@ -248,6 +290,7 @@ async function mintRefusal(
   principal: TokenPrincipal | undefined,
   body: ParsedMintBody,
 ): Promise<WireError | undefined> {
+  const tenant = ref('tenant', c.get('tenantId') as unknown as string);
   const forSomeoneElse = principal !== undefined && !samePrincipal(principal, owner);
   if ((forSomeoneElse || body.role === 'admin') && !(await isTenantAdmin(c, authorizer))) {
     return {
@@ -264,7 +307,6 @@ async function mintRefusal(
     recordRefusal(c, authorizer, refusal);
     return refusalError(refusal);
   };
-  const tenant = ref('tenant', c.get('tenantId') as unknown as string);
   const notHeld = body.capabilities.filter((cap) => !held.has(cap));
   if (notHeld.length > 0) {
     return refuse({
@@ -303,6 +345,21 @@ async function mintRefusal(
     });
   }
   return undefined;
+}
+
+/**
+ * A key with a ceiling, on a runtime with no authorizer: nothing there
+ * would hold it to the ceiling (`keyCeilingDeny`), so none is minted.
+ */
+function ceilingUnsupported(
+  authorizer: Authorizer | undefined,
+  ceiling: ApiTokenCeiling | undefined,
+): WireError | undefined {
+  if (ceiling === undefined || authorizer !== undefined) return undefined;
+  return {
+    code: 'key-ceiling-unsupported',
+    message: `This runtime runs without authorization, so it can't hold a key to the ${ceiling} ceiling`,
+  };
 }
 
 /**
@@ -377,6 +434,7 @@ function toWire(record: ApiTokenRecord): Record<string, unknown> {
     capabilities: record.capabilities,
     ...(record.label !== undefined && { label: record.label }),
     ...(record.projectId !== undefined && { projectId: record.projectId as unknown as string }),
+    ...(record.ceiling !== undefined && { ceiling: record.ceiling }),
     ...(record.createdBy !== undefined && { createdBy: record.createdBy }),
     createdAt: record.createdAt.toISOString(),
     ...(record.expiresAt !== undefined && { expiresAt: record.expiresAt.toISOString() }),
@@ -429,6 +487,7 @@ type ParsedMintBody = {
   readonly label?: string;
   readonly expiresAt?: Date;
   readonly projectId?: ProjectId;
+  readonly ceiling?: ApiTokenCeiling;
 };
 
 type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; error: WireError };
@@ -458,6 +517,7 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
     label?: string;
     expiresAt?: Date;
     projectId?: ProjectId;
+    ceiling?: ApiTokenCeiling;
   } = {
     ...(principal.value !== undefined && { for: principal.value }),
     role: role.value,
@@ -479,7 +539,37 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
     }
     out.projectId = b.projectId as ProjectId;
   }
+  if (b.ceiling !== undefined) {
+    const ceiling = parseCeiling(b.ceiling, b.role, out);
+    if (ceiling.kind === 'err') return ceiling;
+    out.ceiling = ceiling.value;
+  }
   return { kind: 'ok', value: out };
+}
+
+/**
+ * `ceiling`: one of `API_TOKEN_CEILINGS`, on a key limited to a project,
+ * with the `member` role (the default) and no capabilities. Anything else
+ * is refused, not adjusted: the caller learns the key isn't what it asked.
+ */
+function parseCeiling(
+  raw: unknown,
+  role: unknown,
+  rest: { readonly capabilities: readonly string[]; readonly projectId?: ProjectId },
+): Parsed<ApiTokenCeiling> {
+  if (typeof raw !== 'string' || !API_TOKEN_CEILINGS.includes(raw as ApiTokenCeiling)) {
+    return badInput(`\`ceiling\` must be one of: ${API_TOKEN_CEILINGS.join(', ')}`);
+  }
+  if (rest.projectId === undefined) {
+    return badInput('A key with a `ceiling` is limited to a project: give its `projectId`');
+  }
+  if (role !== undefined && role !== 'member') {
+    return badInput('A key with a `ceiling` is a `member` key: leave `role` out, or give `member`');
+  }
+  if (rest.capabilities.length > 0) {
+    return badInput('A key with a `ceiling` carries no capabilities: leave `capabilities` out');
+  }
+  return { kind: 'ok', value: raw as ApiTokenCeiling };
 }
 
 /** `expiresAt`: an ISO date string. */

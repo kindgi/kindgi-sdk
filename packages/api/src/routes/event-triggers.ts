@@ -10,6 +10,7 @@ import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { ceilingKeyChangesNoTrigger } from '../middleware/key-ceiling.js';
 import type {
   EventTriggerRecord,
   EventTriggerVersionRecord,
@@ -40,6 +41,8 @@ export function eventTriggersRouter(
   itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A key with a ceiling registers and changes none of these (`key-ceiling.ts`).
+  r.use('/*', ceilingKeyChangesNoTrigger(authorizer));
   const access = triggerAccess(binding, 'event', authorizer, itemRights);
 
   // ---------- POST / (register) ----------

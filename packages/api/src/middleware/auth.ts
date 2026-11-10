@@ -83,6 +83,12 @@ export interface TokenResolution {
    */
   readonly tokenProjectId?: string;
   /**
+   * An API key's ceiling (`ApiTokenCeiling`), as minted: what it keeps of
+   * its principal's grants, whatever they are. A key with one carries no
+   * capabilities: any the resolution names are dropped.
+   */
+  readonly tokenCeiling?: 'sandbox';
+  /**
    * Set when the token is the deployment's operator's, acting in no tenant:
    * a system key (`kgi_sy_…`), or the deployment's own token on a runtime
    * serving many tenants. Its scopes are its `capabilities`. The middleware
@@ -424,7 +430,9 @@ export function bearerAuthMiddleware(
     } else {
       c.set('tenantId', resolution.tenantId);
     }
-    if (resolution.reviewerRole !== undefined) {
+    // A key with a ceiling decides no approval: a reviewer's word is a
+    // person's, never what a sandbox's own runs supply.
+    if (resolution.reviewerRole !== undefined && resolution.tokenCeiling === undefined) {
       c.set('reviewerRole', resolution.reviewerRole);
     }
     if (resolution.userId !== undefined) {
@@ -442,6 +450,9 @@ export function bearerAuthMiddleware(
     if (resolution.tokenProjectId !== undefined) {
       c.set('tokenProjectId', resolution.tokenProjectId);
     }
+    if (resolution.tokenCeiling !== undefined && !isSessionToken) {
+      c.set('tokenCeiling', resolution.tokenCeiling);
+    }
     if (resolution.expiresAt !== undefined && !isSessionToken) {
       c.set('tokenExpiresAt', resolution.expiresAt);
     }
@@ -456,7 +467,9 @@ export function bearerAuthMiddleware(
     }
     const capabilities = isSessionToken
       ? await sessionCapabilities(options.personCapabilities, resolution)
-      : resolution.capabilities;
+      : resolution.tokenCeiling !== undefined
+        ? []
+        : resolution.capabilities;
     if (capabilities !== undefined) {
       c.set('capabilities', capabilities);
     }

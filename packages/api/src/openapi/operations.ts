@@ -1625,12 +1625,17 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
 
 /** A change a schedule's owner rule refuses (`trigger-owners.ts`). */
 const ScheduleChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
 );
 
 /** A change a webhook trigger's owner rule refuses (`trigger-owners.ts`). */
 const WebhookChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+  "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).",
+);
+
+/** A trigger change refused to a key with a ceiling (`key-ceiling.ts`). */
+const TriggerChangeRefusedToCeilingKey: ResponseSpec = ErrorResponse(
+  'A key with a ceiling registers and changes no schedule or trigger, and runs none now: it reads them only (`key-ceiling-refused`).',
 );
 
 /** A read of a tenant-wide setting (`tenantResourceAccess`): a tenant member's; without an authorization store, anyone's. */
@@ -2440,7 +2445,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.mint',
     summary: 'Mint an API key',
     description:
-      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.",
+      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. A `ceiling` caps the key below its role and its principal's grants (`sandbox`: what a plain project editor holds in its project); a key with a ceiling mints no keys. Only mounted when the deployment supplies a `TokenAdmin`.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2452,10 +2457,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`for` names a project's own service account, which has no keys (`service-account-project-owned`). Or Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '403': ErrorResponse(
-        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
+        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); a key with a ceiling, which mints no keys (`key-ceiling-refused`).",
       ),
       '400': ErrorResponse(
-        "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+        "Malformed request body, or the body's `projectId` isn't a project id (a UUID); or a `ceiling` this runtime doesn't know, or one without a `projectId`, with an `admin` role or with capabilities (`bad-input`).",
+      ),
+      '500': ErrorResponse(
+        'Server error (unmapped domain code or framework crash); or the key store did not keep the asked `ceiling`, and the new key was revoked (`key-ceiling-not-kept`).',
+      ),
+      '501': ErrorResponse(
+        "A `ceiling` asked of a runtime that doesn't authorize, which can't keep one (`key-ceiling-unsupported`).",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
@@ -2488,7 +2499,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'A page of keys.', schema: ref('ApiTokenPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed cursor or `principal`.'),
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        'A caller with no keys of its own that is not a tenant admin (`permission-denied`), or a key with a ceiling, which manages no keys (`key-ceiling-refused`).',
+      ),
     },
   },
   {
@@ -2505,7 +2518,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The key.', schema: ref('ApiToken') },
       ...CommonAuthErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        'A caller with no keys of its own that is not a tenant admin (`permission-denied`), or a key with a ceiling, which manages no keys (`key-ceiling-refused`).',
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
@@ -2523,7 +2538,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revoked.', schema: ref('RevokeTokenResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        'A caller with no keys of its own that is not a tenant admin (`permission-denied`), or a key with a ceiling, which manages no keys (`key-ceiling-refused`).',
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
@@ -11010,7 +11027,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or `runAsProject` with `runAsServiceAccountId`, or for a schedule with no project (`bad-input`). Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the workspace, or the version it names (`flowVersion`, or `agentVersion` when given) isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing is registered.",
       ),
       '403': ErrorResponse(
-        "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+        "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names. A key with a ceiling registers and changes no schedule or trigger (`key-ceiling-refused`).",
       ),
       '409': ErrorResponse(
         "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). `schedule-exists`: the agent has an Improve schedule in the project already (`details.scheduleId`). Or an idempotency conflict.",
@@ -11239,7 +11256,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+        "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named. A key with a ceiling registers and changes no schedule or trigger (`key-ceiling-refused`).",
       ),
       '404': ErrorResponse('No cron trigger with that id, or no such service account.'),
       '409': ErrorResponse(
@@ -11268,6 +11285,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Event trigger registered.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
     },
   },
   {
@@ -11315,6 +11333,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11331,6 +11350,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11347,6 +11367,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11363,6 +11384,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('EventTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
     },
   },
   {
@@ -11422,6 +11444,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the workspace, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
       ),
@@ -11633,7 +11656,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+        "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named. A key with a ceiling registers and changes no schedule or trigger (`key-ceiling-refused`).",
       ),
       '404': ErrorResponse('No webhook trigger with that id, or no such service account.'),
       '409': ErrorResponse(
@@ -11660,6 +11683,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Mail trigger registered.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, a service account named or calling or `runAsProject` for a person's mailbox, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
       ),
@@ -11731,6 +11755,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
       ),
@@ -11756,6 +11781,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11773,6 +11799,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11789,6 +11816,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': TriggerChangeRefusedToCeilingKey,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
