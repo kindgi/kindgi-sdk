@@ -41,7 +41,7 @@ final class OperationPlanner {
           "security",
           "x-kindgi-sender-only");
   private static final Set<String> PARAMETER_KEYS =
-      Set.of("name", "in", "schema", "required", "description", "x-kindgi-segment-path");
+      Set.of("name", "in", "schema", "required", "description", "style", "explode", "x-kindgi-segment-path");
 
   /**
    * More names for an operation, beside its own: the name the other resources use for the same
@@ -60,8 +60,11 @@ final class OperationPlanner {
   /** A path parameter: a positional argument. */
   record PathParam(String wire, String java, TypeName type, String description) {}
 
-  /** A query or header parameter: a member of the operation's parameters record. */
-  record OtherParam(String wire, String java, String in, boolean required, boolean segments, TypeName type) {}
+  /**
+   * A query or header parameter: a member of the operation's parameters record. {@code comma}: a
+   * list sent as one key, its values comma-separated ({@code style: form}, {@code explode: false}).
+   */
+  record OtherParam(String wire, String java, String in, boolean required, boolean segments, boolean comma, TypeName type) {}
 
   static final class Op {
     String id;
@@ -334,6 +337,7 @@ final class OperationPlanner {
       boolean required = Boolean.TRUE.equals(pm.get("required"));
       String description = (String) pm.get("description");
       String java = javaParamName(name);
+      boolean comma = commaList(id, name, in, schema, pm);
       if (!javaNames.add(java)) {
         throw new GenerationException(id + ": two parameters become " + java);
       }
@@ -353,11 +357,14 @@ final class OperationPlanner {
             if (!"query".equals(in)) {
               throw new GenerationException(id + ": a segment path outside the query");
             }
+            if (comma) {
+              throw new GenerationException(id + ": a segment path sent comma-separated");
+            }
             fixed = ParameterizedTypeName.get(ModelPlanner.LIST, segmentType());
             java = "segments";
           }
-          others.add(new ModelPlanner.ParamSpec(name, java, schema, required, description, fixed));
-          otherParams.add(new OtherParam(name, java, in, required, segments, null));
+          others.add(new ModelPlanner.ParamSpec(name, java, schema, required, description, fixed, comma));
+          otherParams.add(new OtherParam(name, java, in, required, segments, comma, null));
           if ("header".equals(in) && name.equals("Idempotency-Key")) {
             op.idempotencyKey = true;
           }
@@ -384,7 +391,7 @@ final class OperationPlanner {
       op.paramsOptional = others.stream().noneMatch(ModelPlanner.ParamSpec::required);
       for (int i = 0; i < otherParams.size(); i++) {
         OtherParam o = otherParams.get(i);
-        op.otherParams.add(new OtherParam(o.wire(), o.java(), o.in(), o.required(), o.segments(), d.fields.get(i).type));
+        op.otherParams.add(new OtherParam(o.wire(), o.java(), o.in(), o.required(), o.segments(), o.comma(), d.fields.get(i).type));
       }
     }
 
@@ -484,6 +491,34 @@ final class OperationPlanner {
       throw new GenerationException("ScopeSegment must be an object with key and value");
     }
     return t;
+  }
+
+  /**
+   * Whether a parameter is a list sent as one key, its values comma-separated: {@code style:
+   * form} with {@code explode: false}, on a query array. Repeated keys ({@code explode} true or
+   * left out) are the default. Anything else is refused, so a client never sends a form the spec
+   * doesn't say.
+   */
+  private static boolean commaList(String id, String name, String in, Schema schema, Map<String, Object> pm) {
+    Object style = pm.get("style");
+    Object explode = pm.get("explode");
+    if (style == null && explode == null) {
+      return false;
+    }
+    if (!"query".equals(in)) {
+      throw new GenerationException(id + ": parameter " + name + " sets style or explode outside the query");
+    }
+    if (style != null && !"form".equals(style)) {
+      throw new GenerationException(id + ": parameter " + name + " has style " + style + "; only form is supported");
+    }
+    if (explode != null && !(explode instanceof Boolean)) {
+      throw new GenerationException(id + ": parameter " + name + " has explode " + explode + ", not true or false");
+    }
+    boolean comma = Boolean.FALSE.equals(explode);
+    if (comma && !schema.types().equals(Set.of("array"))) {
+      throw new GenerationException(id + ": parameter " + name + " has explode false but isn't an array");
+    }
+    return comma;
   }
 
   /** `Idempotency-Key` → `idempotencyKey`; `X-Request-Id` → `requestId`. */

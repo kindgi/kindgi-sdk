@@ -817,7 +817,7 @@ final class ModelPlanner {
   }
 
   /** One query or header parameter of an operation, as a member of its parameters record. */
-  record ParamSpec(String wire, String java, Schema schema, boolean required, String description, TypeName fixedType) {}
+  record ParamSpec(String wire, String java, Schema schema, boolean required, String description, TypeName fixedType, boolean comma) {}
 
   /** A record of an operation's query and header parameters, with a builder, in {@code cn}'s package. */
   Ir.RecordDecl planParams(ClassName cn, String description, List<ParamSpec> params) {
@@ -832,7 +832,14 @@ final class ModelPlanner {
       f.java = p.java();
       f.required = p.required();
       f.description = p.description();
-      f.type = p.fixedType() != null ? p.fixedType() : typeOf(p.schema(), scope, Names.pascal(p.java()));
+      if (p.comma()) {
+        // A comma list's values keep the parameter's own type name (`Include`, not
+        // `IncludeItem`), as when it took one value.
+        f.type = ParameterizedTypeName.get(LIST, typeOf(p.schema().items(), scope, Names.pascal(p.java())));
+        f.commaList = true;
+      } else {
+        f.type = p.fixedType() != null ? p.fixedType() : typeOf(p.schema(), scope, Names.pascal(p.java()));
+      }
       f.constraints = p.fixedType() != null ? Ir.Constraints.NONE : constraintsOf(p.schema());
       d.fields.add(f);
     }

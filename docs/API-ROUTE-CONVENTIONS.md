@@ -205,6 +205,7 @@ Response body:
 - A runtime with a cursor sealer (`cursorSealer`) seals every `nextCursor` at the edge (AES-256-GCM, `k1.<kid>.<nonce>.<body>`): it shows nothing of the row it points after, even one the list hid. A sealed cursor opens only for the same tenant, caller, list (the path) and filters (the query parameters other than `cursor` and `limit`, so the page size may change mid-scan), within a day; otherwise `400 bad-input`, and the client starts again without it. A plain cursor still passes as it is.
 - A page may be empty while `hasMore` is true (every row of a window was one the caller can't read): continue with `nextCursor`.
 - Filters go as query params: `?status=running&agentId=...`.
+- A list of extras is `include`: an array of known values, sent as one comma-separated key (`include=output,waitingFor`; in the spec, `style: form` and `explode: false`). The server reads repeated keys too. An unknown value is `400 bad-input`, with a message that starts ``Unknown `include` value(s)``.
 - Sort order is fixed per endpoint (documented per route); no `?sort=` unless explicitly supported.
 
 Matches the SDK's `Filter<TStatus>` + `Cursor` types verbatim.
@@ -246,7 +247,7 @@ For the runs resource specifically (the largest surface):
 |---                                   |---                                         |---    |
 | `POST /v1/runs`                      | `runGraph(...)`                            | Body: `{ agent \| flow, input, options?: { dryRun?: boolean, wait?: boolean } }`. Returns the run row with its `output`: `201` once the run completes, fails or suspends; `202` right away with `wait: false`. |
 | `GET /v1/runs/:runId`                | Load row from `kernel_runs`                | Returns the run row, with `output` once completed and `parentRunId` / `parentNodeId` on a child run. |
-| `GET /v1/runs`                       | List with pagination                       | Filters: `parentRunId` (a run's children), `topLevel=true`. `include=output` adds each run's output. |
+| `GET /v1/runs`                       | List with pagination                       | Filters: `parentRunId` (a run's children), `topLevel=true`. `include=output` adds each run's output; `include=waitingFor` adds what each suspended run waits for, as `GET /v1/runs/:runId` gives it, and holds a page to 25 runs (either or both, comma-separated). |
 | `POST /v1/runs/:runId/cancel`        | `cancelRun(...)`                           | Empty body. Returns updated `RunResult`. |
 | `POST /v1/runs/:runId/resume`        | The wait token binding's `complete(...)`, then the host's `resumeRun(...)` | Body: `{ waitpointId, value? }`. Answers a `pause:` waitpoint (a run paused until another system answers), with write access and `execute` on the run's agent or flow; `value` is the tool's output. Every other id (`child:` and approvals' among them) is `422 run-resume-not-supported`. Returns the run as `GET /v1/runs/:runId` does. |
 | `GET /v1/runs/:runId/journal`        | `readJournal(...)`                         | Paginated: `?since=<sequence>`, or `?limit=<int>` and `?cursor=` (the page before's `nextCursor`). |

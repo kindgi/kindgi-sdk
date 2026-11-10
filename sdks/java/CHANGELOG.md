@@ -10,6 +10,19 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-client`: **the runs list's `include` takes `waitingFor`, which says
+  what each suspended run waits for**, as reading one run does. A page with it
+  holds at most 25 runs. A runtime before Kindgi 0.7.0 refuses it with
+  `400 bad-input`.
+- `kindgi-client`: **an `include` takes one or more values:
+  `.include(Include.OUTPUT, Include.WAITING_FOR)`.** The runs list, an
+  agent's test cases, the cost records and the people list send them as one
+  comma-separated parameter. The builder's `include(...)` takes its values as
+  varargs, so a call with one value, or with a `null` one, compiles and sends
+  what it did. Three things change: `params.include()` returns a `List`; the
+  params record's constructor takes a `List` in that place; and a literal
+  `.include(null)` now gets javac's varargs warning, which fails a `-Werror`
+  build (write `(Include[]) null`, or leave the call out).
 - `kindgi-models`, `kindgi-client`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) gains `connectionId`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it by that id. Approvals from before this change have none.
 
 ## 0.5.0

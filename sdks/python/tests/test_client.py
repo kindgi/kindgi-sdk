@@ -36,6 +36,7 @@ from kindgi.client import (
     models,
     paginate,
 )
+from kindgi.client._base import _csv
 
 RUN = {
     "id": "6ccd0eca-40b4-4b86-b8f5-24b0900dddda",
@@ -1014,6 +1015,46 @@ def test_the_people_list_with_their_grants() -> None:
     first, second = listed.data
     assert isinstance(first.grants, models.PersonGrants) and first.grants.tenant_admin is False
     assert second.grants is None
+
+
+def test_an_include_list_is_one_key_its_values_comma_separated() -> None:
+    # `style: form, explode: false`: one key, which every runtime reads. One
+    # value is sent as before; an empty list leaves the key out.
+    api, seen = client(lambda r: error(400, "bad-input"))
+    project = "0b9f4c1e-1111-4a2b-8c3d-000000000001"
+    record = "0b9f4c1e-1111-4a2b-8c3d-000000000002"
+    with pytest.raises(InvalidRequestError):
+        api.runs.list(include=["output", "waitingFor"])
+    with pytest.raises(InvalidRequestError):
+        api.runs.list(include="output")
+    with pytest.raises(InvalidRequestError):
+        api.runs.list(include=[])
+    with pytest.raises(InvalidRequestError):
+        api.agents.test_set.list_cases("acme.drafter", project_id=project, include=["retired"])
+    with pytest.raises(InvalidRequestError):
+        api.cost.records.list(include=["rawUsage"])
+    with pytest.raises(InvalidRequestError):
+        api.cost.records.get(record, include=["rawUsage"])
+    with pytest.raises(InvalidRequestError):
+        api.identity.users.list(include=["grants"])
+    assert [r.url.params.get_list("include") for r in seen] == [
+        ["output,waitingFor"],
+        ["output"],
+        [],
+        ["retired"],
+        ["rawUsage"],
+        ["rawUsage"],
+        ["grants"],
+    ]
+    assert b"include=output%2CwaitingFor" in seen[0].url.query
+
+
+def test_csv_writes_a_list_as_one_value() -> None:
+    assert _csv(["output", "waitingFor"]) == "output,waitingFor"
+    assert _csv("output") == "output"
+    assert _csv(["output"]) == "output"
+    assert _csv([]) is None
+    assert _csv(None) is None
 
 
 def test_team_grants() -> None:

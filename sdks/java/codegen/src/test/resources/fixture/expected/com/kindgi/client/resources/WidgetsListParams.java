@@ -15,6 +15,7 @@ import com.kindgi.client.models.ScopeSegment;
 import com.kindgi.client.models.ValidationException;
 import com.kindgi.client.models.WidgetState;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +26,7 @@ import org.jspecify.annotations.Nullable;
  *
  * @param cursor Where to start.
  * @param segments One step, <code>key:value</code>.
+ * @param include Extras, one or more, comma-separated.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
@@ -33,9 +35,11 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
         @JsonProperty("order") WidgetsListParams. @Nullable Order order,
         @JsonProperty("segment") @Nullable List<ScopeSegment> segments,
         @JsonProperty("since") @Nullable OffsetDateTime since,
-        @JsonProperty("archived") @Nullable Boolean archived) implements Model {
+        @JsonProperty("archived") @Nullable Boolean archived,
+        @JsonProperty("include") @Nullable List<WidgetsListParams.Include> include) implements Model {
     public WidgetsListParams {
         segments = Checks.list(segments);
+        include = Checks.list(include);
     }
 
     @Override
@@ -45,6 +49,7 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
         checks.nested("state", state);
         checks.nested("order", order);
         checks.nested("segment", segments);
+        checks.nested("include", include);
     }
 
     /**
@@ -83,6 +88,8 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
 
         private @Nullable Boolean archived;
 
+        private @Nullable List<Include> include;
+
         private Builder() {
         }
 
@@ -94,6 +101,7 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
             this.segments = source.segments;
             this.since = source.since;
             this.archived = source.archived;
+            this.include = source.include;
         }
 
         /**
@@ -138,13 +146,23 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
         }
 
         /**
+         * Extras, one or more, comma-separated.
+         * <p>One or more values, sent as one comma-separated parameter. A {@code null} value is skipped; with none left, the parameter is left out.
+         */
+        public Builder include(@Nullable Include @Nullable ... include) {
+            List<Include> given = include == null ? List.of() : Arrays.stream(include).filter(Objects::nonNull).toList();
+            this.include = given.isEmpty() ? null : given;
+            return this;
+        }
+
+        /**
          * The {@link WidgetsListParams}.
          *
          * @return the value
          * @throws ValidationException when it breaks the API's constraints (every problem is listed)
          */
         public WidgetsListParams build() {
-            WidgetsListParams built = new WidgetsListParams(cursor, limit, state, order, segments, since, archived);
+            WidgetsListParams built = new WidgetsListParams(cursor, limit, state, order, segments, since, archived, include);
             built.validate();
             return built;
         }
@@ -242,6 +260,103 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
             ASC,
 
             DESC,
+
+            UNRECOGNIZED
+        }
+    }
+
+    /**
+     * One of the values below, or one this client doesn't know yet: {@link #of} keeps any value, and {@link #value()} is {@code UNRECOGNIZED} for an unknown one. Switch on {@link #value()}.
+     */
+    public static final class Include implements OpenEnum {
+        /**
+         * <code>owner</code>
+         */
+        public static final Include OWNER = new Include("owner", Value.OWNER);
+
+        /**
+         * <code>history</code>
+         */
+        public static final Include HISTORY = new Include("history", Value.HISTORY);
+
+        private static final Map<String, Include> byValue = Map.ofEntries(
+            Map.entry("owner", OWNER),
+            Map.entry("history", HISTORY));
+
+        private static final List<String> knownValues = List.of("owner", "history");
+
+        private final String raw;
+
+        private final Value value;
+
+        private Include(String raw, Value value) {
+            this.raw = raw;
+            this.value = value;
+        }
+
+        /**
+         * The value for this text: a known constant, or an unrecognized value that keeps it.
+         */
+        @JsonCreator
+        public static Include of(String raw) {
+            Include known = byValue.get(Objects.requireNonNull(raw, "raw"));
+            return known != null ? known : new Include(raw, Value.UNRECOGNIZED);
+        }
+
+        /**
+         * The value as the API spells it.
+         */
+        @Override
+        @JsonValue
+        public String asString() {
+            return raw;
+        }
+
+        /**
+         * Which known value this is, or {@code UNRECOGNIZED}.
+         */
+        public Value value() {
+            return value;
+        }
+
+        /**
+         * Whether this client knows the value.
+         */
+        @Override
+        public boolean isKnown() {
+            return value != Value.UNRECOGNIZED;
+        }
+
+        /**
+         * The values this client knows, as the API spells them.
+         */
+        @Override
+        public List<String> knownValues() {
+            return knownValues;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Include && ((Include) other).raw.equals(raw);
+        }
+
+        @Override
+        public int hashCode() {
+            return raw.hashCode();
+        }
+
+        @Override
+        public String toString() {
+            return raw;
+        }
+
+        /**
+         * The values this client knows, and {@code UNRECOGNIZED}.
+         */
+        public enum Value {
+            OWNER,
+
+            HISTORY,
 
             UNRECOGNIZED
         }
