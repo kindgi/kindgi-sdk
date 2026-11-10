@@ -22,6 +22,7 @@ import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
@@ -309,6 +310,16 @@ export function projectsRouter(
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
+  } else {
+    // Without a store, a key or session limited to a project still makes
+    // no other project: that's `admin` on the workspace.
+    r.use('/', async (c, next) =>
+      c.req.method === 'POST'
+        ? holdLimitedCaller('admin', (ctx) =>
+            ref('tenant', ctx.get('tenantId') as unknown as string),
+          )(c, next)
+        : next(),
+    );
   }
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
@@ -803,7 +814,10 @@ export function projectsRouter(
     // body naming `orgId` asks, even its current one.
     if ('orgId' in shaped) {
       const tenant = ref('tenant', tenantId as unknown as string);
-      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      const refused =
+        authorizer === undefined
+          ? limitedCallerRefusal(c, 'admin', tenant)
+          : await deniedBy(authorizer, c, 'admin', tenant);
       if (refused !== undefined) return refused;
     }
     // `everyoneCanRun` is a grant as well as a column. With an authorizer, a

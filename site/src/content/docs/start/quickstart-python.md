@@ -18,13 +18,13 @@ with GitHub or your email address for a license key, then log in once with
 ## 1. Create the pack
 
 ```sh tutorial=run
-uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.5,<0.6" kindgi init my-pack --template=python
 cd my-pack
 uv sync          # a .venv with the kindgi package and the kindgi CLI
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
 
-- `uvx --from "kindgi-cli>=0.4,<0.5" kindgi` runs the Kindgi CLI these docs
+- `uvx --from "kindgi-cli>=0.5,<0.6" kindgi` runs the Kindgi CLI these docs
   describe, from PyPI, without installing it
   ([Check this machine](../install/#check-this-machine) says how). The
   range is optional: `uvx --from kindgi-cli kindgi init my-pack --template=python`

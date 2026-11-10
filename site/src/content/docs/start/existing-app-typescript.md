@@ -11,7 +11,7 @@ lives beside your code: its tools import your app's modules.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12 or later, Docker, and access to the runtime image. In the app's
-folder, `npx --yes @kindgi/cli@0.4 doctor` checks all three, and says how to
+folder, `npx --yes @kindgi/cli@0.5 doctor` checks all three, and says how to
 fix what's missing.
 
 :::tip[Your coding agent can do most of this]
@@ -26,11 +26,11 @@ Kindgi](../coding-agents/).
 In the app's root (where its `package.json` is), with no pack name:
 
 ```sh
-npx --yes @kindgi/cli@0.4 init
+npx --yes @kindgi/cli@0.5 init
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.4` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.5` runs the Kindgi CLI these docs describe,
   without installing it ([Check this machine](../install/#check-this-machine)
   says how).
 - `init` with no pack name adds Kindgi to the app in this folder. The
@@ -68,9 +68,9 @@ Done in 4.9s using pnpm v10.28.0
   them ES modules;
 - **the SDK and the CLI,** at the CLI's own version: `@kindgi/sdk` (a
   dependency) and `@kindgi/cli` (a devDependency);
-- **`zod`,** at the version Kindgi is tested with. That's `4.6.5` exactly if
+- **`zod`,** at the version Kindgi is tested with. That's `4.6.7` exactly if
   your app pins exact versions or its package manager saves them, otherwise
-  `^4.6.5`. If your app already has `zod`, `init` keeps it;
+  `^4.6.7`. If your app already has `zod`, `init` keeps it;
 - **the tests `kindgi test` runs:** `vitest` and `vite` in
   `devDependencies`, pinned the same way, and a vitest config
   ([Test your tools](#test-your-tools));

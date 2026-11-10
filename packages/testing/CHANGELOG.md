@@ -1,5 +1,22 @@
 # @kindgi/testing
 
+## 0.5.0
+
+### Patch Changes
+
+- 1ed72e3: The doc comments and READMEs call the place a workspace, as the console does, and so do the npm descriptions of `@kindgi/capabilities`, `@kindgi/memory` and `@kindgi/policy-contract` and the types package's `SPEC.md`. What you type keeps `tenant`: `tenantId`, `TenantId` and `forTenant`. So does the multi-tenant text.
+- Updated dependencies [6421d6f]
+- Updated dependencies [64f9f38]
+- Updated dependencies [04813e4]
+- Updated dependencies [e96b83b]
+- Updated dependencies [2251f96]
+- Updated dependencies [c104300]
+- Updated dependencies [f3a6c97]
+- Updated dependencies [3360533]
+- Updated dependencies [6d3018f]
+- Updated dependencies [fda29c0]
+  - @kindgi/api@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

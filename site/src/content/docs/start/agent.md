@@ -40,9 +40,9 @@ the slash at the end of a page's URL with `.md`.
   change them, and ask before you change anything else. That includes an
   app's `package.json` name (pass `--pack-id` instead), its `zod` version,
   and its package manager's settings, such as pnpm's `minimumReleaseAge`.
-- **The commands run the CLI as `npx --yes @kindgi/cli@0.4` until step 2
+- **The commands run the CLI as `npx --yes @kindgi/cli@0.5` until step 2
   makes a project,** if `node --version` works. For someone using Python
-  without Node, use `uvx --from "kindgi-cli>=0.4,<0.5" kindgi` in its place
+  without Node, use `uvx --from "kindgi-cli>=0.5,<0.6" kindgi` in its place
   (the CLI from PyPI; it needs no Node). From step 2 on, they write
   `pnpm exec kindgi`, run from the project's folder. Use the project's form
   in its place:
@@ -79,7 +79,7 @@ always use the fallback.
 Then run doctor, as a command of its own:
 
 ```sh
-npx --yes @kindgi/cli@0.4 doctor --json
+npx --yes @kindgi/cli@0.5 doctor --json
 ```
 
 Run it like that here and in every later step: nothing before or after it,
@@ -94,7 +94,7 @@ object, whose `ok` is `false` when a check fails; it also exits `1` then
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.8",
+  "cliVersion": "0.6.0",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -186,7 +186,7 @@ runtime: skip this step.
 2. When they say they're done, pipe the clipboard into the login:
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@0.4 auth registry --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.5 auth registry --password-stdin
    ```
 
    It ends with:
@@ -223,28 +223,28 @@ that uses it, as that page shows. Otherwise:
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@0.4 init my-agents
+   npx --yes @kindgi/cli@0.5 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
 
    ```sh
    # Python (no Node needed)
-   uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-agents --template=python
+   uvx --from "kindgi-cli>=0.5,<0.6" kindgi init my-agents --template=python
    cd my-agents
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
    ```sh
    # Java (preview)
-   npx --yes @kindgi/cli@0.4 init my-agents --template=java   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.5 init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```
 
    ```sh
    # Scala (preview)
-   npx --yes @kindgi/cli@0.4 init my-agents --template=scala   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.5 init my-agents --template=scala   # from now on: ./kindgiw …
    cd my-agents
    sbt -batch test
    ```

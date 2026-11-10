@@ -281,6 +281,12 @@ export interface ConnectionChoiceNeedRecord {
   /** Whose account the need uses: a person's own, or the company's. */
   readonly as: 'company' | 'person';
   /**
+   * The entry's permission keys the need asks for, from the tool's
+   * `needsSpec`. A connection that lacks one can't serve it until it's
+   * connected again for more.
+   */
+  readonly permissions?: readonly string[];
+  /**
    * Whether a choice for it may hold several connections: only a read
    * tool's (`mutating: false` and no changing effect), that doesn't
    * declare `sensitive-data-egress` and has no `accounts` input of its own.

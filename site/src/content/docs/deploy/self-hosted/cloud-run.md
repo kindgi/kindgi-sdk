@@ -89,8 +89,8 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
-- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.5's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.5` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
@@ -751,7 +751,7 @@ token ([Serve many tenants](#serve-many-tenants)).
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-npx --yes @kindgi/cli@0.4 key trust acme-prod --url "$URL"
+npx --yes @kindgi/cli@0.5 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -824,8 +824,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.4 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.4 runs start --flow=acme.greet-person --input='{"name":"Ada"}' --url "$URL"
+npx --yes @kindgi/cli@0.5 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.5 runs start --flow=acme.greet-person --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -958,7 +958,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-npx --yes @kindgi/cli@0.4 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
+npx --yes @kindgi/cli@0.5 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text

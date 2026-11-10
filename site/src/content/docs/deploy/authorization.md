@@ -277,6 +277,14 @@ checks every call.
   "You can view this project; changes need an editor." When a tenant admin
   set the workspace's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
+- **A runner** may also "run agents and flows": an agent's page offers them
+  **Start a run**, and they stop only the runs that act for them. Their
+  line reads "You can view this project and run its agents and flows;
+  changes need an editor." unless the workspace set its own (runtime 0.6.0
+  or later). Someone let in only because
+  [everyone can run it](#everyone-can-run-a-project) sees, with the
+  workspace's name, "Everyone in Acme can run this project: you can run its
+  agents and flows and see your own runs. Anything else needs a role."
 - **An editor** may also "run agents and flows, work on agent versions,
   publish prompts and settings, correct runs, sort corrections, add and
   retire test cases", in the console's words. An agent's page offers them

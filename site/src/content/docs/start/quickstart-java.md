@@ -26,12 +26,12 @@ with the pack.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.4 init my-pack --template=java
+npx --yes @kindgi/cli@0.5 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.4` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.5` runs the Kindgi CLI these docs describe,
   without installing it
   ([Check this machine](../install/#check-this-machine) says how). The
   version is optional: `npx --yes @kindgi/cli init my-pack --template=java`
@@ -50,7 +50,7 @@ pass:
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-pack --template=java`.
+`uvx --from "kindgi-cli>=0.5,<0.6" kindgi init my-pack --template=java`.
 
 The pack is a Maven project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are classes in four packages:
