@@ -4106,6 +4106,14 @@ class FileValue(BaseModel):
     """
     The stored file (`POST /v1/artifacts`): its `blobId`.
     """
+    file_id: Annotated[str | None, Field(alias="fileId", min_length=1)] = None
+    """
+    The file these bytes are a version of, on a runtime that keeps file versions. Set with `version`: a value is admitted only when the two name `artifactId`'s bytes.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which version of `fileId` these bytes are. Set with `fileId`.
+    """
     name: str | None = None
     """
     The file's name.
@@ -5833,6 +5841,10 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.
+    """
     bucket: str | None = None
     """
     The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
@@ -5840,6 +5852,14 @@ class BlobMeta(BaseModel):
     key: str | None = None
     """
     The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
+    file_id: Annotated[str | None, Field(alias="fileId")] = None
+    """
+    The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.
     """
 
 
@@ -5886,6 +5906,10 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.
+    """
     bucket: str | None = None
     """
     The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
@@ -5893,6 +5917,14 @@ class Datum5(BaseModel):
     key: str | None = None
     """
     The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
+    file_id: Annotated[str | None, Field(alias="fileId")] = None
+    """
+    The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.
     """
 
 
@@ -5908,7 +5940,7 @@ class ArtifactCollectionPage(BaseModel):
 
 class UploadArtifactBody(BaseModel):
     """
-    Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).
+    Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).
     """
 
     model_config = ConfigDict(
@@ -5933,6 +5965,10 @@ class UploadArtifactBody(BaseModel):
     """
     Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400).
     """
+    for_run: Annotated[Literal["true", "false"] | None, Field(alias="forRun")] = None
+    """
+    `true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted.
+    """
 
 
 class DeleteArtifactResult(BaseModel):
@@ -5944,6 +5980,329 @@ class DeleteArtifactResult(BaseModel):
     deleted: bool
     """
     `true` on the first delete; `false` on subsequent calls (already gone). 404 only when the id was never known.
+    """
+
+
+class FilePin(BaseModel):
+    """
+    A version's keep mark: it can't be deleted, and retention never purges it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    by: str
+    """
+    Who pinned it: `user:<id>` or `service_account:<id>`.
+    """
+    at: AwareDatetime
+    reason: str | None = None
+
+
+class FileVersion(BaseModel):
+    """
+    One version of a file. Numbers start at 1, only grow, and are never reused. A deleted or purged version keeps its record, so the runs that used it still name it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file_id: Annotated[str, Field(alias="fileId")]
+    """
+    The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.
+    """
+    version: Annotated[int, Field(ge=1)]
+    blob_id: Annotated[str, Field(alias="blobId")]
+    """
+    The stored bytes. Two versions of one file can share them.
+    """
+    name: str
+    """
+    The file's name when this version was made.
+    """
+    content_type: Annotated[str, Field(alias="contentType")]
+    """
+    MIME type, as the writer declared it.
+    """
+    size: Annotated[int, Field(ge=0)]
+    hash: Annotated[str, Field(pattern="^[0-9a-f]{64}$")]
+    """
+    sha256 of the bytes, hex-encoded, lowercase.
+    """
+    tags: dict[str, str]
+    """
+    Labels the writer gave this version.
+    """
+    parent_version: Annotated[int | None, Field(alias="parentVersion", ge=1)] = None
+    """
+    Latest when this version was made. Absent on version 1.
+    """
+    restored_from: Annotated[int | None, Field(alias="restoredFrom", ge=1)] = None
+    """
+    The version a restore copied the bytes of.
+    """
+    made_via: Annotated[
+        Annotated[Literal["upload", "restore", "tool", "model"] | str, _open.OPEN],
+        Field(alias="madeVia"),
+    ]
+    """
+    How it was made: a person's or a key's upload, a restore, a run's tool, or a run's model.
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made it: `user:<id>` or `service_account:<id>`, or `run:<id>` for a run's tool or model.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run that made it, when one did.
+    """
+    call_key: Annotated[str | None, Field(alias="callKey")] = None
+    """
+    The run's tool call that made it.
+    """
+    tool_id: Annotated[str | None, Field(alias="toolId")] = None
+    """
+    The tool that made it.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    superseded_at: Annotated[AwareDatetime | None, Field(alias="supersededAt")] = None
+    """
+    When a newer version replaced it as Latest. Absent on Latest: when Latest is deleted, the version that's Latest again has none.
+    """
+    pin: FilePin | None = None
+    deleted_at: Annotated[AwareDatetime | None, Field(alias="deletedAt")] = None
+    purged_at: Annotated[AwareDatetime | None, Field(alias="purgedAt")] = None
+    """
+    When retention dropped its bytes (the `file_version` domain). Its number, hash, size and maker stay.
+    """
+
+
+class PinnedVersion1(RootModel[int]):
+    root: Annotated[int, Field(ge=1)]
+
+
+class StoredFile(BaseModel):
+    """
+    A file the runtime keeps, with every edit as a version, and its Latest: the highest version that isn't deleted.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file_id: Annotated[str, Field(alias="fileId")]
+    """
+    The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project it belongs to. Reading it needs `read` there, or `run` for a file of the caller's own; changing it needs `write`.
+    """
+    name: str
+    """
+    Its name: Latest's.
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made version 1: `user:<id>` or `service_account:<id>`.
+    """
+    owner_run_id: Annotated[UUID | None, Field(alias="ownerRunId")] = None
+    """
+    The run that made version 1, when one did.
+    """
+    latest_version: Annotated[int, Field(alias="latestVersion", ge=1)]
+    highest_version: Annotated[int, Field(alias="highestVersion", ge=1)]
+    """
+    The highest number it has had, deleted versions included.
+    """
+    pinned_versions: Annotated[list[PinnedVersion1], Field(alias="pinnedVersions")]
+    """
+    Its pinned versions, lowest first.
+    """
+    latest: FileVersion
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    """
+    When its newest version was made, or its Latest last moved.
+    """
+
+
+class StoredFileCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[StoredFile]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FileVersionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[FileVersion]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FilePinChange(BaseModel):
+    """
+    One pin or unpin of a version. Entries are only ever added.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    change_id: Annotated[str, Field(alias="changeId")]
+    file_id: Annotated[str, Field(alias="fileId")]
+    """
+    The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.
+    """
+    version: Annotated[int, Field(ge=1)]
+    change: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
+    by: str
+    """
+    `user:<id>` or `service_account:<id>`.
+    """
+    at: AwareDatetime
+    reason: str | None = None
+
+
+class FilePinChangeCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[FilePinChange]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FileVersionWrite(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: FileVersion
+    created: bool
+    """
+    `false` when the bytes were already Latest's: no version was added, and `version` is Latest.
+    """
+
+
+class CreateFileBody(BaseModel):
+    """
+    Multipart form. `file` is the byte stream (required); the other fields are optional.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: bytes
+    content_type: Annotated[str | None, Field(alias="contentType")] = None
+    """
+    Its MIME type. Default: the file part's.
+    """
+    tags: str | None = None
+    """
+    JSON-encoded `Record<string, string>`: labels for this version.
+    """
+    expected_hash: Annotated[str | None, Field(alias="expectedHash", pattern="^[0-9a-f]{64}$")] = (
+        None
+    )
+    """
+    Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`.
+    """
+    name: str | None = None
+    """
+    Its name. Default: the file part's filename.
+    """
+    owner_run_id: Annotated[UUID | None, Field(alias="ownerRunId")] = None
+    """
+    The run that produced it: the file joins that run's project.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the workspace's default project.
+    """
+
+
+class AddFileVersionBody(BaseModel):
+    """
+    Multipart form. `file` is the byte stream (required); the other fields are optional. The version stays in its file's project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: bytes
+    content_type: Annotated[str | None, Field(alias="contentType")] = None
+    """
+    Its MIME type. Default: the file part's.
+    """
+    tags: str | None = None
+    """
+    JSON-encoded `Record<string, string>`: labels for this version.
+    """
+    expected_hash: Annotated[str | None, Field(alias="expectedHash", pattern="^[0-9a-f]{64}$")] = (
+        None
+    )
+    """
+    Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`.
+    """
+    name: str | None = None
+    """
+    A new name for the file. Default: Latest's.
+    """
+    expected_version: Annotated[int | None, Field(alias="expectedVersion", ge=1)] = None
+    """
+    The version the writer read. When Latest isn't it, the answer is `409 file-version-conflict` and nothing is written. Without it, the last write wins: it becomes Latest whatever came in between, which stays in the history.
+    """
+
+
+class RestoreFileVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    expected_version: Annotated[int | None, Field(alias="expectedVersion", ge=1)] = None
+    """
+    As on adding a version: when Latest isn't it, nothing is written.
+    """
+
+
+class PinFileVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=500)] = None
+    """
+    Why, kept in the pin history.
+    """
+
+
+class DeleteFileResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file_id: Annotated[str, Field(alias="fileId")]
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The version deleted, when one version was.
+    """
+    deleted: bool
+    """
+    `true` on the first delete; `false` on later ones (already gone).
     """
 
 
@@ -6808,6 +7167,7 @@ class RetentionPolicyConflict(BaseModel):
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -6816,7 +7176,7 @@ class RetentionPolicyConflict(BaseModel):
         _open.OPEN,
     ]
     """
-    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.
     """
     policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
     """
@@ -6852,6 +7212,7 @@ class RetentionScheduledItem(BaseModel):
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -6860,7 +7221,7 @@ class RetentionScheduledItem(BaseModel):
         _open.OPEN,
     ]
     """
-    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.
     """
     id: str
     """
@@ -6928,6 +7289,7 @@ class RetentionScheduledPage(BaseModel):
                     "provider",
                     "memory",
                     "conversation",
+                    "file_version",
                     "api_key",
                     "service_account",
                     "*",
@@ -6962,6 +7324,7 @@ class RetentionScheduledPage(BaseModel):
                     "provider",
                     "memory",
                     "conversation",
+                    "file_version",
                     "api_key",
                     "service_account",
                     "*",
@@ -7006,6 +7369,7 @@ class RetentionSweepBody(BaseModel):
                 "provider",
                 "memory",
                 "conversation",
+                "file_version",
                 "api_key",
                 "service_account",
                 "*",
@@ -7059,6 +7423,7 @@ class PerDomainItem(BaseModel):
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -7067,7 +7432,7 @@ class PerDomainItem(BaseModel):
         _open.OPEN,
     ]
     """
-    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.
     """
     purged: Annotated[int, Field(ge=0)]
     remaining: Annotated[int, Field(ge=0)]
@@ -11007,6 +11372,10 @@ class TenantLimits(BaseModel):
     """
     Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
     """
+    storage_mi_b: Annotated[int | None, Field(alias="storageMiB", ge=1)] = None
+    """
+    MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file.
+    """
 
 
 class EgressAddresses(BaseModel):
@@ -11060,6 +11429,25 @@ class TenantLimitsInUse(BaseModel):
     projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
     """
     The tenant's projects in production.
+    """
+    storage_used_bytes: Annotated[int | None, Field(alias="storageUsedBytes", ge=0)] = None
+    """
+    The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files.
+    """
+
+
+class TenantStorage(BaseModel):
+    """
+    What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    used_bytes: Annotated[int, Field(alias="usedBytes", ge=0)]
+    """
+    The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it.
     """
 
 
@@ -17497,6 +17885,7 @@ class Tenant(BaseModel):
     On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
+    storage: TenantStorage | None = None
     egress: EgressAddresses | None = None
 
 

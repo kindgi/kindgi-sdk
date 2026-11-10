@@ -487,6 +487,15 @@ from its own token, for that tenant alone.
   (`system:tenants:limits`). `PUT` replaces them all: a limit left out isn't
   set, and isn't enforced. Read them, change one, and put them all back. The
   tenant reads its own on `GET /v1/tenant`.
+- **Storage:** the `storageMiB` limit caps the MiB of files a tenant keeps:
+  its uploads, its runs' files and its tools' files, with the uploads under
+  way. Past it, an upload is refused with `403 storage-limit-reached`, and a
+  tool's file isn't stored. Lowering it deletes no file. `GET …/limits`
+  answers what the tenant's files take as `inUse.storageUsedBytes`, and the
+  tenant reads it as `storage.usedBytes` on `GET /v1/tenant`. An upload made
+  for a run (`forRun`) is deleted when no run that names it starts within
+  `KINDGI_UNUSED_UPLOAD_TTL_MS`, 24 hours by default
+  ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/#upload-one-for-a-run-that-hasnt-started)).
 - **Production:** `PUT /v1/system/tenants/{tenantId}/production-allowed` with
   `{"allowed": true}` (`system:tenants:production`). Until then, putting a
   project in production is refused with `403 production-not-allowed`, and

@@ -1042,6 +1042,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_UNUSED_UPLOAD_TTL_MS',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. How long an upload made for a run (`forRun`) is kept when no run that names it in its input starts, in milliseconds, from 1 to 315360000000 (ten years). Past it, the upload is deleted; its `expiresAt` says when. Once such a run starts, the file stays until it's deleted. Default 86400000 (24 hours). Any other value stops the server at startup, naming the setting.",
+    example: '86400000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_S3_REGION',
     description:
       "Used from runtime 0.4.0; earlier runtimes ignore it. The region of the server's S3 buckets, one for every `s3:<bucket>[/<prefix>]` target (`KINDGI_ARTIFACTS`, `KINDGI_ERASURE_LEDGER_EXPORT`, `KINDGI_TENANT_PURGE_RECORD`): required with any of them, and with any other `KINDGI_S3_*` setting. On AWS S3, an AWS region in the commercial, GovCloud or China partition, such as `eu-west-1`; `AWS_REGION` is never read for it. With `KINDGI_S3_ENDPOINT`, the region name that store takes, such as `auto` for R2. Before it serves, the server checks each bucket is there; on AWS S3, a bucket in another region stops it, naming the bucket's region. On AWS S3, the server signs in as its AWS identity, so `KINDGI_AWS_IDENTITY` must be set.",
