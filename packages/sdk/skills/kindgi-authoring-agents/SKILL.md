@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.14"
+version: "0.4.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -125,6 +125,12 @@ export default defined.value;
   `{id, version}` where `version` is an npm-style semver **range**
   (`'^0.1.0'`, `'~1.2.3'`, `'>=1.0.0 <2.0.0'`). Empty array = chat-only
   agent.
+  - **Dates:** a model doesn't know the date. When the agent reasons about
+    dates ("this month's invoices", "due in 14 days", "was this delivered
+    within the window"), give it a date and time tool. The
+    kindgi-authoring-tools skill has one ("A date and time tool", in imperative-handler.md);
+    it answers in the workspace's time zone. `{{ today }}` in the
+    instructions is in UTC.
 - **`guardrails`** — array of guardrail `id` strings. Resolved at turn
   start against the guardrails bound for the run (the workspace's
   registered ones). If a guardrail id isn't registered, the turn

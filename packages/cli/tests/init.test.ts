@@ -530,7 +530,7 @@ describe('kindgi init --template=follow-up', () => {
 });
 
 describe('kindgi init --template=returns-helper', () => {
-  test('scaffolds the returns helper: two tools, one agent and its three blocks, which hold up', async () => {
+  test('scaffolds the returns helper: three tools, one agent and its three blocks, which hold up', async () => {
     const out = await runCli(
       baseInputs({ argv: ['init', 'acme-returns', '--template=returns-helper'] }),
     );
@@ -542,6 +542,8 @@ describe('kindgi init --template=returns-helper', () => {
       'tools/find-order/index.ts',
       'tools/refund/index.ts',
       'tools/refund/index.test.ts',
+      'tools/today/index.ts',
+      'tools/today/index.test.ts',
       'agents/returns-helper/index.ts',
       'README.md',
       'AGENTS.md',
@@ -561,6 +563,7 @@ describe('kindgi init --template=returns-helper', () => {
     expect(agent).toContain(
       "modelSettings: { id: 'acme-returns.returns-model', version: '^0.1.0' },",
     );
+    expect(agent).toContain("{ id: 'acme-returns.today', version: '0.1.0' },");
     // Read and checked as `kindgi build` reads and checks a pack's blocks.
     const read = await readPackBlocks(root, 'blocks/**/*.json');
     expect(read.errors).toEqual([]);

@@ -10,6 +10,7 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool's context names the workspace's time zone.** `ToolContext` gains `timeZone()`, an IANA name such as `America/Toronto`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `UTC` when the workspace sets none. It's `null` outside an agent turn and from an older runtime, so a tool uses UTC then. The record's canonical constructor gains `timeZone` as its last component, a constructor with the components before it is kept, so code that builds one keeps compiling, and `ToolContext.Builder` gains `withTimeZone`.
 - `kindgi-models`, `kindgi-client`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) gains `connectionId`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it by that id. Approvals from before this change have none.
 
 ## 0.5.0

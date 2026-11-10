@@ -1,0 +1,54 @@
+// {{PACK_ID}}.today — the date, the weekday and the time in the workspace's
+// time zone. A model doesn't know the date, so the helper asks this tool when
+// an answer depends on it ("can I still send it back on Friday?"). An agent
+// turn gives each of its tool calls the workspace's zone as `ctx.timeZone`;
+// outside a turn, and from an older runtime, it's absent: UTC then.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const TodayOutput = z.object({
+  date: z.string(),
+  weekday: z.string(),
+  time: z.string(),
+  timeZone: z.string(),
+});
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.today' as ToolId,
+  description:
+    "Today's date, weekday and time in the workspace's time zone. Call it before answering anything that depends on today's date.",
+  version: '{{PACK_VERSION}}',
+  input: z.object({}),
+  output: TodayOutput,
+  effects: [],
+  mutating: false,
+  handler: async (_input, ctx) => {
+    const timeZone = ctx.timeZone ?? 'UTC';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? '';
+    return {
+      date: `${part('year')}-${part('month')}-${part('day')}`,
+      weekday: part('weekday'),
+      time: `${part('hour')}:${part('minute')}`,
+      timeZone,
+    };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.today failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
