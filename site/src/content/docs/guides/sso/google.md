@@ -90,12 +90,15 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_GOOGLE_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.4 secrets set ACME_GOOGLE_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_GOOGLE_SECRET` is the secret's name. The registration keeps only
   this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
@@ -110,11 +113,11 @@ Re-enter to confirm:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_GOOGLE_SECRET at tenant in production.
+  Set ACME_GOOGLE_SECRET at tenant in prod.
 ```
 
 ## 4. Register it

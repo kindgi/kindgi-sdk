@@ -70,17 +70,20 @@ Three secrets go into Kindgi's secret store under names, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_CLIENT_SECRET --env=production --scope=tenant
-npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_WEBHOOK_SECRET --env=production --scope=tenant
-npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_PRIVATE_KEY --env=production --scope=tenant --from-stdin < acme-kindgi.private-key.pem
+npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_CLIENT_SECRET --env=prod --scope=tenant
+npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_WEBHOOK_SECRET --env=prod --scope=tenant
+npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_PRIVATE_KEY --env=prod --scope=tenant --from-stdin < acme-kindgi.private-key.pem
 ```
 
 - Each command but the last asks for the value twice, and doesn't show what
   you type.
 - The private key comes from the file GitHub downloaded. Delete the file
   once it's stored.
-- `--env` is the runtime's environment, its `KINDGI_ENV`, and
-  `--scope=tenant` stores each secret for the whole workspace.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
+- `--scope=tenant` stores each secret for the whole workspace.
 
 ## 3. Register the app
 
@@ -90,9 +93,9 @@ In the console, open your workspace's **App registrations** page, choose
 - **App id**, **Slug** and **Client id:** from the app's page on GitHub.
 - **Client secret**, **Private key** and **Webhook secret:** the
   environment and name you stored each under in Kindgi's secrets:
-  `production/ACME_GITHUB_CLIENT_SECRET`,
-  `production/ACME_GITHUB_PRIVATE_KEY` and
-  `production/ACME_GITHUB_WEBHOOK_SECRET`.
+  `prod/ACME_GITHUB_CLIENT_SECRET`,
+  `prod/ACME_GITHUB_PRIVATE_KEY` and
+  `prod/ACME_GITHUB_WEBHOOK_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows what to give GitHub: the
@@ -101,7 +104,7 @@ Then choose **Register**. Kindgi shows what to give GitHub: the
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.4 connection-apps add github --github-app-id=<github-app-id> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET
+npx --yes @kindgi/cli@0.4 connection-apps add github --github-app-id=<github-app-id> --slug=<slug> --client-id=<client-id> --client-secret-ref=prod/ACME_GITHUB_CLIENT_SECRET --private-key-ref=prod/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=prod/ACME_GITHUB_WEBHOOK_SECRET
 ```
 
 `<github-app-id>` is the **App ID** on the app's page on GitHub, a number.

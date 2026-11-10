@@ -134,24 +134,24 @@ one way only: with the API token as the bearer of your CLI or API calls, or
 through the console and API keys, not both. A runtime that already runs with
 an upper-case id keeps it as it is.
 
-Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
-also prints the lines to add to the `selfhost` environment:
+Create a signing key. `acme-selfhost` is the key's id, and `--env prod`
+also prints the lines to add to the `prod` environment:
 
 ```sh
-npx --yes @kindgi/cli@0.4 key create acme-selfhost --env selfhost
+npx --yes @kindgi/cli@0.4 key create acme-selfhost --env prod
 ```
 
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
 [Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
-output in full for a second key, with the key lines the `selfhost` block has
+output in full for a second key, with the key lines the `prod` block has
 by then.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 
 ```ts excerpt
 environments: {
-  selfhost: {
+  prod: {
     endpoint: 'http://localhost:4000',
     registry: 'registry.localhost:5050',
     tenantId: '<your tenant id>',
@@ -170,7 +170,7 @@ environments: {
 In a Python pack, the same keys go in `pyproject.toml`:
 
 ```toml excerpt
-[tool.kindgi.environments.selfhost]
+[tool.kindgi.environments.prod]
 endpoint = "http://localhost:4000"
 registry = "registry.localhost:5050"
 tenantId = "<your tenant id>"
@@ -180,10 +180,10 @@ signerKeyId = "acme-selfhost"
 
 Build the image with your own Docker, push it, and sign it. `--local` builds
 with your Docker, `--push` pushes to the environment's registry, and
-`--env selfhost` picks the environment:
+`--env prod` picks the environment:
 
 ```sh
-pnpm exec kindgi build --local --push --env selfhost
+pnpm exec kindgi build --local --push --env prod
 ```
 
 ```text
@@ -446,10 +446,10 @@ It prints the trusted key as JSON, then confirms it:
 The fingerprint is the one `kindgi key create` printed. The runtime now
 accepts deploys this key signs.
 
-Then deploy. `--env selfhost` picks the environment:
+Then deploy. `--env prod` picks the environment:
 
 ```sh
-pnpm exec kindgi deploy --env selfhost
+pnpm exec kindgi deploy --env prod
 ```
 
 ```text

@@ -138,11 +138,11 @@ revoked id can't be trusted again.
 1. Create a key:
 
    ```sh
-   npx --yes @kindgi/cli@0.4 key create acme-selfhost-2 --env selfhost
+   npx --yes @kindgi/cli@0.4 key create acme-selfhost-2 --env prod
    ```
 
-   `acme-selfhost-2` is the new key's id. `--env selfhost` also prints the
-   key lines the `selfhost` block of `kindgi.config.ts` has now, and the
+   `acme-selfhost-2` is the new key's id. `--env prod` also prints the
+   key lines the `prod` block of `kindgi.config.ts` has now, and the
    lines to add. It prints the key as JSON, then where it put it and those
    lines, with the home folder's path elided:
 
@@ -153,7 +153,7 @@ revoked id can't be trusted again.
      "publicKeyPath": "…/.kindgi/keys/acme-selfhost-2.pub.pem",
      "fingerprint": "sha256:37c5be5aed8a2688470bdacb",
      "home": "…",
-     "env": "selfhost"
+     "env": "prod"
    }
 
      ✓ Ed25519 keypair created: acme-selfhost-2
@@ -161,20 +161,20 @@ revoked id can't be trusted again.
        public key:   …/.kindgi/keys/acme-selfhost-2.pub.pem  (mode 0644)
        fingerprint:  sha256:37c5be5aed8a2688470bdacb
 
-     environments.selfhost in kindgi.config.ts has these now:
+     environments.prod in kindgi.config.ts has these now:
 
        signingKey: '~/.kindgi/keys/acme-selfhost.pem',
        signerKeyId: 'acme-selfhost',
 
-     Next step: add to environments.selfhost in kindgi.config.ts:
+     Next step: add to environments.prod in kindgi.config.ts:
 
-       selfhost: {
+       prod: {
          // …existing fields…
          signingKey: '~/.kindgi/keys/acme-selfhost-2.pem',
          signerKeyId: 'acme-selfhost-2',
        },
 
-     Then `kindgi build --env=selfhost` will pick up the key.
+     Then `kindgi build --env=prod` will pick up the key.
    ```
 
    Then trust it on the runtime:
@@ -200,7 +200,7 @@ revoked id can't be trusted again.
    ```
 
 2. Sign your next release with it. Add the two lines `key create` printed
-   to the `selfhost` block of `kindgi.config.ts`:
+   to the `prod` block of `kindgi.config.ts`:
 
    ```ts excerpt
    signingKey: '~/.kindgi/keys/acme-selfhost-2.pem',
@@ -214,8 +214,8 @@ revoked id can't be trusted again.
 
    ```sh
    cp .kindgi/build/deploy-envelope.json old-envelope.json
-   pnpm exec kindgi build --local --push --env selfhost
-   pnpm exec kindgi deploy --env selfhost
+   pnpm exec kindgi build --local --push --env prod
+   pnpm exec kindgi deploy --env prod
    ```
 
    The deploy prints the deployment as JSON, then each step. Its registering
@@ -260,7 +260,7 @@ From then on, the runtime refuses a deploy signed by the old key. Here, an
 envelope it signed earlier:
 
 ```sh
-pnpm exec kindgi deploy --env selfhost --from-envelope old-envelope.json \
+pnpm exec kindgi deploy --env prod --from-envelope old-envelope.json \
   --idempotency-key redeploy-old
 ```
 

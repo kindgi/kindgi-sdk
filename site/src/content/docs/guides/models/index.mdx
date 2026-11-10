@@ -243,8 +243,10 @@ key:
    was made in
    ([Amazon Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)).
 2. Store it as a workspace secret, such as
-   `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`
-   ([Keys](#keys)).
+   `kindgi secrets set BEDROCK_API_KEY --env=prod --scope=tenant`
+   ([Keys](#keys)). Use the env your runtime serves: `prod` here, as on
+   Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv` field
+   ([Three things called env](../../concepts/local-staging-production/#three-things-called-env)).
 3. Register a spec whose `adapter_config.auth` is `api-key` and whose
    `secret_ref` names that secret. Ask your coding agent to write it.
    Kindgi's skills in your pack tell it how
@@ -260,7 +262,7 @@ For reference, the spec it writes looks like this:
 {
   "adapter_id": "@kindgi/adapter-model-bedrock",
   "adapter_config": { "auth": "api-key" },
-  "secret_ref": { "envName": "production", "name": "BEDROCK_API_KEY" },
+  "secret_ref": { "envName": "prod", "name": "BEDROCK_API_KEY" },
   "metadata": {
     "id": "bedrock",
     "region": "us-east-2",
