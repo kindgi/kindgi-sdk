@@ -566,7 +566,7 @@ describes:
 - **A held answer dropped** (`wait-token-discarded`): one record for each
   answer held for a wait the run never reached, with the answer's SHA-256.
 
-A test run's end is recorded (runtime X.Y.Z or later):
+A test run's end is recorded (runtime 0.7.0 or later):
 
 - **A test run's end** (`test-run`): one record for each
   [test run](../../guides/improve/compare-an-agent-version/), however it
@@ -577,6 +577,17 @@ A test run's end is recorded (runtime X.Y.Z or later):
   and the agent or flow it tried, and holds the result's summary numbers,
   such as how many cases passed. It never holds a case, an answer or an
   error message.
+
+A delete of an env value that failed is recorded (runtime 0.7.0 or later):
+
+- **A failed delete** (`env-deleted`, outcome `failed`): one record when
+  `DELETE /v1/env/{name}`, or the system route
+  `DELETE /v1/system/tenants/{tenantId}/env/{name}`, couldn't remove the
+  value because the runtime's storage failed. Its `errorCode` is
+  `internal-server-error`, the 500 the caller got. Like
+  every write's record, it names the caller, the request and the names, and
+  the system route's is marked `cloudSecret`. It never holds the error
+  message. A delete that finds nothing to remove isn't recorded.
 
 ### On legal hold
 
