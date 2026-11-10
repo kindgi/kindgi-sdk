@@ -1,5 +1,70 @@
 # @kindgi/cli
 
+## 0.6.0
+
+### Patch Changes
+
+- 30dbad8: **The docs install the CLI of the release they describe.** The docs pages, the skills and the READMEs pinned the CLI's 0.2 line (`npx --yes @kindgi/cli@0.2`, `uvx --from "kindgi-cli>=0.2,<0.3"`), so a reader of later docs ran an older CLI than the one the docs describe. Each release now moves the install lines, and "Kindgi X.Y's CLI" and "Kindgi X.Y's client" in the prerequisites, to its own version: a release to its line, a release candidate to its exact build. CI fails when one is off its line.
+  
+  - **Skills.** The Java, Python and Scala getting-started skills move to 0.1.10, 0.1.17 and 0.1.10, with the new install lines.
+  - **The CLI's README** installs the CLI of its own release too.
+- 287c34c: **A command that names a project by a slug it had before it was renamed is refused, and the refusal names the new slug and where to change it.** That's `kindgi deploy --project`, `kindgi deployments list --project`, `kindgi suggested-changes pull --project`, `kindgi promote` (`--from` and `--to` outside a pack, and the pack's environments in one), `kindgi environments set` (`--projects`, and the pack's environments), and `kindgi secrets` and `kindgi env` under a pack environment (`--env`). A slug one project has and another had before a rename is refused as naming two projects: pass the id. On a runtime that keeps no old slugs, nothing changes.
+- 4197584: `kindgi dev` runs runtime 0.6.0-rc.0.
+- 8e448a4: `kindgi dev` runs runtime 0.6.0.
+- 21501e1: **A tool's need of a connection says which permissions it asks for, and a declined connect says what it kept.** `GET /v1/connection-choices/needs` (`client.connectionChoices.needs(...)`) answers each need's `permissions`: the entry's permission keys, from the tool's `needsSpec`. A place that shows a need can then say what a connection lacks for it. The field is optional, and a binding that doesn't read them leaves it out. `ConnectionChoiceNeedRecord` has `permissions`. The `reconnects` text now says that a named reconnect asks for the permissions it lists and those the connection holds, and that a grant short of what the connection holds leaves it as it was.
+  
+  - `@kindgi/connections-inmemory`: its needs answer each need's permissions, so `kindgi dev` shows them too.
+  - `@kindgi/cli`: a `kindgi connections connect` without `--reconnect` that's declined at the app says `Declined at <app> (not <permissions>): nothing from this sign-in was kept.` The sign-in may have been to an account the owner already has a connection of, and that connection stays as it was, so "nothing connected" could be wrong. An expired or failed connect still says "nothing connected".
+- fbf0357: Raise dependency floors to releases with security fixes: hono 4.13.11, re2js 2.8.7, esbuild 0.25.12, zod 4.6.6.
+- c0d9f4c: **`kindgi dev` takes a database URL with a list of hosts (`postgres://<user>:<password>@h1:5432,h2:5432/<database>`) on macOS, on Windows and under Docker Desktop, and reaches each local host in it from the runtime's container.** A local host in libpq's `?host=` is reached the same way. Before, a list with ports stopped `kindgi dev` with `Invalid URL`, and in a list without ports a local host was missed, or the hosts after it were dropped.
+- a122ed1: **`kindgi dev` warns when `--database-url` has a password, which `ps` shows to other users on the machine, and its help says to keep the URL in `.kindgi/secrets.env`.** The warning names no part of the URL, and `kindgi dev` goes on. A `KINDGI_DATABASE_URL` from the shell or the env files is on no command line, so it gets no warning. `--dev-token`'s help says the same of the token: once pinned, it's kept in `.kindgirc.json`, so later runs need no flag.
+- f24cef3: **`kindgi dev` no longer takes over a providers record written by 0.1.3.** 0.1.3 keyed the bundled Postgres's entries in `.kindgi/dev/providers.json` on its port, which changes when its container comes back, and from 0.1.4 the first boot moved them to a key that names the project's database, not its port. A record still from 0.1.3 is now left as it is: a provider it registered reads "registered already, not from kindgi.config.ts", and `kindgi providers unregister <id>`, then a restart, makes it the pack's own again.
+- 24e84dc: **`kindgi dev` keys its record of the providers it registered on the database's hosts, ports and name only, for a URL with a list of hosts too. A changed password no longer makes them read as registered by someone else.**
+- a87c065: `kindgi init` adds zod at 4.6.7, the version Kindgi is now tested with: `4.6.7` exactly when the app pins exact versions or its package manager saves them, otherwise `^4.6.7`. The fresh templates pin `^4.6.7`.
+- b3f40b8: **A key or session with limits manages only the keys within them.** A key or session limited to a project, or with the `member` role, now lists, reads and revokes only those of its owner's keys that are within its limits: the keys limited to the same project and, for the `member` role, the `member` keys. Those are the keys no wider than itself; every key it can mint is among them. Before, it saw and could revoke every key of its owner, wider ones included.
+  
+  `GET /v1/tokens` leaves the others out. `GET /v1/tokens/{tokenId}` and `POST /v1/tokens/{tokenId}/revoke` on one of them answer 403, naming only the caller's own limit: `key-project-mismatch` for a key not limited to the caller's project, `permission-denied` for an `admin` key and a `member` caller. Nothing about that key is in the answer. Someone else's key still reads as missing (404). A tenant admin, and a key or session without limits, see what they did before. `kindgi tokens list` says so in its help, and `tokens.list`, `tokens.get` and `tokens.revoke` in the client say so in their docs.
+- 81b8af0: **A rotation's grace period is a whole number of milliseconds from 0 to 365 days.**
+  - `POST /v1/secrets/{name}/rotate` answers `400 bad-input` for a `revokeOldAfterMs` outside that range: a negative number, a fraction, or more than 31536000000 (365 days). The message names the range. Before, it checked only that the value was a number: a negative one was taken and did nothing, and one of hundreds of thousands of years made the store fail. The field shipped without an upper bound, so the accepted range is now 0 to 365 days; the schema says so with a `maximum`.
+  - `kindgi secrets rotate --revoke-old-after` refuses such a value before sending anything, in the same words, and exits 2.
+  - The schema says what a version's `revokedAt` and a rotation's `oldVersionRevokedAt` mean: a time still to come is the old version's grace period, and it still resolves until then. `MAX_REVOKE_OLD_AFTER_MS` is exported from `@kindgi/api`.
+- 7c10695: **A project role that runs: `runner`.** Between `editor` and `viewer` (`owner` > `admin` > `editor` > `runner` > `viewer`), a `runner` can run: start runs of the project's agents and flows, use their tools inside those runs, stop their own runs, and keep their own schedules. They change nothing else in the project. A person, a service account or a team can be given it, wherever a project role is given: memberships, team grants, and service-account grants, in the API, the clients and the CLI (`kindgi service-accounts create --project=<id>:runner`, `kindgi service-accounts grant <id> --project=<id> --role=runner`). `GET /v1/identity/me/permissions` reports `capabilities.runner`, absent from an older server. `@kindgi/authz` has the new action `run` (`ACTION_TO_RELATION.run` is `can_run`), on a project, and `ProjectRole`, `projectMembershipTuple` and `teamProjectGrantTuple` take `runner`. With `run` on a project, a caller may cancel a run that acts for them (`POST /v1/runs/{runId}/cancel`; anyone else's still takes `write`), and register, change, pause, resume, run now and unregister a schedule of their own. A shared schedule, an Improve schedule, `runAsServiceAccountId`, `runAsProject` and `toolsAllowedUnattended` take what they took before.
+  
+  **Everyone can run a project.** A project has `everyoneCanRun`: everyone in the project's workspace can run its agents and flows without a role of their own. It reaches people only: service accounts aren't included. It reads nothing beyond what running takes: the project (`GET /v1/projects`, `/v1/projects/default` and `/v1/projects/{projectId}`), its agents and flows with their versions (the lists, `GET /v1/agents/{agentId}` and `/v1/flows/{flowId}`, their `versions` and each version; an agent's page names its owner by id alone, with no `name`), and each person's own runs (`GET /v1/runs` and a run with its journal, stream, progress and provenance), the public run links for them, the conversations they opened, and their own personal schedules (list and get); anyone else's stay hidden, and an agent's other pages, tools, test sets, approvals, and artifacts other than their own files, take a role as before. Those routes ask `read` first, and `run` on the project only when `read` refuses; a list other than the runs list keeps the store's cursor, so a page the check leaves short or empty still leads to the next. `POST /v1/projects` sets it `true` unless the body says `"everyoneCanRun": false`, to choose people one by one; `GET` reads it back, and `PATCH /v1/projects/{projectId}` changes it (admin on the project). Existing projects and workspaces keep it `false` until a project admin turns it on. `@kindgi/authz`'s `tuplesForCreate` writes the project's grant when it's `true`, and `everyoneRunsTuples` builds its two tuples for a change (`everyone_runs` for every person, `everyone_in` the project's workspace). `@kindgi/platform`'s `Project`, `ProjectSpec` and `ProjectPatch` carry it, and `TenantHierarchyBinding` has an optional `updateProject`, which changes a project and the grants its patch moves in one transaction: with authorization enforced, a `PATCH` that changes `everyoneCanRun` goes through it, and without it answers `501 authz-membership-unsupported`. `GET /v1/identity/me/permissions` lists a project the caller holds no role on and reaches this way in its new `everyoneCanRunProjects` (`projectId` and `name`), and adds the `via` kind `everyone` to a project in `projects` that also lets everyone run it; `projects[].role` stays required. Its new `everyoneCapabilities` says what everyone may do on such a project and the objects in it. Both are absent from an older server. `MyAccessBinding`'s `ProjectAccess.role` (absent for a project reached this way alone), `AccessPath` and `MyAccess.everyoneCapabilities` carry the same to the route.
+- 61322b4: **A site can't enroll a key it retired.** `POST /v1/auth/sites/enroll` answers `409 site-enrollment-key-retired` for a key the site retired, by its RFC 7638 thumbprint, whatever retired it: an admin's `revoke-key`, or a newer key's enroll. It also refuses a key that another of the workspace's sites at the same address (origin) retired and holds no live entry for. A key that's live on the site now enrolls, as before. The refusal comes only once the code checks out, so a caller without a good code still gets `401 site-enrollment-refused`, and it doesn't use the code up: the same code works with a new key until it expires. `SiteEnrollOutcome` gains `{ kind: 'key-retired' }`, which a runtime that doesn't check never returns. `kindgi sites code` and `kindgi sites revoke-key` say so, and so do the `revokeKey` and `auth.sites.enroll` operations and the TypeScript client's `enrollSite`. The WordPress plugin says where to set a new key when Kindgi refuses one set in `wp-config.php` or the environment, and that the same code still works.
+- Updated dependencies [6707cb9]
+- Updated dependencies [611d0b2]
+- Updated dependencies [a54e5e2]
+- Updated dependencies [e0bfdf7]
+- Updated dependencies [30dbad8]
+- Updated dependencies [ecd251e]
+- Updated dependencies [38aa185]
+- Updated dependencies [7062ba5]
+- Updated dependencies [21501e1]
+- Updated dependencies [fb947de]
+- Updated dependencies [fbf0357]
+- Updated dependencies [b3f40b8]
+- Updated dependencies [64d1461]
+- Updated dependencies [287c34c]
+- Updated dependencies [81b8af0]
+- Updated dependencies [7c10695]
+- Updated dependencies [0334286]
+- Updated dependencies [61322b4]
+- Updated dependencies [a122ed1]
+- Updated dependencies [999154a]
+  - @kindgi/types@0.6.0
+  - @kindgi/flow@0.6.0
+  - @kindgi/agents@0.6.0
+  - @kindgi/client@0.6.0
+  - @kindgi/handler-runtime@0.6.0
+  - @kindgi/sdk@0.6.0
+  - @kindgi/env-schema@0.6.0
+  - @kindgi/platform@0.6.0
+  - @kindgi/crypto@0.6.0
+  - @kindgi/secrets-dotenv@0.6.0
+  - @kindgi/dotenv-file@0.6.0
+  - @kindgi/log@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

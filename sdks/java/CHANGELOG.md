@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+## 0.6.0
+
 - `kindgi-models`, `kindgi-client`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) gains `connectionId`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it by that id. Approvals from before this change have none.
 
 ## 0.5.0

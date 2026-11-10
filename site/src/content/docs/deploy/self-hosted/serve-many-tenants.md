@@ -207,7 +207,7 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
   `revoked:` line:
 
   ```sh
-  npx --yes @kindgi/cli@0.5 tokens revoke <key id>
+  npx --yes @kindgi/cli@0.6 tokens revoke <key id>
   ```
 
   A key that's already revoked stays revoked, and the sessions it left end,
@@ -450,12 +450,12 @@ Only the operator sets one, with a system key holding `system:env-refs` as
 `KINDGI_API_TOKEN`:
 
 ```sh
-npx --yes @kindgi/cli@0.5 env set STRIPE_KEY \
+npx --yes @kindgi/cli@0.6 env set STRIPE_KEY \
   --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.5 env list --cloud-secret \
+npx --yes @kindgi/cli@0.6 env list --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.5 env unset STRIPE_KEY --cloud-secret \
+npx --yes @kindgi/cli@0.6 env unset STRIPE_KEY --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
 ```
 

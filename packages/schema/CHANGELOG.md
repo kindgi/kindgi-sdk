@@ -1,5 +1,14 @@
 # @kindgi/schema
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [6707cb9]
+- Updated dependencies [fbf0357]
+  - @kindgi/types@0.6.0
+  - @kindgi/bounds@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

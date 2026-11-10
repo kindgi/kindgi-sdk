@@ -1,5 +1,43 @@
 # @kindgi/connections-inmemory
 
+## 0.6.0
+
+### Patch Changes
+
+- 21501e1: **A tool's need of a connection says which permissions it asks for, and a declined connect says what it kept.** `GET /v1/connection-choices/needs` (`client.connectionChoices.needs(...)`) answers each need's `permissions`: the entry's permission keys, from the tool's `needsSpec`. A place that shows a need can then say what a connection lacks for it. The field is optional, and a binding that doesn't read them leaves it out. `ConnectionChoiceNeedRecord` has `permissions`. The `reconnects` text now says that a named reconnect asks for the permissions it lists and those the connection holds, and that a grant short of what the connection holds leaves it as it was.
+  
+  - `@kindgi/connections-inmemory`: its needs answer each need's permissions, so `kindgi dev` shows them too.
+  - `@kindgi/cli`: a `kindgi connections connect` without `--reconnect` that's declined at the app says `Declined at <app> (not <permissions>): nothing from this sign-in was kept.` The sign-in may have been to an account the owner already has a connection of, and that connection stays as it was, so "nothing connected" could be wrong. An expired or failed connect still says "nothing connected".
+- Updated dependencies [6707cb9]
+- Updated dependencies [9589cfa]
+- Updated dependencies [6b4249a]
+- Updated dependencies [d27c97b]
+- Updated dependencies [375d315]
+- Updated dependencies [6769a34]
+- Updated dependencies [611d0b2]
+- Updated dependencies [a54e5e2]
+- Updated dependencies [e0bfdf7]
+- Updated dependencies [ebb6c1e]
+- Updated dependencies [ecd251e]
+- Updated dependencies [38aa185]
+- Updated dependencies [7062ba5]
+- Updated dependencies [21501e1]
+- Updated dependencies [fb947de]
+- Updated dependencies [fbf0357]
+- Updated dependencies [8618cf7]
+- Updated dependencies [b3f40b8]
+- Updated dependencies [287c34c]
+- Updated dependencies [81b8af0]
+- Updated dependencies [7c10695]
+- Updated dependencies [0334286]
+- Updated dependencies [61322b4]
+  - @kindgi/types@0.6.0
+  - @kindgi/agents@0.6.0
+  - @kindgi/api@0.6.0
+  - @kindgi/connections@0.6.0
+  - @kindgi/tools@0.6.0
+  - @kindgi/authz@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes
