@@ -524,8 +524,8 @@ describe('the authorizer holds a key with a ceiling to it, whatever its principa
       ['read', 'mcp_endpoint', 'm1', false],
       ['act_as', 'service_account', 'sa1', false],
       ['admin', 'project', P1, false],
-      ['write', 'tenant', tenantId as unknown as string, false],
-      ['write', 'team', 'tm1', false],
+      ['admin', 'tenant', tenantId as unknown as string, false],
+      ['admin', 'team', 'tm1', false],
       ['read', 'project', P2, false],
     ];
     const got = await decide(
