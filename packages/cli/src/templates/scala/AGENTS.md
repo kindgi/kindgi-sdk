@@ -83,3 +83,6 @@ it yourself exits 3 and says where theirs runs: use that one.
 A tool's own `EPERM` while it runs under `./kindgiw dev` is something else:
 Kindgi's dev sandbox, which the tools skill covers. Never turn that one off
 either.
+
+`./kindgiw prepare` is Kindgi Cloud's own build step: with a self-hosted runtime,
+don't run it; build with `./kindgiw build`.

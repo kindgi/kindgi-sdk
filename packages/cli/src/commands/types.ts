@@ -31,6 +31,12 @@ export interface LeafCommand {
     readonly defaultEnv: string;
     readonly buildServerOption?: string;
   };
+  /**
+   * A step another tool runs, not one for the person (`kindgi prepare`,
+   * Kindgi Cloud's own build step): it works, but `--help`, the reference
+   * and their suggestions leave it out (`unwired.ts` `wiredCommands`).
+   */
+  readonly hidden?: true;
   readonly run: (ctx: CommandContext) => Promise<CommandResult>;
 }
 

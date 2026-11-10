@@ -43,10 +43,16 @@ export function isWired(path: readonly string[]): boolean {
   return true;
 }
 
-/** The commands under `parent` (its words) that are wired, in order. */
+/**
+ * The commands under `parent` (its words) that `--help` and the reference
+ * list, in order: the wired ones, less a hidden one (`LeafCommand.hidden`).
+ */
 export function wiredCommands(
   commands: readonly Command[],
   parent: readonly string[] = [],
 ): readonly Command[] {
-  return commands.filter((command) => isWired([...parent, command.name]));
+  return commands.filter(
+    (command) =>
+      isWired([...parent, command.name]) && !(command.kind === 'leaf' && command.hidden === true),
+  );
 }
