@@ -1,20 +1,22 @@
 ---
 title: Organize work by org and project
-description: Give each customer an org with its projects, run and read their work by project or org, and know what deleting a project or an org does.
+description: Give each customer a project, let their people in with a team, run and read their work by project or org, and know what deleting a project or an org does.
 sidebar:
   order: 1
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide gives each customer an org with its projects, runs and reads
-their work by project or org, deletes and restores a project, and deletes an
-org.
+This guide gives each customer a project, lets their people in with a team,
+runs and reads their work by project or org, deletes and restores a project,
+and deletes an org.
 
-A **project** holds runs, conversations, approvals and what they cost. An
-**org** groups projects: one org per customer, for example, with a project
-for each part of their work. Every workspace has a default project. A run that
-names no project runs in its agent's or flow's own project: the one it was
+A **project** holds runs, conversations, approvals and what they cost: one
+project per customer, for example. A **team** is a group of the workspace's
+people, and a team's role on a project reaches everyone in it. An **org** is
+optional: it groups projects, such as one customer's several projects, so
+their work can be read together. Every workspace has a default project. A run
+that names no project runs in its agent's or flow's own project: the one it was
 published in. For what `kindgi deploy` registers, that's the project the
 deploy named (`--project`), else the default project. A turn in a conversation stays in
 the conversation's project.
@@ -35,7 +37,7 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.4's client and CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.5's client and CLI.
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
   client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
@@ -43,25 +45,28 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 - **An agent,** to run in the customer's project. This guide uses
   `acme-ops.echo-agent`.
 
-## Give a customer an org and a project
+## Give a customer a project
 
-Create the customer's org and a project in it once, then run the customer's
-work there. Ask your coding agent: "I want each of my customers to have an
-org with a project, and their work to run there." For reference, the script
-looks like this. It prints the run's status and the org's runs:
+Create the customer's project once, then run the customer's work there. Ask
+your coding agent: "I want each of my customers to have a project, and their
+work to run there." For reference, the script looks like this. It prints the
+run's status and the project's runs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
-// customer-org.ts
+// customer-project.ts
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-// Once per customer: an org, and a project in it.
-const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
-const project = await kindgi.projects.create({ orgId: org.id, slug: 'support', name: 'Support' });
+// Once per customer: a project.
+const project = await kindgi.projects.create({
+  slug: 'acme-customer-one',
+  name: 'Customer one',
+  everyoneCanRun: false,
+});
 
 // The customer's work runs in its project.
 const run = await kindgi.runs.start({
@@ -70,8 +75,8 @@ const run = await kindgi.runs.start({
   projectId: project.id,
 });
 
-// Everything in the customer's org, across its projects.
-const runs = await kindgi.runs.list({ scope: { kind: 'org', orgId: org.id } });
+// Everything in the customer's project.
+const runs = await kindgi.runs.list({ scope: { kind: 'project', projectId: project.id } });
 console.log(run.status, runs.data.map((r) => r.id));
 ```
 
@@ -79,14 +84,15 @@ console.log(run.status, runs.data.map((r) => r.id));
 <TabItem label="Python">
 
 ```python
-# customer_org.py
+# customer_project.py
 from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-# Once per customer: an org, and a project in it.
-org = kindgi.orgs.create(slug="acme-customer-one", name="Customer one")
-project = kindgi.projects.create(org_id=str(org.id), slug="support", name="Support")
+# Once per customer: a project.
+project = kindgi.projects.create(
+    slug="acme-customer-one", name="Customer one", everyone_can_run=False
+)
 
 # The customer's work runs in its project.
 run = kindgi.runs.start(
@@ -95,8 +101,8 @@ run = kindgi.runs.start(
     project_id=project.id,
 )
 
-# Everything in the customer's org, across its projects.
-runs = kindgi.runs.list(scope_kind="org", scope_id=str(org.id))
+# Everything in the customer's project.
+runs = kindgi.runs.list(scope_kind="project", scope_id=str(project.id))
 print(run.status, [str(r.id) for r in runs.data])
 ```
 
@@ -104,12 +110,11 @@ print(run.status, [str(r.id) for r in runs.data])
 <TabItem label="Java">
 
 ```java
-// src/main/java/com/acme/app/CustomerOrg.java
+// src/main/java/com/acme/app/CustomerProject.java
 package com.acme.app;
 
 import com.kindgi.client.Kindgi;
 import com.kindgi.client.models.CreateResourceResult;
-import com.kindgi.client.models.OrgSpec;
 import com.kindgi.client.models.ProjectSpec;
 import com.kindgi.client.models.Run;
 import com.kindgi.client.models.RunCollectionPage;
@@ -119,15 +124,16 @@ import com.kindgi.client.resources.RunsListParams;
 import java.util.Map;
 import java.util.UUID;
 
-public final class CustomerOrg {
+public final class CustomerProject {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-    // Once per customer: an org, and a project in it.
-    CreateResourceResult org = kindgi.orgs().create(
-        OrgSpec.builder().slug("acme-customer-one").name("Customer one").build());
-    CreateResourceResult project = kindgi.projects().create(
-        ProjectSpec.builder().orgId(org.id()).slug("support").name("Support").build());
+    // Once per customer: a project.
+    CreateResourceResult project = kindgi.projects().create(ProjectSpec.builder()
+        .slug("acme-customer-one")
+        .name("Customer one")
+        .everyoneCanRun(false)
+        .build());
 
     // The customer's work runs in its project.
     Run run = kindgi.runs().start(StartRunBody.WithAgent.builder()
@@ -136,38 +142,40 @@ public final class CustomerOrg {
         .projectId(UUID.fromString(project.id()))
         .build());
 
-    // Everything in the customer's org, across its projects.
+    // Everything in the customer's project.
     RunCollectionPage runs = kindgi.runs().list(
-        RunsListParams.builder().scopeKind(ScopeKind.ORG).scopeId(org.id()).build());
+        RunsListParams.builder().scopeKind(ScopeKind.PROJECT).scopeId(project.id()).build());
     System.out.println(run.status() + " " + runs.data().stream().map(RunCollectionPage.DataItem::id).toList());
   }
 }
 ```
 
-`create` answers the new org's or project's id. A run's `projectId` is a
+`create` answers the new project's id. A run's `projectId` is a
 `UUID`.
 
 </TabItem>
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/app/CustomerOrg.scala
+// src/main/scala/acme/app/CustomerProject.scala
 package acme.app
 
 import com.kindgi.client.Kindgi
-import com.kindgi.client.models.{OrgSpec, ProjectSpec, ScopeKind, StartRunBody}
+import com.kindgi.client.models.{ProjectSpec, ScopeKind, StartRunBody}
 import com.kindgi.client.resources.RunsListParams
 import java.util.UUID
 import scala.jdk.CollectionConverters._
 
-object CustomerOrg {
+object CustomerProject {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-    // Once per customer: an org, and a project in it.
-    val org = kindgi.orgs().create(OrgSpec.builder().slug("acme-customer-one").name("Customer one").build())
-    val project = kindgi.projects().create(
-      ProjectSpec.builder().orgId(org.id).slug("support").name("Support").build())
+    // Once per customer: a project.
+    val project = kindgi.projects().create(ProjectSpec.builder()
+      .slug("acme-customer-one")
+      .name("Customer one")
+      .everyoneCanRun(false)
+      .build())
 
     // The customer's work runs in its project.
     val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
@@ -176,14 +184,14 @@ object CustomerOrg {
       .projectId(UUID.fromString(project.id))
       .build())
 
-    // Everything in the customer's org, across its projects.
-    val runs = kindgi.runs().list(RunsListParams.builder().scopeKind(ScopeKind.ORG).scopeId(org.id).build())
+    // Everything in the customer's project.
+    val runs = kindgi.runs().list(RunsListParams.builder().scopeKind(ScopeKind.PROJECT).scopeId(project.id).build())
     println(s"${run.status} ${runs.data.asScala.map(_.id).toList}")
   }
 }
 ```
 
-`create` answers the new org's or project's id. A run's `projectId` is a
+`create` answers the new project's id. A run's `projectId` is a
 `UUID`.
 
 </TabItem>
@@ -193,13 +201,13 @@ object CustomerOrg {
 completed [ '68ebe748-4259-4f46-ae21-cf0da3b978c6' ]
 ```
 
-Keep the org's and the project's ids on the customer's row in your app. From
-the CLI:
+Keep the project's id on the customer's row in your app. From the CLI:
 
-- `kindgi projects create --name=Support --org=<org-id>` makes a project and
-  prints it with its id. Its slug is the name as a slug (`support`) unless
-  `--slug` gives one. Everyone in the workspace can run its agents and
-  flows, as its `everyoneCanRun` says
+- `kindgi projects create --name=Support` makes a project and prints it with
+  its id, and `--org=<org-id>` puts it in an org. Its slug is the name as a
+  slug (`support`) unless `--slug` gives one. Everyone in the workspace can
+  run its agents and flows, as its `everyoneCanRun` says. Turn that off with
+  `PATCH /v1/projects/<project-id>` before you add a customer's people
   ([Everyone can run a project](../../../deploy/authorization/#everyone-can-run-a-project)).
 - `kindgi projects rename <project-id> --name=<name>` renames one, and
   `--slug` changes its slug.
@@ -217,24 +225,51 @@ it, and the dialog says what to change before you next use the CLI on the
 project. Its id stays; what a new slug changes is under
 **Changing a project's slug**, below.
 
+**The customer's people.** To let the people who work on a customer's
+project in, put them in a team and give the team a role on the project:
+`viewer`, `runner`, `editor` or `admin`. Everyone in the team then holds it
+there. Roles take [authorization](../../../deploy/authorization/), which
+`kindgi dev` runs without. The script makes the project with
+`everyoneCanRun: false` (`everyone_can_run=False` in Python), so only the
+people given a role run it. A new project otherwise lets everyone in the
+workspace run its agents and flows, other customers' people included
+([Everyone can run a project](../../../deploy/authorization/#everyone-can-run-a-project)).
+The console makes teams, and the API gives one its role on a project
+([Teams](../../../deploy/authorization/#teams) and
+[Team grants](../../../deploy/authorization/#team-grants)). When the
+customer leaves, take the team's role away
+(`DELETE …/team-grants/<team-id>`), or delete the team.
+
+**An org, where it helps.** A customer with several projects can have an
+org that groups them: create it with `orgs.create`, and give each project
+its id as `orgId` (`org_id` in Python, `--org` in the CLI). The lists then
+read all of the customer's projects at once, as
+[Read a customer's work](#read-a-customers-work) shows.
+
 **Slugs.** An org's slug is unique in the workspace. A project's slug is unique
-in its org, so every customer can have a `support` project. A project with
+in its org, so two orgs can each have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
 refused with `409 slug-conflict`, and so is a slug another project of the
 workspace had before it was renamed (runtime 0.6.0 or later):
 
 ```text
-Another org in the workspace has the slug "acme-customer-one"
-Another project in its org has the slug "support" (for a project without an org: another project without one)
+Another org in the workspace has the slug "acme-customers"
+Another project in its org has the slug "acme-customer-one" (for a project without an org: another project without one)
 The slug "support" was another project's until it was renamed, and it stays that project's. Choose another slug.
 ```
+
+The refusal's `details.heldAs` says which: `'slug'` for a slug another
+project has now, `'old-slug'` for one it had before a rename.
 
 **Changing a project's slug.** A rename is one change: a taken slug is
 refused, as above, and nothing changes. The project's id stays, and the
 runtime goes by the id, so the project's pages in the console, its runs, keys
 and triggers, and what's deployed into it keep working, with no redeploy.
 With the runtime 0.6.0 or later, its old slug stays the project's: no other
-project in the workspace can take it, in any org. Only the CLI looks a slug
+project in the workspace can take it, in any org. The project's
+`formerSlugs` (`former_slugs` in Python) lists its old slugs, newest first,
+and is empty for a project never renamed; an earlier runtime leaves it out.
+Only the CLI looks a slug
 up, each time it runs, wherever you name a project by its slug:
 `kindgi deploy --project`, say, or an environment's `project` in your pack
 config (`environments.<name>.project`). Every command that names a project
@@ -270,8 +305,8 @@ pack whose ids all start with its pack id, so two clients' packs never share
 an id:
 
 ```sh
-npx --yes @kindgi/cli@0.4 projects create --name="Acme shop" --org=<org-id>
-npx --yes @kindgi/cli@0.4 init acme-shop --template=woocommerce
+npx --yes @kindgi/cli@0.5 projects create --name="Acme shop"
+npx --yes @kindgi/cli@0.5 init acme-shop --template=woocommerce
 cd acme-shop
 pnpm install
 pnpm exec kindgi deploy --project acme-shop
@@ -319,9 +354,10 @@ deployment, the default on any runtime, a copy's code wouldn't run. There,
 when both projects are in the same org, or neither is in an org, put them
 in one environment order (`kindgi environments set`), the second right
 after the first, and `kindgi promote` the build to the second instead of
-deploying it. Projects in two orgs can't share an order, so a client in an
-org of its own, as this guide sets one up, needs a runtime that runs each
-deployment as a service of its own.
+deploying it. A project per client with no org, as this guide sets one up,
+can do that. Projects in two orgs can't share an order, so a client in an
+org of its own needs a runtime that runs each deployment as a service of its
+own.
 
 ## What a project's runs can use
 
@@ -354,8 +390,10 @@ In TypeScript, it's `{ kind: 'project', projectId }` or
 A record with no project shows only in a list without a scope.
 
 A tool sees the run's project and org, as `ctx.projectId` and `ctx.orgId`.
-So it can check that a record belongs to the customer the run is for, as
-[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
+So it can check that a record belongs to the customer the run is for: by
+`ctx.projectId`, with a project per customer.
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows
+the same check by org.
 
 ## Put a project in production
 
@@ -411,7 +449,7 @@ kindgi.projects.production.set(str(project.id), production=False)
 <TabItem label="Java">
 
 ```java excerpt
-// in src/main/java/com/acme/app/CustomerOrg.java
+// in src/main/java/com/acme/app/CustomerProject.java
 ProjectProduction done = kindgi.projects().production()
     .set(project.id(), ProjectProductionBody.builder().production(true).build());
 System.out.println(done.productionSince());
@@ -424,7 +462,7 @@ kindgi.projects().production()
 <TabItem label="Scala">
 
 ```scala excerpt
-// in src/main/scala/acme/app/CustomerOrg.scala
+// in src/main/scala/acme/app/CustomerProject.scala
 val done = kindgi.projects().production()
   .set(project.id, ProjectProductionBody.builder().production(true).build())
 println(done.productionSince)
@@ -613,38 +651,37 @@ Kindgi keeps a deleted project's record: no
 
 ## Delete an org
 
-Delete an org when its customer leaves. Ask your coding agent: "When a
-customer leaves, delete their org." For reference, the code looks like this,
-with `kindgi` and `org` from the script:
+Delete an org you don't need, such as one that groups the projects of a
+customer who left. Ask your coding agent: "When a customer leaves, delete the
+org that groups their projects." For reference, the code looks like this,
+with `kindgi` from the script and the org's id:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts excerpt
-await kindgi.orgs.delete(org.id);
+await kindgi.orgs.delete(orgId);
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```python excerpt
-kindgi.orgs.delete(str(org.id))
+kindgi.orgs.delete(org_id)
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```java excerpt
-// in src/main/java/com/acme/app/CustomerOrg.java, when the customer leaves
-kindgi.orgs().delete(org.id());
+kindgi.orgs().delete(orgId);
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```scala excerpt
-// in src/main/scala/acme/app/CustomerOrg.scala, when the customer leaves
-kindgi.orgs().delete(org.id)
+kindgi.orgs().delete(orgId)
 ```
 
 </TabItem>

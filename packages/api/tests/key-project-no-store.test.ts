@@ -17,16 +17,32 @@ import { fullAppInput } from './support/full-app.js';
  * authorization store: a write above its project (to the workspace, an
  * org or a team) is refused, `403 key-project-mismatch`, before anything
  * is written, as a store refuses it (`permission-denied`). In its own
- * project it is not refused, nor is a key limited to no project.
+ * project it is not refused, nor is a key limited to no project. A
+ * memory fact's write by its id goes by the fact's scope, so one in
+ * another project is refused too.
  */
 
 const tenantId = randomUUID() as TenantId;
 const P1 = randomUUID();
+/** A project the key isn't limited to. */
+const P2 = randomUUID();
 const ORG = randomUUID();
 const TEAM = randomUUID();
 const USER = randomUUID();
-/** A workspace-wide fact, the one the memory stub finds by its id. */
+/** Someone other than the caller, whom a memory fact is about. */
+const PERSON = randomUUID();
+/** A workspace-wide fact. */
 const FACT = randomUUID();
+/** `PERSON`'s fact in another project. */
+const PERSONS_FACT_ELSEWHERE = randomUUID();
+/** `PERSON`'s fact in the key's own project. */
+const PERSONS_FACT_HERE = randomUUID();
+/** The scope of each fact the memory stub finds by its id. */
+const FACT_SCOPES = new Map<string, unknown>([
+  [FACT, { tenantId }],
+  [PERSONS_FACT_ELSEWHERE, { tenantId, projectId: P2, userId: PERSON }],
+  [PERSONS_FACT_HERE, { tenantId, projectId: P1, userId: PERSON }],
+]);
 const LIMITED = 'kgi_ak_test_limited_to_p1';
 const UNLIMITED = 'kgi_ak_test_not_limited';
 const MEMBER = 'kgi_ak_test_member_not_limited';
@@ -92,7 +108,7 @@ function appWith(store: boolean) {
   input.memory = {
     ...rest.memory,
     getFact: async ({ factId }: { factId: string }) =>
-      factId === FACT ? { factId, scope: { tenantId } } : null,
+      FACT_SCOPES.has(factId) ? { factId, scope: FACT_SCOPES.get(factId) } : null,
   };
   for (const name of ROUTE_BINDINGS) input[name] = recorded(name, input[name] as object);
   return createApp((store ? { ...input, authz, sites } : input) as unknown as CreateAppInput);
@@ -287,6 +303,11 @@ const ABOVE: readonly Row[] = [
     content: 'x',
     scope: { tenantId, orgId: ORG },
   }),
+  row('memory fact, org-wide, about another person', 'POST /v1/memory/facts', '/v1/memory/facts', {
+    type: 'note',
+    content: 'x',
+    scope: { tenantId, orgId: ORG, userId: PERSON },
+  }),
   ...pins('agent', 'acme.agent', { kind: 'org', orgId: ORG }, 'org-wide'),
   ...pins('tool', 'acme.tool', { kind: 'org', orgId: ORG }, 'org-wide'),
   ...pins('flow', 'acme.flow', { kind: 'org', orgId: ORG }, 'org-wide'),
@@ -430,6 +451,27 @@ describe('a key limited to a project, with no authorization store', () => {
       method: 'POST',
       path: `/v1/mcp/endpoints/${randomUUID()}/unregister`,
       body: {},
+    });
+    expect(res.body.error?.code).not.toBe('key-project-mismatch');
+  });
+
+  test('a memory fact by its id, about another person in another project, is refused', async () => {
+    const res = await send(noStore, LIMITED, {
+      method: 'DELETE',
+      path: `/v1/memory/facts/${PERSONS_FACT_ELSEWHERE}`,
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatchObject({
+      code: 'key-project-mismatch',
+      details: { keyProjectId: P1, projectId: P2 },
+    });
+    expect(res.writes).toEqual([]);
+  });
+
+  test('a memory fact by its id, about another person in its project, is not refused', async () => {
+    const res = await send(noStore, LIMITED, {
+      method: 'DELETE',
+      path: `/v1/memory/facts/${PERSONS_FACT_HERE}`,
     });
     expect(res.body.error?.code).not.toBe('key-project-mismatch');
   });

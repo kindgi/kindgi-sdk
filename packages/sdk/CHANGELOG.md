@@ -1,5 +1,44 @@
 # @kindgi/sdk
 
+## 0.5.0
+
+### Minor Changes
+
+- ba0feb8: Starts the 0.5 line: this release has new features, so the middle number moves. Every SDK package shares one version.
+  
+  Release-decision: 0.5.0, the maintainers, 2026-11-02
+
+### Patch Changes
+
+- c8afe3b: **The calendar tools read several calendars.** `googleCalendarCalendarsList`, from `@kindgi/connections/google/tools`, and `outlookCalendarCalendarsList`, from `@kindgi/connections/microsoft/tools`, list the calendars of the account the run acts as, or the company's with `as: 'company'`: each with its `id`, its `name`, whether it's the `main` one, the `access` the account has, and its `owner` when that's someone else. The events lists and free/busy take up to 10 of those ids in a new optional `calendarIds`.
+  
+  - **Without `calendarIds`,** a list or a free/busy reads the main calendar and answers as before.
+  - **Over several calendars,** a list gives each event with its `calendarId`, merged by start, with `top` counted across them, and a free/busy joins their busy times. When Google or Microsoft refuses one of the calendars, the call fails and names it. Google reads only calendars the account owns. Outlook's free/busy reads at most 1000 events across the calendars.
+  - **Permissions.** The Google entry adds `calendar.calendarlist.readonly`, with review `sensitive`, which only the calendars list asks for. A Google connection made before lacks it until the person allows it. Outlook's calendars list uses `calendars.readbasic`, as its events list does. Google paces `calendar.calendarList.list` with the other calendar calls, and Outlook's `outlook.calendars.list` doesn't count against sends.
+  - **Versions.** The events lists and free/busy move to 1.1.0, as person and as company. The calendars lists start at 1.0.0.
+  - **Docs.** The Calendars guide shows how to read several calendars, the Google setup guide adds the new permission, and the tools authoring skill names the calendars lists.
+- a9e4477: The CLI's help and messages, a new pack's `AGENTS.md` and the skills call the place a workspace, as the console does. What you type keeps `tenant`: `--tenant`, `kindgi tenant`, `tenantId`, `KINDGI_TENANT_*` and the scope value `tenant`. So do the tenant admin role and the text for the operator of a runtime that serves several workspaces. The CLI prints the server's own messages as they come.
+- Updated dependencies [6421d6f]
+- Updated dependencies [64f9f38]
+- Updated dependencies [04813e4]
+- Updated dependencies [e96b83b]
+- Updated dependencies [2251f96]
+- Updated dependencies [215b6c1]
+- Updated dependencies [c104300]
+- Updated dependencies [3360533]
+- Updated dependencies [fda29c0]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [1365f49]
+  - @kindgi/agents@0.5.0
+  - @kindgi/guardrails@0.5.0
+  - @kindgi/schema@0.5.0
+  - @kindgi/client@0.5.0
+  - @kindgi/tools@0.5.0
+  - @kindgi/flow@0.5.0
+  - @kindgi/handler-runtime@0.5.0
+  - @kindgi/types@0.5.0
+  - @kindgi/crypto@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

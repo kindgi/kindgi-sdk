@@ -11,7 +11,7 @@ lives beside your code: its tools import your app's modules.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12 or later, Docker, and access to the runtime image. In the app's
-folder, `npx --yes @kindgi/cli@0.4 doctor` checks all three, and says how to
+folder, `npx --yes @kindgi/cli@0.5 doctor` checks all three, and says how to
 fix what's missing.
 
 :::tip[Your coding agent can do most of this]
@@ -26,11 +26,11 @@ Kindgi](../coding-agents/).
 In the app's root (where its `package.json` is), with no pack name:
 
 ```sh
-npx --yes @kindgi/cli@0.4 init
+npx --yes @kindgi/cli@0.5 init
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.4` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.5` runs the Kindgi CLI these docs describe,
   without installing it ([Check this machine](../install/#check-this-machine)
   says how).
 - `init` with no pack name adds Kindgi to the app in this folder. The

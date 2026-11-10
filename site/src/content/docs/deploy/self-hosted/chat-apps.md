@@ -60,11 +60,11 @@ On a runtime without an [authorization store](../../authorization/), the
 line adds `(no per-project permissions)`. Anyone signed in can then see and
 run every agent, and Claude gets the same access.
 
-Only agents and flows their builders offer in chat show up there. Each
-person gets a tool for each of those they can see in Kindgi, and running one
-still takes their permission to run it.
-
-<!-- To confirm: the page that tells builders how to offer an agent in chat, to link from the paragraph above. -->
+Only agents and flows their builders offer in chat show up there
+([an agent's](../../../guides/agents/write-an-agent/#offer-it-in-a-chat-app)
+and [a flow's](../../../guides/flows/write-a-flow/#offer-it-in-a-chat-app)
+`mcp`). Each person gets a tool for each of those they can see in Kindgi,
+and running one still takes their permission to run it.
 
 ## Give people the address
 
@@ -128,7 +128,7 @@ addresses, so take the current ones from that page.
 **With nginx** in front, one `location` per path, each admitting only
 Claude's range:
 
-```nginx
+```nginx excerpt
 location = /mcp {
     allow 160.79.104.0/21;
     deny all;
@@ -153,7 +153,7 @@ location = /auth/jwks {
 
 Admit everything else only from your own network, for example:
 
-```nginx
+```nginx excerpt
 location / {
     allow 10.0.0.0/8;
     deny all;
@@ -188,7 +188,7 @@ or these paths stay open to everyone there. With the
 [Cloud Run](../cloud-run/) module, set it in the module, not by hand: its
 next apply puts back a change made outside it.
 
-```hcl
+```hcl excerpt
 server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 ```
 
