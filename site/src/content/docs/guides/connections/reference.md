@@ -227,6 +227,11 @@ there.
   ([LinkedIn](../linkedin/#when-linkedin-ends-access)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.
+- **The connection's page lists what it may do.** **Ask** *app*
+  **for more** there (for Google, **Ask Google for more**) adds
+  permissions to it while it's live: you sign in at the app as its
+  account, which is asked for what you tick and what the connection holds.
+  A grant short of what it holds changes nothing.
 - **Each renewal is logged** at info level as
   `a connection was renewed`, with the connection's id, its app and a
   hash of its account, never a token or an address. A renewal that finds
@@ -240,7 +245,7 @@ console's **Connections** page, or from a terminal, by its id from
 `kindgi connections list`:
 
 ```sh
-npx --yes @kindgi/cli@0.2 connections disconnect <connection-id>
+npx --yes @kindgi/cli@0.5 connections disconnect <connection-id>
 ```
 
 It asks first, unless `--yes`, and prints what was done. Kindgi then:

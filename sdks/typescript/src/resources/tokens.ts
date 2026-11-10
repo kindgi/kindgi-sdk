@@ -47,7 +47,9 @@ export interface TokensClient {
   /**
    * List API keys, newest first, revoked ones included: a tenant admin's
    * list has every key (`filter.principal` for one principal's), anyone
-   * else's their own. Never returns secrets.
+   * else's their own. A key or session with limits lists only those within
+   * them: limited to a project, the keys limited to that project; with the
+   * `member` role, the `member` keys. Never returns secrets.
    *
    * @wire `GET /v1/tokens` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens/get`.
@@ -55,7 +57,8 @@ export interface TokensClient {
   list(filter?: TokenFilter): Promise<ListPage<ApiToken>>;
 
   /**
-   * Read one API key. Never returns the secret.
+   * Read one API key. Never returns the secret. A key or session with
+   * limits reads only keys within them, as for `list`.
    *
    * @wire `GET /v1/tokens/{tokenId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens~1{tokenId}/get`.
@@ -64,7 +67,8 @@ export interface TokensClient {
 
   /**
    * Revoke an API key: from the next request on, it gets
-   * `auth/unauthenticated`.
+   * `auth/unauthenticated`. A key or session with limits revokes only keys
+   * within them, as for `list`.
    *
    * @wire `POST /v1/tokens/{tokenId}/revoke` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens~1{tokenId}~1revoke/post`.

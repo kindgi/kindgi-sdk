@@ -2125,7 +2125,10 @@ describe('connection choices', () => {
   /** The agent `triage`'s tools; the flow's are `flowTools`, and one it couldn't read. */
   const TOOLS = [
     tool('acme.inbox'),
-    tool('acme.send', { mutating: true }),
+    tool('acme.send', {
+      mutating: true,
+      needsSpec: { connections: { mail: reads('company', 'google', 'gmail.send') } },
+    }),
     tool('acme.forward', { effects: [{ kind: 'sensitive-data-egress' }] }),
     tool('acme.multi', { input: { type: 'object', properties: { accounts: { type: 'array' } } } }),
     tool('acme.copy', { needsSpec: { connections: { from: reads(), to: reads() } } }),
@@ -2904,7 +2907,7 @@ describe('connection choices', () => {
     expect(company.data.some((c) => c.main !== undefined)).toBe(false);
   });
 
-  test("an agent's or a flow's needs, now: a row per tool and need, whether it may take a set and why not, and the tools it couldn't read", async () => {
+  test("an agent's or a flow's needs, now: a row per tool and need, the permissions it asks for, whether it may take a set and why not, and the tools it couldn't read", async () => {
     const made = choosing();
     const needs = (more: { flowId?: string; agentId?: string; app?: string } = {}) => {
       const { agentId, flowId, ...rest } = more;
@@ -2922,10 +2925,15 @@ describe('connection choices', () => {
       need: 'mail',
       app: 'google',
       as: 'company',
+      permissions: ['gmail.readonly'],
       set,
       ...more,
     });
-    const repos = row('acme.repos', allowed, { need: 'repo', app: 'github' });
+    const repos = row('acme.repos', allowed, {
+      need: 'repo',
+      app: 'github',
+      permissions: ['issues.read'],
+    });
     expect(await needs()).toEqual({
       kind: 'ok',
       value: {
@@ -2937,7 +2945,7 @@ describe('connection choices', () => {
           row('acme.mine', allowed, { as: 'person' }),
           row('acme.multi', { allowed: false, reason: 'accounts-input' }),
           repos,
-          row('acme.send', { allowed: false, reason: 'changes' }),
+          row('acme.send', { allowed: false, reason: 'changes' }, { permissions: ['gmail.send'] }),
         ],
       },
     });

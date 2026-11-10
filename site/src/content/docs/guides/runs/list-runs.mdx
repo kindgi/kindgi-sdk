@@ -12,10 +12,9 @@ inside another run, the runs inside one run, or one agent's turns.
 
 ## Before you start
 
-- **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.2's
-  CLI.
+- **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.5's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.5's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## From the CLI
@@ -231,6 +230,17 @@ page's from them.
 </Tabs>
 
 The page holds the runs, and its `nextCursor` leads to the next one.
+
+With [authorization](../../../deploy/authorization/) on, the list holds
+every run in the projects you may `read`. In a project you may only run (as
+a `runner`, or when
+[everyone can run it](../../../deploy/authorization/#everyone-can-run-a-project)),
+it holds the runs that act for you. A page is full whenever there are more
+(runtime 0.6.0 or later). A list across projects (no `scope`, the
+workspace's or an org's) takes its projects from the authorization store's
+list, which answers at most 1000 by default: someone who reads or runs more
+may miss the runs of some.
+
 `list` takes these filters, with their Python names in brackets:
 
 - **`topLevel: true`** (`top_level=True`) leaves out runs started inside
@@ -250,6 +260,11 @@ The page holds the runs, and its `nextCursor` leads to the next one.
 - **`flowId`** (`flow_id`) lists one flow's runs, and **`flowVersion`**
   (`flow_version`) one version's. An agent's turns run the `agent.turn` flow:
   use `agentId` for an agent's.
+- **`actsFor: 'me'`** (`acts_for="me"`) lists only the runs that act for
+  you, those whose `actsFor` is you (`GET /v1/runs?actsFor=me`, runtime
+  0.6.0 or later): none if you act for no one. Another value is refused
+  with `400 bad-input`. An earlier runtime ignores the filter and lists
+  every run you may see.
 - In Python, `paginate` follows `next_cursor` for you.
 
 A status that doesn't exist, a time that isn't one, an empty value, or a

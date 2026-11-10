@@ -9,6 +9,7 @@ import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -72,6 +73,13 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     r.use(
       '/:projectId/production',
       authorizer.authorize('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
+    );
+  } else {
+    // Without a store, a key or session limited to a project still
+    // doesn't put it in production or take it out (`holdLimitedCaller`).
+    r.use(
+      '/:projectId/production',
+      holdLimitedCaller('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
     );
   }
 

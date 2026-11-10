@@ -125,6 +125,16 @@ when it merges a release branch runs it too. CI fails when a link isn't on
 the release line (`pnpm run check:refs`), and a link on no release line, or
 on a patch version's, is moved by hand.
 
+The docs pages, the skills and the READMEs install the CLI of their own
+line: `npx --yes @kindgi/cli@X.Y`, `uvx --from "kindgi-cli>=X.Y,<…"` and
+"Kindgi X.Y's CLI" follow `@kindgi/cli`'s version, a release candidate's
+exact build too, and "Kindgi X.Y's client" follows `@kindgi/sdk`'s
+(`scripts/lib/cli-line.mjs`). `pnpm run version-packages` runs
+`scripts/sync-cli-line.mjs` after `scripts/sync-docs-line.mjs`, which moves
+each of them to the new version, and nothing else. A branch whose version
+moves when it merges a release branch runs both. CI fails when one isn't on
+its line (`pnpm run check:cli-line`). The release notes keep theirs.
+
 1. Every user-visible change adds a changeset: `pnpm changeset`. Before
    1.0, and while release candidates are out, it's a `patch`: one
    `minor` moves every package to the next minor, which no installed

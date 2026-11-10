@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { MAX_REVOKE_OLD_AFTER_MS } from '../secrets-binding.js';
+
 /**
  * JSON Schemas for every request + response body on the platform API.
  *
@@ -14769,7 +14771,12 @@ export const SecretVersionRecordSchema: JsonSchema = {
       nullable: true,
       description: 'Present + non-null only on `resolve` responses.',
     },
-    revokedAt: { type: 'string', format: 'date-time' },
+    revokedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then.',
+    },
   },
 };
 
@@ -14863,7 +14870,12 @@ export const SecretRotateOutcomeSchema: JsonSchema = {
         kind: { type: 'string', enum: ['ok'] },
         newVersionId: { type: 'integer', minimum: 1 },
         oldVersionId: { type: 'integer', minimum: 1 },
-        oldVersionRevokedAt: { type: 'string', format: 'date-time' },
+        oldVersionRevokedAt: {
+          type: 'string',
+          format: 'date-time',
+          description:
+            'When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.',
+        },
       },
     },
     {
@@ -15110,7 +15122,13 @@ export const SecretRotateRequestSchema: JsonSchema = {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
     newValue: { type: 'string' },
-    revokeOldAfterMs: { type: 'integer', minimum: 0 },
+    revokeOldAfterMs: {
+      type: 'integer',
+      minimum: 0,
+      maximum: MAX_REVOKE_OLD_AFTER_MS,
+      description:
+        'Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid.',
+    },
   },
 };
 
@@ -15123,7 +15141,12 @@ export const SecretRotateResponseSyncSchema: JsonSchema = {
     kind: { type: 'string', enum: ['sync'] },
     newVersionId: { type: 'integer', minimum: 1 },
     oldVersionId: { type: 'integer', minimum: 1 },
-    oldVersionRevokedAt: { type: 'string', format: 'date-time' },
+    oldVersionRevokedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.',
+    },
   },
 };
 
@@ -17347,6 +17370,12 @@ export const ConnectionChoiceNeedSchema: JsonSchema = {
       enum: ['company', 'person'],
       description: "Whose connection: the company's, or the run's person's.",
     },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The entry's permission keys the need asks for, from the tool's `needsSpec`: `gmail.send`. A connection that lacks one can't serve it until it's connected again for more, with `reconnects`.",
+    },
     set: { $ref: '#/components/schemas/ConnectionChoiceNeedSet' },
   },
 };
@@ -17435,7 +17464,12 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
     },
-    connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.',
+    },
     connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
     expiresAt: { type: 'string', format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -17484,7 +17518,7 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.",
+        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.",
     },
   },
 };

@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Command-line interface for Kindgi™. Create a pack, run it on your machine (`kindgi dev`), build, sign and deploy it, and work with a running Kindgi API from the terminal.",
   "license": "Apache-2.0",
   "repository": {
@@ -52,7 +52,7 @@
     "@kindgi/platform": "workspace:*",
     "@kindgi/sdk": "workspace:*",
     "@kindgi/types": "workspace:*",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.25.12",
     "semver": "^7.8.5",
     "smol-toml": "^1.9.0",
     "tar": "^7.4.0",

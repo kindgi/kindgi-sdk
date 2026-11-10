@@ -112,7 +112,9 @@ jobs:
       # (scripts/sync-python-version.mjs), and uv re-locks them. It moves the
       # JVM SDKs' poms too and stamps their changelog
       # (scripts/sync-jvm-version.mjs --release; text edits, no Maven), and
-      # moves the skills' docs links to the new line (scripts/sync-docs-line.mjs).
+      # moves the skills' docs links to the new line (scripts/sync-docs-line.mjs),
+      # and the docs' CLI install lines to the new version
+      # (scripts/sync-cli-line.mjs).
       - uses: astral-sh/setup-uv@v6
         with:
           version-file: sdks/python/pyproject.toml
@@ -243,6 +245,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # Plain Node for central-bundle: no install, so no package-manager cache (it
+          # would look for pnpm, which this job never sets up).
+          package-manager-cache: false
       # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm never
       # gets a CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
       # this waits out Central's sync, and stops a release that skipped it).
