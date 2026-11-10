@@ -574,9 +574,9 @@ describe('kindgi connections connect', () => {
 
   test.each([
     [
-      'a connect that stored nothing names what was not allowed',
+      'a connect that kept nothing from its sign-in names what was not allowed',
       { missing: ['gmail.send'] },
-      'Declined at google (not gmail.send): nothing connected.',
+      'Declined at google (not gmail.send): nothing from this sign-in was kept.',
     ],
     [
       'a reconnect allowed less than its connection has leaves it as it was',
@@ -602,7 +602,7 @@ describe('kindgi connections connect', () => {
   });
 
   test.each([
-    ['declined', {}, 'Declined at google: nothing connected.'],
+    ['declined', {}, 'Declined at google: nothing from this sign-in was kept.'],
     [
       'failed',
       { failure: 'account-mismatch' },

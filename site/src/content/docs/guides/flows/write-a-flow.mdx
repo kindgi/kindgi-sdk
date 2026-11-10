@@ -780,6 +780,52 @@ version back under Versions, or publish a new one."
 Under `kindgi dev`, Retire and Bring back are off: "the pack's files are
 this flow's versions. Change the flow there, and kindgi dev reloads it."
 
+## Offer it in a chat app
+
+With `mcp`, the flow is a tool in the chat apps people connect to your
+Kindgi, such as Claude, named `flow.` and the flow's id (runtime 0.6.0 or
+later). Each person gets the tool only if they can see the flow, and
+running it still takes their permission to run it
+([Use Kindgi from Claude](../../chat/)). In the definition:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+mcp: { expose: true },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+mcp={"expose": True},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.set("mcp", Map.of("expose", true))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.set("mcp", Map("expose" -> true))
+```
+
+</TabItem>
+</Tabs>
+
+With `expose: true`, the flow's id must be a tool's name: letters, digits,
+`_`, `-` and `.`, at most 123 characters. Otherwise the flow is refused:
+loading it fails with `invalid-mcp-exposure`, and Python's `Flow` raises a
+`DefinitionError` when it's made. `readOnly` and `destructive` (true or
+false) become the tool's `readOnlyHint` and `destructiveHint`; left out, no
+hint is sent, and the chat app applies the protocol's defaults.
+
 ## Next
 
 - [Pass data between steps](../pass-data-between-steps/)

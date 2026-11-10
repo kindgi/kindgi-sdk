@@ -11207,6 +11207,9 @@ class SecretRotateResponseSync(BaseModel):
     old_version_revoked_at: Annotated[AwareDatetime | None, Field(alias="oldVersionRevokedAt")] = (
         None
     )
+    """
+    When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.
+    """
 
 
 class SecretRotateResponseAsync(BaseModel):
@@ -12511,7 +12514,7 @@ class CreateConnectRequestBody(BaseModel):
     """
     reconnects: UUID | None = None
     """
-    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
     """
 
 
@@ -13767,6 +13770,9 @@ class SecretRotateOutcomeOk(BaseModel):
     old_version_revoked_at: Annotated[AwareDatetime | None, Field(alias="oldVersionRevokedAt")] = (
         None
     )
+    """
+    When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.
+    """
 
 
 class SecretRotateOutcomeRotationPending(BaseModel):
@@ -17642,6 +17648,9 @@ class SecretVersionRecord(BaseModel):
     Present + non-null only on `resolve` responses.
     """
     revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    """
+    When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then.
+    """
 
 
 class SecretSetInput(BaseModel):
@@ -17898,7 +17907,12 @@ class SecretRotateRequest(BaseModel):
     Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
     """
     new_value: Annotated[str | None, Field(alias="newValue")] = None
-    revoke_old_after_ms: Annotated[int | None, Field(alias="revokeOldAfterMs", ge=0)] = None
+    revoke_old_after_ms: Annotated[
+        int | None, Field(alias="revokeOldAfterMs", ge=0, le=31536000000)
+    ] = None
+    """
+    Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid.
+    """
 
 
 class ScheduleRecord(BaseModel):
@@ -18765,6 +18779,10 @@ class ConnectionChoiceNeed(BaseModel):
     """
     Whose connection: the company's, or the run's person's.
     """
+    permissions: list[str] | None = None
+    """
+    The entry's permission keys the need asks for, from the tool's `needsSpec`: `gmail.send`. A connection that lacks one can't serve it until it's connected again for more, with `reconnects`.
+    """
     set: ConnectionChoiceNeedSet
 
 
@@ -18842,7 +18860,7 @@ class ConnectRequest(BaseModel):
     """
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
-    The connection it made.
+    The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.
     """
     connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
     """

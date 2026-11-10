@@ -13,6 +13,7 @@ import { makeEnvName } from '@kindgi/types';
 import type { EnvBinding, EnvRecord } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
@@ -208,20 +209,17 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
   // caller's tenant. Anyone with tenant admin/member cascades through
   // via can_read. Non-members (rare — usually implies a mis-issued
   // token) get 403 rather than the tenant metadata.
-  if (authorizer !== undefined) {
-    r.use(
-      '*',
-      authorizer.authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
-    );
-    // Changing the config writes the tenant's secrets and env: `admin`
-    // on the tenant (T243 A), as every tenant-wide write.
-    const admin = authorizer.authorize('admin', (c) =>
-      ref('tenant', c.get('tenantId') as unknown as string),
-    );
-    r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
-    // Renaming the tenant is a tenant-wide write too.
-    r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
-  }
+  const authorize = gate(authorizer);
+  r.use(
+    '*',
+    authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
+  );
+  // Changing the config writes the tenant's secrets and env: `admin`
+  // on the tenant, as every tenant-wide write.
+  const admin = authorize('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string));
+  r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
+  // Renaming the tenant is a tenant-wide write too.
+  r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
 
   // ---------- GET / ----------
   r.get('/', async (c) => {

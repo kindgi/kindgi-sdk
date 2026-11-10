@@ -493,6 +493,7 @@ function needRecordsOf(tool: TargetTool, app: string | undefined): ConnectionCho
       need,
       app: spec.app,
       as: spec.as,
+      permissions: [...spec.permissions],
       set: refusal === undefined ? { allowed: true } : { allowed: false, reason: refusal },
     });
   }

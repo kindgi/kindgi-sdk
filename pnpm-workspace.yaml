@@ -19,5 +19,28 @@ allowBuilds:
   'protobufjs': true
   'sharp': true
 
+# Security fixes for dependencies that our packages don't declare directly.
+# Each override covers only the versions an advisory names. Its caret floor
+# is the fixed release, so those copies move to the newest release in the
+# same line, and nothing else re-resolves.
+overrides:
+  # The peer-resolved copies (AI SDK, openai, MCP, astro) follow our own floor.
+  'zod@>=4 <4.6.6': ^4.6.6
+  # openai's optional peer allows undici >=5 <9; 5.x has no fixed release, so
+  # that copy moves to 6.
+  'undici@>=5 <6.29.1': ^6.29.1
+  'undici@>=7 <7.30.1': ^7.30.1
+  'undici@>=8 <8.12.2': ^8.12.2
+  'vite@>=8.3.0 <8.3.3': ^8.3.3
+  'markdown-it@>=14 <14.3.3': ^14.3.3
+  'launch-editor@<2.14.2': ^2.14.2
+  'source-map-js@>=1 <1.2.2': ^1.2.2
+  'form-data@>=4 <4.0.6': ^4.0.6
+  'postcss-selector-parser@<6.1.5': ^6.1.5
+  'fast-uri@>=3 <3.1.9': ^3.1.9
+  'shell-quote@>=1.8.4 <1.11.0': ^1.11.0
+  # oxfmt pins tinypool 2.1.0 exactly; 2.1.2 is the patch release with the fix.
+  'tinypool@>=2 <2.1.2': 2.1.2
+
 minimumReleaseAgeExclude:
   - openai@7.17.0
