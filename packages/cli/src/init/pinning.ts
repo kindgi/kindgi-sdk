@@ -20,7 +20,7 @@ import semver from 'semver';
  * Bump it with each release; a test checks it against the workspace's zod
  * and `@kindgi/sdk`'s zod range.
  */
-export const TESTED_ZOD_VERSION = '4.6.5';
+export const TESTED_ZOD_VERSION = '4.6.7';
 
 /**
  * The vitest a pack's tests are run with, and the vite it needs (vitest

@@ -1871,7 +1871,7 @@ class TokensResource:
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
 
-        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.
+        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.
         """
         return self._client._request(
             _OPERATIONS["tokens.list"],
@@ -1908,7 +1908,7 @@ class TokensResource:
     def get(self, token_id: str | UUID, /, *, timeout: float | None = None) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
-        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
+        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.
         """
         return self._client._request(
             _OPERATIONS["tokens.get"],
@@ -1929,7 +1929,7 @@ class TokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
+        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.
         """
         return self._client._request(
             _OPERATIONS["tokens.revoke"],
@@ -12201,7 +12201,7 @@ class AsyncTokensResource:
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
 
-        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.
+        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.
         """
         return await self._client._request(
             _OPERATIONS["tokens.list"],
@@ -12240,7 +12240,7 @@ class AsyncTokensResource:
     ) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
-        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
+        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.
         """
         return await self._client._request(
             _OPERATIONS["tokens.get"],
@@ -12261,7 +12261,7 @@ class AsyncTokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
+        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.
         """
         return await self._client._request(
             _OPERATIONS["tokens.revoke"],

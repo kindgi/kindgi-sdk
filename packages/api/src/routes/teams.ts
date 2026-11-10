@@ -20,6 +20,7 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
@@ -118,35 +119,32 @@ export function teamsRouter(
   // Note: POST / checks `admin on tenant` even when the body carries an
   // orgId — a strictly stronger gate than `admin on org:$spec.orgId`
   // (tenant admins can do anything an org admin can).
-  if (authorizer !== undefined) {
-    r.use('/', async (c, next) => {
-      if (c.req.method !== 'POST') return next();
-      const mw = authorizer.authorize('admin', (ctx) =>
-        ref('tenant', ctx.get('tenantId') as unknown as string),
-      );
-      return mw(c, next);
-    });
-    r.use('/:teamId', async (c, next) => {
-      const method = c.req.method;
-      if (!isReadMethod(method) && method !== 'PATCH' && method !== 'DELETE') return next();
-      const teamId = c.req.param('teamId');
-      const action = isReadMethod(method) ? 'read' : 'admin';
-      const mw = authorizer.authorize(action, () => ref('team', teamId));
-      return mw(c, next);
-    });
-    // Who's in a team is for its admins (and tenant admins), reading as
-    // well as changing: a plain member sees the team, not the others in it.
-    r.use('/:teamId/memberships', async (c, next) => {
-      const teamId = c.req.param('teamId');
-      const mw = authorizer.authorize('admin', () => ref('team', teamId));
-      return mw(c, next);
-    });
-    r.use('/:teamId/memberships/:userId', async (c, next) => {
-      const teamId = c.req.param('teamId');
-      const mw = authorizer.authorize('admin', () => ref('team', teamId));
-      return mw(c, next);
-    });
-  }
+  const authorize = gate(authorizer);
+  r.use('/', async (c, next) => {
+    if (c.req.method !== 'POST') return next();
+    const mw = authorize('admin', (ctx) => ref('tenant', ctx.get('tenantId') as unknown as string));
+    return mw(c, next);
+  });
+  r.use('/:teamId', async (c, next) => {
+    const method = c.req.method;
+    if (!isReadMethod(method) && method !== 'PATCH' && method !== 'DELETE') return next();
+    const teamId = c.req.param('teamId');
+    const action = isReadMethod(method) ? 'read' : 'admin';
+    const mw = authorize(action, () => ref('team', teamId));
+    return mw(c, next);
+  });
+  // Who's in a team is for its admins (and tenant admins), reading as
+  // well as changing: a plain member sees the team, not the others in it.
+  r.use('/:teamId/memberships', async (c, next) => {
+    const teamId = c.req.param('teamId');
+    const mw = authorize('admin', () => ref('team', teamId));
+    return mw(c, next);
+  });
+  r.use('/:teamId/memberships/:userId', async (c, next) => {
+    const teamId = c.req.param('teamId');
+    const mw = authorize('admin', () => ref('team', teamId));
+    return mw(c, next);
+  });
 
   // ---------- GET / ----------
   r.get('/', async (c) => {

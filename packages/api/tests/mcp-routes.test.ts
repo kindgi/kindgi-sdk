@@ -1445,6 +1445,58 @@ describe('API — mcp prompts routes', () => {
 
 // -------------------- scope filter --------------------
 
+describe('API — a key limited to a project registers an endpoint in no other project', () => {
+  const P1 = randomUUID();
+  const P2 = randomUUID();
+  const LIMITED = 'mcp-token-limited-to-p1';
+
+  // No authorization store: the key's own limit is all that holds it.
+  function makeLimitedApp() {
+    const inner = makeInMemoryBinding();
+    const registered: string[] = [];
+    const binding: MCPEndpointRegistryBinding = {
+      ...inner,
+      async register(input) {
+        registered.push(input.endpoint.endpointId);
+        return inner.register(input);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) => (token === LIMITED ? { tenantId, tokenProjectId: P1 } : null),
+      runHandler,
+      mcpEndpointRegistry: binding,
+      tenantHostAccess: 'local',
+    });
+    const register = (endpointId: string, scopeId: string) =>
+      app.request('/v1/mcp/endpoints', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${LIMITED}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...stdioEndpoint({ endpointId }), scopeKind: 'project', scopeId }),
+      });
+    return { register, registered };
+  }
+
+  test('scopeKind project with another project as scopeId: 403 key-project-mismatch, nothing registered', async () => {
+    const { register, registered } = makeLimitedApp();
+    const res = await register('acme-other', P2);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error).toMatchObject({
+      code: 'key-project-mismatch',
+      details: { keyProjectId: P1, projectId: P2 },
+    });
+    expect(registered).toEqual([]);
+  });
+
+  test('its own project: registered', async () => {
+    const { register, registered } = makeLimitedApp();
+    const res = await register('acme-own', P1);
+    expect(res.status).toBe(201);
+    expect(registered).toEqual(['acme-own']);
+  });
+});
+
 describe('API — mcp endpoints scope filter', () => {
   function makeSpy() {
     const inner = makeInMemoryBinding();

@@ -57,13 +57,17 @@ const SECRET = { envName: 'local', name: 'ACME_GOOGLE_CLIENT_SECRET' };
 const at = '2026-10-22T12:00:00.000Z';
 /** The connection a second connect made its owner's main. */
 const FIRST_CONNECTION = randomUUID();
-/** The needs of the agent `acme.support`'s tools, as `choiceNeeds` answers them. */
+/**
+ * The needs of the agent `acme.support`'s tools, as `choiceNeeds` answers
+ * them. GitHub's names no permissions, as a binding that doesn't read them answers.
+ */
 const NEEDS: ConnectionChoiceNeeds['data'] = [
   {
     toolId: 'acme.read-mail',
     need: 'mail',
     app: 'google',
     as: 'company',
+    permissions: ['gmail.readonly'],
     set: { allowed: true },
   },
   {
@@ -71,6 +75,7 @@ const NEEDS: ConnectionChoiceNeeds['data'] = [
     need: 'mail',
     app: 'google',
     as: 'person',
+    permissions: ['gmail.readonly'],
     set: { allowed: true },
   },
   {
@@ -78,6 +83,7 @@ const NEEDS: ConnectionChoiceNeeds['data'] = [
     need: 'mail',
     app: 'google',
     as: 'person',
+    permissions: ['gmail.send'],
     set: { allowed: false, reason: 'changes' },
   },
   {
@@ -2218,7 +2224,7 @@ describe('several connections of an app', () => {
     expect(calls.setChoice).toBeUndefined();
   });
 
-  test("needs: each tool's need of an app, whether it may take a set, and the tools it couldn't read", async () => {
+  test("needs: each tool's need of an app, the permissions it asks for, whether it may take a set, and the tools it couldn't read", async () => {
     const { app, calls } = severalApp();
     const path = `${choices}/needs?projectId=${project}&agentId=acme.support`;
     const res = await call(app, 'ben', 'GET', `${path}&app=google`);
@@ -2230,6 +2236,7 @@ describe('several connections of an app', () => {
           need: 'mail',
           app: 'google',
           as: 'company',
+          permissions: ['gmail.readonly'],
           set: { allowed: true },
         },
         {
@@ -2237,6 +2244,7 @@ describe('several connections of an app', () => {
           need: 'mail',
           app: 'google',
           as: 'person',
+          permissions: ['gmail.readonly'],
           set: { allowed: true },
         },
         {
@@ -2244,11 +2252,15 @@ describe('several connections of an app', () => {
           need: 'mail',
           app: 'google',
           as: 'person',
+          permissions: ['gmail.send'],
           set: { allowed: false, reason: 'changes' },
         },
       ],
       unread: ['acme.gone'],
     });
+    const github = await call(app, 'ben', 'GET', `${path}&app=github`);
+    expect(github.json.data).toEqual([NEEDS[3]]);
+    expect(github.json.data[0]).not.toHaveProperty('permissions');
     expect(calls.choiceNeeds?.[0]).toMatchObject({
       agentId: 'acme.support',
       projectId: project,
