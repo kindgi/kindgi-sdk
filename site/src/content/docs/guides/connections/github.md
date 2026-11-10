@@ -22,7 +22,7 @@ Kindgi once, and install it on your organization.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)).
-  Kindgi 0.4's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
+  Kindgi 0.5's CLI runs from any folder as `npx --yes @kindgi/cli@0.5`
   ([Install](../../../start/install/)).
 
 ## 1. Create the GitHub App
@@ -70,9 +70,9 @@ Three secrets go into Kindgi's secret store under names, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_CLIENT_SECRET --env=production --scope=tenant
-npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_WEBHOOK_SECRET --env=production --scope=tenant
-npx --yes @kindgi/cli@0.4 secrets set ACME_GITHUB_PRIVATE_KEY --env=production --scope=tenant --from-stdin < acme-kindgi.private-key.pem
+npx --yes @kindgi/cli@0.5 secrets set ACME_GITHUB_CLIENT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.5 secrets set ACME_GITHUB_WEBHOOK_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.5 secrets set ACME_GITHUB_PRIVATE_KEY --env=production --scope=tenant --from-stdin < acme-kindgi.private-key.pem
 ```
 
 - Each command but the last asks for the value twice, and doesn't show what
@@ -101,7 +101,7 @@ Then choose **Register**. Kindgi shows what to give GitHub: the
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.4 connection-apps add github --github-app-id=<github-app-id> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET
+npx --yes @kindgi/cli@0.5 connection-apps add github --github-app-id=<github-app-id> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET
 ```
 
 `<github-app-id>` is the **App ID** on the app's page on GitHub, a number.

@@ -31,7 +31,7 @@ export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
  * its new line (`scripts/sync-docs-line.mjs`).
  */
 export const ARTIFACTS_DEPRECATION_LINK =
-  '<https://docs.kindgi.com/v0.4/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+  '<https://docs.kindgi.com/v0.5/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
 
 /**
  * {@link ARTIFACTS_DEPRECATION_LINK} on every `/v1/artifacts` answer, an
