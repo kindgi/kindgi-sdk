@@ -1186,13 +1186,14 @@ async function signerRefusal(
       tenantId: source.tenantId as unknown as string,
       publishedAt: source.publishedAt,
       ...(source.productionEntry !== undefined && { productionEntry: source.productionEntry }),
+      ...(source.builtFrom !== undefined && { builtFrom: source.builtFrom }),
     }),
     new Uint8Array(Buffer.from(source.signature, 'base64')),
   );
   if (verified.kind === 'ok' && verified.value) return undefined;
   return refusal(c, 'signature-invalid', {
     message:
-      "The deployment's signature doesn't verify over the fields it keeps { imageDigest, artifactVersion, indexHash, tenantId, publishedAt, and productionEntry when it has one }, so it isn't promoted. Nothing was promoted.",
+      "The deployment's signature doesn't verify over the fields it keeps { imageDigest, artifactVersion, indexHash, tenantId, publishedAt, and productionEntry and builtFrom when it has them }, so it isn't promoted. Nothing was promoted.",
   });
 }
 

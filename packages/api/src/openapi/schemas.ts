@@ -12606,6 +12606,38 @@ export const DeploymentSourceSchema: JsonSchema = {
  * Immutable, append-only deployment record — the audit anchor. Every field is captured at register time so
  * regulators can re-verify offline against the pinned image bytes.
  */
+export const DeploymentBuiltFromSchema: JsonSchema = {
+  type: 'object',
+  description:
+    "What a build was made from, as its builder signed it: covered by the signature when present, so the project and the person it names are the signer's word, and the runtime checks the person against who signed in before it registers the build for them. A deployment a promotion made keeps its source's. Absent for a build whose builder doesn't say, and from a runtime that doesn't keep it. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.",
+  additionalProperties: false,
+  required: ['kind', 'projectId', 'commit', 'requestedBy'],
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['kept-repo'],
+      description:
+        '`kept-repo`: a commit of a repository the runtime keeps for a project that has no GitHub repository, built for the person who asked.',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      description: 'The project whose repository holds the commit, lower case.',
+    },
+    commit: {
+      type: 'string',
+      pattern: '^([0-9a-f]{40}|[0-9a-f]{64})$',
+      description: 'The commit built: its full id, lower-case hex.',
+    },
+    requestedBy: {
+      type: 'string',
+      pattern: '^user:[\\x21-\\x7e]{1,256}$',
+      description: 'Who asked for the build: `user:` and their id.',
+    },
+  },
+};
+
 export const DeploymentRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -12666,6 +12698,7 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         'Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way.',
     },
+    builtFrom: { $ref: '#/components/schemas/DeploymentBuiltFrom' },
     activatedAt: {
       type: 'string',
       format: 'date-time',
@@ -13343,7 +13376,7 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
     signature: {
       type: 'string',
       description:
-        'Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8.',
+        "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` and `builtFrom` too when the body sends them, `builtFrom`'s keys sorted as well) with sorted keys, no whitespace, UTF-8.",
     },
     publishedAt: {
       type: 'string',
@@ -13356,6 +13389,7 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
       description:
         "Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.",
     },
+    builtFrom: { $ref: '#/components/schemas/DeploymentBuiltFrom' },
     projectId: {
       type: 'string',
       format: 'uuid',
@@ -18508,6 +18542,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentContents', DeploymentContentsSchema],
   ['DeploymentSourceBody', DeploymentSourceBodySchema],
   ['DeploymentSource', DeploymentSourceSchema],
+  ['DeploymentBuiltFrom', DeploymentBuiltFromSchema],
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentKeptFor', DeploymentKeptForSchema],
