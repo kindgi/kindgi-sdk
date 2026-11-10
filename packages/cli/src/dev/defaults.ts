@@ -38,6 +38,7 @@ import { programPath } from '../program-path.js';
 import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
+import { idShapeWarnings } from './id-shape.js';
 import { createJavaPackBuilder } from './java-builder.js';
 import { lineReader } from './lines.js';
 import {
@@ -871,11 +872,14 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
       ...(e.filePath !== undefined && { filePath: e.filePath }),
     })),
     // A Python or JVM indexer from an older SDK sends no `warnings`.
-    warnings: (report.warnings ?? []).map((w) => ({
-      code: w.code,
-      message: w.message,
-      ...(w.filePath !== undefined && { filePath: w.filePath }),
-    })),
+    warnings: [
+      ...(report.warnings ?? []).map((w) => ({
+        code: w.code,
+        message: w.message,
+        ...(w.filePath !== undefined && { filePath: w.filePath }),
+      })),
+      ...idShapeWarnings(report.packId, index),
+    ],
     index,
   };
 }
