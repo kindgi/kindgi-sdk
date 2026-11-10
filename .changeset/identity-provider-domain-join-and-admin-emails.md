@@ -1,0 +1,14 @@
+---
+"@kindgi/api": patch
+"@kindgi/client": patch
+"@kindgi/cli": patch
+"@kindgi/env-schema": patch
+---
+
+**An identity provider can let colleagues join by domain.** `join: domain` now does what it says: someone the workspace's own identity provider signs in for the first time, with a verified email at one of its `domains`, is added as a new person, when the deployment routes that domain to the workspace. A new optional `joinRole` says what they get: `viewer` (the default) or `runner` (who also runs its agents and flows) on the default project, or `none`. It's never tenant admin. Someone removed from the workspace stays out, and the deployment's own ways in (Google, Microsoft, GitHub and the emailed link) still need people added. The person's `createdBy` is `identity_provider:<providerId>`. `joinRole` needs `join: domain` when it's set, and `join: invite` keeps a stored one. `kindgi sso providers finish` and `update` take `--join=invite|domain` and `--join-role=viewer|runner|none`.
+
+**Domain join needs an authorization store.** On a deployment without one, setting `join: domain` or `joinRole` is refused with `409 domain-join-needs-authorization`, since a joiner would work in every project. Until now, `join: domain` was saved there and did nothing. A provider already stored with it keeps it, and a change that leaves it alone goes through. A binding says it can join by domain with the identity provider binding's new optional `joinsByDomain`.
+
+**`KINDGI_ADMIN_EMAILS` names a self-hosted workspace's tenant admins by email.** On a runtime that serves one workspace and has an authorization store, each listed address is a tenant admin from its first sign-in. At every start, the runtime adds the person if there's none with that email, and makes them a tenant admin with what a first admin holds. While listed, taking tenant admin from them answers `409 listed-admin`, and removing them answers `409 identity-user-unregister-refused` with `reason` `listed-admin`, a new value of `IdentityUnregisterUserRefusal`. Taken off the list, someone the list made a tenant admin stops being one at the next start. `PersonGrants` gains the optional `tenantAdminFromSetting`. The setting is in the environment reference, and the env-schema package exports `ADMIN_EMAILS_VAR`.
+
+**Upgrading: once set, `KINDGI_ADMIN_EMAILS` always counts.** Nobody loses tenant admin at the upgrade itself, since no one is one by this setting before it. After that, unset or empty is an empty list: a start without it, such as a redeploy that drops it from the runtime's environment, takes tenant admin from everyone the list made one, and they stay members. To keep them, keep its line, for example `KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com`, in the runtime's environment. Tenant admins made in People or with `tenants make-admin` are never touched.

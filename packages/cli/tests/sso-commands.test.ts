@@ -279,6 +279,67 @@ describe('kindgi sso providers finish / update', () => {
     expect(nothing.exitCode).toBe(1);
     expect(nothing.stderr).toContain('Nothing to change');
   });
+
+  test('--join and --join-role go as join and joinRole; finish refuses a role without --join=domain', async () => {
+    const { calls, rec } = recorder();
+    const finish = [
+      'sso',
+      'providers',
+      'finish',
+      'acme-okta',
+      '--kind=oidc',
+      '--issuer=https://acme.okta.example',
+      '--client-id=client-1',
+      '--client-secret-ref=ACME_OKTA_SECRET',
+      '--domains=acme.com',
+    ];
+    const providers = {
+      register: rec('register', { providerId: 'acme-okta' }),
+      update: rec('update', { providerId: 'acme-okta', provider: {} }),
+    };
+    const joined = await run([...finish, '--join=domain', '--join-role=runner'], {
+      auth: { providers },
+    });
+    expect(joined.exitCode, joined.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'register',
+        {
+          providerId: 'acme-okta',
+          kind: 'oidc',
+          issuer: 'https://acme.okta.example',
+          clientId: 'client-1',
+          clientSecretRef: 'ACME_OKTA_SECRET',
+          join: 'domain',
+          joinRole: 'runner',
+          domains: ['acme.com'],
+        },
+      ],
+    ]);
+
+    const roleAlone = await run([...finish, '--join-role=viewer'], { auth: { providers } });
+    expect(roleAlone.exitCode).toBe(1);
+    expect(roleAlone.stderr).toContain('--join-role needs --join=domain');
+
+    // On update the provider may already be set to `domain`: the server decides.
+    const update = await run(['sso', 'providers', 'update', 'acme-okta', '--join-role=none'], {
+      auth: { providers },
+    });
+    expect(update.exitCode, update.stderr).toBe(0);
+    expect(calls.at(-1)).toEqual(['update', 'acme-okta', { joinRole: 'none' }]);
+
+    const badJoin = await run(['sso', 'providers', 'update', 'acme-okta', '--join=anyone'], {
+      auth: { providers },
+    });
+    expect(badJoin.exitCode).toBe(1);
+    expect(badJoin.stderr).toContain('--join must be `invite` or `domain`');
+    const badRole = await run(['sso', 'providers', 'update', 'acme-okta', '--join-role=admin'], {
+      auth: { providers },
+    });
+    expect(badRole.exitCode).toBe(1);
+    expect(badRole.stderr).toContain('--join-role must be `viewer`, `runner` or `none`');
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe('kindgi sso providers test / list / remove', () => {

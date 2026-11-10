@@ -7964,7 +7964,14 @@ class OidcIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.
+    """
+    join_role: Annotated[
+        Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN] | None,
+        Field(alias="joinRole"),
+    ] = None
+    """
+    What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8029,7 +8036,14 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.
+    """
+    join_role: Annotated[
+        Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN] | None,
+        Field(alias="joinRole"),
+    ] = None
+    """
+    What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8314,6 +8328,7 @@ class UpdateIdentityProviderBody(BaseModel):
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     domains: list[Domain] | None = None
     join: Literal["invite", "domain"] | None = None
+    join_role: Annotated[Literal["viewer", "runner", "none"] | None, Field(alias="joinRole")] = None
     metadata: dict[str, Any] | None = None
     issuer: AnyUrl | None = None
     client_id: Annotated[str | None, Field(alias="clientId", min_length=1)] = None
@@ -19786,6 +19801,10 @@ class PersonGrants(BaseModel):
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
     Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
+    """
+    tenant_admin_from_setting: Annotated[bool | None, Field(alias="tenantAdminFromSetting")] = None
+    """
+    Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it.
     """
     tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
     """
