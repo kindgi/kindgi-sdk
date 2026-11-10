@@ -3,7 +3,7 @@
 
 # The license key's renewal. It's something the operator runs: by hand
 # (`kindgi license renew`), or on a schedule this module adds when
-# license_renewal_schedule is set. Nothing calls Kindgi otherwise.
+# license_renewal_schedule is set.
 #
 # Either way:
 # - <prefix>-license-renewer holds the deployment's renewer key. The module
@@ -20,10 +20,11 @@
 # With license_usage_key_secret too, the job renews with --runtime (the
 # server's run.app URL) and --runtime-token (a system key holding
 # system:license alone, which the operator mints and keeps in that secret).
-# It then sends counts of the deployment's use, and from runtime 0.7.0 it
-# hands a renewed key to the running server, which uses it at once. Without
-# it, the server takes a renewed key at its next start. The schedule turns
-# on Cloud Monitoring's API too, for the alerts below (foundation.tf).
+# It then sends counts of the deployment's use, and offers a renewed key to
+# the running server, which runtime 0.7.0 can't take while it runs. With or
+# without it, the server takes a renewed key at its next start. The
+# schedule turns on Cloud Monitoring's API too, for the alerts below
+# (foundation.tf).
 
 locals {
   license_renewal        = var.license_renewal_schedule != ""

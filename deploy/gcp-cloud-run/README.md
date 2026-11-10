@@ -352,7 +352,7 @@ server_secret_env = {
 
 ## 8. Renew the license key
 
-The license key expires, and the server warns before it does: from 30 days before, or fewer if the key sets its own warning (the startup banner, the console and `kindgi doctor`, each with the exact command). The server never calls Kindgi. The deployment renews its own key with `kindgi license renew` when you run it: by hand, from your own scheduler, or on a schedule this module adds.
+The license key expires, and the server warns before it does: from 30 days before, or fewer if the key sets its own warning (the startup banner, the console and `kindgi doctor`, each with the exact command). The deployment renews its own key with `kindgi license renew` when you run it: by hand, from your own scheduler, or on a schedule this module adds.
 
 **Once per deployment, enroll it:**
 
@@ -382,7 +382,7 @@ license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
 
 **The server, and the counts (`license_usage_key_secret`):** with a system key holding `system:license` alone, the job renews with `--runtime` (the server's run.app URL) and `--runtime-token` (the key's secret), as `license_renew_command` then does too.
 - For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
-- From runtime 0.7.0, a renewed key goes to the running server as well, and every instance uses it within about a minute, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
+- The job also offers a renewed key to the running server. Runtime 0.7.0 can't take one while it runs, so the run's log says `⚠ The runtime didn't take the new key (…)`, and the job writes the key as it does without the usage key. When the server uses it is below.
 - It needs a server that takes calls without Cloud Run IAM (`server_public`, or `server_invoker_iam_disabled`): the job sends the system key as a Kindgi bearer only, and Cloud Run refuses a call without a Google ID token before the server sees it. The plan refuses `license_usage_key_secret` otherwise.
 
 Mint the key with the deployment's own token, and keep it in a secret of its own, made before the apply that names it. Terraform never holds the key, and the server gets no access to it:
@@ -409,7 +409,7 @@ gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name=
   --freshness=1h --limit=20 --format='value(textPayload)'
 ```
 
-**When the server uses a renewed key:** with `license_usage_key_secret` and runtime 0.7.0 or later, at once (above). Otherwise when Cloud Run next starts an instance, which reads the secret's latest version: a new revision, or a new instance as it scales. A running instance keeps the key it started with and never stops over its key, so nothing breaks in between.
+**When the server uses a renewed key:** when Cloud Run next starts an instance, which reads the secret's latest version: a new revision, or a new instance as it scales. A running instance keeps the key it started with and never stops over its key, so nothing breaks in between.
 
 **Stopping:** unset `license_renewal_schedule`, or stop the renewer at access.kindgi.com.
 

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Kindgi Inc.
 
 # Renewing the license key from this deployment, if you turn it on: off by
-# default, and then nothing here calls Kindgi.
+# default.
 #
 # With `license_renewal_schedule` set, a Container Apps job runs the
 # runtime image as `kindgi license renew` on that schedule. It asks
@@ -14,10 +14,10 @@
 #
 # With `license_usage_key_secret` too, the request carries counts of the
 # deployment's use, which the job reads from the server with the system key
-# in that secret (it holds `system:license` alone). From runtime 0.7.0 the
-# job also hands a renewed key to the running server with that key, and the
-# server uses it at once, with no restart. You mint the key and put it in
-# the vault; Terraform names the secret and lets the job read it.
+# in that secret (it holds `system:license` alone). The job also offers a
+# renewed key to the running server with that key, which runtime 0.7.0
+# can't take while it runs. You mint the key and put it in the vault;
+# Terraform names the secret and lets the job read it.
 
 locals {
   license_renewal        = var.license_renewal_schedule != ""

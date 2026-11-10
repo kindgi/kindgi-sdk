@@ -569,7 +569,7 @@ variable "server_secret_env" {
 # ---- renewing the license key (optional) ----------------------------------------
 
 variable "license_renewal_schedule" {
-  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job, scheduler or alerts, and nothing in this deployment calls Kindgi; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output). README, step 8."
+  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job, scheduler or alerts; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output). README, step 8."
   type        = string
   default     = ""
 
@@ -591,7 +591,7 @@ variable "license_renewer_secret" {
 }
 
 variable "license_usage_key_secret" {
-  description = "The Secret Manager secret, in this project, that holds a system key holding system:license alone, which you mint with the deployment's own token and keep there yourself, before the apply that names it (README, step 8). Terraform never holds the key. With it, the renewal job (license_renewal_schedule) reads it and renews with --runtime (the server) and --runtime-token (this secret), as the license_renew_command output does: renewing then carries counts of the deployment's use, and from runtime 0.7.0 hands a renewed key to the running server, which uses it at once. Needs a server that takes calls without Cloud Run IAM (server_public or server_invoker_iam_disabled). Empty (the default): no counts, and the server takes a renewed key at its next start."
+  description = "The Secret Manager secret, in this project, that holds a system key holding system:license alone, which you mint with the deployment's own token and keep there yourself, before the apply that names it (README, step 8). Terraform never holds the key. With it, the renewal job (license_renewal_schedule) reads it and renews with --runtime (the server) and --runtime-token (this secret), as the license_renew_command output does: renewing then carries counts of the deployment's use, and offers a renewed key to the running server, which runtime 0.7.0 can't take while it runs. Needs a server that takes calls without Cloud Run IAM (server_public or server_invoker_iam_disabled). Empty (the default): no counts, and the server takes a renewed key at its next start."
   type        = string
   default     = ""
 

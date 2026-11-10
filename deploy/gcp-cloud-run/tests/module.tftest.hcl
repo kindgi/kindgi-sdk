@@ -2261,7 +2261,7 @@ run "a_named_renewer_secret_and_scheduler_region" {
 }
 
 # With the usage key, the job renews with --runtime and --runtime-token: the
-# counts, and from runtime 0.7.0 the key's hand-over to the running server.
+# counts, and the key offered to the running server.
 run "the_usage_key_renews_through_the_server" {
   command = apply
   variables {
