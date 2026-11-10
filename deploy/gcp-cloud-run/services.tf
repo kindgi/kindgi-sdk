@@ -457,6 +457,10 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "server_run_execution = \"request\" needs server_billing = \"request\": the run queue sends its requests to the server's run.app URL, which the module sets only then, and the tick sends a start the queue gave up on again, even with no instance up."
     }
     precondition {
+      condition     = !local.runs_in_requests || var.server_max_instances * var.server_concurrency >= 2
+      error_message = "server_run_execution = \"request\" needs server_max_instances times server_concurrency of 2 or more: each executing run holds one of the server's requests, and the run queue sends at most three quarters of them at once, so the rest stays free for the API, run streams and the tick."
+    }
+    precondition {
       condition     = !local.server_tick || !local.server_iam_guarded
       error_message = "server_billing = \"request\" needs server_public or server_invoker_iam_disabled: the server's request to itself carries no Google ID token, so Cloud Run IAM would refuse it. The server checks the tick's caller itself."
     }

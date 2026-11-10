@@ -1056,20 +1056,29 @@ the Cloud Tasks API on. From then on:
   way, to `/internal/work` and `/internal/drain`. The runtime checks the
   token itself, and holds no request to itself. The module sets
   `KINDGI_RUN_EXECUTION`, `KINDGI_SERVICE_ACCOUNT` and `KINDGI_TASKS_QUEUE`.
-- **The queue sends as many requests at once as the instances take,**
-  `server_max_instances` × `server_concurrency`, up to 5000. A task the
-  runtime couldn't take is tried again for about four minutes. Past that,
-  the runtime's lease sweep sends the run again; a run sent twice runs once.
+- **The queue sends three quarters of the requests the instances take at
+  once,** `server_max_instances` × `server_concurrency` × 3/4, up to 5000,
+  so the rest stays free for the API, the console, run streams and the
+  tick. Past that, a task waits in the queue. A task the runtime couldn't
+  take is tried again for about four minutes. Past that, the runtime's
+  lease sweep sends the run again; a run sent twice runs once.
 - **`server_concurrency`** is the requests one instance takes at once, 80 by
   default. Each open run stream holds one, and each executing run one more.
 - **The runtime's account may add tasks to that queue alone**
   (`roles/cloudtasks.enqueuer`), and may act as itself
   (`roles/iam.serviceAccountUser`), so its tasks' tokens may name it.
+  Cloud Tasks' service agent mints those tokens with
+  `roles/cloudtasks.serviceAgent`, which Google gives it when the API is
+  turned on. If a task fails with a permission error naming
+  `service-<project number>@gcp-sa-cloudtasks.iam.gserviceaccount.com`,
+  grant it that role on the project.
 
 The plan refuses `server_run_execution = "request"` without
-`server_billing = "request"`. Switching back to `"local"` deletes the queue,
-and Cloud Tasks keeps a deleted queue's name for 7 days: turning it on again
-within the week fails at apply.
+`server_billing = "request"`, or with `server_max_instances` ×
+`server_concurrency` under 2. Switching back to `"local"` needs
+`server_max_instances = 1` again, and deletes the queue. Cloud Tasks keeps
+a deleted queue's name for 7 days, so turning it on again within the week
+fails at apply.
 
 ## Staging and production
 

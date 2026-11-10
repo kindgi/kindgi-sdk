@@ -21,21 +21,26 @@ locals {
   runs_queue      = "projects/${var.project_id}/locations/${var.region}/queues/${local.runs_queue_name}"
 }
 
-# As many requests at once as the server's instances take, so the queue never
-# holds back one an instance could take; 5000 is Cloud Tasks' own maximum, and
-# the server's run slots keep the runs executing well under it. The rate is
-# Cloud Tasks' maximum, so it never holds back a start. A task the server
-# couldn't take (a 503, or a 429 at full capacity) is tried again for about
-# four minutes. Past that, the server's lease sweep sends a kept start again
-# and resumes a run whose lease ran out, and a run sent twice runs once. Each
-# task's deadline is the server's, per route.
+# Three quarters of the requests the server's instances take at once
+# (server_max_instances x server_concurrency, rounded down), so the rest stays
+# free for the API and the console, run streams and the tick. Every task
+# counts, /internal/work and /internal/drain too. Each executing run holds its
+# request for up to 30 minutes, and nothing else bounds how many execute at
+# once: run slots are a tenant's own limits, and a tenant with none has no
+# limit. Past the cap a task waits in the queue and spends none of its tries.
+# 5000 is Cloud Tasks' own maximum, and so is the rate, which never holds back
+# a start below the cap. A task the server couldn't take (a 503, or a 429 with
+# every instance full) is tried again for about four minutes. Past that, the
+# server's lease sweep sends a kept start again and resumes a run whose lease
+# ran out, and a run sent twice runs once. Each task's deadline is the
+# server's, per route.
 resource "google_cloud_tasks_queue" "runs" {
   count    = local.runs_in_requests ? 1 : 0
   name     = local.runs_queue_name
   location = var.region
 
   rate_limits {
-    max_concurrent_dispatches = min(5000, var.server_max_instances * var.server_concurrency)
+    max_concurrent_dispatches = min(5000, floor(var.server_max_instances * var.server_concurrency * 3 / 4))
     max_dispatches_per_second = 500
   }
 

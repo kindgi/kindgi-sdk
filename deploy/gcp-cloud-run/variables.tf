@@ -103,7 +103,7 @@ variable "server_run_execution" {
 }
 
 variable "server_concurrency" {
-  description = "Requests one server instance takes at once (Cloud Run's max_instance_request_concurrency). 80 by default, Cloud Run's own. Each open run stream holds one, and under server_run_execution = \"request\" each executing run holds one more, its own request. Above 1 needs server_cpu of 1 or more. The run queue's requests at once follow it: server_max_instances times this, at most 5000."
+  description = "Requests one server instance takes at once (Cloud Run's max_instance_request_concurrency). 80 by default, Cloud Run's own. Each open run stream holds one, and under server_run_execution = \"request\" each executing run holds one more, its own request. Above 1 needs server_cpu of 1 or more. The run queue's requests at once follow it: three quarters of server_max_instances times this (rounded down, at most 5000), so the rest stays free for the API and the console, run streams and the tick. Under server_run_execution = \"request\", server_max_instances times this must be 2 or more."
   type        = number
   default     = 80
 

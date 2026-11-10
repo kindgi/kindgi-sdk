@@ -102,10 +102,10 @@ run "request_execution_runs_three_instances" {
   }
   assert {
     condition = (
-      google_cloud_tasks_queue.runs[0].rate_limits[0].max_concurrent_dispatches == 480 &&
+      google_cloud_tasks_queue.runs[0].rate_limits[0].max_concurrent_dispatches == 360 &&
       google_cloud_tasks_queue.runs[0].rate_limits[0].max_dispatches_per_second == 500
     )
-    error_message = "The queue sends as many requests at once as the instances take (3 x 160), at Cloud Tasks' highest rate."
+    error_message = "The queue sends three quarters of the requests the instances take at once (3 x 160 x 3/4), at Cloud Tasks' highest rate."
   }
   assert {
     condition = (
@@ -172,6 +172,35 @@ run "the_queue_sends_5000_at_once_at_most" {
     condition     = google_cloud_tasks_queue.runs[0].rate_limits[0].max_concurrent_dispatches == 5000
     error_message = "The queue's requests at once stop at Cloud Tasks' own maximum, 5000."
   }
+}
+
+run "the_smallest_server_keeps_one_request_free" {
+  command = plan
+
+  variables {
+    server_billing       = "request"
+    server_run_execution = "request"
+    server_max_instances = 1
+    server_concurrency   = 2
+  }
+
+  assert {
+    condition     = google_cloud_tasks_queue.runs[0].rate_limits[0].max_concurrent_dispatches == 1
+    error_message = "With one instance taking 2 requests at once, the queue sends 1 (2 x 3/4, rounded down), and the other stays free."
+  }
+}
+
+run "request_execution_needs_two_requests_at_once" {
+  command = plan
+
+  variables {
+    server_billing       = "request"
+    server_run_execution = "request"
+    server_max_instances = 1
+    server_concurrency   = 1
+  }
+
+  expect_failures = [google_cloud_run_v2_service.server]
 }
 
 run "request_execution_needs_request_billing" {
