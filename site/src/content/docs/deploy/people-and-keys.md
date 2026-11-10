@@ -33,8 +33,8 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
   `curl` examples read the same two variables.
-- **For `kindgi` commands:** Kindgi 0.5's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.5` ([Install](../../start/install/)). Inside a pack
+- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
@@ -110,7 +110,7 @@ Adding a person gives them a place in the workspace, so they can sign in and
 get keys:
 
 ```sh
-npx --yes @kindgi/cli@0.5 people add --name="Sam Rivera" --email=sam@acme.example
+npx --yes @kindgi/cli@0.6 people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -247,7 +247,7 @@ with their email, or send it again. To send it again, open for 7 days from
 then:
 
 ```sh
-npx --yes @kindgi/cli@0.5 people invite <user-id>
+npx --yes @kindgi/cli@0.6 people invite <user-id>
 ```
 
 Someone who has joined, or was never invited, is refused with
@@ -266,7 +266,7 @@ The people invited who haven't signed in yet, with a STATE of `pending` or
 `expired`:
 
 ```sh
-npx --yes @kindgi/cli@0.5 people list --pending --table
+npx --yes @kindgi/cli@0.6 people list --pending --table
 ```
 
 Here Lee Park's invitation expired before they signed in:
@@ -294,8 +294,8 @@ A tenant admin can do everything in the workspace. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-npx --yes @kindgi/cli@0.5 people grant <user-id> --tenant-admin
-npx --yes @kindgi/cli@0.5 people ungrant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.6 people grant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.6 people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
@@ -350,8 +350,8 @@ admin stops being a tenant admin or is removed, and as a tenant admin,
 whoever holds it can make new keys with its capabilities:
 
 ```sh
-npx --yes @kindgi/cli@0.5 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
-npx --yes @kindgi/cli@0.5 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
+npx --yes @kindgi/cli@0.6 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
+npx --yes @kindgi/cli@0.6 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
 
 It can trust signing keys, so keep it out of CI: trusting CI's signing key
@@ -434,7 +434,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-npx --yes @kindgi/cli@0.5 tokens create --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.6 tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -492,7 +492,7 @@ Make longer-lived keys with one of those, such as the 90-day key in
 A tenant admin made Sam's first key:
 
 ```sh
-npx --yes @kindgi/cli@0.5 tokens create --for=user:<user-id> --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.6 tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -516,7 +516,7 @@ npx --yes @kindgi/cli@0.5 tokens create --for=user:<user-id> --label=laptop --ex
 ```
 
 ```sh
-npx --yes @kindgi/cli@0.5 tokens list --table
+npx --yes @kindgi/cli@0.6 tokens list --table
 ```
 
 ```text
@@ -562,7 +562,7 @@ Make one. A deploy into a project takes `admin` on it, so this one, which
 deploys from CI, is an admin of one project:
 
 ```sh
-npx --yes @kindgi/cli@0.5 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
+npx --yes @kindgi/cli@0.6 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
 ```
 
 - `acme-ci` is the account's name.
@@ -590,7 +590,7 @@ npx --yes @kindgi/cli@0.5 service-accounts create acme-ci --description="Deploys
 Then make it a key, limited to that same project:
 
 ```sh
-npx --yes @kindgi/cli@0.5 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.6 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed, and
@@ -685,7 +685,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-npx --yes @kindgi/cli@0.5 people remove <user-id>
+npx --yes @kindgi/cli@0.6 people remove <user-id>
 ```
 
 ```text
