@@ -72,7 +72,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.5.0] [--from <version>] \
+#                [--to 0.6.0] [--from <version>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
 #   --var-file         A tfvars file the deployment uses (.tfvars or
@@ -98,7 +98,7 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.4.0 or later (default
-#                      0.5.0). An rc such as 0.5.0-rc.0 works too, and so does
+#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
 #                      a server-only release such as 0.4.0.1: a server fix for
 #                      0.4.0, with no SDK release of its own. The module here
 #                      is 0.4.0's, which needs the 0.4.0 runtime or later: to
@@ -106,7 +106,7 @@
 #                      release's @kindgi/sdk@<version> tag (for X.Y.Z.N,
 #                      X.Y.Z's tag), and below 0.2.0, which isn't on
 #                      registry.kindgi.com, as of the @kindgi/sdk@0.1.10 tag.
-#                      This script knows the steps up to 0.5.0; for a later
+#                      This script knows the steps up to 0.6.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag or, before that release is
 #                      out, its newest @kindgi/sdk@<version>-rc.N tag.
@@ -141,7 +141,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -1244,13 +1244,7 @@ EOT
 EOT
       ;;
     0.5.0)
-      # STEPS-PENDING marks a release whose runtime steps here aren't final
-      # yet: they come from its release notes' Upgrade steps before its rc,
-      # and the rc's cut stops while either script has the marker.
       cat <<'EOT'
-   - STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet.
-     Don't upgrade a deployment you keep with it: read the 0.5.0 release
-     notes' Upgrade steps.
    - Two new migrations: three new tables (connection_choices,
      connection_choice_uses and connection_choice_members), and new columns
      on connections and connection_requests that are empty, with nothing
@@ -1281,11 +1275,53 @@ EOT
      account is connected. A call that isn't an agent's or a flow's can't
      have a choice, so it needs a project with one company connection of
      the app.
+   - A person's account label is no longer recorded: when a call runs on a
+     person's own connection, the run's journal keeps the account's id
+     without its label. Runs and approvals recorded before 0.5.0 keep the
+     label they were recorded with.
    - To list Google calendars, add this scope to your Google Cloud
      project's consent screen:
        https://www.googleapis.com/auth/calendar.calendarlist.readonly
      A connection made before grants it once, when it's reconnected; the
      permissions it had stay.
+   - On a server serving many tenants, run this once after the upgrade,
+     with the new runtime's kindgi-runtime:
+       kindgi-runtime tenants repair --all
+     It sets right the authorization parents that earlier moves of
+     projects and teams, and deletes of orgs, left behind. A server
+     serving one tenant does it when it starts.
+EOT
+      ;;
+    0.6.0)
+      cat <<'EOT'
+   - Three new migrations: a table of renamed projects' old slugs
+     (project_slug_renames), a new everyone_can_run column that is empty,
+     and the tables chat apps' sign-in keeps (the auth_oauth_* tables and
+     auth_jwks), with nothing rewritten. The first start runs them, and
+     builds one new index on the runs table (kernel_runs) without locking
+     it: with many runs, that start takes longer.
+   - The migrations fill nothing in: each project keeps everyone-can-run
+     off until a project admin turns it on, and a project renamed before
+     the upgrade doesn't hold its old slugs. Change an old slug to the new
+     one wherever you named it, or name the project by its id.
+   - If a migration stops because another database session holds a lock
+     on a table it changes, start the new revision again once that
+     session has ended (the error names it). The migrations before the
+     stop stay applied, and the one it stopped on leaves nothing behind.
+   - The authorization model gains the runner role and everyone-can-run.
+     A server serving one tenant brings its store to the new model when
+     it starts. On a server serving many tenants, run this once right
+     after the upgrade, before people use it, with the new runtime's
+     kindgi-runtime:
+       kindgi-runtime tenants repair --all
+     Until it has run, lists of runs and new personal schedules fail for
+     anyone who isn't a workspace admin.
+     Give runner roles after it has run: a person's or a team's given
+     before can take up to an hour, and a service account's is refused
+     until then, so give it again.
+   - A remote MCP endpoint that redirects to another origin no longer
+     connects: it fails with mcp-connect-failed, naming the redirect
+     target. Register the URL it redirects to.
 EOT
       ;;
   esac
@@ -1384,6 +1420,15 @@ EOT
     0.5.0)
       cat <<'EOT'
    - 0.5.0 doesn't change the module.
+EOT
+      ;;
+    0.6.0)
+      cat <<'EOT'
+   - 0.6.0's plan changes nothing in the module by itself: its one new
+     variable, server_ingress, defaults to INGRESS_TRAFFIC_ALL, the ingress
+     the server has now. INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER is for a
+     server behind your own load balancer, with public_url and
+     network_mode = "direct".
 EOT
       ;;
   esac
@@ -1541,6 +1586,13 @@ plan_allowed_changes() {
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
   # From 0.4.0 the orchestrator's Job runs the server's image too.
   printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.image"
+  # From 0.4.0 its schedule makes one attempt (retry_count = 0). Cloud
+  # Scheduler hands back no retry config at that count, so each plan adds it
+  # again, a change that changes nothing. Only that: a count the schedule
+  # holds, or any other, is still a change.
+  if plan_readds_one_attempt "$1"; then
+    printf '%s\n' "google_cloud_scheduler_job.orchestrator retry_config.retry_count"
+  fi
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)
@@ -1652,6 +1704,16 @@ plan_adds_api() {
   jq -e '[.resource_changes[]?
     | select(.mode == "managed" and .type == "google_project_service" and .name == "apis"
         and .change.actions == ["create"])] | length > 0' "$1" >/dev/null 2>&1
+}
+
+# Whether a plan (terraform show -json) gives the orchestrator's schedule
+# back its one attempt: no retry config before, a retry count of 0 after.
+# Every plan from 0.4.0 has it, as Cloud Scheduler hands back none at 0.
+plan_readds_one_attempt() {
+  jq -e '[.resource_changes[]?
+    | select(.type == "google_cloud_scheduler_job" and .name == "orchestrator" and .change.actions == ["update"])
+    | select(((.change.before.retry_config // []) | length) == 0
+        and .change.after.retry_config[0].retry_count == 0)] | length > 0' "$1" >/dev/null 2>&1
 }
 
 # >>> same in both modules: plan-changes

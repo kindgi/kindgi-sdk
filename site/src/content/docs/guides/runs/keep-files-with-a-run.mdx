@@ -19,7 +19,7 @@ Google Cloud Storage bucket, or in an S3 bucket.
 - **A runtime that keeps artifacts.** `kindgi dev` keeps them in the pack's
   `.kindgi/dev/artifacts`. Another runtime keeps them once you
   [turn them on](#turn-them-on).
-- **Kindgi 0.4's CLI**, and a file to keep, such as `report.pdf`.
+- **Kindgi 0.5's CLI**, and a file to keep, such as `report.pdf`.
 - **A run's id,** to keep the file with that run.
 
 ## Upload one
@@ -96,11 +96,14 @@ and what was read. The log line never holds the file's content.
 
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting
-need `write`. An artifact you can't read answers `404`, as if it weren't
-there, and lists leave it out. Someone with `run` there and no `write` may
-upload a file of their own that names no run, an input for a run they start,
-and download it again. The runtime limits what one person uploads that way
-in a workspace, by default to 1 GiB and 1,000 files in 24 hours
+need `write`. Someone who may only run the project (`run` without `read`)
+reaches their own files there all the same: they upload a file that names
+no `ownerRunId`, an input for a run they start, and download it again;
+download the files a run that acts for them stored; and list a run's files
+with `?ownerRunId=` of a run of their own. Deleting still takes `write`.
+An artifact you can't read answers `404`, as if it weren't there, and lists
+leave it out. The runtime limits what one person uploads with `run` and no
+`write` in a workspace, by default to 1 GiB and 1,000 files in 24 hours
 (`KINDGI_RUN_UPLOAD_DAILY_BYTES`, `KINDGI_RUN_UPLOAD_DAILY_FILES`).
 Their uploads to projects where they have `write` are never refused, but
 they count toward it too. Past it, the upload answers
