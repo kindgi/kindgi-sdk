@@ -1278,6 +1278,70 @@ describe('POST /v1/deployments — happy path', () => {
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.summarize' as never })).toBeNull();
   });
 
+  test("a tool naming a texts registration's account key is refused, naming the tool, the key and the registration", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.sms',
+            description: 'Send a text with the account key.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/sms.js',
+            needsSpec: { secrets: { ACME_TELNYX_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const connections = {
+      entries: () => [],
+      listApps: async () => ({
+        data: [
+          {
+            appId: 'acme-texts-app',
+            tenantId,
+            app: 'texts',
+            token: {
+              provider: 'telnyx',
+              apiKey: { envName: 'prod', name: 'ACME_TELNYX_KEY' },
+              publicKey: `${'A'.repeat(43)}=`,
+            },
+          },
+        ],
+      }),
+    } as never;
+    const { app, toolRegistry } = makeApp({
+      fixture,
+      extra: { connections, envName: 'prod' as never },
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; details: { issues: unknown[] } } };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.sms',
+        path: '/secrets/ACME_TELNYX_KEY',
+        message:
+          '`ACME_TELNYX_KEY` is the account key of connection app registration "acme-texts-app": a tool never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account',
+      },
+    ]);
+    expect(await toolRegistry.get({ tenantId, toolId: 'acme.sms' as never })).toBeNull();
+  });
+
   test('a tool naming a reserved `kindgi.` secret is refused, with no provider registered', async () => {
     const fixture = buildSignedDeploy({
       index: {

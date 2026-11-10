@@ -3599,6 +3599,21 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'connection-key-refused': {
+    description:
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider or another connection app registration. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is a registration's account key",
+      },
+      {
+        key: 'appId',
+        meaning: 'id of the connection app registration that owns that key',
+      },
+    ],
+    seeAlso: ['#connection-key-in-use', 'POST /v1/connection-apps'],
+  },
   'provider-key-in-use': {
     description:
       'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint or webhook trigger. Give each a key of its own.',
@@ -3936,6 +3951,20 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/webhooks/start-runs-from-webhooks'],
   },
+  'trigger-connection-taken': {
+    description:
+      "Another live text trigger, active or paused, already answers that connection's number: one live text trigger answers a number. Unregister that trigger first, or pick another connection. The trigger it names can be in another project of the workspace.",
+    details: [
+      {
+        key: 'heldBy',
+        meaning: 'the text trigger that answers the connection',
+      },
+      {
+        key: 'connectionId',
+        meaning: 'the connection asked for',
+      },
+    ],
+  },
   'trigger-already-in-state': {
     description:
       'The trigger is already in the state you asked for, such as pausing a paused trigger or resuming one that is running.',
@@ -4173,7 +4202,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-account-mismatch': {
     description:
-      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account.",
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account. A reconnect of a number (`texts`) that names another number is refused the same way, and the message names the connection's number.",
     details: [],
   },
   'connection-label-taken': {
@@ -4217,12 +4246,74 @@ export const ERROR_ENTRIES = {
   },
   'connection-removing': {
     description:
-      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end, such as a number whose old inbound couldn't be put back. Disconnect it again to finish, then connect.",
     details: [],
+  },
+  'inbound-in-use': {
+    description:
+      "A connect of a number (`texts`) whose texts go somewhere else today: a webhook, or another messaging profile of the business. Connecting moves the number onto Kindgi's messaging profile, so its texts come to Kindgi, and that profile's outbound settings then apply. To go ahead, send it again with `replaceInbound: true`; disconnecting puts the old inbound back. Nothing is stored.",
+    details: [
+      {
+        key: 'host',
+        meaning: "the host of the webhook the number's texts go to, when there is one",
+      },
+      {
+        key: 'profile',
+        meaning:
+          'the name of the messaging profile the number is on, when there is no webhook; exactly one of `host` and `profile` is set',
+      },
+    ],
+    seeAlso: ['POST /v1/connections'],
+  },
+  'number-in-use': {
+    description:
+      "A connect of a number (`texts`) that's already live in another environment of the registration, or under another texts registration of the workspace (two on one provider account). A number is connected in one place at a time: disconnect it there first. Nothing is stored.",
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration the number is live under',
+      },
+      {
+        key: 'envName',
+        meaning: 'the environment the number is live in',
+      },
+    ],
+    seeAlso: ['POST /v1/connections', 'DELETE /v1/connections/{connectionId}'],
+  },
+  'inbound-restore-failed': {
+    description:
+      "A disconnect of a number (`texts`), or a registration's removal with its connections, couldn't put the number's old inbound back at the provider. The connection stays `removing`, and the registration stays. Disconnect again to retry; if you've pointed the number elsewhere yourself, disconnect with `skipInboundRestore=true`, which drops what was kept without putting it back.",
+    details: [
+      {
+        key: 'host',
+        meaning: 'the host of the webhook it was putting back, when there was one',
+      },
+      {
+        key: 'profile',
+        meaning:
+          'the name of the messaging profile it was putting the number back on, when there was no webhook; neither is set when Kindgi kept nothing to put back',
+      },
+    ],
+    seeAlso: ['DELETE /v1/connections/{connectionId}', 'DELETE /v1/connection-apps/{appId}'],
+  },
+  'connection-key-in-use': {
+    description:
+      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: ['POST /v1/connection-apps', 'PATCH /v1/connection-apps/{appId}'],
   },
   'connection-app-refused': {
     description:
-      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. For a number (`texts`), the texting provider refused the registration's API key or the number's lookup: the message gives the provider's code. Start the connect again.",
     details: [],
   },
   'connection-store-failed': {
@@ -4237,6 +4328,16 @@ export const ERROR_ENTRIES = {
   },
   'connection-notice-unavailable': {
     description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
+  },
+  'texts-inbound-refused': {
+    description:
+      "A texting provider's request to `/v1/texts-inbound/{tenantId}/{appId}` didn't prove its sender: a delivery, or a handshake. It's one answer for every reason, such as an unknown workspace or registration, a signature that doesn't check out, or a body over the cap, so the sender learns nothing from it.",
+    details: [],
+  },
+  'texts-inbound-unavailable': {
+    description:
+      "The server couldn't check or take a texting provider's texts just now. The provider sends them again.",
     details: [],
   },
   'token-mint-failed': {

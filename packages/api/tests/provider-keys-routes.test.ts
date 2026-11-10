@@ -13,7 +13,9 @@
  *
  * A name under the reserved `kindgi.` prefix is refused at the same places
  * (400 `reserved-name-prefix`), and as a provider's `secret_ref`
- * (400 `bad-input`).
+ * (400 `bad-input`). A texts registration's account key is refused at the
+ * same places and as a provider's `secret_ref` (400 `connection-key-refused`),
+ * where the runtime has connections.
  *
  * (A deployment that brings such a tool: `deployments-routes.test.ts`; a
  * webhook trigger's secret: `webhooks-routes.test.ts`; a connection app's:
@@ -25,7 +27,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { ToolManifest } from '@kindgi/tools';
-import type { TenantId } from '@kindgi/types';
+import type { EnvName, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -49,6 +51,10 @@ const REFUSED = (user: string) =>
 const HELD = 'kindgi.connection-token';
 const RESERVED = (user: string) =>
   `\`${HELD}\` uses the reserved "kindgi." prefix: ${user} never names one. Those names are Kindgi's own; store the secret under a name of its own and use that`;
+const TEXTS_KEY = 'ACME_TELNYX_KEY';
+const TEXTS_APP = randomUUID();
+const TEXTS_REFUSED = (user: string) =>
+  `\`${TEXTS_KEY}\` is the account key of connection app registration "${TEXTS_APP}": ${user} never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`;
 
 function tool(id: string, extra: Partial<ToolManifest> = {}): Record<string, unknown> {
   return {
@@ -61,7 +67,8 @@ function tool(id: string, extra: Partial<ToolManifest> = {}): Record<string, unk
   };
 }
 
-function makeApp() {
+/** `texts`: the runtime has connections, with a live texts registration whose key is `TEXTS_KEY`. */
+function makeApp(opts: { readonly texts?: boolean } = {}) {
   const tools: ToolManifest[] = [
     tool('acme.search', { needsSpec: { secrets: { SEARCH_KEY: { type: 'string' } } } }) as never,
   ];
@@ -107,7 +114,9 @@ function makeApp() {
           ? tool('acme.t', { needsSpec: { secrets: { [MODEL_KEY]: { type: 'string' } } } })
           : input.toolId === 'acme.held'
             ? tool('acme.held', { needsSpec: { secrets: { [HELD]: { type: 'string' } } } })
-            : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
+            : input.toolId === 'acme.texts'
+              ? tool('acme.texts', { needsSpec: { secrets: { [TEXTS_KEY]: { type: 'string' } } } })
+              : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
       reinstateVersion: async (input: { toolId: string; version: string }) => {
         stored.push(input);
         return { kind: 'ok', toolId: input.toolId, version: input.version, wasTombstoned: true };
@@ -134,6 +143,26 @@ function makeApp() {
         throw new Error('not reached');
       },
     } as never,
+    ...(opts.texts === true && {
+      envName: 'local' as EnvName,
+      connections: {
+        entries: () => [],
+        listApps: async () => ({
+          data: [
+            {
+              appId: TEXTS_APP,
+              tenantId,
+              app: 'texts',
+              token: {
+                provider: 'telnyx',
+                apiKey: { envName: 'local', name: TEXTS_KEY },
+                publicKey: `${'A'.repeat(43)}=`,
+              },
+            },
+          ],
+        }),
+      } as never,
+    }),
   });
   const call = async (method: string, path: string, body: unknown) => {
     const res = await app.request(path, {
@@ -395,5 +424,123 @@ describe('a reserved `kindgi.` name, named where a registration names a secret',
       `\`secret_ref.name\` is \`${HELD}\`, under the reserved "kindgi." prefix: those names are Kindgi's own. Store the key under a name of its own.`,
     ]);
     expect(h.registered).toEqual([]);
+  });
+});
+
+describe("a texts registration's account key, named where it's not the registration", () => {
+  const metadata = {
+    id: 'openai-main',
+    region: 'us-east-1',
+    models: [
+      {
+        name: 'gpt-x',
+        contextWindow: 128_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.01, completionUsdPer1kTokens: 0.03 },
+      },
+    ],
+  };
+
+  test('a tool declaring it, or sending it: 400, naming the key and the registration, and nothing is published', async () => {
+    const h = makeApp({ texts: true });
+    const declared = await h.call('POST', '/v1/tools', {
+      ...tool('acme.sms', { needsSpec: { secrets: { [TEXTS_KEY]: { type: 'string' } } } }),
+      projectId,
+    });
+    expect([declared.status, declared.body.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'connection-key-refused',
+        message: TEXTS_REFUSED('a tool'),
+        details: { secret: TEXTS_KEY, appId: TEXTS_APP },
+      }),
+    ]);
+    const sent = await h.call('POST', '/v1/tools', {
+      ...tool('acme.relay', {
+        spec: {
+          kind: 'http',
+          method: 'POST',
+          urlTemplate: 'https://api.acme.example/messages',
+          authorization: { kind: 'bearer', secretRef: { envName: 'local', name: TEXTS_KEY } },
+        } as never,
+      }),
+      projectId,
+    });
+    expect([sent.status, sent.body.error?.code]).toEqual([400, 'connection-key-refused']);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('reinstating a retired version that names it: 400, and it stays retired', async () => {
+    const h = makeApp({ texts: true });
+    const refused = await h.call('POST', '/v1/tools/acme.texts/versions/1.0.0/reinstate', {});
+    expect([refused.status, refused.body.error?.code, refused.body.error?.message]).toEqual([
+      400,
+      'connection-key-refused',
+      TEXTS_REFUSED('a tool'),
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('an MCP endpoint naming it: 400, and nothing is registered', async () => {
+    const h = makeApp({ texts: true });
+    const mcp = await h.call('POST', '/v1/mcp/endpoints', {
+      endpointId: 'acme-shop',
+      name: 'Shop MCP',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://shop.acme.example/mcp' },
+      secretRef: { envName: 'local', name: TEXTS_KEY },
+    });
+    expect([mcp.status, mcp.body.error?.code, mcp.body.error?.message]).toEqual([
+      400,
+      'connection-key-refused',
+      TEXTS_REFUSED('an MCP endpoint'),
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('a webhook endpoint naming it, made or changed: 400', async () => {
+    const h = makeApp({ texts: true });
+    // The store's `create` and `update` throw: a refusal never reaches them.
+    const hook = await h.call('POST', '/v1/webhook-endpoints', {
+      url: 'https://app.acme.example/hooks',
+      events: ['run.finished'],
+      secretRef: { envName: 'local', name: TEXTS_KEY },
+    });
+    expect([hook.status, hook.body.error?.code, hook.body.error?.message]).toEqual([
+      400,
+      'connection-key-refused',
+      TEXTS_REFUSED('a webhook endpoint'),
+    ]);
+    const changed = await h.call('PATCH', '/v1/webhook-endpoints/whe-1', {
+      secretRef: { envName: 'local', name: TEXTS_KEY },
+    });
+    expect([changed.status, changed.body.error?.code]).toEqual([400, 'connection-key-refused']);
+  });
+
+  test("a provider's `secret_ref` naming it: 400, and nothing is registered", async () => {
+    const h = makeApp({ texts: true });
+    const r = await h.call('POST', '/v1/providers', {
+      metadata,
+      adapter_id: '@kindgi/adapter-model-anthropic',
+      secret_ref: { envName: 'local', name: TEXTS_KEY },
+    });
+    expect([r.status, r.body.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'connection-key-refused',
+        message: TEXTS_REFUSED('a model provider'),
+        details: { secret: TEXTS_KEY, appId: TEXTS_APP },
+      }),
+    ]);
+    expect(h.registered).toEqual([]);
+  });
+
+  test('a runtime without connections has no registration whose key it could be', async () => {
+    const h = makeApp();
+    const r = await h.call('POST', '/v1/tools', {
+      ...tool('acme.sms', { needsSpec: { secrets: { [TEXTS_KEY]: { type: 'string' } } } }),
+      projectId,
+    });
+    expect(r.status).toBe(201);
   });
 });
