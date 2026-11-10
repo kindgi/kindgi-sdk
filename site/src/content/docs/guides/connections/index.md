@@ -87,7 +87,7 @@ So connect before a schedule or a webhook needs it. From a terminal, this
 prints the link to open, and waits until you've connected:
 
 ```sh
-npx --yes @kindgi/cli@0.4 connections connect google --permissions=gmail.send
+npx --yes @kindgi/cli@0.5 connections connect google --permissions=gmail.send
 ```
 
 - **`--permissions`** names what to ask for, by the app's permission keys.

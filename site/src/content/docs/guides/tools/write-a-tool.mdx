@@ -714,11 +714,12 @@ the run wait for it." Kindgi's skills in your pack tell it how.
 
 ## Check the run's org
 
-When your app keeps several customers' data, give each customer its own Kindgi
-org and project, and start that customer's runs there. A tool then checks what
-it reads against the run's org, `ctx.orgId`, which the runtime sets from the
-run. An org id in the input is something a model or a caller wrote, so it
-proves nothing. Ask your coding agent: "My order lookup tool should only find
+When your app keeps several customers' data, start each customer's runs in a
+project of their own. A tool then checks what it reads against the run's
+project, `ctx.projectId`, or, where an org groups a customer's projects, the
+run's org, `ctx.orgId`, as below. The runtime sets both from the run. An id in
+the input is something a model or a caller wrote, so it proves nothing. Ask
+your coding agent: "My order lookup tool should only find
 orders from the run's own org." For reference, the tool checks it like this:
 
 <Tabs syncKey="lang">

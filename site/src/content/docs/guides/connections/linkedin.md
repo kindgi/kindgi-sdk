@@ -26,7 +26,7 @@ reviews first, and isn't covered here.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)).
-  Kindgi 0.4's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
+  Kindgi 0.5's CLI runs from any folder as `npx --yes @kindgi/cli@0.5`
   ([Install](../../../start/install/)).
 
 ## 1. Create the app at LinkedIn
@@ -74,7 +74,7 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.5 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_LINKEDIN_CONNECT_SECRET` is the secret's name. The registration
@@ -100,7 +100,7 @@ step 1.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.4 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET
+npx --yes @kindgi/cli@0.5 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET
 ```
 
 The command prints the registration as JSON: its `redirectUrl` is the
@@ -167,7 +167,7 @@ To change the client secret, for example when someone who knew it leaves:
 2. **Store the new one as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.4 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.5 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next

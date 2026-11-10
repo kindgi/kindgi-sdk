@@ -114,7 +114,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   system it writes to (an `Idempotency-Key` header, a client reference, a
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
-  Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  Docs: https://docs.kindgi.com/v0.5/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.time_zone` — the workspace's time zone, an IANA name such as
   `"America/Toronto"`: an agent turn reads it once, so all its calls get the
   same one, `"UTC"` when the workspace sets none. `None` outside an agent
@@ -143,7 +143,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   amounts and outcomes, never what a person typed (a refund's reason, a
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
-  https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#log-from-a-tool
+  https://docs.kindgi.com/v0.5/guides/tools/write-a-tool/#log-from-a-tool
 
 ### A date and time tool
 
@@ -187,7 +187,7 @@ def today(_input: NoInput, ctx: ToolContext) -> Today:
 ```
 
 Test it with `ToolContext.for_test(time_zone="Asia/Tokyo")`. Docs:
-https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
+https://docs.kindgi.com/v0.5/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 
@@ -224,8 +224,8 @@ it. Ask the user how the other system reports back, then:
 - It can't call back: return the job's id, and check it from a scheduled
   flow.
 
-Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
-and https://docs.kindgi.com/v0.4/guides/tools/wait-for-another-system/
+Docs: https://docs.kindgi.com/v0.5/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+and https://docs.kindgi.com/v0.5/guides/tools/wait-for-another-system/
 
 ## Configuration and secrets
 
@@ -326,7 +326,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating=False`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.4/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.5/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -397,7 +397,7 @@ def refund(request: RefundRequest) -> Refunded:
     """Refunds an order."""
 ```
 
-Docs: https://docs.kindgi.com/v0.4/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.5/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `result_is_outside_data`
 
@@ -534,7 +534,7 @@ removed field, a narrower type — not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `pyproject.toml`: `[tool.kindgi.dev.sandbox]` `allowRead = ["~/.aws"]`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.4/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.5/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 
