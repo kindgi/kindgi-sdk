@@ -9705,7 +9705,7 @@ class ProjectsResource:
     ) -> None:
         """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
 
-        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204. Keys and sessions limited to the project are revoked. A failed revoke is tried once more, then logged, and the delete still answers 204. Deleting the project again finishes a revoke that failed.
         """
         return self._client._request(
             _OPERATIONS["projects.delete"],
@@ -20053,7 +20053,7 @@ class AsyncProjectsResource:
     ) -> None:
         """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
 
-        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204. Keys and sessions limited to the project are revoked. A failed revoke is tried once more, then logged, and the delete still answers 204. Deleting the project again finishes a revoke that failed.
         """
         return await self._client._request(
             _OPERATIONS["projects.delete"],

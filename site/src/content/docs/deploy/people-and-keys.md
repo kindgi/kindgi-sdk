@@ -479,6 +479,10 @@ that project, even for their own person:
   ([Who can see and change a connection](../../guides/connections/reference/#a-connections-states)).
 - They write memory only in that project
   ([Who sees what](../../guides/agents/memory-reference/#who-sees-what)).
+- Deleting the project revokes them. A revoke that fails is tried once
+  more, then logged, and the delete still goes through; deleting the
+  project again finishes it
+  ([Delete a project](../../guides/projects/organize-by-org-and-project/#delete-a-project)).
 
 A tenant admin made Sam's first key:
 

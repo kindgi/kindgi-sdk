@@ -2504,6 +2504,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.identityDirectory,
         input.serviceAccountBinding,
+        {
+          ...(input.tokenAdmin !== undefined && { tokenAdmin: input.tokenAdmin }),
+          ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        },
       ),
     );
   }

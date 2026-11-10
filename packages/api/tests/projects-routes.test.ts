@@ -5,7 +5,10 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { AuthzCheckBinding, Decision } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import { makeInMemoryProjectBinding } from '@kindgi/platform';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
@@ -13,7 +16,15 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { makeInMemoryEnvironmentOrderBinding } from './support/in-memory-environment-order-binding.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  RunHandlerBinding,
+  ServiceAccountBinding,
+  SessionRevokeByProjectInput,
+  SessionStoreBinding,
+  TokenAdmin,
+  TokenResolver,
+  TokenRevokeByProjectInput,
+} from '../src/index.js';
 
 /**
  * Projects route tests.
@@ -160,6 +171,263 @@ describe('API — projects environment-order guard', () => {
       body: JSON.stringify({ name: 'Staging-renamed' }),
     });
     expect(patch.status).toBe(204);
+  });
+});
+
+/** The fields of a JSON log line these tests read. */
+interface LogLine {
+  readonly level: string;
+  readonly message: string;
+  readonly tenantId?: string;
+  readonly projectId?: string;
+}
+
+// A project to delete, with recording fakes where its keys and sessions are
+// revoked: each call is kept, with how many errors were logged before it, and
+// the first `keysFail` / `sessionsFail` calls throw. `inUse` makes the
+// binding answer `project-in-use` for a project that isn't the default.
+function makeDeleteApp(
+  options: {
+    readonly inUse?: boolean;
+    readonly keysFail?: number;
+    readonly sessionsFail?: number;
+    readonly sessionsEnded?: number;
+    readonly canRevokeByProject?: boolean;
+    readonly authz?: AuthzCheckBinding;
+  } = {},
+) {
+  const trio = makeInMemoryProjectBinding({ projectInUse: () => options.inUse === true });
+  const lines: string[] = [];
+  const logged = (level: string) =>
+    lines.map((line) => JSON.parse(line) as LogLine).filter((rec) => rec.level === level);
+  const keyCalls: TokenRevokeByProjectInput[] = [];
+  const sessionCalls: SessionRevokeByProjectInput[] = [];
+  const errorsBeforeKeyCall: number[] = [];
+  const unregistered: string[] = [];
+  let keysFail = options.keysFail ?? 0;
+  let sessionsFail = options.sessionsFail ?? 0;
+  // The first revoke that succeeds ends the sessions; a repeat ends none.
+  let sessionsRevoked = false;
+  const canRevoke = options.canRevokeByProject !== false;
+  const tokenAdmin = {
+    ...(canRevoke && {
+      revokeByProject: async (input: TokenRevokeByProjectInput) => {
+        keyCalls.push(input);
+        errorsBeforeKeyCall.push(logged('error').length);
+        if (keysFail > 0) {
+          keysFail -= 1;
+          throw new Error('the key store is unreachable');
+        }
+        return { revokedCount: 1 };
+      },
+    }),
+  } as unknown as TokenAdmin;
+  const sessionStore = {
+    ...(canRevoke && {
+      revokeByProject: async (input: SessionRevokeByProjectInput) => {
+        sessionCalls.push(input);
+        if (sessionsFail > 0) {
+          sessionsFail -= 1;
+          throw new Error('the session store is unreachable');
+        }
+        if (sessionsRevoked) return { revokedCount: 0 };
+        sessionsRevoked = true;
+        return { revokedCount: options.sessionsEnded ?? 0 };
+      },
+    }),
+  } as unknown as SessionStoreBinding;
+  const serviceAccountBinding = {
+    projectAccounts: {
+      get: async () => ({ serviceAccountId: 'acme-project-account' }),
+      ensure: async () => {
+        throw new Error('not used in this suite');
+      },
+    },
+    unregister: async (input: { serviceAccountId: string }) => {
+      unregistered.push(input.serviceAccountId);
+      return { kind: 'ok', value: {} };
+    },
+  } as unknown as ServiceAccountBinding;
+  const store = createInMemoryAuditEventBinding();
+  const written: AuditEvent[] = [];
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken,
+    runHandler,
+    logger: createLogger({ write: (line) => lines.push(line) }),
+    projectBinding: trio.projects,
+    projectMembershipBinding: trio.memberships,
+    teamProjectGrantBinding: trio.grants,
+    tokenAdmin,
+    sessionStore,
+    serviceAccountBinding,
+    auditEvents: {
+      ...store,
+      append: async (events) => {
+        written.push(...events);
+        return store.append(events);
+      },
+    },
+    ...(options.authz !== undefined && {
+      authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: options.authz },
+    }),
+  });
+  const del = (id: string) =>
+    app.request(`/v1/projects/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${USER_A}` },
+    });
+  const get = (id: string) =>
+    app.request(`/v1/projects/${id}`, { headers: { authorization: `Bearer ${USER_A}` } });
+  const sessionsEnded = () => written.filter((e) => e.kind === 'sessions-ended');
+  return {
+    app,
+    trio,
+    del,
+    get,
+    logged,
+    keyCalls,
+    sessionCalls,
+    errorsBeforeKeyCall,
+    unregistered,
+    sessionsEnded,
+  };
+}
+
+async function errorCode(res: Response): Promise<string> {
+  return ((await res.json()) as { error: { code: string } }).error.code;
+}
+
+describe('API — deleting a project', () => {
+  test('the default project: 409 project-is-default, even in use; nothing goes with it', async () => {
+    const h = makeDeleteApp({ inUse: true });
+    const id = await createProject(h.app, TOKEN_A, {
+      name: 'Default',
+      slug: 'default',
+      isDefault: true,
+    });
+    const del = await h.del(id);
+    expect(del.status).toBe(409);
+    expect(await errorCode(del)).toBe('project-is-default');
+    expect((await h.get(id)).status).toBe(200);
+    expect(h.unregistered).toEqual([]);
+    expect(h.keyCalls).toEqual([]);
+    expect(h.sessionCalls).toEqual([]);
+  });
+
+  test('a project in use: 409 project-in-use; its account, keys and sessions stay', async () => {
+    const h = makeDeleteApp({ inUse: true });
+    const id = await createProject(h.app, TOKEN_A, { name: 'Support', slug: 'support' });
+    const del = await h.del(id);
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('project-in-use');
+    expect(body.error.message).toContain(
+      '`kindgi sites unregister <site-id> --project=<project-id>`',
+    );
+    expect(body.error.message).toContain('`kindgi artifacts delete <blob-id>`');
+    expect(body.error.message).toContain('`kindgi connection-choices unset <choice-id>`');
+    expect((await h.get(id)).status).toBe(200);
+    expect(h.unregistered).toEqual([]);
+    expect(h.keyCalls).toEqual([]);
+    expect(h.sessionCalls).toEqual([]);
+  });
+
+  test("a deleted project's keys and sessions are revoked as the caller, and again on a repeat", async () => {
+    const h = makeDeleteApp({ sessionsEnded: 2 });
+    const id = await createProject(h.app, TOKEN_A, { name: 'Support', slug: 'support' });
+    expect((await h.del(id)).status).toBe(204);
+    expect(h.unregistered).toEqual(['acme-project-account']);
+    expect(h.keyCalls).toEqual([{ tenantId: tenantA, projectId: id, revokedBy: 'user:user-a' }]);
+    expect(h.sessionCalls).toEqual([{ tenantId: tenantA, projectId: id }]);
+    const ended = h.sessionsEnded();
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({
+      actor: 'user:user-a',
+      payload: { doc: { projectId: id, reason: 'project-deleted', revokedCount: 2 } },
+    });
+    expect(ended[0]?.projectId).toBeUndefined();
+    expect((await h.get(id)).status).toBe(404);
+
+    // The project is gone: a repeat delete answers 204 and revokes again.
+    expect((await h.del(id)).status).toBe(204);
+    expect(h.keyCalls).toHaveLength(2);
+    expect(h.sessionCalls).toHaveLength(2);
+    expect(h.sessionsEnded()).toHaveLength(1);
+    expect(h.logged('error')).toEqual([]);
+  });
+
+  test('a revoke that fails is logged with the workspace and the project, then tried once more', async () => {
+    const h = makeDeleteApp({ keysFail: 1 });
+    const id = await createProject(h.app, TOKEN_A, { name: 'Support', slug: 'support' });
+    expect((await h.del(id)).status).toBe(204);
+    // Logged before the second try, not after it.
+    expect(h.errorsBeforeKeyCall).toEqual([0, 1]);
+    const errors = h.logged('error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ tenantId: tenantA, projectId: id });
+    expect(errors[0]?.message).toContain('trying once more');
+    expect(h.sessionCalls).toHaveLength(1);
+    expect(h.sessionsEnded()).toEqual([]);
+  });
+
+  test('a revoke that fails twice is logged twice; the delete answers 204, and a repeat finishes it', async () => {
+    const h = makeDeleteApp({ sessionsFail: 2, sessionsEnded: 3 });
+    const id = await createProject(h.app, TOKEN_A, { name: 'Support', slug: 'support' });
+    expect((await h.del(id)).status).toBe(204);
+    expect(h.sessionCalls).toHaveLength(2);
+    const errors = h.logged('error');
+    const where = { tenantId: tenantA, projectId: id };
+    expect(errors).toMatchObject([where, where]);
+    expect(errors[1]?.message).toContain('deleting it again revokes them');
+    expect(h.sessionsEnded()).toEqual([]);
+    expect((await h.get(id)).status).toBe(404);
+
+    expect((await h.del(id)).status).toBe(204);
+    expect(h.sessionCalls).toHaveLength(3);
+    expect(h.sessionsEnded()).toHaveLength(1);
+  });
+
+  test("a runtime that can't revoke by project: 204, and one warning per delete", async () => {
+    const h = makeDeleteApp({ canRevokeByProject: false });
+    const id = await createProject(h.app, TOKEN_A, { name: 'Support', slug: 'support' });
+    expect((await h.del(id)).status).toBe(204);
+    const warnings = h.logged('warn').filter((line) => line.message.includes("weren't revoked"));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ tenantId: tenantA, projectId: id });
+    expect(warnings[0]?.message).toContain('keys and sessions');
+    expect(h.logged('error')).toEqual([]);
+  });
+
+  test('deleting takes delete on the project: without it, a 403 that deletes and revokes nothing', async () => {
+    const granted = new Set<string>();
+    const authz = {
+      check: async (
+        _principal: unknown,
+        action: string,
+        resource: { type: string; id: string },
+      ) => {
+        const allowed = granted.has(`${action} ${resource.type}:${resource.id}`);
+        return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
+      },
+    } as unknown as AuthzCheckBinding;
+    const h = makeDeleteApp({ authz });
+    const made = await h.trio.projects.create(tenantA, { name: 'Support', slug: 'support' });
+    if (made.kind !== 'ok') throw new Error(made.kind);
+    const id = made.projectId as unknown as string;
+    granted.add(`read project:${id}`);
+
+    const refused = await h.del(id);
+    expect(refused.status).toBe(403);
+    expect(await errorCode(refused)).toBe('permission-denied');
+    expect((await h.get(id)).status).toBe(200);
+    expect(h.unregistered).toEqual([]);
+    expect(h.keyCalls).toEqual([]);
+    expect(h.sessionCalls).toEqual([]);
+
+    granted.add(`delete project:${id}`);
+    expect((await h.del(id)).status).toBe(204);
+    expect(h.keyCalls).toHaveLength(1);
   });
 });
 

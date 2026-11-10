@@ -74,6 +74,33 @@ export function projectInEnvironmentOrderError(orderId: string) {
 }
 
 /**
+ * `409 project-is-default`: the workspace's default project can't be
+ * deleted, whatever else is true of it. Nothing is deleted.
+ */
+export function projectIsDefaultError() {
+  return {
+    code: 'project-is-default',
+    message: "The workspace's default project can't be deleted.",
+  } as const;
+}
+
+/**
+ * `409 project-in-use`: something the workspace keeps still names the
+ * project, or a site is still registered on it, so it can't be deleted.
+ * Nothing is deleted. Its sites, artifacts and company connection choices
+ * can go first (a person's own choices don't hold it); a project with
+ * history stays, and so does one that had a secret, an environment value,
+ * a limited key or a trigger set to run as it, whose audit events name it.
+ */
+export function projectInUseError() {
+  return {
+    code: 'project-in-use',
+    message:
+      "The project still holds what the workspace keeps (published agents, tools, flows, guardrails or data blocks; deployments; test sets; runs, test runs or triggers; artifacts; company connection choices; audit events; cost records), or a site is still registered on it, so it can't be deleted. Unregister its sites (`kindgi sites unregister <site-id> --project=<project-id>`), delete its artifacts (`kindgi artifacts delete <blob-id>`) and unset its company connection choices (`kindgi connection-choices unset <choice-id>`) first. A project with history stays, and so does one that had a secret or an environment value set on it, a key made limited to it, or a trigger set to run as it: each of these records an audit event that names the project.",
+  } as const;
+}
+
+/**
  * `409 org-has-environment-order`: the org is the parent of an environment
  * order, so deleting it would orphan the order. A tenant admin clears the
  * order first (`PUT /v1/environment-orders/orgs/{orgId}` with `[]`). The

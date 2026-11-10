@@ -224,6 +224,7 @@ export type {
   SessionPage,
   SessionResolveTokenInput,
   SessionRevokeAllForUserInput,
+  SessionRevokeByProjectInput,
   SessionRevokeByProviderInput,
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
@@ -286,6 +287,8 @@ export {
   type TokenMintOutput,
   type TokenMintRefusal,
   type TokenPrincipal,
+  type TokenRevokeByProjectInput,
+  type TokenRevokeByProjectOutcome,
   type TokenRevokeInput,
   type TokenRevokeOutcome,
 } from './token-admin.js';

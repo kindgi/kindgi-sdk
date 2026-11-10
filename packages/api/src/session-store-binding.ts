@@ -72,12 +72,29 @@ export interface SessionStoreBinding {
   readonly revokeByProvider?: (
     input: SessionRevokeByProviderInput,
   ) => Promise<SessionRevokeAllForUserOutcome>;
+  /**
+   * End every live session limited to one project (its `projectId`), in
+   * one tenant: `DELETE /v1/projects/:projectId` calls it once the project
+   * is deleted, and again on a repeat delete. Sessions not limited to a
+   * project are left alone. Answers how many it ended; a repeat call ends
+   * none. Absent: those sessions stay live until they expire, though a
+   * request naming the deleted project finds no project.
+   */
+  readonly revokeByProject?: (
+    input: SessionRevokeByProjectInput,
+  ) => Promise<SessionRevokeAllForUserOutcome>;
 }
 
 export interface SessionRevokeByProviderInput {
   readonly tenantId: TenantId;
   /** The `providerId` the sessions were created with. */
   readonly providerId: string;
+}
+
+export interface SessionRevokeByProjectInput {
+  readonly tenantId: TenantId;
+  /** The project the sessions are limited to (`SessionCreateInput.projectId`). */
+  readonly projectId: ProjectId;
 }
 
 export interface SessionResolveTokenInput {
