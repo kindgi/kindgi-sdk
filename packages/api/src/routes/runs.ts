@@ -9,6 +9,7 @@ import type {
   KernelRunRecord,
   ListRunsInput,
   RunBinding,
+  RunKeyCeiling,
   RunStartedBy,
   RunStatus,
 } from '@kindgi/runtime';
@@ -355,6 +356,9 @@ export function runsRouter(
       start,
       c.get('principal') as Principal | undefined,
       c.get('serviceAccountId') !== undefined,
+      // The run is marked with the caller's key's ceiling, and acts as the
+      // key's person all the same.
+      c.get('tokenCeiling') === 'sandbox' ? 'sandbox' : undefined,
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
@@ -1207,6 +1211,7 @@ function invokeFromBody(
   body: ParsedStartRunBody,
   principal: Principal | undefined,
   serviceAccountKey: boolean,
+  keyCeiling: RunKeyCeiling | undefined,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
   const startedBy = startedByCaller(principal, serviceAccountKey);
@@ -1216,6 +1221,8 @@ function invokeFromBody(
     ...(principal !== undefined && { principal }),
     // How it started: from the caller too, never the body.
     ...(startedBy !== undefined && { startedBy }),
+    // The caller's key's ceiling, never the body's: a mark on the run.
+    ...(keyCeiling !== undefined && { keyCeiling }),
     ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
@@ -1289,6 +1296,7 @@ function serializeRun(
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
+    ...(row.keyCeiling !== undefined && { keyCeiling: row.keyCeiling }),
     ...(row.actsFor !== undefined && { actsFor: row.actsFor }),
     ...(row.toolsAllowedUnattended !== undefined &&
       row.toolsAllowedUnattended.length > 0 && {

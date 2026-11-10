@@ -27,6 +27,7 @@ import {
   ref,
   userPrincipal,
 } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { ApiTokenId, ProjectId, TenantId, UserId } from '@kindgi/types';
 import { Hono } from 'hono';
 
@@ -65,10 +66,13 @@ function harness(
     readonly keepCeiling?: boolean;
     /** A reviewer role every key's resolution carries. */
     readonly carriedReviewerRole?: ReviewerRole;
+    /** A key store whose revoke finds no key, or throws. */
+    readonly revokeFails?: 'not-found' | 'throws';
   } = {},
 ) {
   const keys = new Map<string, StoredKey>();
   const roleAsked: string[] = [];
+  const logLines: string[] = [];
 
   const tokenAdmin: TokenAdmin = {
     async mint(input) {
@@ -101,6 +105,8 @@ function harness(
       return keys.get(tokenId as unknown as string);
     },
     async revoke({ tokenId }) {
+      if (options.revokeFails === 'not-found') return { kind: 'not-found' };
+      if (options.revokeFails === 'throws') throw new TypeError('key store down');
       const k = keys.get(tokenId as unknown as string);
       if (k === undefined) return { kind: 'not-found' };
       keys.set(tokenId as unknown as string, { ...k, revokedAt: new Date() });
@@ -194,6 +200,7 @@ function harness(
     tokenAdmin,
     myAccess,
     reviewerBinding,
+    logger: createLogger({ write: (line) => logLines.push(line) }),
     triggerRegistry: createInMemoryTriggerRegistry({ defaultProjectId: P1 as ProjectId }),
     ...(options.authz !== false && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
@@ -230,7 +237,7 @@ function harness(
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return { token: r.body.token as string, tokenId: r.body.tokenId as string, body: r.body };
   };
-  return { call, code, message, mint, seed, keys, roleAsked };
+  return { call, code, message, mint, seed, keys, roleAsked, logLines };
 }
 
 const SANDBOX = { ceiling: 'sandbox', projectId: P1 };
@@ -281,7 +288,31 @@ describe('minting a key with a ceiling', () => {
     const [stored] = [...h.keys.values()];
     expect(stored?.revokedAt).toBeDefined();
     expect((await h.call(stored?.secret ?? '', 'GET', '/v1/identity/whoami')).status).toBe(401);
+    expect(h.logLines.filter((line) => line.includes('key-ceiling-not-kept'))).toEqual([]);
   });
+
+  test.each([
+    ['not-found', 'not-found'],
+    ['throws', 'TypeError'],
+  ] as const)(
+    "the revoke after a ceiling the store didn't keep fails (%s): the same 500, and a warn line naming the key, never its secret",
+    async (revokeFails, said) => {
+      const h = harness({ keepCeiling: false, revokeFails });
+      const r = await h.call(ADA, 'POST', '/v1/tokens', SANDBOX);
+      expect(r.status).toBe(500);
+      expect(h.code(r)).toBe('key-ceiling-not-kept');
+      expect(r.body).not.toHaveProperty('token');
+      const [stored] = [...h.keys.values()];
+      const warned = h.logLines
+        .map((line) => JSON.parse(line) as { level?: string; message?: string })
+        .filter((record) => record.message?.startsWith('key-ceiling-not-kept') === true);
+      expect(warned).toHaveLength(1);
+      expect(warned[0]?.level).toBe('warn');
+      expect(warned[0]?.message).toContain(String(stored?.tokenId));
+      expect(warned[0]?.message).toContain(`(${said})`);
+      for (const line of h.logLines) expect(line).not.toContain(stored?.secret ?? 'unset');
+    },
+  );
 });
 
 describe('a key with a ceiling manages no keys', () => {

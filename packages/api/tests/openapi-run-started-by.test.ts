@@ -2,12 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A run's `startedBy` and its trigger's `kind` list exactly the runtime's
- * values, and each description names every value, so a new kind of start
- * can't reach the wire unexplained.
+ * A run's `startedBy`, its `keyCeiling` and its trigger's `kind` list
+ * exactly the runtime's values, and each description names every value, so
+ * a new kind of start can't reach the wire unexplained.
  */
 
-import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
+import { RUN_KEY_CEILINGS, RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
 import { describe, expect, test } from 'vitest';
 
 import { RunSchema, RunTriggerSchema } from '../src/openapi/schemas.js';
@@ -15,6 +15,7 @@ import { RunSchema, RunTriggerSchema } from '../src/openapi/schemas.js';
 type Field = { readonly enum?: readonly string[]; readonly description?: string };
 
 const startedBy = (RunSchema.properties as Record<string, Field>).startedBy;
+const keyCeiling = (RunSchema.properties as Record<string, Field>).keyCeiling;
 const triggerKind = (RunTriggerSchema.properties as Record<string, Field>).kind;
 
 describe("a run's startedBy", () => {
@@ -24,6 +25,19 @@ describe("a run's startedBy", () => {
 
   test.each(RUN_STARTED_BY)('its description names `%s`', (value) => {
     expect(startedBy?.description).toContain(`\`${value}\``);
+  });
+});
+
+describe("a run's keyCeiling", () => {
+  test("lists exactly the runtime's values, and isn't required", () => {
+    expect(keyCeiling?.enum).toEqual([...RUN_KEY_CEILINGS]);
+    expect((RunSchema as { required?: readonly string[] }).required ?? []).not.toContain(
+      'keyCeiling',
+    );
+  });
+
+  test.each(RUN_KEY_CEILINGS)('its description names `%s`', (value) => {
+    expect(keyCeiling?.description).toContain(`\`${value}\``);
   });
 });
 

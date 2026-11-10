@@ -71,7 +71,12 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
-import { RUN_STARTED_BY, RUN_TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from '@kindgi/runtime';
+import {
+  RUN_KEY_CEILINGS,
+  RUN_STARTED_BY,
+  RUN_TRIGGER_KINDS,
+  TRIGGER_VERSION_CAUSES,
+} from '@kindgi/runtime';
 import { CORRECTION_ITEM, FILE_NOT_SHOWN_REASONS } from '@kindgi/types';
 
 import {
@@ -1275,6 +1280,12 @@ export const RunSchema: JsonSchema = {
       description:
         "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
     },
+    keyCeiling: {
+      type: 'string',
+      enum: [...RUN_KEY_CEILINGS],
+      description:
+        "The ceiling of the API key that started the run (`sandbox`, the key's `ceiling`), recorded when it was created and never changed. A mark only: the run acts as the key's person (`startedBy` `person`), and its tool and MCP calls use that person's grants or the agent's, not the ceiling. A child run has its parent's. Absent on a run no key with a ceiling started, and on runs from before runs recorded it.",
+    },
     actsFor: {
       type: 'string',
       description:
@@ -1591,7 +1602,7 @@ const ApiTokenCeilingSchema: JsonSchema = {
   type: 'string',
   enum: ['sandbox'],
   description:
-    "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none.",
+    "The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. A run the key starts runs as the key's person: its tool and MCP calls use that person's grants or the agent's, not the ceiling, and the run is marked with it (the run's `keyCeiling`).",
 };
 
 const ApiTokenCapabilitiesSchema: JsonSchema = {

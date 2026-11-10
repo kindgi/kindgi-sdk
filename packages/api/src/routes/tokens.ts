@@ -113,11 +113,25 @@ export function tokensRouter(
     // it: that key is revoked, and its secret never shown.
     const ceiling = parsed.value.ceiling;
     if (ceiling !== undefined && minted.record.ceiling !== ceiling) {
-      await admin.revoke({
-        tenantId,
-        tokenId: minted.record.tokenId,
-        ...(createdBy !== undefined && { revokedBy: createdBy }),
-      });
+      // A revoke that fails leaves a key without its ceiling: an operator
+      // has to revoke it by its id. The answer is the same either way.
+      const tokenId = minted.record.tokenId as unknown as string;
+      let revoked: string;
+      try {
+        const outcome = await admin.revoke({
+          tenantId,
+          tokenId: minted.record.tokenId,
+          ...(createdBy !== undefined && { revokedBy: createdBy }),
+        });
+        revoked = outcome.kind;
+      } catch (cause) {
+        revoked = cause instanceof Error ? cause.name : 'thrown';
+      }
+      if (revoked !== 'ok') {
+        c.get('log').warn(
+          `key-ceiling-not-kept: the new key ${tokenId} wasn't revoked (${revoked}); revoke it by its id`,
+        );
+      }
       return fail(
         c,
         {
