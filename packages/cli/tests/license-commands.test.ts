@@ -1181,7 +1181,7 @@ describe('kindgi license renew', () => {
       message: 'A system key reaches /v1/system/* only.',
     }),
   ];
-  const NO_PUT_SAID = 'https://runtime.acme.example has no PUT /v1/license: a runtime before 0.7.0';
+  const NO_PUT_SAID = 'https://runtime.acme.example has no PUT /v1/license';
 
   test('--runtime: a new key goes to the runtime first, and is written once it took it', async () => {
     const { dir, renewer } = await enrolled();

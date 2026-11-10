@@ -41,7 +41,6 @@ import {
 import {
   type CountsSent,
   PRODUCTION_NO_COUNTS,
-  PUSH_RUNTIME,
   type PushAnswer,
   type RuntimeTook,
   networkReason,
@@ -194,7 +193,7 @@ function pushAnswer(runtime: string, cause: unknown): PushAnswer {
   if (error.code === 'not-found' || serverCode === 'system-key-on-tenant-route') {
     return {
       kind: 'absent',
-      said: `${runtime} has no PUT /v1/license: a runtime before ${PUSH_RUNTIME}`,
+      said: `${runtime} has no PUT /v1/license`,
     };
   }
   if (error.code === 'network' && error.cause instanceof SyntaxError) {
