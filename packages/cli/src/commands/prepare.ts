@@ -57,9 +57,10 @@ export const prepareCommand: LeafCommand = {
 /**
  * The pack steps, then one JSON line on stdout:
  * `{ packTgz, sha256, size, expectedIndex, counts }`. Progress goes to
- * stderr. A pack whose install needs build secrets (a private registry) is
- * refused before anything is written under `--out`: Kindgi Cloud's build
- * gets none.
+ * stderr. A Node pack whose install reads a settings file (`.npmrc`, a Yarn
+ * rc file) is refused before anything is written under `--out`: Kindgi
+ * Cloud's build gets no build secrets. A Python or JVM pack's install
+ * settings aren't read here: Kindgi Cloud's own install comes first.
  */
 export async function runPrepare(ctx: CommandContext, out: ProgressLines): Promise<CommandResult> {
   const targetFlag = ctx.options.target;

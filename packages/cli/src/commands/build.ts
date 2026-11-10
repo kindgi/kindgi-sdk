@@ -844,16 +844,17 @@ type PackContext =
   | (CommandResult & { readonly kind: 'error' });
 
 /**
- * What the pack's steps do when the install needs build secrets (`.npmrc`,
- * a Yarn rc file: a private registry): go on, as `kindgi build` does, or
- * refuse the pack before anything is written, as `kindgi prepare` does,
- * since Kindgi Cloud's build gets none.
+ * What the pack's steps do when the install reads a settings file it takes
+ * as a build secret (`.npmrc`, a Yarn rc file): go on, as `kindgi build`
+ * does, or refuse the pack before anything is written, as `kindgi prepare`
+ * does, since Kindgi Cloud's build gets none. The file may hold settings
+ * only (`save-exact`, Yarn's `nodeLinker`), so the refusal names the file,
+ * not a private registry.
  */
 export type BuildSecrets = 'allow' | 'refuse';
 
-/** Why `kindgi prepare` refuses a pack whose install needs a private registry. */
-const PRIVATE_REGISTRY_REFUSAL =
-  "This version needs a private package registry, which Deploy doesn't reach yet";
+/** Why `kindgi prepare` refuses a pack whose install reads a settings file. */
+const SETTINGS_FILES_REFUSAL = "Kindgi Cloud's build doesn't take an install's settings files yet";
 
 /** The pack's image context, by the pack's language. */
 function preparePackContext(
@@ -923,7 +924,7 @@ async function prepareNodeContext(
   const needed = hostInstall.install.secrets;
   if (buildSecrets === 'refuse' && needed.length > 0) {
     return failure(
-      `${PRIVATE_REGISTRY_REFUSAL}: its install reads ${needed.map((s) => s.file).join(', ')}.\n`,
+      `This version's install reads ${needed.map((s) => s.file).join(', ')}: ${SETTINGS_FILES_REFUSAL}.\n`,
     );
   }
   const pinned = await withHostPnpm(runners, hostInstall.install);

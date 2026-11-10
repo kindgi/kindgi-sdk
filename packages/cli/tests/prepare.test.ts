@@ -3,12 +3,13 @@
 // reads-source: packages/cli/src/templates/*/AGENTS.md
 
 /**
- * `kindgi prepare`: Kindgi Cloud's own build step. Over a Node pack with
- * faked build runners (as tests/build.test.ts does), it writes `pack.tgz`
- * and `expected-index.json`, prints one JSON line, and never sends, checks
- * an image or signs. It reads no key, token or profile, and refuses a pack
- * that needs a private registry before writing anything. It's hidden from
- * `--help`, the reference and their suggestions, and still runs.
+ * `kindgi prepare`: Kindgi Cloud's own build step. Over a Node pack and a
+ * Python pack with faked build runners (as tests/build.test.ts does), it
+ * writes `pack.tgz` and `expected-index.json`, prints one JSON line, and
+ * never sends, checks an image or signs. It reads no key, token or profile,
+ * and refuses a Node pack whose install reads a settings file (`.npmrc`)
+ * before writing anything. It's hidden from `--help`, the reference and
+ * their suggestions, and still runs.
  */
 
 import { createHash } from 'node:crypto';
@@ -24,6 +25,7 @@ import type {
   BuildRunners,
   EsbuildBundleResult,
   LocalIndexResult,
+  PythonBuildRunners,
   TarPackResult,
 } from '../src/build/runners.js';
 import type { Command, LeafCommand } from '../src/commands/types.js';
@@ -242,22 +244,130 @@ describe('kindgi prepare', () => {
     expect(calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 0 });
   });
 
-  test('a pack that needs a private registry is refused, and nothing is written under --out', async () => {
-    await writeFile(join(packDir, '.npmrc'), '//registry.example.com/:_authToken=x\n', 'utf8');
-    const { runners, calls } = fakeRunners();
+  // A private registry's token and a settings-only file are refused alike:
+  // the build takes no install settings file, whatever it holds.
+  for (const [what, npmrc] of [
+    ["a private registry's token", '//registry.example.com/:_authToken=x\n'],
+    ['settings only', 'save-exact=true\n'],
+  ] as const) {
+    test(`a pack whose .npmrc holds ${what} is refused, naming the file, and nothing is written under --out`, async () => {
+      await writeFile(join(packDir, '.npmrc'), npmrc, 'utf8');
+      const { runners, calls } = fakeRunners();
+      const out = await runCli(
+        inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+      );
+      expect(out.exitCode).toBe(1);
+      expect(out.stdout).toBe('');
+      expect(out.stderr).toContain(
+        "This version's install reads .npmrc: Kindgi Cloud's build doesn't take an install's settings files yet.",
+      );
+      expect(out.stderr).not.toContain('private package registry');
+      const outDir = join(packDir, '.kindgi', 'build');
+      expect(existsSync(join(outDir, 'pack.tgz'))).toBe(false);
+      expect(existsSync(join(outDir, 'expected-index.json'))).toBe(false);
+      expect(await readdir(outDir)).toEqual([]);
+      expect(calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 0 });
+    });
+  }
+});
+
+describe('kindgi prepare — a Python pack', () => {
+  const PYTHON_CONFIG = {
+    pack: { id: 'my-pack', version: '0.1.0' },
+    language: 'python',
+    dev: { python: ['/opt/py/bin/python'] },
+  };
+
+  async function pythonPack(withLock = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'pyproject.toml'),
+      '[tool.kindgi.pack]\nid = "my-pack"\nversion = "0.1.0"\n',
+      'utf8',
+    );
+    if (withLock) await writeFile(join(packDir, 'uv.lock'), 'version = 1\n', 'utf8');
+    await mkdir(join(packDir, 'tools'), { recursive: true });
+    await writeFile(join(packDir, 'tools', 'echo.py'), 'x = 1\n', 'utf8');
+    await writeFile(join(packDir, '.env'), 'SECRET=1\n', 'utf8');
+  }
+
+  function withPython(runners: BuildRunners) {
+    const calls = {
+      pythons: [] as (readonly string[])[],
+      targets: [] as string[],
+      files: [] as (readonly string[])[],
+      contextDirs: [] as string[],
+    };
+    const python: PythonBuildRunners = {
+      runLocalIndexer: async (o) => {
+        calls.pythons.push(o.python);
+        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.targets.push(o.buildTarget);
+        await writeFile(o.outputPath, '# python containerfile\n', 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+        calls.contextDirs.push(o.contextDir);
+      },
+    };
+    return { runners: { ...runners, python }, calls };
+  }
+
+  function pythonInputs(runners: BuildRunners, argv: readonly string[]): RunCliInputs {
+    return { ...inputs(runners, argv), buildConfigLoader: async () => PYTHON_CONFIG };
+  }
+
+  test("indexes with the pack's Python, writes pack.tgz and expected-index.json, and never posts, streams, pulls or signs", async () => {
+    await pythonPack();
+    const faked = fakeRunners();
+    const { runners, calls } = withPython(faked.runners);
     const out = await runCli(
-      inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+      pythonInputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+
+    const lines = out.stdout.split('\n');
+    expect(lines).toHaveLength(2);
+    const result = JSON.parse(lines[0] as string) as Record<string, unknown>;
+    expect(await readFile(result.packTgz as string)).toEqual(Buffer.from(TARBALL_BYTES));
+    expect(await readFile(result.expectedIndex as string)).toEqual(Buffer.from(SAMPLE_INDEX_BYTES));
+    expect(result.counts).toEqual({ tools: 1, guardrails: 0, agents: 0, flows: 0 });
+
+    expect(calls.pythons).toEqual([['/opt/py/bin/python']]);
+    expect(calls.targets).toEqual(['production']);
+    // The pack root minus its secrets: .env stays out of the image.
+    expect(calls.files).toEqual([['pyproject.toml', 'tools/echo.py', 'uv.lock']]);
+    expect(calls.contextDirs).toEqual([join(packDir, '.kindgi', 'build', 'context')]);
+    // The Node indexer and bundler never run; the context is tarred as a Node pack's is.
+    expect(faked.calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 1 });
+    expect(faked.calls).toMatchObject({ post: 0, stream: 0, pull: 0, sign: 0 });
+    expect(out.stdout).not.toContain('Target:');
+  });
+
+  test('without uv.lock it fails before the tar, and stdout stays empty', async () => {
+    await pythonPack(false);
+    const faked = fakeRunners();
+    const { runners } = withPython(faked.runners);
+    const out = await runCli(
+      pythonInputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
     );
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
-    expect(out.stderr).toContain(
-      "This version needs a private package registry, which Deploy doesn't reach yet: its install reads .npmrc.",
-    );
-    const outDir = join(packDir, '.kindgi', 'build');
-    expect(existsSync(join(outDir, 'pack.tgz'))).toBe(false);
-    expect(existsSync(join(outDir, 'expected-index.json'))).toBe(false);
-    expect(await readdir(outDir)).toEqual([]);
-    expect(calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 0 });
+    expect(out.stderr).toContain('uv lock');
+    expect(existsSync(join(packDir, '.kindgi', 'build', 'pack.tgz'))).toBe(false);
+    expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
   });
 });
 
