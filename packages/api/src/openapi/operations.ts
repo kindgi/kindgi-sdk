@@ -8580,7 +8580,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or, under a project-only key scope (a server's own setting for the caller's key), `permission-denied`: no promotion is made under it; have a key without the scope promote (the check still answers). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
