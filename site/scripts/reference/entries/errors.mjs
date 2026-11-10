@@ -3482,6 +3482,53 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'plan-limit-reached': {
+    description:
+      "A write would add flows or agents to production past the most this runtime's license key runs: publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. The most is the plan's number and a margin, a fifth more and at least one more. None of the flows and agents the write adds is added, and what runs keeps running: changes to the flows and agents that run go through. A suggested change keeps its edit's block version, as a failed check does, and one just made is kept too: check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check` once there's room. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan, where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
+    details: [
+      {
+        key: 'projectId',
+        meaning:
+          'the project the write adds to, or the one put in production; on a reinstate, the project its version was made in, absent when the server records none',
+      },
+      {
+        key: 'limit',
+        meaning:
+          "the first count over, `flows` or `agents`; it and `adding`, `plan`, `most` and `inUse` are `over`'s first entry",
+      },
+      { key: 'adding', meaning: 'how many of that count the write adds to production' },
+      {
+        key: 'plan',
+        meaning:
+          "the license key's plan for that count; absent, with `most` and `inUse`, when the runtime serves other tenants too, whose flows and agents the key's numbers count",
+      },
+      { key: 'most', meaning: 'the most that run: the plan and its margin' },
+      { key: 'inUse', meaning: 'how many run in production before this write' },
+      {
+        key: 'over',
+        meaning:
+          'each count over, flows first: its `limit` and `adding`, and its `plan`, `most` and `inUse` when they are given',
+      },
+      { key: 'newIds', meaning: 'the ids the write adds to production: `flows` and `agents`' },
+      {
+        key: 'next',
+        meaning:
+          'where to get a larger plan, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+      {
+        key: 'suggestedChangeId',
+        meaning:
+          'when a suggested change was made but its check refused: the change, which is kept',
+      },
+    ],
+    seeAlso: ['#plan-count-busy', 'deploy/self-hosted/plan-limits'],
+  },
+  'plan-count-busy': {
+    description:
+      "A write that can add flows or agents to production waited too long for its turn to count them, so it never ran: none of them is added. A suggested change keeps its edit's block version, as a failed check does. The same request is safe to send again after the `Retry-After` header.",
+    details: [],
+    seeAlso: ['#plan-limit-reached', 'deploy/self-hosted/plan-limits'],
+  },
   'production-unsupported': {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",

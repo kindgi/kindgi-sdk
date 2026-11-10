@@ -1648,8 +1648,9 @@ function runsCheckOnce(
 /**
  * The pack's blocks against what runs, from its index: each block put back
  * on purpose and each `--replace` not needed as progress, or the stop's
- * table as the error, exit 1. A pack with no blocks and no `--replace`
- * isn't asked about.
+ * table as the error, exit 1; a refusal by the license key's plan, in the
+ * runtime's words, exit 1. A pack with no blocks and no `--replace` isn't
+ * asked about: the deploy itself holds the plan.
  */
 async function runsCheckAnswer(
   ctx: CommandContext,
@@ -1680,6 +1681,10 @@ async function runsCheckAnswer(
       out.line(UNCHECKED_LINES[check.why]);
       out.line('');
       return undefined;
+    case 'refused':
+      return failure(
+        `✗ Refused (403 plan-limit-reached): ${check.message}\n  Nothing was deployed.\n`,
+      );
     case 'failed':
       return failure(
         `Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): ${check.message}\n`,

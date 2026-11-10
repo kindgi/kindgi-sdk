@@ -381,6 +381,8 @@ A tenant admin sees a line on every console page too.
 
 - [Licensing](../../../concepts/licensing/): which key a deployment needs, and
   what happens when one expires.
+- [Plan limits](../plan-limits/): how the runtime counts the flows and
+  agents in production against the key's plan.
 - [Azure Container Apps](../azure-container-apps/): the module that renews
   on a schedule.
 - [Operate a self-hosted runtime](../operate/): health, backups, upgrades and

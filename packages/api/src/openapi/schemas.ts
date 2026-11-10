@@ -3891,6 +3891,46 @@ export const PublishAgentBodySchema: JsonSchema = {
   },
 };
 
+/** One count of the plan limits: the key's plan, the most it runs, and how many run in production. */
+export const PlanCountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['plan', 'most', 'inUse'],
+  properties: {
+    plan: {
+      type: 'integer',
+      minimum: 0,
+      description: "The license key's plan: how many it's for.",
+    },
+    most: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The most it runs: its plan and a margin. A write past this is refused.',
+    },
+    inUse: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many run in production, with this write.',
+    },
+  },
+};
+
+/**
+ * `planWarning` on a write's answer: each count at its plan or past it,
+ * with this write. Absent below the plan, and never empty.
+ */
+export const PlanWarningSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description:
+    "The plan limits' counts that are at the license key's plan or past it, with this write: flows and agents in production. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.",
+  properties: {
+    flows: { $ref: '#/components/schemas/PlanCount' },
+    agents: { $ref: '#/components/schemas/PlanCount' },
+  },
+};
+
 export const PublishAgentResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3909,6 +3949,7 @@ export const PublishAgentResultSchema: JsonSchema = {
         properties: { code: { type: 'string' }, message: { type: 'string' } },
       },
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -3969,6 +4010,7 @@ export const ReinstateAgentVersionResultSchema: JsonSchema = {
       description:
         '`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -4126,6 +4168,7 @@ export const PublishFlowResultSchema: JsonSchema = {
   properties: {
     flowId: { type: 'string' },
     version: { type: 'string' },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -4152,6 +4195,7 @@ export const ReinstateFlowVersionResultSchema: JsonSchema = {
       description:
         '`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -12757,6 +12801,7 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         "The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.",
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -12808,6 +12853,17 @@ export const DeployCheckAgentIdSchema: JsonSchema = {
   description: "An agent's id, as the image index names it.",
 };
 
+/**
+ * One of the pack's flows in a deploy check, by id. A component of its
+ * own, as `DeployCheckAgentId` is: named after its property, it would take
+ * a name the Python client keeps for another model.
+ */
+export const DeployCheckFlowIdSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  description: "A flow's id, as the image index names it.",
+};
+
 /** `POST /v1/deployments/check`'s body. */
 export const DeployCheckBodySchema: JsonSchema = {
   type: 'object',
@@ -12825,6 +12881,13 @@ export const DeployCheckBodySchema: JsonSchema = {
       maxItems: 500,
       items: { $ref: '#/components/schemas/DeployCheckAgentId' },
       description: "The pack's agents, by id: the image index's.",
+    },
+    flows: {
+      type: 'array',
+      maxItems: 500,
+      items: { $ref: '#/components/schemas/DeployCheckFlowId' },
+      description:
+        "The pack's flows, by id: the image index's. With `agents`, what the plan limits count; absent: no flows.",
     },
     blocks: {
       type: 'array',
@@ -12871,6 +12934,7 @@ export const DeployCheckResultSchema: JsonSchema = {
       items: { type: 'string' },
       description: 'The blocks `replace` names that nothing newer runs for: nothing to replace.',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -13152,6 +13216,7 @@ export const DeploymentPromotionSchema: JsonSchema = {
         "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.",
     },
     blockCheck: { $ref: '#/components/schemas/PromotionBlockCheck' },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -13230,6 +13295,7 @@ export const DeploymentPromotionCheckSchema: JsonSchema = {
       description:
         "Edits of the build's agents and flows that would stay behind; absent when none.",
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -13964,6 +14030,7 @@ export const ProjectProductionSchema: JsonSchema = {
       format: 'date-time',
       description: "When the project went into production; `null` while it isn't in production.",
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -18299,6 +18366,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FlowPins', FlowPinsSchema],
   ['FlowVersionOverrides', FlowVersionOverridesSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
+  ['PlanCount', PlanCountSchema],
+  ['PlanWarning', PlanWarningSchema],
   ['PublishAgentResult', PublishAgentResultSchema],
   ['AgentOwner', AgentOwnerSchema],
   ['SetAgentOwnerBody', SetAgentOwnerBodySchema],
@@ -18629,6 +18698,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentReplacedBlock', DeploymentReplacedBlockSchema],
   ['DeployReplaceBlock', DeployReplaceBlockSchema],
   ['DeployCheckAgentId', DeployCheckAgentIdSchema],
+  ['DeployCheckFlowId', DeployCheckFlowIdSchema],
   ['DeployCheckBody', DeployCheckBodySchema],
   ['DeployCheckResult', DeployCheckResultSchema],
   ['DeployCheckStop', DeployCheckStopSchema],
