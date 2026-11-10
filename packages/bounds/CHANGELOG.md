@@ -1,5 +1,11 @@
 # @kindgi/bounds
 
+## 0.5.0
+
+### Patch Changes
+
+- 8327900: The doc comments and READMEs call the place a workspace, as the console and the API reference do, and so do the npm descriptions of `@kindgi/bounds` and `@kindgi/platform`. What you type keeps `tenant`: `tenantId`, `TenantHierarchyBinding` and `runOutsideTenant`. So does the multi-tenant text.
+
 ## 0.4.0
 
 No changes in this release.

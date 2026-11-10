@@ -164,8 +164,9 @@ export async function memoryWriteProblem(
  * Without a store, the 403 for a key or session limited to a project
  * that writes a fact above it, workspace- or org-wide, or in another
  * project (`limitedCallerRefusal`, on what `memoryWriteProblem` asks with
- * a store). A user's or a conversation's fact isn't held: a store doesn't
- * hold those by the caller's project either.
+ * a store), whoever the fact is about. A user-wide fact, or a
+ * conversation's outside a project, isn't held: a store doesn't hold
+ * those by the caller's project either.
  */
 export function memoryLimitRefusal(
   c: Context<AppEnv>,
@@ -173,7 +174,6 @@ export function memoryLimitRefusal(
   scope: MemoryScope,
 ): Response | undefined {
   if (deps.authorizer !== undefined) return undefined;
-  if (scope.userId !== undefined && scope.userId !== callerUserId(c)) return undefined;
   if (scope.projectId !== undefined) {
     return limitedCallerRefusal(c, 'write', ref('project', scope.projectId as unknown as string));
   }
