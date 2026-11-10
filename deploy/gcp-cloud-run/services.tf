@@ -38,10 +38,11 @@ locals {
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_ENDPOINT_HOSTS", "KINDGI_PACK_ENDPOINT_KMS_KEY",
     "KINDGI_PACK_ROUTING", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
+    "KINDGI_RUN_EXECUTION",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
-    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_SERVICE_URL", "KINDGI_TENANCY",
-    "KINDGI_TENANT_ID", "KINDGI_TICK_CALLER",
+    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_SERVICE_ACCOUNT", "KINDGI_SERVICE_URL",
+    "KINDGI_TASKS_QUEUE", "KINDGI_TENANCY", "KINDGI_TENANT_ID", "KINDGI_TICK_CALLER",
     "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
@@ -83,6 +84,11 @@ resource "google_cloud_run_v2_service" "server" {
       min_instance_count = var.server_min_instances
       max_instance_count = var.server_max_instances
     }
+
+    # Requests one instance takes at once. Each open run stream holds one,
+    # and with server_run_execution = "request" each executing run holds one
+    # more, its own request.
+    max_instance_request_concurrency = var.server_concurrency
 
     dynamic "vpc_access" {
       for_each = local.direct ? [1] : []
@@ -157,6 +163,20 @@ resource "google_cloud_run_v2_service" "server" {
         for_each = local.server_tick ? {
           KINDGI_TICK_CALLER = google_service_account.tick[0].email
           KINDGI_SERVICE_URL = local.server_service_url
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      # server_run_execution = "request": each run executes in a request of
+      # its own, which the run queue (tasks.tf) sends to KINDGI_SERVICE_URL
+      # with an ID token of the server's own account.
+      dynamic "env" {
+        for_each = local.runs_in_requests ? {
+          KINDGI_RUN_EXECUTION   = "request"
+          KINDGI_SERVICE_ACCOUNT = google_service_account.server.email
+          KINDGI_TASKS_QUEUE     = local.runs_queue
         } : {}
         content {
           name  = env.key
@@ -429,8 +449,12 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "server_billing = \"request\" needs server_ingress = \"INGRESS_TRAFFIC_ALL\": the server keeps its CPU with a request to its own run.app URL."
     }
     precondition {
-      condition     = !local.server_tick || var.server_max_instances == 1
-      error_message = "server_billing = \"request\" needs server_max_instances = 1: the server's request to its own URL must reach the instance that sent it, which only one instance makes sure of."
+      condition     = !local.server_tick || local.runs_in_requests || var.server_max_instances == 1
+      error_message = "server_billing = \"request\" needs server_max_instances = 1, unless server_run_execution = \"request\": the server's request to its own URL must reach the instance that sent it, which only one instance makes sure of. With server_run_execution = \"request\", each run executes in a request of its own, which the run queue sends, and the server holds no request to itself."
+    }
+    precondition {
+      condition     = !local.runs_in_requests || local.server_tick
+      error_message = "server_run_execution = \"request\" needs server_billing = \"request\": the run queue sends its requests to the server's run.app URL, which the module sets only then, and the tick sends a start the queue gave up on again, even with no instance up."
     }
     precondition {
       condition     = !local.server_tick || !local.server_iam_guarded
@@ -525,6 +549,8 @@ resource "google_cloud_run_v2_service" "server" {
     google_project_iam_member.server_sql_client,
     google_project_iam_member.server_sql_client_served,
     google_compute_router_nat.nat,
+    google_cloud_tasks_queue_iam_member.server_enqueues,
+    google_service_account_iam_member.server_acts_as_itself,
   ]
 }
 

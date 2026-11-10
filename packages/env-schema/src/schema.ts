@@ -990,8 +990,36 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SERVICE_URL',
     description:
-      "Used from runtime 0.7.0; with `KINDGI_TICK_CALLER`: the server's own URL, its origin alone (https, no path, not this machine's address), on Cloud Run its `run.app` one. The tick's token is for `<this URL>/internal/tick`. While the server has work in flight (a run, a delivery, an erasure, a tick), it keeps a request to itself open at this URL, so its CPU stays allocated between requests. That request reaches the same instance only while the service runs one at most: another instance refuses it, and the server warns. Both or neither.",
+      "Used from runtime 0.7.0; with `KINDGI_TICK_CALLER`: the server's own URL, its origin alone (https, no path, not this machine's address), on Cloud Run its `run.app` one. The tick's token is for `<this URL>/internal/tick`. While the server has work in flight (a run, a delivery, an erasure, a tick), it keeps a request to itself open at this URL, so its CPU stays allocated between requests. That request reaches the same instance only while the service runs one at most: another instance refuses it, and the server warns. Both or neither. With `KINDGI_RUN_EXECUTION=request` the server holds no request to itself: each run executes in a request of its own, which the run queue sends to this URL (the tasks' target, and their tokens' audience), so the service may run more than one instance.",
     example: 'https://kindgi-server-123456789012.us-central1.run.app',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_EXECUTION',
+    description:
+      "Used from runtime 0.7.0: where the server executes runs. `local` (the default): in the process that starts or resumes the run, going on after the request that started it answers, as on any long-lived server. `request`: inside a request of its own, for a server whose CPU is allocated only during requests (Cloud Run's request-based billing) that runs more than one instance. Starting or resuming a run adds a task to the Cloud Tasks queue `KINDGI_TASKS_QUEUE`, which posts it to `<KINDGI_SERVICE_URL>/internal/execute` with a Google-signed ID token of `KINDGI_SERVICE_ACCOUNT`, and the instance that gets it executes the run inside that request. `request` needs all three, and `KINDGI_SERVICE_ACCOUNT` or `KINDGI_TASKS_QUEUE` set without it refuses to boot, naming what's missing. The Cloud Run module's `server_run_execution`, at `request`, sets all four.",
+    example: 'request',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['local', 'request'],
+  },
+  {
+    name: 'KINDGI_SERVICE_ACCOUNT',
+    description:
+      "Used from runtime 0.7.0; with `KINDGI_RUN_EXECUTION=request`: the server's own service account, by its email, in lower case. The run queue's tasks carry a Google-signed ID token minted for it, and the server's internal routes (`/internal/execute`, `/internal/work`, `/internal/drain`) take no other caller. The account may add tasks to the queue (`roles/cloudtasks.enqueuer`) and act as itself (`roles/iam.serviceAccountUser`), so its tasks' tokens may name it. Unset with `KINDGI_RUN_EXECUTION` at `local`.",
+    example: 'kindgi-server@acme-prod.iam.gserviceaccount.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TASKS_QUEUE',
+    description:
+      'Used from runtime 0.7.0; with `KINDGI_RUN_EXECUTION=request`: the Cloud Tasks queue the runs go through, by its full name, `projects/<project>/locations/<location>/queues/<queue>`. Unset with `KINDGI_RUN_EXECUTION` at `local`.',
+    example: 'projects/acme-prod/locations/us-central1/queues/kindgi-runs',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
