@@ -300,8 +300,9 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   it's set. The URL isn't a secret: the signature is what each request is
   checked by.
 - **`--project=<id>`** puts the trigger and its runs in a project (by default,
-  the workspace's default project). Registering needs `write` on the project and
-  `execute` on the flow.
+  the project your API key or session is limited to, else the workspace's
+  default project). Registering needs `write` on the project and `execute` on
+  the flow.
 - **`--run-as=project`** makes the trigger shared: its runs act as the
   project's own service account, made when a trigger is first set to run
   as the project, with the `editor` role on the project, rather than as

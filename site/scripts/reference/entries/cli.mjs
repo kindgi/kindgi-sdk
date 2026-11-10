@@ -623,7 +623,8 @@ export const CLI_DEFAULTS = {
     input: '`{}`',
     label: 'none',
     overlap: '`skip`',
-    project: "the workspace's default project; required with `--improve`, the project it improves",
+    project:
+      "the project the API key or session is limited to, else the workspace's default project; required with `--improve`, the project it improves",
     'run-as': 'none (you own the schedule)',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
@@ -666,7 +667,8 @@ export const CLI_DEFAULTS = {
     input: 'none (the flow gets the event)',
     label: 'none',
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
-    project: "the workspace's default project",
+    project:
+      "the project the API key or session is limited to, else the workspace's default project",
     'rate-limit': '`600` a minute',
     'run-as': 'none (you own the trigger)',
     secret: 'required',
@@ -724,7 +726,8 @@ export const CLI_DEFAULTS = {
     label: 'none',
     mailbox: 'required',
     poll: '`60` (seconds)',
-    project: "the workspace's default project",
+    project:
+      "the project the API key or session is limited to, else the workspace's default project",
     'run-as': 'none (you own the trigger)',
     'runs-per-hour': '`60`',
   },

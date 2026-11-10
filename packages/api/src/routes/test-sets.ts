@@ -11,8 +11,11 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type ItemRights,
   type ItemServing,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
+  recordedProjects,
   shownLatest,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -104,20 +107,44 @@ export function testSetsRouter(
         rights: itemRights,
         kind: 'test_set',
         id: (c) => c.req.param('testSetId') ?? '',
-        today(c) {
-          // Starting a run (`POST /:testSetId/runs`, exactly) doesn't change the
-          // test set, and the start route checks it all itself: `execute` on the
-          // test set, `write` on the project and `execute` on the agent or flow.
-          const under = c.req.path.split('/').slice(routePath(c).split('/').length - 1);
-          if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') {
-            return undefined;
-          }
-          return isReadMethod(c.req.method) ? 'read' : 'admin';
-        },
+        today: (c) => (startsRun(c) ? undefined : isReadMethod(c.req.method) ? 'read' : 'admin'),
         check: itemPathCheck,
         versionNotFound: testSetVersionNotFound,
       }),
     );
+  } else {
+    // Without a store, a key or session limited to a project changes no
+    // test set by its id beyond its project, as a store asks it
+    // (`itemHold`). Its projects: the host's, else its record's.
+    r.use(
+      '/:testSetId/*',
+      itemHold({
+        kind: 'test_set',
+        id: (c) => c.req.param('testSetId') ?? '',
+        today: (c) => (startsRun(c) ? undefined : 'admin'),
+        check: itemPathCheck,
+        held: heldProjects(itemServing, 'test_set', (c, id) =>
+          recordedProjects(
+            binding.listVersions({
+              tenantId: c.get('tenantId') as TenantId,
+              testSetId: id,
+              limit: 1,
+              includeTombstoned: true,
+            }),
+          ),
+        ),
+      }),
+    );
+  }
+
+  /**
+   * Starting a run (`POST /:testSetId/runs`, exactly) doesn't change the
+   * test set, and the start route checks it all itself: `execute` on the
+   * test set, `write` on the project and `execute` on the agent or flow.
+   */
+  function startsRun(c: Context<AppEnv>): boolean {
+    const under = c.req.path.split('/').slice(routePath(c).split('/').length - 1);
+    return c.req.method === 'POST' && under.length === 1 && under[0] === 'runs';
   }
 
   /** A version of the test set that isn't there, or that the caller can't see: one 404 for both. */

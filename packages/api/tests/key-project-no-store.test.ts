@@ -436,7 +436,7 @@ describe('a key limited to a project, with no authorization store', () => {
     }
   });
 
-  test('a write to an item by its id, other than a memory fact, is not refused', async () => {
+  test('a write to an item by an id that is not found is not refused', async () => {
     const res = await send(noStore, LIMITED, {
       method: 'POST',
       path: `/v1/mcp/endpoints/${randomUUID()}/unregister`,
