@@ -91,6 +91,11 @@ export interface HooksRouterOptions {
    * as nothing deploys or runs in it. Absent: no check.
    */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * Whether a project is deleted: its triggers' deliveries are skipped, as
+   * nothing runs in it until it's restored. Absent: no check.
+   */
+  readonly projectDeleted?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** Clock in milliseconds, for signed timestamps; default `Date.now`. */
   readonly now?: () => number;
 }
@@ -385,13 +390,19 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
 
     // 5. Frozen, gone, or paused: known only to a sender that proved itself.
     //    A closing tenant takes no delivery, as it takes no write. A
-    //    suspended tenant or project is answered as a paused trigger is (see
-    //    below), but nothing is recorded: a suspended tenant takes no write,
-    //    and a fire would hold the delivery's dedupe key, so a redelivery
-    //    after the restore would be a duplicate.
+    //    suspended tenant or project, or a deleted project, is answered as a
+    //    paused trigger is (see below), but nothing is recorded: a suspended
+    //    tenant takes no write, and a fire would hold the delivery's dedupe
+    //    key, so a redelivery after the restore would be a duplicate.
     const state = (await tenantStateOf?.(c, found.tenantId)) ?? 'active';
     if (state === 'suspended') return c.json({ skipped: 'tenant-suspended' }, 202);
     if (state !== 'active') return frozenTenantRefusal(c, state);
+    if (
+      options.projectDeleted !== undefined &&
+      (await options.projectDeleted(found.tenantId, found.projectId))
+    ) {
+      return c.json({ skipped: 'project-deleted' }, 202);
+    }
     if (
       options.projectSuspended !== undefined &&
       (await options.projectSuspended(found.tenantId, found.projectId))

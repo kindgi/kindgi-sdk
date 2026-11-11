@@ -659,6 +659,7 @@ async function harness(
     preferredModel?: string;
     referenceScope?: ReferenceScopeBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    projectDeleted?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
     /** The tenant's environment orders; the agent's project is in them or not. */
     orders?: readonly (readonly ProjectId[])[];
     /** The projects that serve each item (an order carries it); absent: one each. */
@@ -791,6 +792,7 @@ async function harness(
     ...(opts.improveRuns !== undefined && { improveRuns: opts.improveRuns }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
+    ...(opts.projectDeleted !== undefined && { projectDeleted: opts.projectDeleted }),
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
     ...(opts.correctionRegistry !== undefined && { correctionRegistry: opts.correctionRegistry }),
@@ -1642,6 +1644,20 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
         pinned: { version: '1.0.1', by: { kind: 'user', id: 'user-1' } },
       },
     });
+  });
+
+  test("its project deleted: 404 project-not-found from the pin's gate, and nothing is pinned", async () => {
+    let deleted = false;
+    const { call, id, pinStore } = await checked(0.1, {
+      projectDeleted: async (_tenantId, pid) => deleted && pid === projectId,
+    });
+    deleted = true;
+    const before = [...pinStore.pins];
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(res.body.error.code).toBe('project-not-found');
+    expect(pinStore.calls.find((c) => c.method === 'request')).toBeUndefined();
+    expect(pinStore.pins).toEqual(before);
   });
 
   test('with no release gate it pins the version for the project (201)', async () => {
@@ -3896,6 +3912,27 @@ describe('Improve runs', () => {
     const started = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(started.status, JSON.stringify(started.body)).toBe(202);
     expect(improveRuns.started).toHaveLength(1);
+  });
+
+  test('no Improve run starts or is checked for a deleted project: 404 project-not-found, before the suspended check', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const asked: string[] = [];
+    const h = await harness({
+      improveRuns: improveRuns.binding,
+      projectDeleted: async (_tenantId, pid) => {
+        asked.push(pid as unknown as string);
+        return true;
+      },
+      projectSuspended: async () => true,
+    });
+    for (const path of ['/v1/improve-runs', '/v1/improve-runs/check']) {
+      const refused = await h.call('POST', path, IMPROVE);
+      expect(refused.status, JSON.stringify(refused.body)).toBe(404);
+      expect(refused.body.error.code).toBe('project-not-found');
+    }
+    expect(asked).toEqual([projectId, projectId]);
+    expect(improveRuns.started).toEqual([]);
+    expect(improveRuns.checked).toEqual([]);
   });
 
   test("an Improve run's comparisons show a refused template's issues and each drafted template's why", async () => {

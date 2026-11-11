@@ -485,6 +485,15 @@ what else a delivery leaves: the sender's address on a refusal.
   counts it as a repeat.
   WooCommerce's delivery id changes only once a second, so two orders in one
   second are told apart by their bodies.
+- **A suspended workspace or project, or a deleted project,** starts
+  nothing from a delivery that proved its sender. It's answered `202` with
+  `skipped`: `tenant-suspended`, `project-suspended` or `project-deleted`
+  ([Delete and restore a project](../../projects/organize-by-org-and-project/#delete-and-restore-a-project)).
+  Nothing is recorded on the trigger's fires, so a redelivery after a resume
+  or a restore isn't taken for a repeat. An app built on `@kindgi/api` says
+  which projects are suspended or deleted with `createApp`'s
+  `projectSuspended` and `projectDeleted`; without one, that check isn't
+  made.
 - **Replays:** WooCommerce, Drupal's Webhooks module, GitHub and Shopify sign
   no timestamp. Kindgi keeps a delivery's fire, and so recognizes a repeat of
   it, for 30 days. Standard Webhooks signs a timestamp, and a request more than

@@ -87,6 +87,8 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
   { name: 'tenant', route: '/v1/tenant', paging: 'one' },
   { name: 'orgs', route: '/v1/orgs', paging: cursor, covers: ['/v1/orgs/{orgId}'] },
   { name: 'projects', route: '/v1/projects', paging: cursor, covers: ['/v1/projects/{projectId}'] },
+  // The deleted ones: kept, so a tenant admin can restore them.
+  { name: 'deleted-projects', route: '/v1/projects/deleted', paging: cursor, admin: true },
   { name: 'teams', route: '/v1/teams', paging: cursor, covers: ['/v1/teams/{teamId}'] },
   {
     name: 'team-memberships',

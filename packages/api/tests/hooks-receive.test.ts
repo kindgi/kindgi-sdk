@@ -69,6 +69,7 @@ function setup(
     webhookReceivesPerMinute?: number;
     tenantStates?: TenantStateBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    projectDeleted?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   } = {},
 ) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT as never });
@@ -174,6 +175,7 @@ function setup(
     ...(options.publicUrl !== undefined && { publicUrl: options.publicUrl }),
     ...(options.tenantStates !== undefined && { tenantStates: options.tenantStates }),
     ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
+    ...(options.projectDeleted !== undefined && { projectDeleted: options.projectDeleted }),
   });
   const admin = async (method: string, path: string, body?: unknown, token = TOKEN) => {
     const res = await app.request(`/v1/webhooks${path}`, {
@@ -786,6 +788,29 @@ describe('a closing or suspended tenant, a suspended project', () => {
     expect(await fires(t.triggerId)).toMatchObject([
       { fireId: resent.body?.fireId, outcome: 'pending' },
     ]);
+  });
+
+  test("a deleted project's delivery is answered 202 and skipped, and nothing is kept; deleted is said before suspended", async () => {
+    const deleted = new Set<string>();
+    const { register, deliver, fires, registry } = setup({
+      projectDeleted: async (_tenantId, projectId) => deleted.has(projectId as unknown as string),
+      // A deleted project that's suspended too answers as deleted.
+      projectSuspended: async () => true,
+    });
+    const t = await register({ ...WOO, rateLimitPerMinute: 1 });
+    deleted.add(PROJECT);
+    for (let i = 0; i < 2; i++) {
+      const res = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
+      expect(res).toMatchObject({ status: 202, body: { skipped: 'project-deleted' } });
+      expect(res.body?.fireId).toBeUndefined();
+    }
+    expect(await fires(t.triggerId)).toEqual([]);
+    expect(registry.webhookEvents.size).toBe(0);
+    deleted.delete(PROJECT);
+    expect(await deliver(t.webhookId, ORDER, wooHeaders(ORDER))).toMatchObject({
+      status: 202,
+      body: { skipped: 'project-suspended' },
+    });
   });
 });
 

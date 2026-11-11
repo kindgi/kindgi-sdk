@@ -7795,7 +7795,7 @@ class TestRun(BaseModel):
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
+    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     """
@@ -9980,6 +9980,8 @@ class EvidenceKind(RootModel[str]):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10165,6 +10167,8 @@ class ComplianceEvidence(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10278,6 +10282,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10368,6 +10374,8 @@ class Filter(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10768,7 +10776,7 @@ class Project(BaseModel):
     """
     former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
     """
-    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them.
     """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
@@ -10876,6 +10884,49 @@ class ProjectCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[Project]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class DeletedProject(BaseModel):
+    """
+    A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    ProjectId — opaque branded string.
+    """
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    org_id: Annotated[str | None, Field(alias="orgId")] = None
+    """
+    Its org; absent when it has none.
+    """
+    name: str
+    slug: str
+    """
+    Its slug, still its own: no other project can take it where this one is.
+    """
+    former_slugs: Annotated[list[str], Field(alias="formerSlugs")]
+    """
+    The slugs it had before it was renamed, newest first; still its own, in any org of the workspace.
+    """
+    deleted_at: Annotated[AwareDatetime, Field(alias="deletedAt")]
+    """
+    When it was deleted. Deleting it again keeps this time.
+    """
+
+
+class DeletedProjectCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DeletedProject]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11302,7 +11353,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended or deleted (`project-suspended`, `project-deleted`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension, a delete or a close (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11385,7 +11436,7 @@ class WebhookFire(BaseModel):
         Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
     ]
     """
-    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
+    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended or deleted after the delivery was taken, before its run started (`project-suspended`, `project-deleted`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11397,7 +11448,7 @@ class WebhookFire(BaseModel):
     """
     detail: str | None = None
     """
-    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.
+    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it.
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
@@ -11498,9 +11549,11 @@ class WebhookReceipt(BaseModel):
     """
     An earlier fire holds this delivery's dedupe key: nothing new started.
     """
-    skipped: Literal["paused", "tenant-suspended", "project-suspended"] | None = None
+    skipped: (
+        Literal["paused", "tenant-suspended", "project-suspended", "project-deleted"] | None
+    ) = None
     """
-    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.
+    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded.
     """
     received: Literal["ping"] | None = None
     """
@@ -15380,6 +15433,7 @@ class SystemDeploymentEntry(BaseModel):
                 "tenant-suspended",
                 "project-suspended",
                 "pack-suspended",
+                "project-deleted",
             ]
             | str,
             _open.OPEN,
@@ -15387,7 +15441,7 @@ class SystemDeploymentEntry(BaseModel):
         | None
     ) = None
     """
-    In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted.
     """
 
 
@@ -15679,7 +15733,7 @@ class ServiceAccount(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.
+    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project.
     """
 
 
@@ -17223,7 +17277,7 @@ class DeploymentEndpoint(BaseModel):
     """
     retired: str | None = None
     """
-    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored, and `project-deleted` until the project is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
     """
     pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
     """

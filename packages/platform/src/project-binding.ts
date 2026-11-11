@@ -23,11 +23,17 @@
  * return, `Filter`-extending filter shapes, and writes the caller can
  * get wrong resolve to an outcome discriminated on `kind` instead of
  * rejecting.
+ *
+ * A deleted project is kept, with what's in it, until it's restored. Every
+ * read and write here answers for it as for an id that names no project,
+ * and its memberships and team grants are out of every list; only
+ * `restore` and `listDeleted` see it. Its slugs stay its own.
  */
 
 import type { Filter, OrgId, Page, ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import type {
+  DeletedProject,
   Project,
   ProjectMembership,
   ProjectPatch,
@@ -64,21 +70,21 @@ export interface ProjectBinding {
    * Resolves to `ok` with the assigned `ProjectId`; to `slug-conflict`
    * when another project in its org has `spec.slug` (for a project without
    * an org: another project without one), or when another project of the
-   * workspace had `spec.slug` before it was renamed (`heldAs: 'old-slug'`);
-   * and, when
+   * workspace had `spec.slug` before it was renamed (`heldAs: 'old-slug'`),
+   * with `deletedProject: true` when that project is deleted; and, when
    * `spec.isDefault === true` and the workspace already has a default, to
    * `project-default-already-exists` — the isDefault-uniqueness
    * guardrail is enforced at write time.
    */
   create(tenantId: TenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome>;
   /**
-   * Look up a `Project` by id. `undefined` when unknown or in a
+   * Look up a `Project` by id. `undefined` when unknown, deleted, or in a
    * different workspace.
    */
   get(tenantId: TenantId, projectId: ProjectId): Promise<Project | undefined>;
   /**
-   * Cursor-paginated list of projects. Filter by `orgId` or
-   * `nameContains`.
+   * Cursor-paginated list of projects, without the deleted ones. Filter by
+   * `orgId` or `nameContains`.
    */
   list(tenantId: TenantId, filter: ProjectListFilter): Promise<Page<Project>>;
   /**
@@ -92,7 +98,8 @@ export interface ProjectBinding {
    * `project-not-found` when no project has `projectId` in the workspace,
    * to `slug-conflict` when `patch.slug` is another project's slug where the
    * project ends up, or a slug another project of the workspace had before it
-   * was renamed (`heldAs: 'old-slug'`), and to
+   * was renamed (`heldAs: 'old-slug'`), either with `deletedProject: true`
+   * when the project holding it is deleted, and to
    * `project-in-environment-order` when the patch would change `orgId` for a
    * project that is a member of an environment order (clear it first). A
    * patch that leaves `orgId` untouched — a rename, slug or description
@@ -109,16 +116,43 @@ export interface ProjectBinding {
     patch: ProjectPatch,
   ): Promise<ProjectUpdateOutcome>;
   /**
-   * Delete a `Project`. Resolves to `project-in-environment-order` when the
-   * project is a member of an environment order — the delete does not happen;
-   * clear it from the order first. A deleted project's slugs, its current
-   * one and its `formerSlugs`, are free again. Deleting an id that names no
-   * project is `ok` (idempotent). What happens to content rows that still
-   * reference a deleted project is the storage layer's concern; the
-   * in-memory adapter removes the project's direct memberships and team
-   * grants with it.
+   * Delete a `Project`: it's kept, with its memberships, team grants and
+   * slugs, and from then on it's gone from every read here (see above).
+   * Resolves to `project-in-environment-order` when the project is a member
+   * of an environment order, and to `project-is-default` for the
+   * workspace's default project; the delete does not happen. Deleting an id
+   * that names no project, or a deleted one, is `ok` with `changed: false`
+   * (idempotent), and a deleted one keeps the time it was first deleted.
+   * The API records a delete that changed something. What a runtime does
+   * with what's in the project (its runs, its triggers, who may reach it)
+   * is the runtime's concern: Kindgi's cancels the project's unfinished
+   * runs once the delete commits, and `createApp`'s `projectDeleted`
+   * refuses what would start in it.
    */
   delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
+  /**
+   * Bring a deleted project back as it was: its memberships, team grants
+   * and slugs with it. Its `updatedAt` moves to the restore, as a change's
+   * does. A live project is `ok` with `changed: false`, unchanged. The API
+   * records a restore that changed something.
+   * Resolves to `project-not-found` when no project, live or deleted, has
+   * `projectId` in the workspace. Optional, with `listDeleted`: without
+   * them, the restore and deleted-list routes answer 501
+   * `project-restore-unsupported`.
+   *
+   * A deleted project isn't counted against the workspace's limit on
+   * projects in production (`setProduction`). Restoring one that's in
+   * production counts it again: with the workspace's projects in production
+   * at its limit, or past it, the restore answers `limit-reached` and the
+   * project stays deleted. The read, the count and the restore are one
+   * step, as `setProduction`'s are.
+   */
+  restore?(tenantId: TenantId, projectId: ProjectId): Promise<ProjectRestoreOutcome>;
+  /**
+   * Cursor-paginated list of the workspace's deleted projects, the most
+   * recently deleted first.
+   */
+  listDeleted?(tenantId: TenantId, filter: Filter): Promise<Page<DeletedProject>>;
   /**
    * Put the project in production (`production: true`), or take it out.
    * Optional: without it, the production route answers 501
@@ -213,6 +247,8 @@ export type ProjectCreateOutcome =
       readonly kind: 'slug-conflict';
       readonly slug: string;
       readonly heldAs?: 'old-slug';
+      /** The project holding the slug is deleted: it's still its own. */
+      readonly deletedProject?: true;
     }
   | {
       /** `spec.isDefault` was `true` and the workspace already has a default project. */
@@ -279,6 +315,8 @@ export type ProjectUpdateOutcome =
       readonly kind: 'slug-conflict';
       readonly slug: string;
       readonly heldAs?: 'old-slug';
+      /** The project holding the slug is deleted: it's still its own. */
+      readonly deletedProject?: true;
     }
   | {
       /**
@@ -300,7 +338,11 @@ export type ProjectUpdateOutcome =
 
 /** What `ProjectBinding.delete` did. */
 export type ProjectDeleteOutcome =
-  | { readonly kind: 'ok' }
+  | {
+      readonly kind: 'ok';
+      /** `false` when no live project had the id, and nothing was written. */
+      readonly changed: boolean;
+    }
   | {
       /**
        * The project is a member of an environment order, so it can't be
@@ -308,6 +350,35 @@ export type ProjectDeleteOutcome =
        */
       readonly kind: 'project-in-environment-order';
       readonly orderId: string;
+    }
+  | {
+      /** The workspace's default project, which can't be deleted. */
+      readonly kind: 'project-is-default';
+    };
+
+/** What `ProjectBinding.restore` did. */
+export type ProjectRestoreOutcome =
+  | {
+      readonly kind: 'ok';
+      /** The project, live again. */
+      readonly project: Project;
+      /** `false` when it wasn't deleted, and nothing was written. */
+      readonly changed: boolean;
+    }
+  | {
+      /** No project, live or deleted, with this id in the workspace. */
+      readonly kind: 'project-not-found';
+    }
+  | {
+      /**
+       * Not restored: the project is in production, and the workspace's
+       * projects in production are at its limit, or past it.
+       */
+      readonly kind: 'limit-reached';
+      /** The limit. */
+      readonly projectsInProduction: number;
+      /** The workspace's projects in production now. */
+      readonly inProduction: number;
     };
 
 /** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */
