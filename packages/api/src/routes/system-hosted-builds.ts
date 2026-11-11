@@ -38,9 +38,10 @@ const SCOPE = 'system:hosted-builds';
  * `409 tenant-closing`.
  *
  * As the caller, the key reads and administers that one project and
- * nothing else (`projectOnlyCaller`). A check for anyone else the request
- * names, such as the person the build's `builtFrom` names, is the
- * runtime's own authorizer's: the key never answers for them.
+ * nothing else (`projectOnlyCaller`), and never answers for anyone else:
+ * a check for another subject goes to the runtime's own authorizer. The
+ * build's `builtFrom` is kept as signed and named beside the key in the
+ * audit event; who may ask for the build is the caller's to check.
  */
 export function systemHostedBuildsRouter(options: {
   readonly directory: SystemTenantDirectory;
