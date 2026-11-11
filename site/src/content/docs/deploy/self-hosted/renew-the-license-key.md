@@ -5,20 +5,25 @@ sidebar:
   order: 3.2
 ---
 
-When you finish this page, your deployment renews its own non-production
-license key, by hand or on your own schedule.
+When you finish this page, a deployment before runtime 0.7.0, or with a key
+that doesn't report, renews its own non-production license key, by hand or
+on your own schedule.
 
 A license key runs until its date
 ([When a key expires](../../../concepts/licensing/#when-a-key-expires)). How you
 get the next one depends on where the key came from:
 
 - **A production key** is renewed with your contract: write to
-  contact@kindgi.com.
+  contact@kindgi.com. From runtime 0.7.0, once the term is extended, the
+  server's daily report brings the next term's key, unless its key is one
+  that doesn't report ([What the runtime sends](../what-the-runtime-sends/)).
 - **A non-production key from [access.kindgi.com](https://access.kindgi.com)**
-  can be renewed by the deployment itself. You enroll the deployment once.
-  Then you run `kindgi license renew` whenever you like, by hand or from your
-  own scheduler. Nothing calls Kindgi unless you run it. You can also sign in
-  at access.kindgi.com for a new key, unless a deployment is renewing it
+  is renewed by the server itself from runtime 0.7.0, in its daily report
+  ([What the runtime sends](../what-the-runtime-sends/)). Before 0.7.0, or
+  with a key that doesn't report, you enroll the deployment once. Then you
+  run `kindgi license renew` whenever you like, by hand or from your own
+  scheduler. You can also sign in at access.kindgi.com for a new key, unless
+  a deployment is renewing it
   ([Add the renewer](#2-add-the-renewer-at-accesskindgicom)).
 
 :::note
@@ -333,7 +338,9 @@ The module's README has the details.
 
 The renewal request: the renewer's id, the time and a one-time value, signed
 with the renewer's private key. No license key, run or data leaves the
-deployment. Nothing is sent between runs of `renew`.
+deployment. Nothing is sent between runs of `renew`. From runtime 0.7.0,
+the server's own daily report also sends counts
+([What the runtime sends](../what-the-runtime-sends/)).
 
 With `--runtime`, the request also carries counts of the deployment's use
 since its current key was issued, signed with the rest. `renew` reads them

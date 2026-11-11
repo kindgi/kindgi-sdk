@@ -38,7 +38,12 @@ docker exec kindgi-db pg_dump -U kindgi -Fc kindgi > kindgi-backup.dump
 - The last `kindgi` is the database to dump.
 
 It prints nothing, and writes `kindgi-backup.dump`. The dump holds your
-runs' inputs and outputs, so store it like the database.
+runs' inputs and outputs, so store it like the database. From runtime
+0.7.0, it also holds the license key the server renewed by report, sealed
+under a key derived from `KINDGI_LICENSE_KEY`
+([What the runtime sends](../what-the-runtime-sends/#what-comes-back)). Keep
+the secret that holds `KINDGI_LICENSE_KEY` apart from the dump, so the dump
+alone holds no key.
 
 With [authorization](../../authorization/) on, OpenFGA keeps who may do what
 in a database of its own, `openfga`, on the same Postgres. Dump it with the
