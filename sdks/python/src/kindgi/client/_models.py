@@ -7776,6 +7776,12 @@ class TestRun(BaseModel):
     The id the run was started with. `pin:<change id>` is a test run Kindgi started for a pin change, and `latest:<agent id>:<project id>` one it started for Latest moving in a project; a caller can't start a run with either.
     """
     comparison: TestRunComparison | None = None
+    key_ceiling: Annotated[
+        Annotated[Literal["sandbox"] | str, _open.OPEN] | None, Field(alias="keyCeiling")
+    ] = None
+    """
+    The ceiling of the API key that started the test run (`sandbox`, the key's `ceiling`; a rescore's is the rescoring key's), recorded when it started. A mark only: the runs of its cases carry it as well, and act as the key's person, not the ceiling. Absent on a test run no key with a ceiling started, and from a runtime that doesn't record it.
+    """
 
 
 class TestRunCollectionPage(BaseModel):

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { ReplayTurnReport } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { RunReplayRef } from '@kindgi/runtime';
+import type { RunKeyCeiling, RunReplayRef } from '@kindgi/runtime';
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import type { TestRunJudging } from './answer-check-binding.js';
@@ -67,6 +67,12 @@ export interface TestRunSubjectInvokeInput {
   readonly history?: readonly unknown[];
   /** A flow target's agents and tools at other exact versions (`TestRunComparison.versions`). */
   readonly versions?: FlowVersionOverrides;
+  /**
+   * The ceiling of the API key that started the test run
+   * (`TestRunStartInput.keyCeiling`): the case's run carries it, as a run
+   * the key starts does (`InvokeAgentBindingInput.keyCeiling`). A mark only.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
 }
 
 export interface TestRunSubjectInvokeOutcome {
@@ -157,6 +163,11 @@ export interface DispatchContext {
    * Absent: the tested version's own model.
    */
   readonly judging?: TestRunJudging;
+  /**
+   * The ceiling of the API key that started the test run
+   * (`TestRunStartInput.keyCeiling`): every case's invoke passes it on.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
   onProgress(perCase: Readonly<Record<string, unknown>>): void;
 }
 
@@ -253,6 +264,7 @@ export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): Te
           input: c.input,
           dryRun: ctx.dryRun,
           abortSignal: ctx.abortSignal,
+          ...(ctx.keyCeiling !== undefined && { keyCeiling: ctx.keyCeiling }),
         });
         if (invocation.halt !== undefined) return cancelled(invocation.halt.reason);
         if (invocation.error !== undefined) {
@@ -408,6 +420,7 @@ export function createInProcessTestRunBinding(
             projectId: input.projectId,
             ...(input.comparison !== undefined && { comparison: input.comparison }),
             ...(input.judging !== undefined && { judging: input.judging }),
+            ...(input.keyCeiling !== undefined && { keyCeiling: input.keyCeiling }),
             onProgress: (perCaseEntry: Readonly<Record<string, unknown>>) => {
               const current = runs.get(testRunId as unknown as string);
               if (current === undefined) return;
@@ -571,6 +584,7 @@ function newRunRecord(
     ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     ...(input.comparison !== undefined && { comparison: input.comparison }),
     projectId: input.projectId,
+    ...(input.keyCeiling !== undefined && { keyCeiling: input.keyCeiling }),
   };
 }
 

@@ -1107,6 +1107,7 @@ async function invokeCase(
       }),
       ...(!('agentId' in ctx.target) &&
         ctx.comparison?.versions !== undefined && { versions: ctx.comparison.versions }),
+      ...(ctx.keyCeiling !== undefined && { keyCeiling: ctx.keyCeiling }),
     });
   } catch (cause) {
     return { error: cause instanceof Error ? cause.message : String(cause) };
