@@ -17,6 +17,7 @@ import {
   type OperationSpec,
   type ParameterSpec,
   type ResponseSpec,
+  answersAuthzUnavailable,
   answersDatabaseBusy,
   answersIdempotencyStoreUnavailable,
   honoToOpenapiPath,
@@ -337,7 +338,8 @@ const REQUEST_TOO_LARGE: ResponseSpec = {
 /**
  * What a `GET` or `HEAD` answers when the database is too busy to answer in
  * time, unless the operation declares a 503 of its own. Every served read
- * but the storage-free ones gets it — see `answersDatabaseBusy`.
+ * but the storage-free ones gets it — see `answersDatabaseBusy`. A read
+ * that declares a 401 gets `DATABASE_BUSY_OR_AUTHZ` instead.
  */
 const DATABASE_BUSY: ResponseSpec = {
   description:
@@ -352,9 +354,26 @@ const DATABASE_BUSY_HEAD: ResponseSpec = {
 };
 
 /**
+ * `DATABASE_BUSY` for a read that can also answer `503
+ * authz-backend-unavailable` — see `answersAuthzUnavailable`.
+ */
+const DATABASE_BUSY_OR_AUTHZ: ResponseSpec = {
+  description:
+    "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+  schema: ref('WireError'),
+};
+
+/** The same on a `HEAD`: the status and `Retry-After`, with no body. */
+const DATABASE_BUSY_OR_AUTHZ_HEAD: ResponseSpec = {
+  description:
+    "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.",
+};
+
+/**
  * What a write that takes an `Idempotency-Key` answers when the key's store
  * fails before the write runs, unless the operation declares a 503 of its
- * own — see `answersIdempotencyStoreUnavailable`.
+ * own — see `answersIdempotencyStoreUnavailable`. A write that declares a
+ * 401 gets `IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE` instead.
  */
 const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
   description:
@@ -363,24 +382,68 @@ const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
 };
 
 /**
+ * `IDEMPOTENCY_STORE_UNAVAILABLE` for a write that can also answer `503
+ * authz-backend-unavailable`, or `503 database-busy` for the check's read —
+ * see `answersAuthzUnavailable`.
+ */
+const IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE: ResponseSpec = {
+  description:
+    "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+  schema: ref('WireError'),
+};
+
+/**
+ * What any other operation that declares a 401 answers when the
+ * authorization store can't be reached, or the database is too busy for its
+ * check's read, unless it declares a 503 of its own — see
+ * `answersAuthzUnavailable`.
+ */
+const AUTHZ_UNAVAILABLE: ResponseSpec = {
+  description:
+    "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+  schema: ref('WireError'),
+};
+
+/** The same on a `HEAD`: the status and `Retry-After`, with no body. */
+const AUTHZ_UNAVAILABLE_HEAD: ResponseSpec = {
+  description:
+    "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.",
+};
+
+/**
  * An operation's own responses plus the ones the generator shares across
- * operations: a 413 for anything with a body, the 503 a read answers when
- * the database is too busy, and the 503 a keyed write answers when its
- * key's store fails — each only when the operation doesn't declare that
- * status itself.
+ * operations: a 413 for anything with a body, and the shared 503
+ * (`shared503`), each only when the operation doesn't declare that status
+ * itself.
  */
 function responsesWithShared(op: OperationSpec): Readonly<Record<string, ResponseSpec>> {
   let responses = op.responses;
   if (op.requestBody !== undefined && responses['413'] === undefined) {
     responses = { ...responses, '413': REQUEST_TOO_LARGE };
   }
-  if (answersDatabaseBusy(op) && responses['503'] === undefined) {
-    responses = { ...responses, '503': op.method === 'head' ? DATABASE_BUSY_HEAD : DATABASE_BUSY };
+  const unavailable = responses['503'] === undefined ? shared503(op) : undefined;
+  return unavailable === undefined ? responses : { ...responses, '503': unavailable };
+}
+
+/**
+ * The 503 an operation that declares none gets: the one a read answers when
+ * the database is too busy, the one a keyed write answers when its key's
+ * store fails, or else, for an operation that declares a 401, the one it
+ * answers when the authorization store can't be reached. An operation that
+ * declares a 401 gets the first two naming `authz-backend-unavailable` too.
+ * `undefined` for an operation that answers none of them.
+ */
+function shared503(op: OperationSpec): ResponseSpec | undefined {
+  const authz = answersAuthzUnavailable(op);
+  if (answersDatabaseBusy(op)) {
+    if (op.method === 'head') return authz ? DATABASE_BUSY_OR_AUTHZ_HEAD : DATABASE_BUSY_HEAD;
+    return authz ? DATABASE_BUSY_OR_AUTHZ : DATABASE_BUSY;
   }
-  if (answersIdempotencyStoreUnavailable(op) && responses['503'] === undefined) {
-    responses = { ...responses, '503': IDEMPOTENCY_STORE_UNAVAILABLE };
+  if (answersIdempotencyStoreUnavailable(op)) {
+    return authz ? IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE : IDEMPOTENCY_STORE_UNAVAILABLE;
   }
-  return responses;
+  if (!authz) return undefined;
+  return op.method === 'head' ? AUTHZ_UNAVAILABLE_HEAD : AUTHZ_UNAVAILABLE;
 }
 
 function buildOperation(op: OperationSpec): Record<string, unknown> {

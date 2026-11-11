@@ -39,7 +39,7 @@ import type {
 import type { HitlBinding } from '../hitl-binding.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -200,10 +200,15 @@ export function runsRouter(
         ? ref('tenant', tenantId as unknown as string)
         : ref('project', row.projectId as unknown as string);
     };
+    // The run's read comes before the handler, so a database too busy for
+    // it answers 503 on any method, as the check's own read does
+    // (`beforeHandler`). It's outside the middleware: the action depends on
+    // what it finds.
     const onRunProject =
       (action: 'read' | 'write') =>
       async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
-        const resource = await projectFromRun(c);
+        const resource = await beforeHandler(c, () => projectFromRun(c));
+        if (resource instanceof Response) return resource;
         const mw = authorizer.authorize(
           resource.type === 'tenant' ? 'read' : action,
           () => resource,

@@ -191,7 +191,7 @@ One command runs the whole loop on your machine:
 | `--yes` | With `--reset`: drop the project's database without asking (for scripts). |
 | `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. Without compose, an existing container is always reused, and `kindgi dev` says how to recreate it by hand. |
 | `--runtime-image=<ref>` | The runtime image to run. Default: the one this CLI release was tested with. |
-| `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`. |
+| `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`, and your license key as `KINDGI_LICENSE_KEY` from your own shell: that file holds none. |
 
 ### The runtime container
 
@@ -208,9 +208,19 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
+- **Your license key:** every Kindgi runtime needs one, the one `kindgi dev`
+  starts too (from 0.7.0). `kindgi dev` takes `KINDGI_LICENSE_KEY` from your
+  shell, else the copy `kindgi auth registry` keeps in
+  `~/.kindgi/license/license-key`, readable only by you. It gives the key to
+  the runtime through Docker's own environment: never in `docker run`'s
+  arguments, and never in the pack's `.kindgi/dev/runtime.env`, where a
+  coding agent reads. With no key it stops before anything starts, saying
+  where to get a free one. With `--runtime-url` it starts no runtime and
+  asks for no key: the runtime you run yourself takes its own.
 - **The image:** the runtime image is pulled on first use. It needs your
   license key: sign in at https://access.kindgi.com for it, then log Docker
-  in with it: `kindgi auth registry` (see
+  in with it: `kindgi auth registry`, which also keeps the key for
+  `kindgi dev` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
 - **Starting:** `kindgi dev` says what the start is doing as it happens,
@@ -394,7 +404,7 @@ directory is watched, never the whole app. The dev index lives at
 
 - An empty pack is not an error: the output says where to add the first
   primitive. Its pack service starts with the first primitive; until then
-  the runtime may warn once that the pack service isn't answering.
+  the runtime's boot line names the pack with 0 tools and 0 checks.
 - A file that fails to index or build (a bad schema, a missing default
   export, a syntax error) is reported with its path and the error, and the
   previous code keeps serving until you fix it and save.
@@ -858,7 +868,9 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 (the directory `0700`, `<keyId>.pem` `0600`, `<keyId>.pub.pem` `0644`).
 `~` is `$HOME`, or the system's home folder where `HOME` isn't set.
 `create`, `export`, `list` and `trust` take `--home <dir>` to use
-`<dir>/.kindgi/keys/` instead.
+`<dir>/.kindgi/keys/` instead. With `HOME` set but empty, they refuse
+rather than use `.kindgi/keys/` under the current folder, and say to set
+`HOME` or pass `--home <dir>`.
 
 - **`create`** generates a key pair and refuses to overwrite an existing
   one. With `--env`, it prints what to add to that env block in
@@ -1062,11 +1074,15 @@ kindgi auth registry --check            # only check access, no login
 or `aws:…`), so a deployment's own key logs in without passing through your
 shell. A value that isn't a license key at all is refused before anything
 logs in; whether the key pulls is the registry's to say. When your key
-renews, log in again with the new one.
+renews, log in again with the new one: that renews `kindgi dev`'s copy too.
 
 It runs `docker login` with the key or token on its stdin, never in its
-arguments, so the credential lives in Docker's own credential store: Kindgi
-stores nothing. Then it checks that Docker can pull the exact image this CLI runs
+arguments, so the credential lives in Docker's own credential store. Once
+Docker has logged in with your license key, it keeps one copy for
+`kindgi dev`: `~/.kindgi/license/license-key`, a file only you can read
+(`0600`), in a folder that holds nothing else (`0700`). A mirror's token isn't
+a license key, and isn't kept: with a mirror, `kindgi dev` reads
+`KINDGI_LICENSE_KEY` from your shell. `--check` keeps nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
 failure says whether it's access (your license key, from

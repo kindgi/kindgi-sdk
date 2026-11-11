@@ -395,7 +395,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_LICENSE_KEY',
     description:
-      'The commercial license key (`kgi_lk_...`) Kindgi issues: signed, checked offline at startup, with no call to Kindgi. Required outside development mode: without a valid key the server refuses to start, naming this variable. `KINDGI_DEV=true` needs none. A production key comes with a commercial license; a free non-production key covers staging and CI. A secret: give it from your secrets store.',
+      'The commercial license key (`kgi_lk_...`) Kindgi issues: signed, checked offline at startup, with no call to Kindgi. Required, in development mode (`KINDGI_DEV=true`) too from 0.7.0: without a valid key the server refuses to start, naming this variable. A production key comes with a commercial license; a free non-production key covers development, staging and CI. A secret: give it from your secrets store.',
     example: '',
     required: false,
     appliesTo: appliesToServer,

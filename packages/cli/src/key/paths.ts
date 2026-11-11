@@ -10,10 +10,14 @@
  *   1. `--home <dir>` flag
  *   2. `HOME` env var (via `ctx.env.HOME` or `process.env.HOME`)
  *   3. `os.homedir()`
+ *
+ * When none gives one, there's no home: a command refuses rather than
+ * write `.kindgi/` under the current folder.
  */
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+import { homeFolder } from '../home.js';
 
 /** Directory the CLI writes / reads keys under. `~/.kindgi/keys/`. */
 export const KEYS_SUBDIR = ['.kindgi', 'keys'] as const;
@@ -51,15 +55,17 @@ export function resolveKeyPaths(homeInput: string): KeyPaths {
 
 /**
  * Resolve the effective home dir given the standard precedence:
- * `--home` > `ctx.env.HOME` > `ctx.home` > `os.homedir()`.
+ * `--home` > `ctx.env.HOME` > `ctx.home` > `os.homedir()`. `undefined`
+ * when none gives one: with `HOME` set but empty, `os.homedir()` answers
+ * '', and a '' home would put `.kindgi/` under the current folder.
  */
 export function pickHome(inputs: {
   readonly flag?: string;
   readonly ctxHome?: string;
   readonly envHome?: string;
-}): string {
+}): string | undefined {
   if (typeof inputs.flag === 'string' && inputs.flag !== '') return inputs.flag;
   if (typeof inputs.envHome === 'string' && inputs.envHome !== '') return inputs.envHome;
   if (typeof inputs.ctxHome === 'string' && inputs.ctxHome !== '') return inputs.ctxHome;
-  return homedir();
+  return homeFolder();
 }

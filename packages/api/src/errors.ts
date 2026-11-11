@@ -614,6 +614,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A build, a publish or a derived version aimed at a later environment of
   // an order: a later environment takes builds by promotion only.
   'environment-takes-promotions': 409,
+  // A promote-only build deployed into a project in production (or one
+  // whose production can't be read): it reaches production by promotion only.
+  'promote-only-build': 409,
   // Deleting or moving (to another parent) a project that is a member of an environment order.
   'project-in-environment-order': 409,
   // Deleting an org that is the parent of an environment order; a tenant admin clears the order first.

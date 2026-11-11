@@ -28,8 +28,10 @@ export interface TokenAdmin {
 /**
  * A key's role: the most it may do, under its principal's grants. An
  * `admin` key may administer the tenant when its principal can; a `member`
- * key administers nothing, even when its principal is an admin (a
- * day-to-day key that can't change keys, grants or policies).
+ * key takes no `admin` action on the tenant, even when its principal is a
+ * tenant admin (a day-to-day key that can't change keys, grants or
+ * policies). Below the tenant its principal's roles hold: a project
+ * admin's member key administers that project (`keyCeilingDeny`).
  */
 export type ApiTokenRole = 'admin' | 'member';
 

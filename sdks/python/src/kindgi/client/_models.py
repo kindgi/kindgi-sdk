@@ -58,7 +58,7 @@ class RunStatus(
 
 class OtherItem(BaseModel):
     """
-    `child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.
+    `child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait that isn't an approval's, a connect's or one of `tokens`, or whose approval, connect or token can't be read. `no-open-wait`: the journal shows none; the runtime picks the run up again.
     """
 
     model_config = ConfigDict(
@@ -9784,11 +9784,17 @@ class DeploymentRegistrationBody(BaseModel):
     """
     signature: str
     """
-    Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }) with sorted keys, no whitespace, UTF-8.
+    Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8.
     """
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
     Issuer-supplied ISO-8601 timestamp — covered by the signature.
+    """
+    production_entry: Annotated[Literal["promote-only"] | None, Field(alias="productionEntry")] = (
+        None
+    )
+    """
+    Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -15778,7 +15784,7 @@ class LicenseStatus(BaseModel):
     )
     mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
     """
-    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
+    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
     """
     name: str | None = None
     """
@@ -17174,6 +17180,12 @@ class DeploymentRecord(BaseModel):
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
     Issuer-supplied timestamp inside the signed envelope.
+    """
+    production_entry: Annotated[
+        Annotated[Literal["promote-only"] | str, _open.OPEN] | None, Field(alias="productionEntry")
+    ] = None
+    """
+    Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way.
     """
     activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
     """

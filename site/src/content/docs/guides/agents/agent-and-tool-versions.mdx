@@ -71,6 +71,13 @@ published, so a version can't be published with a tool it can't run:
 }
 ```
 
+A [retention policy](../../../deploy/retention/) that purges unregistered
+tool versions may purge one while an agent version that pins it is being
+published. The publish then writes nothing and answers
+`400 reference-out-of-scope`, with an issue at the tool's path, `/tools/<i>`
+(in a deploy, `/agents/<a>/tools/<i>`), that names the purged version.
+Publishing again pins the tool afresh.
+
 **Under `kindgi dev`,** agents aren't published: each turn resolves its
 ranges when it starts, so a tool you save is used at the next turn. An agent
 version published without pins resolves its ranges per run too.

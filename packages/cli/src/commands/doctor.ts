@@ -67,8 +67,14 @@ import {
 } from '../dev/sandbox/index.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
 import { extractKindgiError } from '../errors.js';
-import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.js';
-import { checkLicenseKey } from '../license/license-key.js';
+import { LICENSE_GRACE_DAYS, devRenewAdvice, renewAdvice, standingOf } from '../license/expiry.js';
+import {
+  HOME_LICENSE_KEY_DISPLAY,
+  homeLicenseKeyPath,
+  licenseKeyHome,
+  readHomeLicenseKey,
+} from '../license/home-key.js';
+import { type LicenseClaims, checkLicenseKey } from '../license/license-key.js';
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { secretStoreFor } from '../license/stores.js';
 import { MIN_NODE, MIN_NODE_MAJOR, atLeast } from '../node-version.js';
@@ -269,7 +275,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   // A stored key that isn't for the CLI's address isn't sent (api-key above).
   const keyElsewhere = apiKey.status === 'fail';
   checks.push(await consoleSignInCheck(ctx, keyElsewhere));
-  checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
+  checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, licenseKeyHome(ctx), seam));
   const mcpEndpoints = await listedMcpEndpoints(ctx, keyElsewhere);
   checks.push(mcpHeadersCheck(mcpEndpoints));
   checks.push(mcpEnvCheck(mcpEndpoints));
@@ -378,14 +384,17 @@ function shellWord(word: string): string {
 
 /**
  * The license key a runtime started here would use: `KINDGI_LICENSE_KEY`,
- * or the one in this folder's `kindgi.env`. Checked offline, as the runtime
- * checks it; from 30 days before it expires, the exact way to the next one.
- * No key is fine: `kindgi dev` needs none.
+ * the one in this folder's `kindgi.env`, or the one `kindgi auth registry`
+ * kept for `kindgi dev` (`~/.kindgi/license/license-key`). Checked offline,
+ * as the runtime checks it; from 30 days before it expires, the exact way
+ * to the next one. Every runtime needs a key, the one `kindgi dev` starts
+ * included: no key fails.
  */
 async function licenseKeyCheck(
   env: Readonly<Record<string, string | undefined>>,
   dir: string,
   cwd: string,
+  home: string | undefined,
   seam: DoctorSeam,
 ): Promise<DoctorCheck> {
   const fromEnv = env.KINDGI_LICENSE_KEY?.trim();
@@ -401,12 +410,7 @@ async function licenseKeyCheck(
   };
   const key =
     fromEnv !== undefined && fromEnv !== '' ? fromEnv : await setting('KINDGI_LICENSE_KEY');
-  if (key === undefined) {
-    return skip(
-      'license',
-      'No license key here (KINDGI_LICENSE_KEY, or kindgi.env in this folder): kindgi dev needs none. A runtime outside development reads KINDGI_LICENSE_KEY.',
-    );
-  }
+  if (key === undefined) return keptLicenseKeyCheck(home, seam);
   const where = fromEnv !== undefined && fromEnv !== '' ? 'KINDGI_LICENSE_KEY' : envFile;
   // The exact command, from where the deployment says its key and renewer
   // are kept (`KINDGI_LICENSE_KEY_REF`, `KINDGI_LICENSE_RENEWER_REF`, as the
@@ -421,6 +425,53 @@ async function licenseKeyCheck(
       ? `--key ${await ref('KINDGI_LICENSE_KEY_REF', '<where KINDGI_LICENSE_KEY is kept>')}`
       : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
   const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
+  return licenseStandingCheck(key, where, seam, {
+    advice: (claims) => renewAdvice(claims, renew),
+    wholeKey:
+      'Paste the whole key, starting kgi_lk_: from access.kindgi.com, or the one Kindgi sent you.',
+  });
+}
+
+/**
+ * Neither here: the key `kindgi dev` runs with, which a laptop renews its
+ * own way, since it has no deployment to renew from (`devRenewAdvice`).
+ */
+async function keptLicenseKeyCheck(
+  home: string | undefined,
+  seam: DoctorSeam,
+): Promise<DoctorCheck> {
+  const keptAt = homeLicenseKeyPath(home) ?? HOME_LICENSE_KEY_DISPLAY;
+  let kept: string | undefined;
+  try {
+    kept = await readHomeLicenseKey(home);
+  } catch (cause) {
+    return fail(
+      'license',
+      `Couldn't read the license key in ${keptAt}: ${(cause as Error).message}`,
+      'Run kindgi auth registry with your key again: it writes the file readable only by you.',
+    );
+  }
+  if (kept === undefined) {
+    return fail(
+      'license',
+      `No license key here (KINDGI_LICENSE_KEY, kindgi.env in this folder, or ${HOME_LICENSE_KEY_DISPLAY}). Every Kindgi runtime needs one, in development mode too.`,
+      'Get a free one at https://access.kindgi.com, then run kindgi auth registry with it: it logs Docker in and keeps the key for kindgi dev. A deployment gives its runtime KINDGI_LICENSE_KEY.',
+    );
+  }
+  return licenseStandingCheck(kept, keptAt, seam, {
+    advice: devRenewAdvice,
+    wholeKey:
+      'Give the whole key, starting kgi_lk_, to kindgi auth registry: from access.kindgi.com, or the one Kindgi sent you.',
+  });
+}
+
+/** `key`, from `where`, checked as the runtime checks it, with `how`'s words for the fix. */
+function licenseStandingCheck(
+  key: string,
+  where: string,
+  seam: DoctorSeam,
+  how: { readonly advice: (claims: LicenseClaims) => string; readonly wholeKey: string },
+): DoctorCheck {
   const checked =
     seam.licensePublicKeys !== undefined
       ? checkLicenseKey(key, seam.licensePublicKeys)
@@ -435,14 +486,14 @@ async function licenseKeyCheck(
       : fail(
           'license',
           `The value in ${where} isn't a Kindgi license key (${checked.reason}).`,
-          'Paste the whole key, starting kgi_lk_: from access.kindgi.com, or the one Kindgi sent you.',
+          how.wholeKey,
         );
   }
   const { claims } = checked;
   const what = `${claims.name}'s ${claims.use} key`;
   const standing = standingOf(claims, (seam.now ?? Date.now)());
   const day = (d: Date) => d.toISOString().slice(0, 10);
-  const advice = renewAdvice(claims, renew);
+  const advice = how.advice(claims);
   switch (standing.kind) {
     case 'valid':
       return pass(
