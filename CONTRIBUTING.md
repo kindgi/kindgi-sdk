@@ -201,6 +201,11 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    cancels it: rerun that job alone
    (`gh run rerun <run-id> --job <job-id>`), which reruns the jobs after
    it too. A release that skipped Maven stops there.
+5. **When Central won't take a release for now** (the Portal refuses the
+   upload, say), dispatch with `-f skip-maven=true`: it skips the Maven job
+   and the wait, and npm, the GitHub release and `kindgi-cli` go on without
+   them. The CLI published then scaffolds Java and Scala packs on a
+   kindgi-pack version Central doesn't serve yet, until Central has it.
 
 The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,
