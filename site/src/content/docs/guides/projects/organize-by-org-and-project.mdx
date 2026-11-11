@@ -571,7 +571,7 @@ restored = kindgi.projects.restore(str(project.id))
 <TabItem label="Java">
 
 ```java excerpt
-// in src/main/java/com/acme/app/CustomerOrg.java, when the project's work is over
+// in src/main/java/com/acme/app/CustomerProject.java, when the project's work is over
 kindgi.projects().delete(project.id());
 // And back, as it was:
 Project restored = kindgi.projects().restore(project.id());
@@ -581,7 +581,7 @@ Project restored = kindgi.projects().restore(project.id());
 <TabItem label="Scala">
 
 ```scala excerpt
-// in src/main/scala/acme/app/CustomerOrg.scala, when the project's work is over
+// in src/main/scala/acme/app/CustomerProject.scala, when the project's work is over
 kindgi.projects().delete(project.id)
 // And back, as it was:
 val restored = kindgi.projects().restore(project.id)
