@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { BUILT_IN_ONLY_APPS } from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
 import { github } from '../src/github.js';
@@ -341,6 +342,10 @@ describe('the Texts entry', () => {
     expect(texts.owners).toEqual(['company']);
     expect(texts.signIn).toEqual({ kind: 'token', providers: ['telnyx'] });
     expect(texts.account).toEqual({ kind: 'number' });
+  });
+
+  it("is used only by the tools built into Kindgi: a pack tool can't hold the number's key", () => {
+    expect(BUILT_IN_ONLY_APPS).toContain(texts.id);
   });
 
   it("puts the number's inbound back on removal", () => {

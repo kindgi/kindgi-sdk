@@ -402,7 +402,7 @@ describe('kindgi text-triggers', () => {
     expect(create.stdout).toContain('1 to 600 (default 60)');
     expect(create.stdout).toContain('1 to 60 (default 10)');
     expect(create.stdout).toContain('it takes `admin` on the project');
-    expect(create.stdout).toContain('Never `texts.send`');
+    expect(create.stdout).toContain('Never `kindgi_send_text`');
     const update = (await textTriggers(['update', '--help'])).out;
     expect(update.exitCode, update.stderr).toBe(0);
     expect(update.stdout).toContain("A flag left out keeps the trigger's value");

@@ -24,6 +24,7 @@ import type {
 } from '@kindgi/types';
 
 import type { RunActsFor, RunAgentRef, RunMailbox, RunStartedBy, RunTriggerRef } from './inputs.js';
+import type { RunTextThread } from './texts.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -101,6 +102,11 @@ export interface KernelRunRecord {
    * mail trigger started. Absent on every other run.
    */
   readonly mailbox?: RunMailbox;
+  /**
+   * The thread its text came from (`RunFlowInput.textThread`), on a run a
+   * text trigger started. Absent on every other run.
+   */
+  readonly textThread?: RunTextThread;
   /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.

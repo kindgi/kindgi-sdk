@@ -27,10 +27,11 @@
  * account), and personal when a person does. No edit moves the owner;
  * only `takeOwnership` does.
  *
- * In a run a text started, every call that changes something waits for a
- * person's yes unless the trigger lists it in `toolsAllowedUnattended`,
- * which a project admin sets. Sending a text (`texts.send`) always waits:
- * the list never names it.
+ * In a run a text started, every call that changes something, except
+ * handing the conversation to a person (`kindgi_hand_to_person`), waits for
+ * a person's yes unless the trigger lists it in `toolsAllowedUnattended`,
+ * which a project admin sets. A text that isn't a reply
+ * (`kindgi_send_text`) always waits: the list never names it.
  */
 
 import type {
