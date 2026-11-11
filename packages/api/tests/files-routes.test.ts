@@ -4,8 +4,9 @@
 /**
  * `/v1/files` over an in-memory file store: a file belongs to a project
  * as an artifact does, reads need `read` there and changes `write`, a
- * version is read by its number or `latest`, and an upload over the cap
- * is `413 file-too-large` on both upload routes.
+ * version is read by its number or `latest`, and on both upload routes an
+ * upload over the cap is `413 file-too-large` and one the storage limit has
+ * no room for is `403 storage-limit-reached`.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -99,15 +100,29 @@ function memoryFiles(): FileVersionsBinding & {
   readonly files: Map<string, MemoryFile>;
   /** Each version's bytes `readVersion` opened, as `<fileId>@<version>`. */
   readonly opened: string[];
+  /** With `storageMiB` set, the store is full: each new file or version is refused. */
+  readonly limit: { storageMiB?: number };
 } {
   const files = new Map<string, MemoryFile>();
   const opened: string[] = [];
+  const limit: { storageMiB?: number } = {};
   let tick = 0;
   const now = () => new Date(Date.UTC(2026, 10, 5, 0, 0, tick++)).toISOString() as Timestamp;
   const read = async (b: ReadableStream<Uint8Array> | Uint8Array) =>
     b instanceof Uint8Array ? b : new Uint8Array(await new Response(b).arrayBuffer());
   const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
   const err = <T>(error: FileError): Result<T, FileError> => ({ kind: 'err', error });
+  const full = (body: Uint8Array) =>
+    limit.storageMiB === undefined
+      ? undefined
+      : err<never>({
+          code: 'storage-limit-reached',
+          message: 'full',
+          limit: 'storage',
+          storageMiB: limit.storageMiB,
+          usedBytes: limit.storageMiB * 1024 * 1024,
+          neededBytes: body.byteLength,
+        });
   const notFound = (fileId: string) =>
     err<never>({ code: 'file-not-found', message: 'none', fileId });
   const noVersion = (fileId: string, version: FileVersionSelector) =>
@@ -214,6 +229,8 @@ function memoryFiles(): FileVersionsBinding & {
   const binding: FileVersionsBinding = {
     async create(_t, input) {
       const body = await read(input.bytes);
+      const refused = full(body);
+      if (refused !== undefined) return refused;
       const fileId = randomUUID() as FileId;
       const at = now();
       const version: FileVersion = {
@@ -298,6 +315,8 @@ function memoryFiles(): FileVersionsBinding & {
       const f = found(fileId);
       if (f === undefined) return notFound(fileId);
       const body = await read(input.bytes);
+      const refused = full(body);
+      if (refused !== undefined) return refused;
       return append(
         f,
         body,
@@ -366,7 +385,7 @@ function memoryFiles(): FileVersionsBinding & {
       return { kind: 'ok', value: { data: [...f.pins].reverse() } };
     },
   };
-  return Object.assign(binding, { files, opened });
+  return Object.assign(binding, { files, opened, limit });
 }
 
 function decision(user: string, action: Action, resource: ResourceRef): Decision {
@@ -906,6 +925,27 @@ describe('the upload cap', () => {
         'file-too-large',
         1024,
       ]);
+    }
+    expect(h.store.files.size).toBe(1);
+    expect(h.store.files.get(fileId)?.versions.size).toBe(1);
+  });
+});
+
+describe('the storage limit', () => {
+  test("a new file or version it has no room for is 403 storage-limit-reached, with the store's numbers", async () => {
+    const h = harness();
+    const fileId = await h.seed(P1);
+    h.store.limit.storageMiB = 1;
+    for (const target of [undefined, fileId]) {
+      const r = await h.upload('alice', {
+        ...(target !== undefined && { fileId: target }),
+        body: 'ten bytes!',
+      });
+      expect(r.status, JSON.stringify(r.body)).toBe(403);
+      expect(r.body.error).toMatchObject({
+        code: 'storage-limit-reached',
+        details: { limit: 'storage', storageMiB: 1, usedBytes: 1024 * 1024, neededBytes: 10 },
+      });
     }
     expect(h.store.files.size).toBe(1);
     expect(h.store.files.get(fileId)?.versions.size).toBe(1);

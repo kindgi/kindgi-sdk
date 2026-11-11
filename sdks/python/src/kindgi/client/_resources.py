@@ -5553,7 +5553,7 @@ class FilesVersionsResource:
     ) -> _models.FileVersionWrite:
         """Add a version. `POST /v1/files/{fileId}/versions`
 
-        Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`.
+        Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`. A version the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.
         """
         return self._client._request(
             _OPERATIONS["files.versions.add"],
@@ -5743,7 +5743,7 @@ class FilesResource:
     ) -> _models.FileVersionWrite:
         """Create a file. `POST /v1/files`
 
-        Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`.
+        Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.
         """
         return self._client._request(
             _OPERATIONS["files.create"],
@@ -16222,7 +16222,7 @@ class AsyncFilesVersionsResource:
     ) -> _models.FileVersionWrite:
         """Add a version. `POST /v1/files/{fileId}/versions`
 
-        Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`.
+        Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`. A version the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.
         """
         return await self._client._request(
             _OPERATIONS["files.versions.add"],
@@ -16412,7 +16412,7 @@ class AsyncFilesResource:
     ) -> _models.FileVersionWrite:
         """Create a file. `POST /v1/files`
 
-        Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`.
+        Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.
         """
         return await self._client._request(
             _OPERATIONS["files.create"],
