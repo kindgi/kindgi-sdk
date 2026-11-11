@@ -257,9 +257,10 @@ jobs:
           # Plain Node for central-bundle: no install, so no package-manager cache (it
           # would look for pnpm, which this job never sets up).
           package-manager-cache: false
-      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm never
-      # gets a CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
-      # this waits out Central's sync, and stops a release that skipped it).
+      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm gets
+      # no CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
+      # this waits out Central's sync, and stops a release that skipped it), unless the
+      # run asked for skip-maven, which skips this job and publish-maven both.
       - name: The JVM SDKs at the CLI's version are on Maven Central
         if: ${{ !inputs.dry-run }}
         run: node scripts/central-bundle.mjs on-central --wait-minutes 120 --version "$(node -p "require('./packages/cli/package.json').version")"
@@ -335,6 +336,9 @@ jobs:
     needs: publish
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || needs.publish.result == 'success') }}
     runs-on: ubuntu-latest
+    # Without the JVM SDKs (skip-maven), the notes say they reach Maven Central later.
+    env:
+      SKIP_MAVEN: ${{ inputs.skip-maven }}
     permissions:
       contents: write # the GitHub release
     steps:

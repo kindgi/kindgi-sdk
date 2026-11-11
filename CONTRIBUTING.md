@@ -157,7 +157,8 @@ its line (`pnpm run check:cli-line`). The release notes keep theirs.
    (npm trusted publishing with provenance, and PyPI trusted publishing
    with attestations — no tokens). The JVM SDKs go to Maven Central first,
    and npm waits for them: the CLI scaffolds Java and Scala packs on
-   kindgi-pack at its own version.
+   kindgi-pack at its own version. A release Central won't take for now
+   skips them (step 5 under Maven Central).
 
 ### Maven Central
 
@@ -190,8 +191,9 @@ workflow's `publish-maven` job, in the `maven-publish` environment
 4. Central serves a version some time after the Portal publishes it. A job
    of its own, between the Maven job and npm's, waits until Central serves
    every JVM artifact at the CLI's version (`central-bundle.mjs
-   on-central`), for up to two hours, so npm never gets a CLI whose
-   kindgi-pack doesn't resolve. It has no environment: npm's approval comes
+   on-central`), for up to two hours, so npm gets no CLI whose
+   kindgi-pack doesn't resolve, unless the run skips Maven (step 5). It
+   has no environment: npm's approval comes
    up only once Central serves, and a slower Central fails that job before
    it does, so rerunning the failed jobs asks for npm's approval only once.
    A request Central doesn't answer, or answers with a 408, a 429 or a
@@ -205,7 +207,8 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    upload, say), dispatch with `-f skip-maven=true`: it skips the Maven job
    and the wait, and npm, the GitHub release and `kindgi-cli` go on without
    them. The CLI published then scaffolds Java and Scala packs on a
-   kindgi-pack version Central doesn't serve yet, until Central has it.
+   kindgi-pack version Central doesn't serve yet, until Central has it, and
+   the GitHub release's notes say the JVM SDKs reach Central later.
 
 The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,

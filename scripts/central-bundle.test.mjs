@@ -566,12 +566,14 @@ describe('the Release workflow', () => {
       job('publish-maven'),
       /\n {4}if: github\.event_name == 'workflow_dispatch' && !inputs\.skip-maven\n/,
     );
-    // Only the Maven job is skipped by it, and npm goes on without the wait.
+    // Only the Maven job is skipped by it; npm goes on without the wait, and
+    // the GitHub release's notes say the JVM SDKs reach Maven Central later.
     const names = [...workflow.matchAll(/\n {2}([a-z][\w-]*):\n/g)].map((m) => m[1]);
     assert.deepEqual(
       names.filter((name) => job(name).includes('inputs.skip-maven')),
-      ['publish-maven', 'publish'],
+      ['publish-maven', 'publish', 'github-release'],
     );
+    assert.match(job('github-release'), /\n {6}SKIP_MAVEN: \$\{\{ inputs\.skip-maven \}\}\n/);
     // GitHub skips every job after a skipped one unless its `if:` has a status
     // function: the jobs after npm's go on once it succeeds.
     for (const name of ['github-release', 'publish-pypi-cli']) {
