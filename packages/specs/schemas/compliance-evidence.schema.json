@@ -79,6 +79,7 @@
         "trigger-tools-allowed-unattended-set",
         "trigger-changed-for-owner",
         "environment-order-set",
+        "deployment-registered",
         "deployment-promoted",
         "deployment-replaced-block",
         "block-version-published",
