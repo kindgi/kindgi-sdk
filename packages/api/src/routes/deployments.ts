@@ -14,7 +14,7 @@ import {
   validateBlock,
 } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { ref, tuplesForCreate } from '@kindgi/authz';
+import { ref, tuplesForCreate, userPrincipal } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -88,6 +88,8 @@ import {
   serializeDeployment,
 } from '../deployment-binding.js';
 import {
+  BUILT_FROM_KINDS,
+  type BuiltFrom,
   PROMOTE_ONLY_KEY_PREFIX,
   type ProductionEntry,
   canonicalizeEnvelope,
@@ -801,7 +803,9 @@ export function deploymentsRouter(
     // server's own middleware, never by the request. Under it the deploy
     // goes only into the project it names: secrets are recorded at that
     // project, a tool version recorded wider isn't kept, and the pack's
-    // own env reads that project only.
+    // own env reads that project only. It's a build made for that project,
+    // signed promote-only, by someone who may write there
+    // (`scopedBuildRefusal`, `promoteOnlyTwice`, `presserMayWrite`).
     const keyScope = c.get('deployKeyScope') === 'project' ? ('project' as const) : undefined;
     if (keyScope !== undefined && wire.projectId === undefined) {
       c.status(statusFor('permission-denied') as never);
@@ -824,6 +828,27 @@ export function deploymentsRouter(
             code: 'internal-server-error',
             message:
               'a deploy under a project-only key scope needs a deploymentRegistry that keeps it (keepsKeyScope); deployment blocked. Wire one into DeploymentsRouterBindings at app-creation time.',
+          },
+          requestId,
+        ),
+      );
+    }
+    if (keyScope !== undefined) {
+      const refused = scopedBuildRefusal(c, requestId, wire, authorizer);
+      if (refused !== undefined) return refused;
+    }
+
+    // A ledger that doesn't keep builtFrom would register the build without
+    // it, and a promotion, verifying the signature over what the row kept,
+    // would then never move it: refused before anything is read or written.
+    if (wire.builtFrom !== undefined && bindings.deploymentRegistry.keepsBuiltFrom !== true) {
+      c.status(statusFor('built-from-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'built-from-unsupported',
+            message:
+              "This runtime's deployment ledger doesn't keep builtFrom, so a build signed with it could never be promoted. Nothing was registered",
           },
           requestId,
         ),
@@ -899,6 +924,7 @@ export function deploymentsRouter(
       tenantId: tenantId as unknown as string,
       publishedAt: wire.publishedAt,
       ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+      ...(wire.builtFrom !== undefined && { builtFrom: wire.builtFrom }),
     });
     let signatureBytes: Buffer;
     try {
@@ -936,7 +962,7 @@ export function deploymentsRouter(
           {
             code: 'signature-invalid',
             message:
-              'Ed25519 signature does not match canonical envelope { imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, and productionEntry when it has one',
+              'Ed25519 signature does not match canonical envelope { imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, and productionEntry and builtFrom when it has them',
           },
           requestId,
         ),
@@ -1217,11 +1243,30 @@ export function deploymentsRouter(
       signerKeyId: wire.signerKeyId as unknown as string,
       publicKey: publicKeyBase64,
     });
+    if (keyScope !== undefined && !promoteOnlyTwice(wire)) {
+      return scopedRefusalResponse(
+        c,
+        requestId,
+        'permission-denied',
+        `a deploy under a project-only key scope is a promote-only build: signed with productionEntry 'promote-only', by a trusted key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\``,
+      );
+    }
     if (
       promoteOnly &&
       (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId))
     ) {
       return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
+    }
+    if (
+      keyScope !== undefined &&
+      !(await presserMayWrite(c, authorizer, tenantId, wire.builtFrom))
+    ) {
+      return scopedRefusalResponse(
+        c,
+        requestId,
+        'permission-denied',
+        "whoever asked for this build (builtFrom.requestedBy) can't write to the project, so a deploy under a project-only key scope doesn't register it; nothing was deployed",
+      );
     }
 
     // What its agents and flows name, besides what it brings itself, must be
@@ -1575,6 +1620,7 @@ export function deploymentsRouter(
         signature: wire.signature,
         publishedAt: wire.publishedAt,
         ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+        ...(wire.builtFrom !== undefined && { builtFrom: wire.builtFrom }),
         ...(promoteOnly && { promoteOnly: true }),
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
@@ -1638,6 +1684,26 @@ export function deploymentsRouter(
     }
 
     await notifyWrites(tenantId, validated, bindings);
+    // Who registered it, and what it was built from when its envelope says:
+    // a key that registers for someone (`builtFrom.requestedBy`) is named
+    // beside them, never in their place.
+    await emitAuditEvent({
+      auditEvents: bindings.auditEvents,
+      tenantId,
+      ...(targetProjectId !== undefined && { projectId: targetProjectId }),
+      kind: 'deployment-registered',
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: requestId,
+      doc: {
+        deploymentId: outcome.deployment.deploymentId,
+        imageDigest,
+        artifactVersion: wire.artifactVersion,
+        signerKeyId: wire.signerKeyId as unknown as string,
+        ...(wire.builtFrom !== undefined && { builtFrom: wire.builtFrom }),
+      },
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
     for (const block of publishedBlocks) {
       await emitAuditEvent({
         auditEvents: bindings.auditEvents,
@@ -2018,6 +2084,100 @@ async function mayBeInProduction(
 }
 
 // ------------------------------------------------------------
+// Builds under a project-only key scope
+// ------------------------------------------------------------
+
+/** A deploy under a project-only key scope refused with `code`; nothing deployed. */
+function scopedRefusalResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  code: 'permission-denied' | 'internal-server-error',
+  message: string,
+) {
+  c.status(statusFor(code) as never);
+  return c.json(toWireError({ code, message }, requestId));
+}
+
+/**
+ * A deploy under a project-only key scope is a build made for one project,
+ * refused here, before its signature is read, unless it carries `builtFrom`
+ * (which the signature then covers) and names the project `builtFrom` does.
+ * Whoever asked for the build must hold `write` there, which only this
+ * server's own authorizer is asked (`presserMayWrite`), so a server without
+ * one refuses it. `undefined`: none of these.
+ */
+function scopedBuildRefusal(
+  c: Context<AppEnv>,
+  requestId: string,
+  wire: WireBody,
+  authorizer: Authorizer | undefined,
+) {
+  if (wire.builtFrom === undefined) {
+    return scopedRefusalResponse(
+      c,
+      requestId,
+      'permission-denied',
+      'a deploy under a project-only key scope is a build made for one project: sign builtFrom with it',
+    );
+  }
+  if ((wire.projectId as unknown as string | undefined) !== wire.builtFrom.projectId) {
+    return scopedRefusalResponse(
+      c,
+      requestId,
+      'permission-denied',
+      'a deploy under a project-only key scope goes only into the project it was built for: send builtFrom.projectId as projectId',
+    );
+  }
+  if (authorizer === undefined) {
+    return scopedRefusalResponse(
+      c,
+      requestId,
+      'internal-server-error',
+      'a deploy under a project-only key scope needs an authorizer, to ask whether whoever asked for the build may write to its project; deployment blocked. Wire one in at app-creation time.',
+    );
+  }
+  return undefined;
+}
+
+/**
+ * A build under a project-only key scope is promote-only twice over: its
+ * envelope signs the mark (`productionEntry`), and a trusted key under the
+ * prefix signs it (the trust check read `signerKeyId` with its public key).
+ * One that misses either is refused, so a build signed with another key, or
+ * left unmarked, can't go into a project that later reaches production.
+ */
+function promoteOnlyTwice(wire: WireBody): boolean {
+  return (
+    wire.productionEntry === 'promote-only' &&
+    (wire.signerKeyId as unknown as string).startsWith(PROMOTE_ONLY_KEY_PREFIX)
+  );
+}
+
+/**
+ * Whether whoever asked for a build under a project-only key scope
+ * (`builtFrom.requestedBy`, `user:<id>`) holds `write` on the project it was
+ * built for, as this server's own authorizer answers for them: the caller's
+ * rights aren't theirs. No authorizer, no `builtFrom`, or a presser named any
+ * other way: no. A store that fails throws (`canFor`), before any write.
+ */
+async function presserMayWrite(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+  builtFrom: BuiltFrom | undefined,
+): Promise<boolean> {
+  if (authorizer === undefined || builtFrom === undefined) return false;
+  if (!builtFrom.requestedBy.startsWith(REQUESTED_BY_USER)) return false;
+  const userId = builtFrom.requestedBy.slice(REQUESTED_BY_USER.length);
+  return authorizer.canFor(
+    c,
+    userPrincipal(userId, tenantId),
+    'write',
+    ref('project', builtFrom.projectId),
+  );
+}
+
+// ------------------------------------------------------------
 // Wire body validation
 // ------------------------------------------------------------
 
@@ -2031,6 +2191,8 @@ interface WireBody {
   readonly publishedAt: string;
   /** Signed with the rest when present: how the build may reach a project in production. */
   readonly productionEntry?: ProductionEntry;
+  /** Signed with the rest when present: what the build was made from. */
+  readonly builtFrom?: BuiltFrom;
   /** The project to deploy into; absent: the tenant's default project. */
   readonly projectId?: ProjectId;
   /** Where the pack lives in git, when the client said. */
@@ -2114,6 +2276,8 @@ function parseWireBody(body: unknown): ParseResult {
   if (productionEntry !== undefined && productionEntry !== 'promote-only') {
     issues.push({ path: 'productionEntry', message: "productionEntry must be 'promote-only'" });
   }
+  // Refused whole on any field it doesn't know, for the same reason.
+  const builtFrom = parseBuiltFrom(b.builtFrom, issues);
   // Checked again by the project-ref middleware, which also answers 404 for
   // a project of no tenant's; here only its shape, for a router mounted alone.
   const projectId = b.projectId;
@@ -2141,10 +2305,80 @@ function parseWireBody(body: unknown): ParseResult {
       signature: signature as string,
       publishedAt: publishedAt as string,
       ...(productionEntry === 'promote-only' && { productionEntry }),
+      ...(builtFrom !== undefined && { builtFrom }),
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
       ...(source !== undefined && { source }),
       ...(replace !== undefined && { replace }),
     },
+  };
+}
+
+const BUILT_FROM_FIELDS: ReadonlySet<string> = new Set([
+  'kind',
+  'projectId',
+  'commit',
+  'requestedBy',
+]);
+/** A project id as `builtFrom` holds it: a UUID in lower case, so it signs one way. */
+const LOWER_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** `user:` and an id with no space or control character. */
+const REQUESTED_BY_RE = /^user:[\x21-\x7e]{1,256}$/;
+/** What `requestedBy` names a person by, before their user id. */
+const REQUESTED_BY_USER = 'user:';
+
+/**
+ * The body's `builtFrom`, or `undefined` when it has none or it's refused
+ * (each problem pushed onto `issues`). Unlike `source`, a field it doesn't
+ * know is refused: the signature covers the whole object, so one read past
+ * would have it checked over less than was signed.
+ */
+function parseBuiltFrom(raw: unknown, issues: Issue[]): BuiltFrom | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    issues.push({ path: 'builtFrom', message: 'builtFrom must be an object' });
+    return undefined;
+  }
+  const fields = raw as Record<string, unknown>;
+  const before = issues.length;
+  for (const key of Object.keys(fields)) {
+    if (!BUILT_FROM_FIELDS.has(key)) {
+      issues.push({
+        path: `builtFrom.${key}`,
+        message: `builtFrom has no field ${JSON.stringify(key)} this runtime knows`,
+      });
+    }
+  }
+  const { kind, projectId, commit, requestedBy } = fields;
+  if (!(BUILT_FROM_KINDS as readonly unknown[]).includes(kind)) {
+    issues.push({
+      path: 'builtFrom.kind',
+      message: `builtFrom.kind must be one of: ${BUILT_FROM_KINDS.join(', ')}`,
+    });
+  }
+  if (typeof projectId !== 'string' || !LOWER_UUID_RE.test(projectId)) {
+    issues.push({
+      path: 'builtFrom.projectId',
+      message: 'builtFrom.projectId must be a project id, a UUID in lower case',
+    });
+  }
+  if (typeof commit !== 'string' || !COMMIT_RE.test(commit)) {
+    issues.push({
+      path: 'builtFrom.commit',
+      message: 'builtFrom.commit must be a full commit id, 40 or 64 lowercase hex',
+    });
+  }
+  if (typeof requestedBy !== 'string' || !REQUESTED_BY_RE.test(requestedBy)) {
+    issues.push({
+      path: 'builtFrom.requestedBy',
+      message: 'builtFrom.requestedBy must be user: and the id of who asked for the build',
+    });
+  }
+  if (issues.length > before) return undefined;
+  return {
+    kind: kind as BuiltFrom['kind'],
+    projectId: projectId as string,
+    commit: commit as string,
+    requestedBy: requestedBy as string,
   };
 }
 

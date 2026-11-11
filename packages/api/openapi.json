@@ -581,6 +581,7 @@
           "promotion-values-not-ready": 409,
           "deployment-superseded": 409,
           "promotions-unsupported": 501,
+          "built-from-unsupported": 501,
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "slug-conflict": 409,
@@ -21262,6 +21263,42 @@
           }
         }
       },
+      "DeploymentBuiltFrom": {
+        "type": "object",
+        "description": "What a build was made from, as its builder signed it: covered by the signature when present, so the project and the person it names are the signer's word. The runtime keeps it and records it; nothing acts on the person yet. A deployment a promotion made keeps its source's. Absent for a build whose builder doesn't say. A runtime whose deployment ledger doesn't keep it refuses the build (`501 built-from-unsupported`), and one that doesn't know the field checks the signature without it, so the build doesn't verify there.",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "commit",
+          "requestedBy"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "kept-repo"
+            ],
+            "description": "`kept-repo`: a commit of a repository the runtime keeps for a project that has no GitHub repository, built for the person who asked."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "The project whose repository holds the commit, lower case."
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "The commit built: its full id, lower-case hex."
+          },
+          "requestedBy": {
+            "type": "string",
+            "pattern": "^user:[\\x21-\\x7e]{1,256}$",
+            "description": "Who asked for the build: `user:` and their id."
+          }
+        }
+      },
       "DeploymentEndpointProblem": {
         "type": "object",
         "additionalProperties": false,
@@ -21451,6 +21488,9 @@
               "promote-only"
             ],
             "description": "Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way."
+          },
+          "builtFrom": {
+            "$ref": "#/components/schemas/DeploymentBuiltFrom"
           },
           "activatedAt": {
             "type": "string",
@@ -22244,7 +22284,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8."
+            "description": "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` and `builtFrom` too when the body sends them, `builtFrom`'s keys sorted as well) with sorted keys, no whitespace, UTF-8."
           },
           "publishedAt": {
             "type": "string",
@@ -22257,6 +22297,9 @@
               "promote-only"
             ],
             "description": "Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there."
+          },
+          "builtFrom": {
+            "$ref": "#/components/schemas/DeploymentBuiltFrom"
           },
           "projectId": {
             "type": "string",
@@ -22506,6 +22549,7 @@
           "trigger-tools-allowed-unattended-set",
           "trigger-changed-for-owner",
           "environment-order-set",
+          "deployment-registered",
           "deployment-promoted",
           "deployment-replaced-block",
           "block-version-published",
@@ -22689,6 +22733,7 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
+              "deployment-registered",
               "deployment-promoted",
               "deployment-replaced-block",
               "block-version-published",
@@ -22895,6 +22940,7 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
+              "deployment-registered",
               "deployment-promoted",
               "deployment-replaced-block",
               "block-version-published",
@@ -22999,6 +23045,7 @@
                   "trigger-tools-allowed-unattended-set",
                   "trigger-changed-for-owner",
                   "environment-order-set",
+                  "deployment-registered",
                   "deployment-promoted",
                   "deployment-replaced-block",
                   "block-version-published",
@@ -59810,7 +59857,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, has no `builtFrom`, or names another project than `builtFrom.projectId`; the build isn't marked promote-only (`productionEntry`) and signed by a trusted key whose id starts with `kindgi-promote-only:`; whoever asked for it (`builtFrom.requestedBy`) can't write to the project; or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59861,6 +59908,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it, so the build could never be promoted. Nothing was registered.",
             "content": {
               "application/json": {
                 "schema": {

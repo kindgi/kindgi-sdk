@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest';
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
+import type { Action, Decision, Principal, ResourceRef } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS, currentTenant } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
@@ -30,7 +31,12 @@ import type {
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
-import { PROMOTE_ONLY_KEY_PREFIX } from '../src/deployment-envelope.js';
+import {
+  type BuiltFrom,
+  PROMOTE_ONLY_KEY_PREFIX,
+  type ProductionEntry,
+  canonicalizeEnvelope,
+} from '../src/deployment-envelope.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
@@ -134,6 +140,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
         ...(input.keyScope !== undefined && { keyScope: input.keyScope }),
+        ...(input.builtFrom !== undefined && { builtFrom: input.builtFrom }),
         primitives: input.primitives,
         contents: input.contents,
         ...(input.source !== undefined && { source: input.source }),
@@ -696,6 +703,10 @@ function buildSignedDeploy(
     keyId?: SigningKeyId;
     /** The image's `/app/index.json` bytes as they are, in place of `index`. */
     indexBytes?: Uint8Array;
+    /** Signed with the rest, and sent. */
+    productionEntry?: ProductionEntry;
+    /** Signed with the rest, and sent. */
+    builtFrom?: BuiltFrom;
   } = {},
 ): SignedDeploy {
   const keyPair = generateEd25519KeyPair();
@@ -735,14 +746,24 @@ function buildSignedDeploy(
   const publishedAt = overrides.publishedAt ?? '2026-09-20T14:32:07.104Z';
   const indexHash = `sha256:${indexSha}`;
   const envTenant = overrides.tenantIdOverride ?? tenantId;
-  const envelope = JSON.stringify({
+  const fields = {
     artifactVersion,
     imageDigest: digest,
     indexHash,
     publishedAt,
     tenantId: envTenant as unknown as string,
-  });
-  const sig = signEd25519(keyPair.privateKey, new TextEncoder().encode(envelope));
+  };
+  const signs = {
+    ...(overrides.productionEntry !== undefined && { productionEntry: overrides.productionEntry }),
+    ...(overrides.builtFrom !== undefined && { builtFrom: overrides.builtFrom }),
+  };
+  // Without the optional fields, the five as they've always been signed;
+  // with them, each in its sorted place, as the route reads them.
+  const envelope =
+    Object.keys(signs).length === 0
+      ? new TextEncoder().encode(JSON.stringify(fields))
+      : canonicalizeEnvelope({ ...fields, ...signs });
+  const sig = signEd25519(keyPair.privateKey, envelope);
   if (sig.kind === 'err') throw new Error(`sign failed: ${sig.error.message}`);
   const signaturB64 = Buffer.from(sig.value).toString('base64');
   return {
@@ -754,6 +775,7 @@ function buildSignedDeploy(
       signerPublicKey: serializePublicKeyPem(keyPair.publicKey),
       signature: signaturB64,
       publishedAt,
+      ...signs,
     },
     digest,
     indexBytes,
@@ -9246,10 +9268,32 @@ describe('POST /v1/deployments and /v1/deployments/check — a deploy against wh
 // ---------------- under a project-only key scope ----------------
 
 describe('POST /v1/deployments under a project-only key scope', () => {
+  /** How a pack is signed: by the release key with nothing more, unless it says. */
+  interface Signs {
+    readonly keyId?: SigningKeyId;
+    readonly productionEntry?: ProductionEntry;
+    readonly builtFrom?: BuiltFrom;
+  }
+  const BUILD_KEY = `${PROMOTE_ONLY_KEY_PREFIX}acme-builds` as SigningKeyId;
+  /** Who asked for the build: `usr-member` writes to CLIENT_A, `usr-viewer` only reads it. */
+  const builtFor = (projectId: ProjectId, requestedBy = 'user:usr-member'): BuiltFrom => ({
+    kind: 'kept-repo',
+    projectId,
+    commit: 'c'.repeat(40),
+    requestedBy,
+  });
+  /** A build made for `projectId` as the scope takes one: marked and signed promote-only. */
+  const madeFor = (projectId: ProjectId, requestedBy?: string): Signs => ({
+    keyId: BUILD_KEY,
+    productionEntry: 'promote-only',
+    builtFrom: builtFor(projectId, requestedBy),
+  });
+
   /** A pack whose one tool, `acme.lookup@1.0.0`, declares `ACME_LOOKUP_KEY`. */
-  const lookupPack = (artifactVersion: string) =>
+  const lookupPack = (artifactVersion: string, signs: Signs = {}) =>
     buildSignedDeploy({
       artifactVersion,
+      ...signs,
       index: {
         v: 1,
         packId: 'acme.aperture',
@@ -9275,16 +9319,55 @@ describe('POST /v1/deployments under a project-only key scope', () => {
   const projectScope = (projectId: ProjectId): Scope => ({ kind: 'project', tenantId, projectId });
 
   /**
+   * The store's answers: a user holds only what `builtFor` says, on
+   * CLIENT_A. Anyone else, the caller (a service account) included, holds
+   * every right, as with no authorizer.
+   */
+  const decide = (p: Principal, action: Action, r: ResourceRef): Decision => {
+    const onA = r.type === 'project' && r.id === CLIENT_A;
+    const allowed =
+      p.actor.kind !== 'user' ||
+      (p.actor.id === 'usr-member' && onA && (action === 'read' || action === 'write')) ||
+      (p.actor.id === 'usr-viewer' && onA && action === 'read');
+    return {
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: not granted',
+      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+    };
+  };
+
+  /** The tenant's projects, CLIENT_A in production since `since`. */
+  function inProduction(since: string): ProjectBinding {
+    const projects = makeMockProjectBinding();
+    return {
+      ...projects,
+      get: async (t, id) => {
+        const project = await projects.get(t, id);
+        return project !== undefined && id === CLIENT_A
+          ? { ...project, productionSince: since as never }
+          : project;
+      },
+    };
+  }
+
+  /**
    * An app with `ACME_LOOKUP_KEY` set where `seed` says, a tool registry
    * that keeps each version's project and the secret scopes its first
-   * publish recorded (as the runtime's does), and a deployment registry
-   * that keeps the key scope unless `keeps` is false. A `scoped` deploy
-   * goes through a server whose own middleware sets the scope, mounted
-   * before the app's routes; any other reaches the app as it is.
+   * publish recorded (as the runtime's does), a deployment registry that
+   * keeps `builtFrom`, and the key scope unless `keeps` is false, and the
+   * authorizer `decide` answers for, unless `authorizer` is false. CLIENT_A
+   * is in production when `production` says. A `scoped` deploy goes
+   * through a server whose own middleware sets the scope, mounted before
+   * the app's routes; any other reaches the app as it is.
    */
   function setup(
     packs: readonly SignedDeploy[],
-    opts: { readonly seed?: readonly Scope[]; readonly keeps?: boolean } = {},
+    opts: {
+      readonly seed?: readonly Scope[];
+      readonly keeps?: boolean;
+      readonly authorizer?: boolean;
+      readonly production?: boolean;
+    } = {},
   ) {
     const secrets = makeFixtureSecretBinding(
       (opts.seed ?? []).map((scope) => ({
@@ -9321,6 +9404,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
     const deployments = makeInMemoryDeploymentBinding();
     const deploymentRegistry: DeploymentBinding = {
       ...deployments,
+      keepsBuiltFrom: true as const,
       ...(opts.keeps !== false && { keepsKeyScope: true as const }),
       register: async (input) => {
         registered.push(input.artifactVersion);
@@ -9331,7 +9415,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
       toolRegistry,
       deploymentRegistry,
       extraTrust: packs.map((f) => ({
-        keyId: KEY_ID,
+        keyId: f.wire.signerKeyId as SigningKeyId,
         tenantId,
         publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
       })),
@@ -9340,7 +9424,23 @@ describe('POST /v1/deployments under a project-only key scope', () => {
         digest: f.digest,
         indexBytes: f.indexBytes,
       })),
-      extra: { secretsBinding: secrets.binding, envName: 'prod' as never },
+      ...(opts.production === true && { omitProjectBinding: true }),
+      extra: {
+        secretsBinding: secrets.binding,
+        envName: 'prod' as never,
+        ...(opts.authorizer !== false && {
+          resolveToken: async (token: string) =>
+            token === TOKEN ? { tenantId, serviceAccountId: 'sa-builder' } : null,
+          authz: {
+            fgaApiUrl: 'http://fga.invalid',
+            authzCheckBinding: {
+              check: async (p, a, r) => decide(p, a, r) as never,
+              checkBatch: async (p, a, rs) => rs.map((r) => decide(p, a, r)) as never,
+            },
+          },
+        }),
+        ...(opts.production === true && { projectBinding: inProduction('2026-11-01T00:00:00Z') }),
+      },
     });
     const server = new Hono<AppEnv>();
     server.use('/v1/deployments', async (c, next) => {
@@ -9380,7 +9480,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
   }
 
   test('a deploy that names no project: 403 permission-denied, nothing written', async () => {
-    const pack = lookupPack('20260920.1');
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A));
     const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
     const answer = await deploy(pack, { scoped: true });
     expect(answer.status, JSON.stringify(answer.body)).toBe(403);
@@ -9390,7 +9490,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
   });
 
   test("a deployment registry that doesn't keep the scope: 500, nothing written", async () => {
-    const pack = lookupPack('20260920.1');
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A));
     const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope], keeps: false });
     const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
     expect(answer.status, JSON.stringify(answer.body)).toBe(500);
@@ -9400,7 +9500,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
   });
 
   test('a secret set only at the tenant is recorded at the project, and the record keeps the scope', async () => {
-    const pack = lookupPack('20260920.1');
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A));
     const { deploy, recorded } = setup([pack], { seed: [tenantScope] });
     const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
     expect(answer.status, JSON.stringify(answer.body)).toBe(201);
@@ -9409,7 +9509,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
   });
 
   test('without the scope, the same deploy records the tenant, and its record names no scope', async () => {
-    const pack = lookupPack('20260920.1');
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A));
     const { deploy, recorded } = setup([pack], { seed: [tenantScope] });
     const answer = await deploy(pack, { scoped: false, projectId: CLIENT_A });
     expect(answer.status, JSON.stringify(answer.body)).toBe(201);
@@ -9419,7 +9519,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
 
   test('a kept version recorded wider than the project: 403 permission-denied, naming the tool and both ways out, nothing written', async () => {
     const first = lookupPack('20260920.1');
-    const second = lookupPack('20260920.2');
+    const second = lookupPack('20260920.2', madeFor(CLIENT_A));
     const { deploy, registered } = setup([first, second], { seed: [tenantScope] });
     expect((await deploy(first, { scoped: false, projectId: CLIENT_A })).status).toBe(201);
     const answer = await deploy(second, { scoped: true, projectId: CLIENT_A });
@@ -9436,8 +9536,8 @@ describe('POST /v1/deployments under a project-only key scope', () => {
     ['deployed under the scope', true, [] as Scope[]],
     ['deployed without it, with the secret set at the project', false, [projectScope(CLIENT_A)]],
   ])('a kept version recorded at the project (%s) is kept', async (_how, firstScoped, seed) => {
-    const first = lookupPack('20260920.1');
-    const second = lookupPack('20260920.2');
+    const first = lookupPack('20260920.1', firstScoped ? madeFor(CLIENT_A) : {});
+    const second = lookupPack('20260920.2', madeFor(CLIENT_A));
     const { deploy, recorded, registered } = setup([first, second], { seed });
     expect((await deploy(first, { scoped: firstScoped, projectId: CLIENT_A })).status).toBe(201);
     expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'project', projectId: CLIENT_A } }]);
@@ -9451,7 +9551,7 @@ describe('POST /v1/deployments under a project-only key scope', () => {
     // A call in CLIENT_A reads what a deploy into CLIENT_A recorded first,
     // which the registry's reads don't show: so it counts as wider.
     const first = lookupPack('20260920.1');
-    const second = lookupPack('20260920.2');
+    const second = lookupPack('20260920.2', madeFor(CLIENT_A));
     const { deploy, registered } = setup([first, second], { seed: [projectScope(CLIENT_B)] });
     expect((await deploy(first, { scoped: false, projectId: CLIENT_B })).status).toBe(201);
     const answer = await deploy(second, { scoped: true, projectId: CLIENT_A });
@@ -9476,5 +9576,98 @@ describe('POST /v1/deployments under a project-only key scope', () => {
     expect(answer.status, JSON.stringify(answer.body)).toBe(201);
     expect(answer.body).not.toHaveProperty('keyScope');
     expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'tenant' } }]);
+  });
+
+  test('a build with no signed builtFrom: 403 permission-denied, nothing written', async () => {
+    const pack = lookupPack('20260920.1', { keyId: BUILD_KEY, productionEntry: 'promote-only' });
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test('a build made for another project: 403 permission-denied, nothing written', async () => {
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_B));
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test('a builtFrom sent but not signed: 400 signature-invalid, nothing written', async () => {
+    const pack = lookupPack('20260920.1', { keyId: BUILD_KEY, productionEntry: 'promote-only' });
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, {
+      scoped: true,
+      projectId: CLIENT_A,
+      body: { builtFrom: builtFor(CLIENT_A) },
+    });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(400);
+    expect(answer.body.error?.code).toBe('signature-invalid');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test.each<[string, Signs]>([
+    ['a build not marked promote-only', { keyId: BUILD_KEY, builtFrom: builtFor(CLIENT_A) }],
+    [
+      'a build marked promote-only, signed by a key without the prefix',
+      { keyId: KEY_ID, productionEntry: 'promote-only', builtFrom: builtFor(CLIENT_A) },
+    ],
+    [
+      'a build neither marked nor signed by a promote-only key',
+      { keyId: KEY_ID, builtFrom: builtFor(CLIENT_A) },
+    ],
+  ])('%s: 403 permission-denied, nothing written', async (_how, signs) => {
+    const pack = lookupPack('20260920.1', signs);
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test("a member's build into a project in production: 409 promote-only-build, nothing written", async () => {
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A));
+    const { deploy, recorded, registered } = setup([pack], {
+      seed: [tenantScope],
+      production: true,
+    });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(409);
+    expect(answer.body.error?.code).toBe('promote-only-build');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test.each([
+    ['holds no role on the project', 'user:usr-stranger'],
+    ['only reads the project', 'user:usr-viewer'],
+  ])('a build asked for by someone who %s: 403 permission-denied', async (_who, requestedBy) => {
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A, requestedBy));
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test('a server with no authorizer: 500, nothing written', async () => {
+    const pack = lookupPack('20260920.1', madeFor(CLIENT_A));
+    const { deploy, recorded, registered } = setup([pack], {
+      seed: [tenantScope],
+      authorizer: false,
+    });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(500);
+    expect(answer.body.error?.code).toBe('internal-server-error');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
   });
 });
