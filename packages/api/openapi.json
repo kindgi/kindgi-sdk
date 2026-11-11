@@ -59857,7 +59857,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, has no `builtFrom`, or names another project than `builtFrom.projectId`; the build isn't marked promote-only (`productionEntry`) and signed by a trusted key whose id starts with `kindgi-promote-only:`; whoever asked for it (`builtFrom.requestedBy`) can't write to the project; or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
             "content": {
               "application/json": {
                 "schema": {

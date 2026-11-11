@@ -14,7 +14,7 @@ import {
   validateBlock,
 } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { ref, tuplesForCreate } from '@kindgi/authz';
+import { ref, tuplesForCreate, userPrincipal } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -803,7 +803,9 @@ export function deploymentsRouter(
     // server's own middleware, never by the request. Under it the deploy
     // goes only into the project it names: secrets are recorded at that
     // project, a tool version recorded wider isn't kept, and the pack's
-    // own env reads that project only.
+    // own env reads that project only. It's a build made for that project,
+    // signed promote-only, by someone who may write there
+    // (`scopedBuildRefusal`, `promoteOnlyTwice`, `presserMayWrite`).
     const keyScope = c.get('deployKeyScope') === 'project' ? ('project' as const) : undefined;
     if (keyScope !== undefined && wire.projectId === undefined) {
       c.status(statusFor('permission-denied') as never);
@@ -830,6 +832,10 @@ export function deploymentsRouter(
           requestId,
         ),
       );
+    }
+    if (keyScope !== undefined) {
+      const refused = scopedBuildRefusal(c, requestId, wire, authorizer);
+      if (refused !== undefined) return refused;
     }
 
     // A ledger that doesn't keep builtFrom would register the build without
@@ -1237,11 +1243,30 @@ export function deploymentsRouter(
       signerKeyId: wire.signerKeyId as unknown as string,
       publicKey: publicKeyBase64,
     });
+    if (keyScope !== undefined && !promoteOnlyTwice(wire)) {
+      return scopedRefusalResponse(
+        c,
+        requestId,
+        'permission-denied',
+        `a deploy under a project-only key scope is a promote-only build: signed with productionEntry 'promote-only', by a trusted key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\``,
+      );
+    }
     if (
       promoteOnly &&
       (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId))
     ) {
       return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
+    }
+    if (
+      keyScope !== undefined &&
+      !(await presserMayWrite(c, authorizer, tenantId, wire.builtFrom))
+    ) {
+      return scopedRefusalResponse(
+        c,
+        requestId,
+        'permission-denied',
+        "whoever asked for this build (builtFrom.requestedBy) can't write to the project, so a deploy under a project-only key scope doesn't register it; nothing was deployed",
+      );
     }
 
     // What its agents and flows name, besides what it brings itself, must be
@@ -2059,6 +2084,100 @@ async function mayBeInProduction(
 }
 
 // ------------------------------------------------------------
+// Builds under a project-only key scope
+// ------------------------------------------------------------
+
+/** A deploy under a project-only key scope refused with `code`; nothing deployed. */
+function scopedRefusalResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  code: 'permission-denied' | 'internal-server-error',
+  message: string,
+) {
+  c.status(statusFor(code) as never);
+  return c.json(toWireError({ code, message }, requestId));
+}
+
+/**
+ * A deploy under a project-only key scope is a build made for one project,
+ * refused here, before its signature is read, unless it carries `builtFrom`
+ * (which the signature then covers) and names the project `builtFrom` does.
+ * Whoever asked for the build must hold `write` there, which only this
+ * server's own authorizer is asked (`presserMayWrite`), so a server without
+ * one refuses it. `undefined`: none of these.
+ */
+function scopedBuildRefusal(
+  c: Context<AppEnv>,
+  requestId: string,
+  wire: WireBody,
+  authorizer: Authorizer | undefined,
+) {
+  if (wire.builtFrom === undefined) {
+    return scopedRefusalResponse(
+      c,
+      requestId,
+      'permission-denied',
+      'a deploy under a project-only key scope is a build made for one project: sign builtFrom with it',
+    );
+  }
+  if ((wire.projectId as unknown as string | undefined) !== wire.builtFrom.projectId) {
+    return scopedRefusalResponse(
+      c,
+      requestId,
+      'permission-denied',
+      'a deploy under a project-only key scope goes only into the project it was built for: send builtFrom.projectId as projectId',
+    );
+  }
+  if (authorizer === undefined) {
+    return scopedRefusalResponse(
+      c,
+      requestId,
+      'internal-server-error',
+      'a deploy under a project-only key scope needs an authorizer, to ask whether whoever asked for the build may write to its project; deployment blocked. Wire one in at app-creation time.',
+    );
+  }
+  return undefined;
+}
+
+/**
+ * A build under a project-only key scope is promote-only twice over: its
+ * envelope signs the mark (`productionEntry`), and a trusted key under the
+ * prefix signs it (the trust check read `signerKeyId` with its public key).
+ * One that misses either is refused, so a build signed with another key, or
+ * left unmarked, can't go into a project that later reaches production.
+ */
+function promoteOnlyTwice(wire: WireBody): boolean {
+  return (
+    wire.productionEntry === 'promote-only' &&
+    (wire.signerKeyId as unknown as string).startsWith(PROMOTE_ONLY_KEY_PREFIX)
+  );
+}
+
+/**
+ * Whether whoever asked for a build under a project-only key scope
+ * (`builtFrom.requestedBy`, `user:<id>`) holds `write` on the project it was
+ * built for, as this server's own authorizer answers for them: the caller's
+ * rights aren't theirs. No authorizer, no `builtFrom`, or a presser named any
+ * other way: no. A store that fails throws (`canFor`), before any write.
+ */
+async function presserMayWrite(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+  builtFrom: BuiltFrom | undefined,
+): Promise<boolean> {
+  if (authorizer === undefined || builtFrom === undefined) return false;
+  if (!builtFrom.requestedBy.startsWith(REQUESTED_BY_USER)) return false;
+  const userId = builtFrom.requestedBy.slice(REQUESTED_BY_USER.length);
+  return authorizer.canFor(
+    c,
+    userPrincipal(userId, tenantId),
+    'write',
+    ref('project', builtFrom.projectId),
+  );
+}
+
+// ------------------------------------------------------------
 // Wire body validation
 // ------------------------------------------------------------
 
@@ -2204,6 +2323,8 @@ const BUILT_FROM_FIELDS: ReadonlySet<string> = new Set([
 const LOWER_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** `user:` and an id with no space or control character. */
 const REQUESTED_BY_RE = /^user:[\x21-\x7e]{1,256}$/;
+/** What `requestedBy` names a person by, before their user id. */
+const REQUESTED_BY_USER = 'user:';
 
 /**
  * The body's `builtFrom`, or `undefined` when it has none or it's refused
