@@ -116,6 +116,13 @@ OPERATIONS: dict[str, Operation] = {
     "systemEnv.listCloudSecrets": Operation(
         "systemEnv.listCloudSecrets", "GET", "/v1/system/tenants/{tenantId}/env", "json", False
     ),
+    "systemHostedBuilds.register": Operation(
+        "systemHostedBuilds.register",
+        "POST",
+        "/v1/system/tenants/{tenantId}/deployments",
+        "json",
+        True,
+    ),
     "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
     "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
     "systemDeployments.list": Operation(
@@ -2415,6 +2422,37 @@ class SystemEnvResource:
             },
             headers={},
             response=_models.EnvCloudSecretPage,
+            timeout=timeout,
+        )
+
+
+class SystemHostedBuildsResource:
+    """`client.system_hosted_builds` — the `systemHostedBuilds` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def register(
+        self,
+        tenant_id: str | UUID,
+        body: _models.DeploymentRegistrationBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentRecord:
+        """Register a signed build into a tenant's project. `POST /v1/system/tenants/{tenantId}/deployments`
+
+        Registers a signed deployment into one project of the tenant, as `POST /v1/deployments` does, with its body and its answers: the same checks, the same handler. It's the tenant's deploy, under the project-only key scope (the record's `keyScope` is `project`): the body's `projectId` is required, the pack's tools' secrets are recorded at that project only, and its schemas count against the tenant's compile budget. As the caller, the key reads and administers that one project and nothing else; a check for anyone the build names, such as its `builtFrom`, is the runtime's own. Recorded on the system access record, marking the tenant. Takes a key holding `system:hosted-builds` itself: `kindgi:system` doesn't stand in for it. A suspended or closing tenant is refused: `409 tenant-suspended` or `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemHostedBuilds.register"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeploymentRegistrationBody, body, fields),
+            response=_models.DeploymentRecord,
             timeout=timeout,
         )
 
@@ -12749,6 +12787,37 @@ class AsyncSystemEnvResource:
         )
 
 
+class AsyncSystemHostedBuildsResource:
+    """`client.system_hosted_builds` — the `systemHostedBuilds` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def register(
+        self,
+        tenant_id: str | UUID,
+        body: _models.DeploymentRegistrationBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentRecord:
+        """Register a signed build into a tenant's project. `POST /v1/system/tenants/{tenantId}/deployments`
+
+        Registers a signed deployment into one project of the tenant, as `POST /v1/deployments` does, with its body and its answers: the same checks, the same handler. It's the tenant's deploy, under the project-only key scope (the record's `keyScope` is `project`): the body's `projectId` is required, the pack's tools' secrets are recorded at that project only, and its schemas count against the tenant's compile budget. As the caller, the key reads and administers that one project and nothing else; a check for anyone the build names, such as its `builtFrom`, is the runtime's own. Recorded on the system access record, marking the tenant. Takes a key holding `system:hosted-builds` itself: `kindgi:system` doesn't stand in for it. A suspended or closing tenant is refused: `409 tenant-suspended` or `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemHostedBuilds.register"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeploymentRegistrationBody, body, fields),
+            response=_models.DeploymentRecord,
+            timeout=timeout,
+        )
+
+
 class AsyncSystemUsageResource:
     """`client.system_usage` — the `systemUsage` operations."""
 
@@ -22110,6 +22179,7 @@ class Resources:
     system_keys: SystemKeysResource
     system_tenants: SystemTenantsResource
     system_env: SystemEnvResource
+    system_hosted_builds: SystemHostedBuildsResource
     system_usage: SystemUsageResource
     usage: UsageResource
     system_deployments: SystemDeploymentsResource
@@ -22173,6 +22243,7 @@ class Resources:
         self.system_keys = SystemKeysResource(client)
         self.system_tenants = SystemTenantsResource(client)
         self.system_env = SystemEnvResource(client)
+        self.system_hosted_builds = SystemHostedBuildsResource(client)
         self.system_usage = SystemUsageResource(client)
         self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
@@ -22238,6 +22309,7 @@ class AsyncResources:
     system_keys: AsyncSystemKeysResource
     system_tenants: AsyncSystemTenantsResource
     system_env: AsyncSystemEnvResource
+    system_hosted_builds: AsyncSystemHostedBuildsResource
     system_usage: AsyncSystemUsageResource
     usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
@@ -22301,6 +22373,7 @@ class AsyncResources:
         self.system_keys = AsyncSystemKeysResource(client)
         self.system_tenants = AsyncSystemTenantsResource(client)
         self.system_env = AsyncSystemEnvResource(client)
+        self.system_hosted_builds = AsyncSystemHostedBuildsResource(client)
         self.system_usage = AsyncSystemUsageResource(client)
         self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)

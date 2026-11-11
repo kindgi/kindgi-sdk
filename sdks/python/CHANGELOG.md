@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **An operator can register a signed build into a tenant's
+  project.** `client.system_hosted_builds.register`
+  (`POST /v1/system/tenants/{tenantId}/deployments`, a system key holding
+  `system:hosted-builds` itself) takes `deployments.register`'s body and gives
+  its answers, as the tenant's deploy under the project-only key scope: the
+  body's `project_id` is required, and the record's `key_scope` is `project`.
 - `kindgi`: **a deployment says when it was deployed under a project-only
   key scope.** `DeploymentRecord` gains `key_scope` (`keyScope` on the
   wire), `project` for such a deploy: its tools' secrets were recorded at

@@ -777,6 +777,7 @@ class SystemKey(BaseModel):
             "system:env-refs",
             "system:usage:read",
             "system:license",
+            "system:hosted-builds",
             "kindgi:system",
         ]
     ]
@@ -810,6 +811,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system",
             ]
         ],
@@ -858,6 +860,7 @@ class MintSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system",
             ]
             | str,
@@ -910,6 +913,7 @@ class Datum2(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system",
             ]
             | str,
@@ -966,6 +970,7 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system",
             ]
             | str,

@@ -497,6 +497,7 @@ export type {
   SystemCloudSecretSetOutcome,
   SystemEnvClient,
 } from './resources/system-env.js';
+export type { SystemHostedBuildsClient } from './resources/system-hosted-builds.js';
 export type {
   CreatedSystemTenant,
   SystemTenant,

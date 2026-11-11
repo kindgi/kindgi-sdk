@@ -3188,6 +3188,55 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/deployments',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments',
+    operationId: 'systemHostedBuilds.register',
+    summary: "Register a signed build into a tenant's project",
+    description:
+      "Registers a signed deployment into one project of the tenant, as `POST /v1/deployments` does, with its body and its answers: the same checks, the same handler. It's the tenant's deploy, under the project-only key scope (the record's `keyScope` is `project`): the body's `projectId` is required, the pack's tools' secrets are recorded at that project only, and its schemas count against the tenant's compile budget. As the caller, the key reads and administers that one project and nothing else; a check for anyone the build names, such as its `builtFrom`, is the runtime's own. Recorded on the system access record, marking the tenant. Takes a key holding `system:hosted-builds` itself: `kindgi:system` doesn't stand in for it. A suspended or closing tenant is refused: `409 tenant-suspended` or `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('DeploymentRegistrationBody') },
+    responses: {
+      '201': { description: 'Deployment registered.', schema: ref('DeploymentRecord') },
+      '200': {
+        description:
+          'Digest replay: the same imageDigest already recorded; returns the existing record.',
+        schema: ref('DeploymentRecord'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "As `POST /v1/deployments` answers it: a signature that fails, an image that can't be verified, or `deployment-validation-failed` with per-primitive `details[]`.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:hosted-builds` itself (`system-scope-missing`). Or `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project. Or, as `POST /v1/deployments` answers it, a signer key not on the tenant's trust list. Nothing was deployed.",
+      ),
+      '404': ErrorResponse(
+        "No tenant with that id, or a purged one (`tenant-not-found`); or the body's `projectId` names no project of the tenant (`project-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'The tenant is suspended (`tenant-suspended`) or closing (`tenant-closing`); or an Idempotency-Key reused with another body. Or any conflict `POST /v1/deployments` answers, such as `project-suspended`, `environment-takes-promotions` or `promote-only-build`. Nothing was deployed.',
+      ),
+      '429': ErrorResponse(
+        `${SCHEMA_COMPILE_BUDGET_TEXT} Or the tenant's image reads unpacked as much as they may in an hour, on a server that bounds them. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      ),
+      '501': ErrorResponse(
+        "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it. Nothing was registered.",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/usage',
     openapiPath: '/v1/system/usage',

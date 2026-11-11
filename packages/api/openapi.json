@@ -3284,6 +3284,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3334,6 +3335,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3390,6 +3392,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3463,6 +3466,7 @@
                       "system:env-refs",
                       "system:usage:read",
                       "system:license",
+                      "system:hosted-builds",
                       "kindgi:system"
                     ],
                     "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3527,6 +3531,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -34686,6 +34691,175 @@
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/deployments": {
+      "post": {
+        "operationId": "systemHostedBuilds.register",
+        "summary": "Register a signed build into a tenant's project",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "Digest replay: the same imageDigest already recorded; returns the existing record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRecord"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Deployment registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "As `POST /v1/deployments` answers it: a signature that fails, an image that can't be verified, or `deployment-validation-failed` with per-primitive `details[]`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:hosted-builds` itself (`system-scope-missing`). Or `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project. Or, as `POST /v1/deployments` answers it, a signer key not on the tenant's trust list. Nothing was deployed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`); or the body's `projectId` names no project of the tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is suspended (`tenant-suspended`) or closing (`tenant-closing`); or an Idempotency-Key reused with another body. Or any conflict `POST /v1/deployments` answers, such as `project-suspended`, `environment-takes-promotions` or `promote-only-build`. Nothing was deployed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this workspace's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again. Or the tenant's image reads unpacked as much as they may in an hour, on a server that bounds them. Nothing was deployed; `Retry-After` says when there's room again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it. Nothing was registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Registers a signed deployment into one project of the tenant, as `POST /v1/deployments` does, with its body and its answers: the same checks, the same handler. It's the tenant's deploy, under the project-only key scope (the record's `keyScope` is `project`): the body's `projectId` is required, the pack's tools' secrets are recorded at that project only, and its schemas count against the tenant's compile budget. As the caller, the key reads and administers that one project and nothing else; a check for anyone the build names, such as its `builtFrom`, is the runtime's own. Recorded on the system access record, marking the tenant. Takes a key holding `system:hosted-builds` itself: `kindgi:system` doesn't stand in for it. A suspended or closing tenant is refused: `409 tenant-suspended` or `409 tenant-closing`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentRegistrationBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

@@ -203,6 +203,7 @@ import {
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
 import { systemEnvRouter } from './routes/system-env.js';
+import { systemHostedBuildsRouter } from './routes/system-hosted-builds.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -2645,107 +2646,114 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.signingKeyRegistry !== undefined &&
     input.imageRegistry !== undefined
   ) {
-    v1.route(
-      '/deployments',
-      deploymentsRouter(
-        {
-          deploymentRegistry: input.deploymentRegistry,
-          // Only where the runtime serves many tenants: one tenant's runtime
-          // deploys any image, as before.
-          ...(input.tenancy === 'multi' &&
-            input.imagePrefixes !== undefined && {
-              imagePrefixes: {
-                of: (tenantId: import('@kindgi/types').TenantId) =>
-                  input.imagePrefixes?.of(tenantId) ?? Promise.resolve(undefined),
-                required: true,
-              },
-            }),
-          signingKeyRegistry: input.signingKeyRegistry,
-          providerKeys,
-          imageRegistry: input.imageRegistry,
-          // A runtime routing pack calls per deployment sends each check call
-          // by its id: a pack check must carry its pack's id.
-          ...(input.systemDeployments !== undefined && {
-            requirePrefixedPackChecks: true,
-            perDeploymentPacks: true,
-          }),
-          ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
-          ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
-          ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
-          ...(input.guardrailRegistry !== undefined && {
-            guardrailRegistry: input.guardrailRegistry,
-          }),
-          ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
-          ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-          ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
-          // A promotion asked to pin its carried agents pins each in the
-          // target through the same gate the agent pin route uses.
-          ...(input.agentPins !== undefined && {
-            agentPins: input.agentPins,
-            agentPinGateDeps: {
-              ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
-              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
-              ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
-              ...(input.projectSuspended !== undefined && {
-                projectSuspended: input.projectSuspended,
-              }),
-              ...pinTestRunDeps,
-            },
-          }),
-          // A deploy is checked against what runs: the agent versions that
-          // pin each block, each agent's projects, people's names, and the
-          // pull requests opened for block versions.
-          ...(input.blockUse !== undefined && {
-            deployCheck: {
-              blockUse: input.blockUse,
-              ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
-              ...(input.identityDirectory !== undefined && {
-                identityDirectory: input.identityDirectory,
-              }),
-              ...(input.blockVersionPullRequests !== undefined && {
-                pullRequests: input.blockVersionPullRequests,
-              }),
-            },
-          }),
-          ...(itemRights !== undefined && { itemRights }),
-          ...(deployCards !== undefined && { deployCards }),
-          // The deployments router's agents publish loop resolves the
-          // default project through this binding. Optional at wiring so
-          // app compositions without a project binding still boot; the loop
-          // fails fast at runtime if agents are in the deployment index
-          // but the binding is absent.
-          ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
-          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
-          ...(input.environmentOrders !== undefined && {
-            environmentOrders: input.environmentOrders,
-          }),
-          // POST /v1/deployments/:deploymentId/secrets needs the
-          // secretsBinding. Absent binding → the route answers 500 with an
-          // operator-actionable message.
-          ...(secretsBinding !== undefined && { secretsBinding }),
-          ...(servedEnv !== undefined && { envName: servedEnv }),
-          // A runtime running a pack service per deployment gives each the
-          // env its pack declares, from the env store.
-          ...(input.systemDeployments !== undefined && { packEnvServed: true }),
-          ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
-          ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
-          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
-          // A deploy registers tools and guardrails: the same cache hooks
-          // `POST /v1/tools` / `POST /v1/guardrails` call.
-          ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
-          ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
-          // A deployment's values check (a promotion's, and its values read)
-          // reads env values and model keys as a run does.
-          values: {
-            ...(input.envBinding !== undefined && { env: input.envBinding }),
-            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
-            ...input.deploymentValues,
+    // The system route that registers a build into one project of a tenant
+    // runs the deploy's own handler, with these same bindings.
+    const deploymentBindings: DeploymentsRouterBindings = {
+      deploymentRegistry: input.deploymentRegistry,
+      // Only where the runtime serves many tenants: one tenant's runtime
+      // deploys any image, as before.
+      ...(input.tenancy === 'multi' &&
+        input.imagePrefixes !== undefined && {
+          imagePrefixes: {
+            of: (tenantId: import('@kindgi/types').TenantId) =>
+              input.imagePrefixes?.of(tenantId) ?? Promise.resolve(undefined),
+            required: true,
           },
-          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        }),
+      signingKeyRegistry: input.signingKeyRegistry,
+      providerKeys,
+      imageRegistry: input.imageRegistry,
+      // A runtime routing pack calls per deployment sends each check call
+      // by its id: a pack check must carry its pack's id.
+      ...(input.systemDeployments !== undefined && {
+        requirePrefixedPackChecks: true,
+        perDeploymentPacks: true,
+      }),
+      ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
+      ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
+      ...(input.guardrailRegistry !== undefined && {
+        guardrailRegistry: input.guardrailRegistry,
+      }),
+      ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
+      ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
+      ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
+      // A promotion asked to pin its carried agents pins each in the
+      // target through the same gate the agent pin route uses.
+      ...(input.agentPins !== undefined && {
+        agentPins: input.agentPins,
+        agentPinGateDeps: {
+          ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.projectSuspended !== undefined && {
+            projectSuspended: input.projectSuspended,
+          }),
+          ...pinTestRunDeps,
         },
-        authorizer,
-      ),
-    );
+      }),
+      // A deploy is checked against what runs: the agent versions that
+      // pin each block, each agent's projects, people's names, and the
+      // pull requests opened for block versions.
+      ...(input.blockUse !== undefined && {
+        deployCheck: {
+          blockUse: input.blockUse,
+          ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+          ...(input.identityDirectory !== undefined && {
+            identityDirectory: input.identityDirectory,
+          }),
+          ...(input.blockVersionPullRequests !== undefined && {
+            pullRequests: input.blockVersionPullRequests,
+          }),
+        },
+      }),
+      ...(itemRights !== undefined && { itemRights }),
+      ...(deployCards !== undefined && { deployCards }),
+      // The deployments router's agents publish loop resolves the
+      // default project through this binding. Optional at wiring so
+      // app compositions without a project binding still boot; the loop
+      // fails fast at runtime if agents are in the deployment index
+      // but the binding is absent.
+      ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+      ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+      ...(input.environmentOrders !== undefined && {
+        environmentOrders: input.environmentOrders,
+      }),
+      // POST /v1/deployments/:deploymentId/secrets needs the
+      // secretsBinding. Absent binding → the route answers 500 with an
+      // operator-actionable message.
+      ...(secretsBinding !== undefined && { secretsBinding }),
+      ...(servedEnv !== undefined && { envName: servedEnv }),
+      // A runtime running a pack service per deployment gives each the
+      // env its pack declares, from the env store.
+      ...(input.systemDeployments !== undefined && { packEnvServed: true }),
+      ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+      ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
+      ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      // A deploy registers tools and guardrails: the same cache hooks
+      // `POST /v1/tools` / `POST /v1/guardrails` call.
+      ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
+      ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
+      // A deployment's values check (a promotion's, and its values read)
+      // reads env values and model keys as a run does.
+      values: {
+        ...(input.envBinding !== undefined && { env: input.envBinding }),
+        ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+        ...input.deploymentValues,
+      },
+      ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+    };
+    v1.route('/deployments', deploymentsRouter(deploymentBindings, authorizer));
+    if (input.systemTenantDirectory !== undefined) {
+      v1.route(
+        '/system/tenants',
+        systemHostedBuildsRouter({
+          directory: input.systemTenantDirectory,
+          bindings: deploymentBindings,
+          ...(authorizer !== undefined && { authorizer }),
+        }),
+      );
+    }
   }
   if (input.testRunBinding !== undefined) {
     // Mount the start route under `/v1/test-sets/:testSetId/runs` and

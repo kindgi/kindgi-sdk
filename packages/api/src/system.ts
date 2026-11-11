@@ -37,13 +37,14 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
 
 /**
  * The scopes a system key can hold, each the least one service needs.
- * `kindgi:system` holds them all, but for one read. None of them reads
- * customer content (runs, conversations, memory, files);
+ * `kindgi:system` holds them all, but for one read and one write. None of
+ * them reads customer content (runs, conversations, memory, files);
  * `system:tenants:contacts` reads account contacts only, and
  * `system:pack-env` reads the env values a deployment's pack declares. Its
  * secrets' values are given only when asked (`?secrets=values`), each
  * audited, and only to a key holding `system:pack-env` itself, never to
- * one holding `kindgi:system`.
+ * one holding `kindgi:system`. So is registering a build into a tenant's
+ * project (`system:hosted-builds`).
  */
 export const SYSTEM_SCOPES = [
   /** Create, list, read, rename and close tenants. */
@@ -83,6 +84,12 @@ export const SYSTEM_SCOPES = [
   'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
+  /**
+   * Registering a signed build into one project of a tenant, as a deploy
+   * under the project-only key scope. On a key of its own: `kindgi:system`
+   * doesn't stand in for it.
+   */
+  'system:hosted-builds',
 ] as const;
 
 export type SystemScope = (typeof SYSTEM_SCOPES)[number];

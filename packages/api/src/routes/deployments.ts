@@ -445,12 +445,6 @@ export function deploymentsRouter(
   // the project it serves as well (`readableDeployment`). (A key limited to
   // another project was already refused, `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
-  // What this runtime offers a deploy refused as another project's: the fix
-  // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
-  const packRuntime = {
-    perDeploymentPacks: bindings.perDeploymentPacks === true,
-    environmentOrders: bindings.environmentOrders !== undefined,
-  };
   r.use('*', async (c, next) => {
     // Without an authorizer, nothing here is checked: deploying is project
     // work, which a runtime without an authorization store leaves to every
@@ -771,7 +765,29 @@ export function deploymentsRouter(
   });
 
   // ---------- POST / (register a signed deployment) ----------
-  r.post('/', publishCompiles, async (c) => {
+  r.post('/', publishCompiles, deploymentRegistration(bindings, authorizer));
+  mountDeploymentSecrets(r, bindings, authorizer);
+
+  return r;
+}
+
+/**
+ * `POST /v1/deployments`'s handler: registers a signed deployment into the
+ * caller's tenant. One function, so the system route that registers a
+ * build into a tenant's project (`systemHostedBuildsRouter`) runs this
+ * same handler, never a copy.
+ */
+export function deploymentRegistration(
+  bindings: DeploymentsRouterBindings,
+  authorizer?: Authorizer,
+): (c: Context<AppEnv>) => Promise<Response> {
+  // What this runtime offers a deploy refused as another project's: the fix
+  // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
+  const packRuntime = {
+    perDeploymentPacks: bindings.perDeploymentPacks === true,
+    environmentOrders: bindings.environmentOrders !== undefined,
+  };
+  return async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -1732,8 +1748,15 @@ export function deploymentsRouter(
     }
     c.status(201);
     return c.json(serializeDeployment(outcome.deployment));
-  });
+  };
+}
 
+/** The routes under one deployment `deploymentsRouter` mounts after the register. */
+function mountDeploymentSecrets(
+  r: Hono<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  authorizer?: Authorizer,
+): void {
   // ---------- POST /:deploymentId/secrets ----------
   //
   // Deployment-scoped bulk secret sync.
@@ -2006,8 +2029,6 @@ export function deploymentsRouter(
       references,
     });
   });
-
-  return r;
 }
 
 type ParsedSyncEntry =

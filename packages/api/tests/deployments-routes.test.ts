@@ -33,7 +33,13 @@ import { makeEnvName } from '@kindgi/types';
 import { PROMOTE_ONLY_KEY_PREFIX } from '../src/deployment-envelope.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import {
+  SYSTEM_TENANT_ID,
+  agentTestSetId,
+  createApp,
+  resolveAtScope,
+  scopeOfRecorded,
+} from '../src/index.js';
 import type {
   AgentPinBindings,
   AgentPinResolveInput,
@@ -9476,5 +9482,162 @@ describe('POST /v1/deployments under a project-only key scope', () => {
     expect(answer.status, JSON.stringify(answer.body)).toBe(201);
     expect(answer.body).not.toHaveProperty('keyScope');
     expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'tenant' } }]);
+  });
+});
+
+// ---------------- a build registered into a tenant's project, by a system key ----------------
+
+describe("POST /v1/system/tenants/:tenantId/deployments: a build registered into a tenant's project", () => {
+  const HOSTED = 'kgi_sy_hosted_builds';
+  const FULL = 'kgi_sy_full';
+  const KEYS: Readonly<Record<string, readonly string[]>> = {
+    [HOSTED]: ['system:hosted-builds'],
+    [FULL]: ['kindgi:system'],
+  };
+  type TenantState = 'active' | 'suspended' | 'closing' | 'purged';
+
+  /**
+   * A runtime serving many tenants, with the deploy's bindings, a deployment
+   * registry that keeps the key scope, and the system routes' directory:
+   * `tenantId` in `state` (`unknown`: not there), no other tenant. `marked`
+   * is each tenant the system access record marks.
+   */
+  function setup(fixture: SignedDeploy, state: TenantState | 'unknown' = 'active') {
+    const deployments = makeInMemoryDeploymentBinding();
+    const marked: (string | undefined)[] = [];
+    const { app } = makeApp({
+      fixture,
+      deploymentRegistry: { ...deployments, keepsKeyScope: true as const },
+      extra: {
+        tenancy: 'multi',
+        tenantStates: { of: async () => undefined },
+        imagePrefixes: { of: async () => 'ghcr.io/acme' },
+        resolveToken: async (token) => {
+          const scopes = KEYS[token];
+          if (scopes === undefined) return resolveToken(token);
+          return {
+            tenantId: SYSTEM_TENANT_ID,
+            system: { keyId: token },
+            capabilities: [...scopes],
+          };
+        },
+        systemAccessAudit: {
+          record: async (entry) => {
+            marked.push(entry.tenantId);
+          },
+          begin: async () => 'a',
+          finish: async (_id, outcome) => {
+            marked.push(outcome.tenantId);
+          },
+        },
+        systemTenantDirectory: {
+          get: async (id) => (id === tenantId && state !== 'unknown' ? { id, state } : null),
+        },
+      },
+    });
+    const register = async (token: string, body: Record<string, unknown>) => {
+      const res = await app.request(`/v1/system/tenants/${tenantId}/deployments`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const answer = (await res.clone().json()) as Record<string, unknown> & {
+        error?: { code: string };
+      };
+      return { res, status: res.status, body: answer, code: answer.error?.code };
+    };
+    const registered = async () => (await deployments.list({ tenantId, limit: 10 })).data;
+    return { register, registered, marked };
+  }
+
+  test("system:hosted-builds registers it as the tenant's deploy, under the project-only key scope", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered, marked } = setup(fixture);
+    const answer = await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(201);
+    expect(answer.body).toMatchObject({ tenantId, projectId: CLIENT_A, keyScope: 'project' });
+    expect(await registered()).toHaveLength(1);
+    expect(marked).toContain(tenantId);
+  });
+
+  test('the same build again is the digest replay: 200, still the one record', async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    const body = { ...fixture.wire, projectId: CLIENT_A };
+    expect((await register(HOSTED, body)).status).toBe(201);
+    expect((await register(HOSTED, body)).status).toBe(200);
+    expect(await registered()).toHaveLength(1);
+  });
+
+  test('a body that names no project is refused, 403 permission-denied: nothing is registered', async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    expect(await register(HOSTED, fixture.wire)).toMatchObject({
+      status: 403,
+      code: 'permission-denied',
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("a project the tenant doesn't have is 404 project-not-found", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    expect(
+      await register(HOSTED, { ...fixture.wire, projectId: randomUUID() as ProjectId }),
+    ).toMatchObject({ status: 404, code: 'project-not-found' });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("a build signed for another tenant doesn't register into this one: 400 signature-invalid", async () => {
+    const fixture = buildSignedDeploy({ tenantIdOverride: otherTenantId });
+    const { register, registered } = setup(fixture);
+    expect(await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A })).toMatchObject({
+      status: 400,
+      code: 'signature-invalid',
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("kindgi:system doesn't stand in for system:hosted-builds, and a tenant's key is no system key", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    const body = { ...fixture.wire, projectId: CLIENT_A };
+    expect(await register(FULL, body)).toMatchObject({
+      status: 403,
+      code: 'system-scope-missing',
+    });
+    expect(await register(TOKEN, body)).toMatchObject({
+      status: 403,
+      code: 'system-principal-required',
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test.each([
+    ['an unknown tenant', 'unknown', 404, 'tenant-not-found'],
+    ['a purged tenant', 'purged', 404, 'tenant-not-found'],
+    ['a suspended tenant', 'suspended', 409, 'tenant-suspended'],
+    ['a closing tenant', 'closing', 409, 'tenant-closing'],
+  ] as const)('%s is refused, %i %s: nothing is registered', async (_what, state, status, code) => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture, state);
+    expect(await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A })).toMatchObject({
+      status,
+      code,
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("its schema compiles count against the tenant's budget: refused, nothing is registered", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const answer = await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A });
+      await expectCompileBudgetRefused(answer.res);
+      expect(await registered()).toEqual([]);
+    } finally {
+      restore();
+    }
   });
 });
