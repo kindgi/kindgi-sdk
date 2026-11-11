@@ -637,6 +637,21 @@ export interface ConnectionBinding {
     readonly appId: string;
   }): Promise<ConnectionAppRecord | null>;
   /**
+   * The `appId` of each live registration whose texts account key
+   * (`token.apiKey.name`) is `name`, in `listApps` order. A registration
+   * whose removal stopped (`inbound-restore-failed`) is still live. Two
+   * creates that raced can both hold one key.
+   *
+   * Every read of a secret that's fenced from texts keys asks it, with no
+   * cache, so implement it as a point read (an index on tenant and key
+   * name). Without it, each such read lists every registration of the
+   * tenant (`connectionKeysOf`).
+   */
+  keyHolders?(input: {
+    readonly tenantId: TenantId;
+    readonly name: string;
+  }): Promise<readonly string[]>;
+  /**
    * A project uses one registration of an app: one that would serve a
    * project another live registration of the app serves is refused
    * (`connection-app-invalid`, `projects`).

@@ -1415,6 +1415,7 @@ export {
   connectionKeyRefusal,
   connectionKeysOf,
   guardProviderKeys,
+  guardSecretKeys,
   providerKeyRefusal,
   providerKeysOf,
   usersOfSecret,
@@ -1422,6 +1423,7 @@ export {
 export type {
   ConnectionKeys,
   ProviderKeys,
+  SecretKeys,
   SecretUse,
   SecretUser,
   SecretUsersDeps,

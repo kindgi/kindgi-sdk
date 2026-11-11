@@ -407,6 +407,13 @@ export interface ResolveContext {
     | 'webhook-receiver'
     | 'pack-env'
     | 'connections';
+  /**
+   * With `caller: 'connections'`: the connection app registration reading,
+   * so a texts registration can read its own account key. It's the reader's
+   * own say, so only the connections' guard (`guardSecretKeys` for
+   * `'a connection app'`) reads it, and only with that caller.
+   */
+  readonly appId?: string;
 }
 
 export interface SecretResolveOutcome {
@@ -652,4 +659,16 @@ export type SecretError =
       readonly message: string;
       readonly name: string;
       readonly providerId: string;
+    }
+  /**
+   * A texts registration's account key, asked for by anything but that
+   * registration (`guardSecretKeys`): a tool, an endpoint, a webhook trigger,
+   * a model provider, a pack's env or another registration. `appId` is the
+   * registration holding it.
+   */
+  | {
+      readonly code: 'connection-key-refused';
+      readonly message: string;
+      readonly name: string;
+      readonly appId: string;
     };
