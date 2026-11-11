@@ -190,7 +190,8 @@ describe("a run's read and list answer with the mark", () => {
     const list = await call('session', 'GET', '/v1/runs');
     expect(list.status, list.body).toBe(200);
     const rows = (JSON.parse(list.body) as { data: Record<string, unknown>[] }).data;
-    expect(rows.find((r) => r.runId === runId)).toMatchObject({ keyCeiling: 'sandbox' });
+    // A run's wire id is `id`.
+    expect(rows.find((r) => r.id === runId)).toMatchObject({ keyCeiling: 'sandbox' });
   });
 
   test('a run with none: none on its read or in the list', async () => {
@@ -199,7 +200,10 @@ describe("a run's read and list answer with the mark", () => {
     expect(one.status, one.body).toBe(200);
     expect(JSON.parse(one.body)).not.toHaveProperty('keyCeiling');
     const list = await call('session', 'GET', '/v1/runs');
+    expect(list.status, list.body).toBe(200);
     const rows = (JSON.parse(list.body) as { data: Record<string, unknown>[] }).data;
-    expect(rows.find((r) => r.runId === runId)).not.toHaveProperty('keyCeiling');
+    const row = rows.find((r) => r.id === runId);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('keyCeiling');
   });
 });

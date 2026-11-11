@@ -4,8 +4,8 @@
 /**
  * A test run an API key with a ceiling starts, or rescores, is marked with
  * it (`keyCeiling`), from the caller's key, never the body; the runs of its
- * cases carry it, and the test run's read answers with it. A rescore
- * carries the rescoring key's mark, not the run's.
+ * cases carry it, and the test run's read and the list answer with it. A
+ * rescore carries the rescoring key's mark, not the run's.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -98,10 +98,21 @@ async function settled(binding: TestRunBinding, testRunId: string): Promise<Test
   throw new Error('the test run did not settle');
 }
 
+/** The test run's row in `GET /v1/test-runs`, as the wire has it. */
+async function listed(
+  app: ReturnType<typeof mounted>['app'],
+  testRunId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const res = await app.request('/v1/test-runs');
+  expect(res.status).toBe(200);
+  const { data } = (await res.json()) as { data: Record<string, unknown>[] };
+  return data.find((row) => row.testRunId === testRunId);
+}
+
 const start = { projectId, agentRef: { agentId: 'acme.desk', version: '1.0.0' } };
 
 describe('POST /v1/test-sets/{testSetId}/runs: the ceiling of the key that started it', () => {
-  test("a key with a ceiling starts a test run marked with it; its cases' runs and its read carry it", async () => {
+  test("a key with a ceiling starts a test run marked with it; its cases' runs, its read and the list carry it", async () => {
     const { binding, invoked } = inProcess();
     const { app, post } = mounted(binding, 'sandbox');
     const res = await post(`/v1/test-sets/${testSet.id}/runs`, start);
@@ -117,6 +128,8 @@ describe('POST /v1/test-sets/{testSetId}/runs: the ceiling of the key that start
     const read = await app.request(`/v1/test-runs/${testRunId}`);
     expect(read.status).toBe(200);
     expect(await read.json()).toMatchObject({ testRunId, keyCeiling: 'sandbox' });
+
+    expect(await listed(app, testRunId)).toMatchObject({ keyCeiling: 'sandbox' });
   });
 
   test("the body can't say: a caller with no ceiling claiming one starts it unmarked", async () => {
@@ -134,6 +147,10 @@ describe('POST /v1/test-sets/{testSetId}/runs: the ceiling of the key that start
     const read = await app.request(`/v1/test-runs/${testRunId}`);
     expect(read.status).toBe(200);
     expect(await read.json()).not.toHaveProperty('keyCeiling');
+
+    const row = await listed(app, testRunId);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('keyCeiling');
   });
 });
 
