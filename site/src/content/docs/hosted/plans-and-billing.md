@@ -37,8 +37,7 @@ or later on the billing page
 Besides the invoices, the billing contact gets:
 
 - **The email if the workspace is suspended,** for invoices that weren't
-  paid or a subscription that ended outside Kindgi
-  ([Stop paying](#stop-paying)).
+  paid.
 - **The emails if the workspace is closed:** when it's closed, and once
   it's deleted, after the 30 days to export it
   ([Close your workspace](../close-your-workspace/#what-closing-does)).
@@ -69,21 +68,24 @@ go unseen.
 
 ## Stop paying
 
-To stop paying and keep the workspace, free to build and test, end the
-subscription from the billing page. It ends at once:
+To stop paying, choose **Stop paying** on the billing page. The plan runs
+to the end of the month you've paid for, and then ends:
 
-- **What's left of the billing month** is kept as a credit toward your next
-  invoice, for when you pay again. It isn't refunded.
-- **Nothing is taken out of production for you.** Stopping is refused while
-  more is in production than the workspace keeps without paying: take
-  projects out in the console first, then stop again.
-- **The workspace stays,** with everything in it.
+- **Nothing is credited or refunded** for the rest of that month, whatever
+  the reason.
+- **Until that day, the plan works as before,** and what's in production
+  stays there. **Keep my plan**, on the billing page, takes the stop back,
+  and the plan renews as before. While the stop stands, the billing page
+  makes no other change to the plan.
+- **From that day, nothing in the workspace runs:** no build and no run,
+  in testing or live. The workspace stays, with its data: you can still
+  sign in, and read and [export your data](../export-your-data/). Choose a
+  plan on the billing page to run again.
 
-A subscription that ends outside Kindgi, not by a stop from the billing
-page or by a close (for example, one ended on Stripe's side), suspends the
-workspace instead while it has projects in production: nothing in it
-runs, its data is kept, and you can still read and export it. Paying again
-from the billing page lifts it.
+A plan that ends outside Kindgi, not by a stop from the billing page or by
+a close (for example, one cancelled on Stripe's side), also runs to the end
+of the month you've paid for, with no credit or refund. From the day it
+ends, the workspace is as after a stop.
 
 To end the workspace as well, [close it](../close-your-workspace/).
 

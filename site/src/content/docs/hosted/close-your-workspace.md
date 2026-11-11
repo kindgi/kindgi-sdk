@@ -6,9 +6,9 @@ sidebar:
 ---
 
 Closing ends a Kindgi Cloud workspace: nothing in it runs again, and once
-30 days are over it's deleted. To stop paying and keep the workspace, free
-to build and test, [stop paying](../plans-and-billing/#stop-paying)
-instead.
+30 days are over it's deleted. To stop paying and keep the workspace and
+its data, [stop paying](../plans-and-billing/#stop-paying) instead: nothing
+in it runs once the month you've paid for is over.
 
 ## Before you close
 

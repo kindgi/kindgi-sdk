@@ -65,6 +65,10 @@ If there's no room for a new workspace just then, the page says "We're
 adding capacity" instead, and the email comes as soon as your workspace is
 ready.
 
+Nothing runs in the workspace until it has a plan: choose one on its
+[billing page](https://platform.kindgi.com/cloud/account/billing). If you
+have a promotion code, type it on Stripe's payment page.
+
 ## Withdraw a sign-up
 
 A sign-up that's still waiting for room for its workspace ("We're adding
@@ -79,5 +83,5 @@ sent, is deleted 7 days after its link expired.
 
 ## Next
 
-- [Deploy your agent](../deploy-your-agent/)
 - [Your plan and billing](../plans-and-billing/)
+- [Deploy your agent](../deploy-your-agent/)
