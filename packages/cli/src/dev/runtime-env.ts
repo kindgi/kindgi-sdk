@@ -22,6 +22,9 @@ export const RUNTIME_PACK_DIR = '/pack';
 export const RUNTIME_GOOGLE_CREDENTIALS = '/run/kindgi/google-credentials.json';
 export const RUNTIME_PUBLIC_TOKEN_KEY = '/run/kindgi/public-token-signing.pem';
 export const RUNTIME_EXPORT_SIGNING_KEY = '/run/kindgi/export-signing.pem';
+/** Where the connections' key files are mounted in the runtime container. */
+export const RUNTIME_SECRETS_LOCAL_KEY = '/run/kindgi/secrets-local.key';
+export const RUNTIME_SECRETS_AAD_KEY = '/run/kindgi/secrets-aad.key';
 
 /** `<pack>/.kindgi/dev/runtime.env`. */
 export function runtimeEnvPath(packDir: string): string {
@@ -63,6 +66,13 @@ export interface RuntimeEnvInput {
   readonly exportSigningKeyPath?: string;
   /** The developer's Google Application Default Credentials, as the runtime sees them. */
   readonly googleCredentialsPath?: string;
+  /**
+   * The key files for connections' token sets, as the runtime sees them:
+   * one pair per dev database, which `kindgi dev` makes. With them the
+   * runtime keeps token sets in that database (`KINDGI_CONNECTIONS_STORE=postgres`);
+   * without them connections are off.
+   */
+  readonly connectionKeys?: { readonly localKeyPath: string; readonly aadKeyPath: string };
   /**
    * `KINDGI_LOG_*`: the levels `kindgi dev` shows, and `KINDGI_LOG_FORMAT=json`
    * when `kindgi dev` reads the runtime's output (the container's). A
@@ -116,6 +126,16 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
     }),
     ...(input.googleCredentialsPath !== undefined && {
       GOOGLE_APPLICATION_CREDENTIALS: input.googleCredentialsPath,
+    }),
+    // Token sets in the dev database, under keys only this database's
+    // runtime uses. The local key is a dev key on one machine: that's
+    // what the ack says.
+    ...(input.connectionKeys !== undefined && {
+      KINDGI_CONNECTIONS_STORE: 'postgres',
+      KINDGI_SECRETS_BACKEND_KMS: 'libsodium',
+      KINDGI_SECRETS_LOCAL_KEY_PATH: input.connectionKeys.localKeyPath,
+      KINDGI_SECRETS_AAD_KEY_PATH: input.connectionKeys.aadKeyPath,
+      KINDGI_SECRETS_LOCAL_KEY_ACK: 'single-node',
     }),
   };
   for (const [name, value] of Object.entries(input.shellReferences)) {

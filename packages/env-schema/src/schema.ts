@@ -1194,9 +1194,19 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'secrets',
   },
   {
+    name: 'KINDGI_CONNECTIONS_STORE',
+    description:
+      "Where connections keep their token sets with the `dotenv` backend (development only): `none` (default; connections are off) | `postgres` (in the database, under a local key: needs `KINDGI_SECRETS_BACKEND_KMS=libsodium`, the local key, the AAD key and `KINDGI_SECRETS_LOCAL_KEY_ACK`, as the postgres backend does). A registration's own secrets are still read from the `.env` files, and never written. `kindgi dev` sets it, with keys it makes for its database. Any other backend refuses a value but `none`: it keeps token sets itself.",
+    example: 'postgres',
+    required: false,
+    appliesTo: appliesToDotenvBackend,
+    group: 'secrets',
+    allowedValues: ['none', 'postgres'],
+  },
+  {
     name: 'KINDGI_SECRETS_BACKEND_KMS',
     description:
-      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
+      'Which KMS wraps DEKs (postgres backend only; with the `dotenv` backend, `libsodium` for `KINDGI_CONNECTIONS_STORE=postgres`): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
     example: 'gcp',
     required: true,
     appliesTo: appliesToPostgresBackend,

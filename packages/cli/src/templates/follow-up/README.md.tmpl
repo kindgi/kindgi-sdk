@@ -86,13 +86,11 @@ every tool that sends or changes something waiting for a person.
 ```
 
 `kindgi test` and this pack's own tests run without Google. Under
-`kindgi dev`, connections are off, because dev keeps secrets in `.env`
-files and connections need a store of their own. A send there fails at
-once with `connection-app-missing`, before any approval, and the agent
-says the mail wasn't sent. To send for real, run the pack on a Kindgi
-server that serves connections (a public address, its env name, and a
-Postgres or secret-manager secrets store), with Google set up there as
-Kindgi's guide to connecting Google describes.
+`kindgi dev`, until Google is set up, a send fails at once with
+`connection-app-missing`, before any approval, and the agent says the
+mail wasn't sent. To send for real, set Google up as Kindgi's guide to
+connecting Google describes. Under `kindgi dev`, the redirect URI it asks
+for is on the Connections line `kindgi dev` prints when it starts.
 
 The agent needs a real model: `kindgi dev`'s `dev-echo` fallback only
 calls the first tool. For Claude, with `kindgi dev` running:

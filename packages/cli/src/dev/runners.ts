@@ -17,6 +17,7 @@ import type {
 } from '@kindgi/handler-runtime/pack-service';
 import type { ReadFolder } from '../build/pack-blocks.js';
 import type { DockerReach } from './blocked.js';
+import type { DevConnectionKeys } from './connection-keys.js';
 import type { DevLockProcesses } from './dev-lock.js';
 import type { DevLicenseKey, DevLicenseKeyInput } from './license-key.js';
 import type { ProjectDatabases } from './project-database.js';
@@ -50,8 +51,20 @@ export interface RunningApiServer {
    * should not be advertised.
    */
   readonly consoleMounted?: boolean;
+  /**
+   * Whether the runtime serves connections, as its `GET /v1/runtime` said
+   * once it served: on, or off with its reason when it gives one.
+   * `unsaid`: a runtime image from before the field. Absent: it couldn't be
+   * read, and the banner says nothing of connections.
+   */
+  readonly connections?: RuntimeConnections | 'unsaid';
   shutdown(): Promise<void>;
 }
+
+/** `GET /v1/runtime`'s `connections`, as `kindgi dev` reads it. */
+export type RuntimeConnections =
+  | { readonly on: true }
+  | { readonly on: false; readonly reason?: string };
 
 export interface StartApiServerOptions {
   /** The host port the API is reached on (`127.0.0.1` only). */
@@ -85,6 +98,12 @@ export interface StartApiServerOptions {
   readonly publicRunTokenKeyPath?: string;
   /** `KINDGI_EXPORT_SIGNING_KEY_PATH`: the developer's export key file, if set. Otherwise the runtime makes one. */
   readonly exportSigningKeyPath?: string;
+  /**
+   * The connections' key files for this database (`dev/connection-keys.ts`),
+   * on this machine: with them the runtime keeps connections' token sets in
+   * the dev database. Absent: connections are off.
+   */
+  readonly connectionKeys?: { readonly localKeyPath: string; readonly aadKeyPath: string };
   /** `KINDGI_CORS_ORIGINS`: the browser app's origins, allowed on the run progress routes. */
   readonly corsOrigins?: readonly string[];
   /**
@@ -396,6 +415,16 @@ export interface DevRunners {
   readonly detectSandbox: (
     env: Readonly<Record<string, string | undefined>>,
   ) => Promise<SandboxAvailability>;
+  /**
+   * The connections' key pair for this database on this machine, under
+   * `home` (`dev/connection-keys.ts`), or why there's none.
+   */
+  readonly connectionKeys: (
+    home: string | undefined,
+    database: { readonly bundled: string } | { readonly url: string },
+  ) => Promise<DevConnectionKeys>;
+  /** Remove bundled database `name`'s pair (`--reset`). True when there was one. */
+  readonly removeConnectionKeys: (home: string | undefined, name: string) => Promise<boolean>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.
