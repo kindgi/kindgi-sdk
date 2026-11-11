@@ -55,9 +55,9 @@ banner:
 ```
 
 The check is **offline**: the runtime verifies the key's signature against
-public keys built into the release. The check never calls Kindgi. From
-0.7.0, the runtime's one call to Kindgi is a daily report that renews its
-key, unless its key is one that doesn't report
+public keys built into the release. The check never calls Kindgi. A runtime
+0.7.0 or later makes one call to Kindgi: a daily report that renews its key,
+unless its key is one that doesn't report
 ([What the runtime sends](../../deploy/self-hosted/what-the-runtime-sends/)).
 
 There are two kinds of key:

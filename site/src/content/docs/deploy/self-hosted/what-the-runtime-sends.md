@@ -5,10 +5,10 @@ sidebar:
   order: 3.25
 ---
 
-From 0.7.0, a Kindgi runtime you run yourself makes one call to Kindgi on
-its own: a short report to access.kindgi.com once a day. The answer renews
-its license key. The runtime still checks its key offline, and nothing else
-goes to Kindgi.
+A Kindgi runtime you run yourself, 0.7.0 or later, makes one call to Kindgi
+on its own: a short report to access.kindgi.com once a day. The answer
+renews its license key. The runtime checks its key offline, and nothing
+else goes to Kindgi.
 
 ## When it reports
 
@@ -29,7 +29,7 @@ whatever its projects' databases.
   keeps its database or its home folder, or runs for longer, does report,
   once a day.
 - A key that doesn't report never reports ([below](#a-key-that-doesnt-report)).
-- Releases before 0.7.0 never report.
+- Reporting needs runtime 0.7.0 or later: an older runtime never reports.
 - A server that [serves many tenants](../serve-many-tenants/) reports like
   any other.
 - Kindgi Cloud's runtime doesn't send one: its key is one that doesn't
@@ -150,5 +150,6 @@ A key can carry a mark that its server never reports:
 
 A server with such a key sends nothing to Kindgi, and its start line says
 so. A non-production key that doesn't report is renewed by signing in at
-access.kindgi.com. A production key that doesn't report is renewed with your
-contract, as before ([Renew the license key](../renew-the-license-key/)).
+access.kindgi.com, or from the deployment with `kindgi license renew`. A
+production key that doesn't report is renewed with your contract. Both are
+in [Renew the license key](../renew-the-license-key/).
