@@ -77,6 +77,14 @@ export interface TokenMintInput {
    * `service_account:<tokenId>`.
    */
   readonly createdBy?: string;
+  /**
+   * The key it was minted with: the caller's key, or the key a token
+   * sign-in session was opened with. Absent when none was (another
+   * session, the deployment's token). Revoking that key revokes this one,
+   * and every key minted with it in turn. A store hands the new key back
+   * revoked when that key turns out revoked as it mints.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 /**
@@ -121,6 +129,11 @@ export interface ApiTokenRecord {
   readonly revokedAt?: Date;
   /** When the key last authenticated a request (updated at most once a minute). */
   readonly lastUsedAt?: Date;
+  /**
+   * The key it was minted with; absent when none was, or for a key minted
+   * before stores recorded it. It stops when that key is revoked.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 /**
@@ -134,6 +147,11 @@ export interface TokenListInput {
   readonly limit: number;
   /** Only the keys that act for this principal (a person sees only their own). */
   readonly principal?: TokenPrincipal;
+  /**
+   * Only the keys minted with this key, and with those in turn, to any
+   * depth, revoked ones too: revoking it takes the live ones among them.
+   */
+  readonly mintedWith?: ApiTokenId;
   /** The last record of the previous page. */
   readonly after?: { readonly createdAt: Date; readonly tokenId: ApiTokenId };
 }
@@ -150,7 +168,17 @@ export interface TokenRevokeInput {
   readonly revokedBy?: string;
 }
 
-export type TokenRevokeOutcome = { readonly kind: 'ok' } | { readonly kind: 'not-found' };
+export type TokenRevokeOutcome =
+  | {
+      readonly kind: 'ok';
+      /**
+       * The keys revoked with it: every key minted with it, and with those
+       * in turn, that wasn't revoked yet, oldest first. Absent from stores
+       * that don't record which key minted which.
+       */
+      readonly alsoRevoked?: readonly ApiTokenId[];
+    }
+  | { readonly kind: 'not-found' };
 
 export interface TokenRevokeByProjectInput {
   readonly tenantId: TenantId;

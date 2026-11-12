@@ -230,8 +230,8 @@ async function templateNamers(
     let templateFile: unknown;
     try {
       const parsed: unknown = JSON.parse(await readFile(join(packDir, block.modulePath), 'utf8'));
-      templateFile = (parsed as { readonly content?: { readonly templateFile?: unknown } })
-        .content?.templateFile;
+      templateFile = (parsed as { readonly content?: { readonly templateFile?: unknown } }).content
+        ?.templateFile;
     } catch {
       continue;
     }

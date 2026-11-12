@@ -236,17 +236,25 @@ interface Harness {
   readonly grandchild: KernelRunRecord;
   readonly other: KernelRunRecord;
   readonly otherTenantRun: KernelRunRecord;
+  /** A run that acts for the API token's person (`user-1`). */
+  readonly own: KernelRunRecord;
 }
 
 function harness(
-  options: { publicRunTokens?: PublicRunTokenConfig | false; denyAll?: boolean } = {},
+  options: {
+    publicRunTokens?: PublicRunTokenConfig | false;
+    denyAll?: boolean;
+    /** Only these (`"<action> <type>:<id>"`), given the runs, are allowed. */
+    grants?: (rows: readonly KernelRunRecord[]) => readonly string[];
+  } = {},
 ): Harness {
   const parent = runRow(tenantA, { actsFor: ACTS_FOR });
   const child = runRow(tenantA, { parentRunId: parent.runId });
   const grandchild = runRow(tenantA, { parentRunId: child.runId });
   const other = runRow(tenantA);
   const otherTenantRun = runRow(tenantB);
-  const rows = [parent, child, grandchild, other, otherTenantRun];
+  const own = runRow(tenantA, { actsFor: 'user:user-1' });
+  const rows = [parent, child, grandchild, other, otherTenantRun, own];
   const stubs = createStubAppBindings();
   const run = {
     ...stubs.kernelBinding.run,
@@ -292,8 +300,29 @@ function harness(
         } as never,
       },
     }),
+    ...(options.grants !== undefined && { authz: grantsOnly(options.grants(rows)) }),
   });
-  return { app, parent, child, grandchild, other, otherTenantRun };
+  return { app, parent, child, grandchild, other, otherTenantRun, own };
+}
+
+function grantsOnly(grants: readonly string[]) {
+  const decide = (action: string, r: { type: string; id: string }) => {
+    const allowed = grants.includes(`${action} ${r.type}:${r.id}`);
+    return {
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: not granted',
+      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+    };
+  };
+  return {
+    fgaApiUrl: 'http://fga.invalid',
+    authzCheckBinding: {
+      check: async (_p: unknown, action: string, r: { type: string; id: string }) =>
+        decide(action, r),
+      checkBatch: async (_p: unknown, action: string, rs: { type: string; id: string }[]) =>
+        rs.map((r) => decide(action, r)),
+    } as never,
+  };
 }
 
 async function get(
@@ -542,6 +571,32 @@ describe('POST /v1/tokens/public', () => {
       body: { runIds: [h.parent.runId] },
     });
     expect(res.status).toBe(403);
+  });
+
+  // `run` on every run's project, `read` on none.
+  const runsEverywhere = (rows: readonly KernelRunRecord[]) =>
+    rows.map((row) => `run project:${row.projectId}`);
+
+  test('a runner mints for a run of their own on run, though read refuses', async () => {
+    const h = harness({ grants: runsEverywhere });
+    const res = await get(h.app, '/v1/tokens/public', API_TOKEN, {
+      method: 'POST',
+      body: { runIds: [h.own.runId] },
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.runIds).toEqual([h.own.runId]);
+  });
+
+  test("a runner mints for no run of another person's, nor one that acts for no one", async () => {
+    for (const pick of ['parent', 'other'] as const) {
+      const h = harness({ grants: runsEverywhere });
+      const res = await get(h.app, '/v1/tokens/public', API_TOKEN, {
+        method: 'POST',
+        body: { runIds: [h.own.runId, h[pick].runId] },
+      });
+      expect([pick, res.status]).toEqual([pick, 403]);
+      expect(code(res.json)).toBe('permission-denied');
+    }
   });
 
   test('not mounted without the configuration', async () => {

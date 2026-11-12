@@ -117,6 +117,42 @@ describe('tokens for a principal', () => {
     await client.tokens.list({ principal: { kind: 'user', id: 'bob' } });
     expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/tokens?principal=user%3Abob');
   });
+
+  it('list narrows to the keys minted with a key, and the page says so', async () => {
+    const stub = jsonFetch({
+      data: [
+        {
+          tokenId: 'tok-3',
+          role: 'member',
+          capabilities: [],
+          createdAt: '2026-10-03T00:00:03Z',
+          mintedWith: 'tok-1',
+        },
+      ],
+      hasMore: false,
+      mintedWith: 'tok-1',
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const page = await client.tokens.list({ mintedWith: 'tok-1' as never });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/tokens?mintedWith=tok-1');
+    expect(page).toEqual({
+      data: [
+        {
+          id: 'tok-3',
+          role: 'member',
+          capabilities: [],
+          createdAt: '2026-10-03T00:00:03Z',
+          mintedWith: 'tok-1',
+        },
+      ],
+      hasMore: false,
+      mintedWith: 'tok-1',
+    });
+  });
 });
 
 describe('tokens.list / tokens.get', () => {
@@ -172,19 +208,30 @@ describe('tokens.list / tokens.get', () => {
 });
 
 describe('tokens.revoke', () => {
-  it('POSTs /v1/tokens/{tokenId}/revoke and resolves void', async () => {
-    const stub = jsonFetch({ tokenId: 'tok-9', revoked: true });
+  it('POSTs /v1/tokens/{tokenId}/revoke and resolves the key, with the keys revoked with it', async () => {
+    const stub = jsonFetch({ tokenId: 'tok-9', revoked: true, alsoRevoked: ['tok-10', 'tok-11'] });
     const client = createClient({
       apiUrl: 'https://api.example.com',
       auth: AUTH,
       fetch: stub.fetch,
     });
 
-    await client.tokens.revoke('tok-9' as never, { idempotencyKey: 'idem-r' });
+    const revoked = await client.tokens.revoke('tok-9' as never, { idempotencyKey: 'idem-r' });
+    expect(revoked).toEqual({ id: 'tok-9', alsoRevoked: ['tok-10', 'tok-11'] });
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
     expect(req.url).toBe('https://api.example.com/v1/tokens/tok-9/revoke');
     expect(req.headers['idempotency-key']).toBe('idem-r');
+  });
+
+  it('a runtime that names no keys revoked with it: no alsoRevoked', async () => {
+    const stub = jsonFetch({ tokenId: 'tok-9', revoked: true });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    expect(await client.tokens.revoke('tok-9' as never)).toEqual({ id: 'tok-9' });
   });
 
   it('maps 404 not-found to NotFoundError', async () => {

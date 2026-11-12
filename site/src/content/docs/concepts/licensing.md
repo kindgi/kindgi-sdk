@@ -73,11 +73,43 @@ the key's name: for a key from access.kindgi.com, your company's domain,
 your GitHub login, or your email address cut short
 ([Your key's name](../../deploy/self-hosted/pull-the-runtime-image/#your-keys-name)).
 
+## What a production license covers
+
+Each production license covers one installation: one runtime and its
+database, on any number of servers. Free, Starter and Business each serve
+one tenant, your own organization, with up to the flows and agents below:
+
+| Plan | Flows | Agents | Support |
+|---|---|---|---|
+| Free | 1 | 2 | Bug reports from your coding agent, answered in the CLI, and help on GitHub |
+| Starter | 3 | 10 | As Free, and email |
+| Business | 10 | 30 | As Free, email answered within one business day, and apps you need that Kindgi can't connect to yet, added by us |
+| Enterprise | Any number | Any number | As agreed |
+
+The prices are on [kindgi.com/pricing](https://kindgi.com/pricing). More
+installations, or other organizations as tenants, such as your customers,
+take Enterprise. Cancelling a plan ends its license, even if the key hasn't
+expired yet.
+
+- **What counts:** each flow and each agent your packs define in the
+  projects you put in production
+  ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)),
+  once in an installation, however many of those projects or versions run
+  it. Projects not in production, tools and users don't count.
+- **Above your plan:** running more flows or agents than your plan covers
+  is outside its terms. In a coming release, the runtime warns when you
+  reach your plan's flows or agents, and refuses new ones once you're more
+  than 20% over, though it always lets you go one over. Flows and agents
+  that already run keep running.
+- **A Startup license** from before these plans keeps its 10 flows and 10
+  agents until it expires.
+
 ## What a key covers
 
 A key covers the installation it's set on. The runtime reads it once, when
 it starts, and every tenant and project that runtime serves runs under it:
-a key names no tenant or project, and no number of them.
+a key names no tenant or project, and no number of them. Your plan's
+limits are terms of your license: the runtime doesn't count them yet.
 
 A project in production
 ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production))
@@ -127,7 +159,9 @@ stops because of its key. A platform that restarts instances on its own
 To renew a production key, which goes with your contract, write to
 contact@kindgi.com. A non-production key from access.kindgi.com renews when
 you sign in there again. When access.kindgi.com has it turned on, a
-deployment can also renew its key itself, by hand or on a schedule. See
+deployment can also renew its key itself, by hand or on a schedule. While a
+deployment is renewing the key, signing in shows it but leaves its renewal to
+the deployment. See
 [Renew the license key](../../deploy/self-hosted/renew-the-license-key/).
 
 ## Preview releases stop starting after 90 days

@@ -8,6 +8,7 @@ export type AssignableProjectRole = Exclude<ProjectRole, 'member'>;
 
 export const ASSIGNABLE_PROJECT_ROLES: readonly AssignableProjectRole[] = [
   'viewer',
+  'runner',
   'editor',
   'owner',
   'admin',

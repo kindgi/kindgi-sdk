@@ -1,5 +1,93 @@
 # @kindgi/sdk
 
+## 0.6.0
+
+### Minor Changes
+
+- 999154a: Starts the 0.6 line: this release has new features, so the middle number moves. Every SDK package shares one version.
+  
+  Release-decision: 0.6.0, the maintainers, 2026-11-09
+
+### Patch Changes
+
+- 6707cb9: **An agent or a flow can be a tool in a person's chat app.** A new optional field, **`mcp`** (`{ expose, readOnly?, destructive? }`), on agents and flows says whether one is offered as a tool, through the API's MCP server, to the people who can see it. An agent's tool is named by its id, a flow's by `flow.` and its id. With `expose: true`, the id must be a tool's name (letters, digits, `_`, `-` and `.`, at most 128 characters, or 123 for a flow), and an agent's can't start with `kindgi.` or `flow.`, the prefixes Kindgi keeps; the error names the prefix. `readOnly` and `destructive` become the tool's `readOnlyHint` and `destructiveHint`; left out, no hint is sent and the chat app applies the protocol's defaults. Absent, nothing changes: an agent or flow without it is stored and answered as before, with no `mcp` key.
+  
+  It is in `agent.schema.json` (1.8.0), `flow.schema.json` (1.10.0) and `pack-index.schema.json` (1.9.0); `Agent`, `defineAgent` (which refuses an invalid one), `Flow` and `loadFlow` (a new error, `invalid-mcp-exposure`); `McpExposure` and `mcpExposureIssues` in `@kindgi/types`; the indexed pack agent and flow; `POST /v1/agents`, `POST /v1/flows`, their `GET` answers and a deployment's agents and flows (the API's new `McpExposure` schema); and the Python SDK's `Agent(mcp=...)` and `Flow(mcp=...)`. The authoring skills for agents and flows (TypeScript, Python, Java and Scala) say how to set it.
+- e0bfdf7: **The calendar tools read calendars others share.** `googleCalendarSharedEventsList`, from `@kindgi/connections/google/tools`, and `outlookCalendarSharedEventsList`, from `@kindgi/connections/microsoft/tools`, list the events in a window as the events lists do, with the same input and output, and also on a calendar someone else owns that the account has, such as a colleague's or a family calendar. They act as the person, or as the company with `as: 'company'`.
+  
+  - **Opt-in.** They ask for a wider permission than the events lists, so only a pack that includes one asks for it. The events lists, free/busy and the calendars lists are unchanged.
+  - **Permissions.** The Google entry adds `calendar.events.readonly`, with review `sensitive`, and the Microsoft entry adds `calendars.read.shared` (Calendars.Read.Shared, no admin consent by default). A connection made before lacks them until the person allows it. Add the Google one to your OAuth client's Data access, and the Microsoft one to your app's API permissions.
+  - **Versions.** Google's starts at 1.0.0 and Outlook's at 1.1.0, as person and as company.
+  - **Docs.** The Calendars guide shows the shared lists and their permissions, and no longer says Outlook's events list reads a shared calendar with the same permission as the main one: Microsoft's pages name a wider permission for one. The Google and Microsoft setup guides add the new permissions, and the tools authoring skill names the shared lists.
+- 30dbad8: **The docs install the CLI of the release they describe.** The docs pages, the skills and the READMEs pinned the CLI's 0.2 line (`npx --yes @kindgi/cli@0.2`, `uvx --from "kindgi-cli>=0.2,<0.3"`), so a reader of later docs ran an older CLI than the one the docs describe. Each release now moves the install lines, and "Kindgi X.Y's CLI" and "Kindgi X.Y's client" in the prerequisites, to its own version: a release to its line, a release candidate to its exact build. CI fails when one is off its line.
+  
+  - **Skills.** The Java, Python and Scala getting-started skills move to 0.1.10, 0.1.17 and 0.1.10, with the new install lines.
+  - **The CLI's README** installs the CLI of its own release too.
+- a122ed1: **The getting-started skills say to give `kindgi dev` your own Postgres in `.kindgi/secrets.env`.**
+- Updated dependencies [6707cb9]
+- Updated dependencies [a54e5e2]
+- Updated dependencies [ecd251e]
+- Updated dependencies [38aa185]
+- Updated dependencies [7062ba5]
+- Updated dependencies [21501e1]
+- Updated dependencies [fb947de]
+- Updated dependencies [fbf0357]
+- Updated dependencies [b3f40b8]
+- Updated dependencies [64d1461]
+- Updated dependencies [287c34c]
+- Updated dependencies [81b8af0]
+- Updated dependencies [7c10695]
+- Updated dependencies [0334286]
+- Updated dependencies [61322b4]
+  - @kindgi/types@0.6.0
+  - @kindgi/flow@0.6.0
+  - @kindgi/agents@0.6.0
+  - @kindgi/client@0.6.0
+  - @kindgi/handler-runtime@0.6.0
+  - @kindgi/tools@0.6.0
+  - @kindgi/crypto@0.6.0
+  - @kindgi/guardrails@0.6.0
+  - @kindgi/schema@0.6.0
+
+## 0.5.0
+
+### Minor Changes
+
+- ba0feb8: Starts the 0.5 line: this release has new features, so the middle number moves. Every SDK package shares one version.
+  
+  Release-decision: 0.5.0, the maintainers, 2026-11-02
+
+### Patch Changes
+
+- c8afe3b: **The calendar tools read several calendars.** `googleCalendarCalendarsList`, from `@kindgi/connections/google/tools`, and `outlookCalendarCalendarsList`, from `@kindgi/connections/microsoft/tools`, list the calendars of the account the run acts as, or the company's with `as: 'company'`: each with its `id`, its `name`, whether it's the `main` one, the `access` the account has, and its `owner` when that's someone else. The events lists and free/busy take up to 10 of those ids in a new optional `calendarIds`.
+  
+  - **Without `calendarIds`,** a list or a free/busy reads the main calendar and answers as before.
+  - **Over several calendars,** a list gives each event with its `calendarId`, merged by start, with `top` counted across them, and a free/busy joins their busy times. When Google or Microsoft refuses one of the calendars, the call fails and names it. Google reads only calendars the account owns. Outlook's free/busy reads at most 1000 events across the calendars.
+  - **Permissions.** The Google entry adds `calendar.calendarlist.readonly`, with review `sensitive`, which only the calendars list asks for. A Google connection made before lacks it until the person allows it. Outlook's calendars list uses `calendars.readbasic`, as its events list does. Google paces `calendar.calendarList.list` with the other calendar calls, and Outlook's `outlook.calendars.list` doesn't count against sends.
+  - **Versions.** The events lists and free/busy move to 1.1.0, as person and as company. The calendars lists start at 1.0.0.
+  - **Docs.** The Calendars guide shows how to read several calendars, the Google setup guide adds the new permission, and the tools authoring skill names the calendars lists.
+- a9e4477: The CLI's help and messages, a new pack's `AGENTS.md` and the skills call the place a workspace, as the console does. What you type keeps `tenant`: `--tenant`, `kindgi tenant`, `tenantId`, `KINDGI_TENANT_*` and the scope value `tenant`. So do the tenant admin role and the text for the operator of a runtime that serves several workspaces. The CLI prints the server's own messages as they come.
+- Updated dependencies [6421d6f]
+- Updated dependencies [64f9f38]
+- Updated dependencies [04813e4]
+- Updated dependencies [e96b83b]
+- Updated dependencies [2251f96]
+- Updated dependencies [215b6c1]
+- Updated dependencies [c104300]
+- Updated dependencies [3360533]
+- Updated dependencies [fda29c0]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [1365f49]
+  - @kindgi/agents@0.5.0
+  - @kindgi/guardrails@0.5.0
+  - @kindgi/schema@0.5.0
+  - @kindgi/client@0.5.0
+  - @kindgi/tools@0.5.0
+  - @kindgi/flow@0.5.0
+  - @kindgi/handler-runtime@0.5.0
+  - @kindgi/types@0.5.0
+  - @kindgi/crypto@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

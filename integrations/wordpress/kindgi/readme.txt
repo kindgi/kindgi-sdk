@@ -54,7 +54,7 @@ In `wp-config.php`, set before connecting:
 
 `define( 'KINDGI_SITE_SECRET_KEY', '…' );`
 
-`php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'` makes one. An environment variable of the same name works too. A copy of the database, such as a backup or a staging clone, never carries `wp-config.php` or the environment. Without one, the plugin keeps the key it makes in a database option that isn't autoloaded.
+`php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'` makes one. An environment variable of the same name works too. A copy of the database, such as a backup or a staging clone, never carries `wp-config.php` or the environment. Without one, the plugin keeps the key it makes in a database option that isn't autoloaded. A key Kindgi retired can't connect again: set a new one.
 
 = Can the plugin send no email addresses? =
 

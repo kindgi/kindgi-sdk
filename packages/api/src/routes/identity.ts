@@ -5,7 +5,9 @@ import type { Context } from 'hono';
 import { Hono } from 'hono';
 
 import {
+  type Action,
   OBJECT_ACTIONS,
+  type ObjectType,
   PROJECT_SCOPED_TYPES,
   type ProjectRole,
   REVIEWER_ROLE_RANK,
@@ -14,7 +16,13 @@ import {
 } from '@kindgi/authz';
 import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
-import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
+import {
+  callerPrincipal,
+  callerRef,
+  isTenantAdmin,
+  isTenantAdminForDisplay,
+  principalToWire,
+} from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
 import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type {
@@ -155,12 +163,14 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     body.scopes = scopes;
     // Whether the caller is a tenant admin, as the admin routes decide it:
     // what a console shows admin pages by (scopes are what a credential may
-    // do; admin is a role, from the authorizer when there is one). whoami
-    // is how a console starts, so an authorization store that can't answer
-    // leaves the field out (a console then reads `scopes`) instead of
-    // failing the whole answer.
+    // do; admin is a role, from the authorizer when there is one). A
+    // console reads it on every poll, so it's asked without recording a
+    // decision; the admin routes record theirs. whoami is how a console
+    // starts, so an authorization store that can't answer leaves the field
+    // out (a console then reads `scopes`) instead of failing the whole
+    // answer.
     try {
-      body.tenantAdmin = await isTenantAdmin(c, authorizer);
+      body.tenantAdmin = await isTenantAdminForDisplay(c, authorizer);
     } catch (cause) {
       c.get('log').warn(
         `whoami: couldn't tell whether the caller is a tenant admin, so tenantAdmin is left out: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -402,6 +412,9 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       return c.json({
         user: serializeUser(outcome.user),
         keysRevoked: outcome.keysRevoked,
+        ...(outcome.mintedKeysRevoked !== undefined && {
+          mintedKeysRevoked: outcome.mintedKeysRevoked,
+        }),
         sessionsRevoked: outcome.sessionsRevoked,
         grantsRemoved: outcome.grantsRemoved,
       });
@@ -599,7 +612,13 @@ function mountPersonGrants(
 }
 
 /** Project roles from the highest: `capabilities` is answered in this order. */
-const PROJECT_ROLES_BY_RANK: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer'];
+const PROJECT_ROLES_BY_RANK: readonly ProjectRole[] = [
+  'owner',
+  'admin',
+  'editor',
+  'runner',
+  'viewer',
+];
 
 /** Reviewer roles from the lowest rank. */
 const REVIEWER_ROLES_BY_RANK: readonly ReviewerRole[] = (
@@ -645,7 +664,8 @@ function mountMyPermissions(
     let access: MyAccess | undefined;
     let reviewer: Record<string, unknown> | undefined;
     try {
-      tenantAdmin = await isTenantAdmin(c, authorizer);
+      // What the caller holds, shown: no decision recorded, as `myAccess` records none.
+      tenantAdmin = await isTenantAdminForDisplay(c, authorizer);
       access = principal === undefined ? undefined : await myAccess.read({ tenantId, principal });
       reviewer = await reviewerFacts(c, reviewerBinding);
     } catch (cause) {
@@ -666,16 +686,30 @@ function mountMyPermissions(
     }
 
     // A key limited to a project acts on no other, and administers no
-    // org or team (`keyCeilingDeny`).
+    // org or team (`keyCeilingDeny`): a project only everyone may run
+    // included.
     const keyProject = c.get('tokenProjectId') as string | undefined;
-    const projects = (access?.projects ?? [])
-      .filter((p) => keyProject === undefined || p.projectId === keyProject)
-      .map((p) => ({
-        projectId: p.projectId,
-        name: p.name,
-        role: p.role,
-        via: p.via.map(serializeAccessPath),
-      }));
+    const reached = (access?.projects ?? []).filter(
+      (p) => keyProject === undefined || p.projectId === keyProject,
+    );
+    // `projects[].role` stays required, as every released client reads it:
+    // a project the caller holds no role on, and runs only because everyone
+    // in its workspace may, is listed apart.
+    const projects = reached.flatMap((p) =>
+      p.role === undefined
+        ? []
+        : [
+            {
+              projectId: p.projectId,
+              name: p.name,
+              role: p.role,
+              via: p.via.map(serializeAccessPath),
+            },
+          ],
+    );
+    const everyoneCanRunProjects = reached
+      .filter((p) => p.role === undefined && p.via.some((v) => v.kind === 'everyone'))
+      .map((p) => ({ projectId: p.projectId, name: p.name }));
     const ceiling = <R extends string>(role: R): R | 'member' =>
       keyProject !== undefined && role === 'admin' ? 'member' : role;
     const orgs = (access?.orgs ?? []).map((o) => ({
@@ -709,9 +743,15 @@ function mountMyPermissions(
       }),
       tokenCapabilities: [...(c.get('capabilities') ?? [])].sort(),
       projects: projects.sort(byName((p) => p.projectId)),
+      ...(everyoneCanRunProjects.length > 0 && {
+        everyoneCanRunProjects: everyoneCanRunProjects.sort(byName((p) => p.projectId)),
+      }),
       orgs: orgs.sort(byName((o) => o.orgId)),
       teams: teams.sort(byName((t) => t.teamId)),
       capabilities: normalizeCapabilities(access?.capabilities ?? {}),
+      ...(access?.everyoneCapabilities !== undefined && {
+        everyoneCapabilities: normalizeActions(access.everyoneCapabilities),
+      }),
       ...(readOnlyNotice !== undefined && { readOnlyNotice }),
       ...(licenseOperatorOnly !== undefined && { licenseOperatorOnly }),
     });
@@ -810,15 +850,20 @@ async function reviewerFacts(
 /** Every role and project-scoped type, in a fixed order, with the actions the model allows. */
 function normalizeCapabilities(raw: RoleCapabilities): Record<string, Record<string, string[]>> {
   const out: Record<string, Record<string, string[]>> = {};
-  for (const role of PROJECT_ROLES_BY_RANK) {
-    const byType: Record<string, string[]> = {};
-    for (const type of PROJECT_SCOPED_TYPES) {
-      const allowed = raw[role]?.[type] ?? [];
-      byType[type] = OBJECT_ACTIONS[type].filter((a) => allowed.includes(a));
-    }
-    out[role] = byType;
-  }
+  for (const role of PROJECT_ROLES_BY_RANK) out[role] = normalizeActions(raw[role] ?? {});
   return out;
+}
+
+/** Every project-scoped type, in a fixed order, with the actions `raw` names for it. */
+function normalizeActions(
+  raw: Readonly<Partial<Record<ObjectType, readonly Action[]>>>,
+): Record<string, string[]> {
+  const byType: Record<string, string[]> = {};
+  for (const type of PROJECT_SCOPED_TYPES) {
+    const allowed = raw[type] ?? [];
+    byType[type] = OBJECT_ACTIONS[type].filter((a) => allowed.includes(a));
+  }
+  return byType;
 }
 
 function serializeAccessPath(
@@ -839,6 +884,8 @@ function serializeAccessPath(
       return { kind: 'org-admin', orgId: p.orgId, orgName: p.orgName };
     case 'tenant-admin':
       return { kind: 'tenant-admin' };
+    case 'everyone':
+      return { kind: 'everyone' };
   }
 }
 

@@ -71,7 +71,10 @@ export interface ProjectBinding {
   /**
    * Create a `Project` within the workspace. `spec.orgId` optional.
    * Resolves to `ok` with the assigned `ProjectId`; to `slug-conflict`
-   * when another project in the workspace has `spec.slug`; and, when
+   * when another project in its org has `spec.slug` (for a project without
+   * an org: another project without one), or when another project of the
+   * workspace had `spec.slug` before it was renamed (`heldAs: 'old-slug'`);
+   * and, when
    * `spec.isDefault === true` and the workspace already has a default, to
    * `project-default-already-exists` — the isDefault-uniqueness
    * guardrail is enforced at write time.
@@ -96,11 +99,18 @@ export interface ProjectBinding {
    * Partially update a `Project`. `ProjectPatch.orgId` supports
    * `null` to re-assign the project out of any org. Resolves to
    * `project-not-found` when no project has `projectId` in the workspace,
-   * to `slug-conflict` when `patch.slug` is another project's slug, and to
+   * to `slug-conflict` when `patch.slug` is another project's slug where the
+   * project ends up, or a slug another project of the workspace had before it
+   * was renamed (`heldAs: 'old-slug'`), and to
    * `project-in-environment-order` when the patch would change `orgId` for a
    * project that is a member of an environment order (clear it first). A
    * patch that leaves `orgId` untouched — a rename, slug or description
    * change — is never refused on that ground.
+   *
+   * A patch that changes the slug keeps the old one as the project's: it
+   * joins `Project.formerSlugs`, and no other project can take it. The
+   * project can take it back, unless another project holds it too. A patch
+   * whose slug is the current one changes nothing there.
    */
   update(
     tenantId: TenantId,
@@ -116,7 +126,8 @@ export interface ProjectBinding {
    * 3. It's a member of an environment order: `project-in-environment-order`
    *    (clear it from the order first).
    * 4. Something the workspace keeps still names it: `project-in-use`.
-   * 5. Otherwise it's deleted.
+   * 5. Otherwise it's deleted. Its slugs, its current one and its
+   *    `formerSlugs`, are free again.
    *
    * A refusal deletes nothing. A project still referenced is `project-in-use`;
    * the in-memory adapter removes the project's direct memberships and team
@@ -218,9 +229,14 @@ export interface ProjectMembershipBinding {
 export type ProjectCreateOutcome =
   | { readonly kind: 'ok'; readonly projectId: ProjectId }
   | {
-      /** Another project in the workspace already has this slug. */
+      /**
+       * Another project in its org already has this slug, or, with
+       * `heldAs: 'old-slug'`, another project of the workspace had it before it
+       * was renamed.
+       */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+      readonly heldAs?: 'old-slug';
     }
   | {
       /** `spec.isDefault` was `true` and the workspace already has a default project. */
@@ -290,9 +306,14 @@ export type ProjectUpdateOutcome =
       readonly kind: 'project-not-found';
     }
   | {
-      /** Another project in the workspace already has the patched slug. */
+      /**
+       * Another project already has the slug where the project ends up, or,
+       * with `heldAs: 'old-slug'`, another project of the workspace had the
+       * patched slug before it was renamed.
+       */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+      readonly heldAs?: 'old-slug';
     }
   | {
       /**

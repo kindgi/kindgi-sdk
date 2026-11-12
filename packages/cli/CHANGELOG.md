@@ -1,5 +1,143 @@
 # @kindgi/cli
 
+## 0.6.0
+
+### Patch Changes
+
+- 30dbad8: **The docs install the CLI of the release they describe.** The docs pages, the skills and the READMEs pinned the CLI's 0.2 line (`npx --yes @kindgi/cli@0.2`, `uvx --from "kindgi-cli>=0.2,<0.3"`), so a reader of later docs ran an older CLI than the one the docs describe. Each release now moves the install lines, and "Kindgi X.Y's CLI" and "Kindgi X.Y's client" in the prerequisites, to its own version: a release to its line, a release candidate to its exact build. CI fails when one is off its line.
+  
+  - **Skills.** The Java, Python and Scala getting-started skills move to 0.1.10, 0.1.17 and 0.1.10, with the new install lines.
+  - **The CLI's README** installs the CLI of its own release too.
+- 287c34c: **A command that names a project by a slug it had before it was renamed is refused, and the refusal names the new slug and where to change it.** That's `kindgi deploy --project`, `kindgi deployments list --project`, `kindgi suggested-changes pull --project`, `kindgi promote` (`--from` and `--to` outside a pack, and the pack's environments in one), `kindgi environments set` (`--projects`, and the pack's environments), and `kindgi secrets` and `kindgi env` under a pack environment (`--env`). A slug one project has and another had before a rename is refused as naming two projects: pass the id. On a runtime that keeps no old slugs, nothing changes.
+- 4197584: `kindgi dev` runs runtime 0.6.0-rc.0.
+- 8e448a4: `kindgi dev` runs runtime 0.6.0.
+- 21501e1: **A tool's need of a connection says which permissions it asks for, and a declined connect says what it kept.** `GET /v1/connection-choices/needs` (`client.connectionChoices.needs(...)`) answers each need's `permissions`: the entry's permission keys, from the tool's `needsSpec`. A place that shows a need can then say what a connection lacks for it. The field is optional, and a binding that doesn't read them leaves it out. `ConnectionChoiceNeedRecord` has `permissions`. The `reconnects` text now says that a named reconnect asks for the permissions it lists and those the connection holds, and that a grant short of what the connection holds leaves it as it was.
+  
+  - `@kindgi/connections-inmemory`: its needs answer each need's permissions, so `kindgi dev` shows them too.
+  - `@kindgi/cli`: a `kindgi connections connect` without `--reconnect` that's declined at the app says `Declined at <app> (not <permissions>): nothing from this sign-in was kept.` The sign-in may have been to an account the owner already has a connection of, and that connection stays as it was, so "nothing connected" could be wrong. An expired or failed connect still says "nothing connected".
+- fbf0357: Raise dependency floors to releases with security fixes: hono 4.13.11, re2js 2.8.7, esbuild 0.25.12, zod 4.6.6.
+- c0d9f4c: **`kindgi dev` takes a database URL with a list of hosts (`postgres://<user>:<password>@h1:5432,h2:5432/<database>`) on macOS, on Windows and under Docker Desktop, and reaches each local host in it from the runtime's container.** A local host in libpq's `?host=` is reached the same way. Before, a list with ports stopped `kindgi dev` with `Invalid URL`, and in a list without ports a local host was missed, or the hosts after it were dropped.
+- a122ed1: **`kindgi dev` warns when `--database-url` has a password, which `ps` shows to other users on the machine, and its help says to keep the URL in `.kindgi/secrets.env`.** The warning names no part of the URL, and `kindgi dev` goes on. A `KINDGI_DATABASE_URL` from the shell or the env files is on no command line, so it gets no warning. `--dev-token`'s help says the same of the token: once pinned, it's kept in `.kindgirc.json`, so later runs need no flag.
+- f24cef3: **`kindgi dev` no longer takes over a providers record written by 0.1.3.** 0.1.3 keyed the bundled Postgres's entries in `.kindgi/dev/providers.json` on its port, which changes when its container comes back, and from 0.1.4 the first boot moved them to a key that names the project's database, not its port. A record still from 0.1.3 is now left as it is: a provider it registered reads "registered already, not from kindgi.config.ts", and `kindgi providers unregister <id>`, then a restart, makes it the pack's own again.
+- 24e84dc: **`kindgi dev` keys its record of the providers it registered on the database's hosts, ports and name only, for a URL with a list of hosts too. A changed password no longer makes them read as registered by someone else.**
+- a87c065: `kindgi init` adds zod at 4.6.7, the version Kindgi is now tested with: `4.6.7` exactly when the app pins exact versions or its package manager saves them, otherwise `^4.6.7`. The fresh templates pin `^4.6.7`.
+- b3f40b8: **A key or session with limits manages only the keys within them.** A key or session limited to a project, or with the `member` role, now lists, reads and revokes only those of its owner's keys that are within its limits: the keys limited to the same project and, for the `member` role, the `member` keys. Those are the keys no wider than itself; every key it can mint is among them. Before, it saw and could revoke every key of its owner, wider ones included.
+  
+  `GET /v1/tokens` leaves the others out. `GET /v1/tokens/{tokenId}` and `POST /v1/tokens/{tokenId}/revoke` on one of them answer 403, naming only the caller's own limit: `key-project-mismatch` for a key not limited to the caller's project, `permission-denied` for an `admin` key and a `member` caller. Nothing about that key is in the answer. Someone else's key still reads as missing (404). A tenant admin, and a key or session without limits, see what they did before. `kindgi tokens list` says so in its help, and `tokens.list`, `tokens.get` and `tokens.revoke` in the client say so in their docs.
+- 81b8af0: **A rotation's grace period is a whole number of milliseconds from 0 to 365 days.**
+  - `POST /v1/secrets/{name}/rotate` answers `400 bad-input` for a `revokeOldAfterMs` outside that range: a negative number, a fraction, or more than 31536000000 (365 days). The message names the range. Before, it checked only that the value was a number: a negative one was taken and did nothing, and one of hundreds of thousands of years made the store fail. The field shipped without an upper bound, so the accepted range is now 0 to 365 days; the schema says so with a `maximum`.
+  - `kindgi secrets rotate --revoke-old-after` refuses such a value before sending anything, in the same words, and exits 2.
+  - The schema says what a version's `revokedAt` and a rotation's `oldVersionRevokedAt` mean: a time still to come is the old version's grace period, and it still resolves until then. `MAX_REVOKE_OLD_AFTER_MS` is exported from `@kindgi/api`.
+- 7c10695: **A project role that runs: `runner`.** Between `editor` and `viewer` (`owner` > `admin` > `editor` > `runner` > `viewer`), a `runner` can run: start runs of the project's agents and flows, use their tools inside those runs, stop their own runs, and keep their own schedules. They change nothing else in the project. A person, a service account or a team can be given it, wherever a project role is given: memberships, team grants, and service-account grants, in the API, the clients and the CLI (`kindgi service-accounts create --project=<id>:runner`, `kindgi service-accounts grant <id> --project=<id> --role=runner`). `GET /v1/identity/me/permissions` reports `capabilities.runner`, absent from an older server. `@kindgi/authz` has the new action `run` (`ACTION_TO_RELATION.run` is `can_run`), on a project, and `ProjectRole`, `projectMembershipTuple` and `teamProjectGrantTuple` take `runner`. With `run` on a project, a caller may cancel a run that acts for them (`POST /v1/runs/{runId}/cancel`; anyone else's still takes `write`), and register, change, pause, resume, run now and unregister a schedule of their own. A shared schedule, an Improve schedule, `runAsServiceAccountId`, `runAsProject` and `toolsAllowedUnattended` take what they took before.
+  
+  **Everyone can run a project.** A project has `everyoneCanRun`: everyone in the project's workspace can run its agents and flows without a role of their own. It reaches people only: service accounts aren't included. It reads nothing beyond what running takes: the project (`GET /v1/projects`, `/v1/projects/default` and `/v1/projects/{projectId}`), its agents and flows with their versions (the lists, `GET /v1/agents/{agentId}` and `/v1/flows/{flowId}`, their `versions` and each version; an agent's page names its owner by id alone, with no `name`), and each person's own runs (`GET /v1/runs` and a run with its journal, stream, progress and provenance), the public run links for them, the conversations they opened, and their own personal schedules (list and get); anyone else's stay hidden, and an agent's other pages, tools, test sets, approvals, and artifacts other than their own files, take a role as before. Those routes ask `read` first, and `run` on the project only when `read` refuses; a list other than the runs list keeps the store's cursor, so a page the check leaves short or empty still leads to the next. `POST /v1/projects` sets it `true` unless the body says `"everyoneCanRun": false`, to choose people one by one; `GET` reads it back, and `PATCH /v1/projects/{projectId}` changes it (admin on the project). Existing projects and workspaces keep it `false` until a project admin turns it on. `@kindgi/authz`'s `tuplesForCreate` writes the project's grant when it's `true`, and `everyoneRunsTuples` builds its two tuples for a change (`everyone_runs` for every person, `everyone_in` the project's workspace). `@kindgi/platform`'s `Project`, `ProjectSpec` and `ProjectPatch` carry it, and `TenantHierarchyBinding` has an optional `updateProject`, which changes a project and the grants its patch moves in one transaction: with authorization enforced, a `PATCH` that changes `everyoneCanRun` goes through it, and without it answers `501 authz-membership-unsupported`. `GET /v1/identity/me/permissions` lists a project the caller holds no role on and reaches this way in its new `everyoneCanRunProjects` (`projectId` and `name`), and adds the `via` kind `everyone` to a project in `projects` that also lets everyone run it; `projects[].role` stays required. Its new `everyoneCapabilities` says what everyone may do on such a project and the objects in it. Both are absent from an older server. `MyAccessBinding`'s `ProjectAccess.role` (absent for a project reached this way alone), `AccessPath` and `MyAccess.everyoneCapabilities` carry the same to the route.
+- 61322b4: **A site can't enroll a key it retired.** `POST /v1/auth/sites/enroll` answers `409 site-enrollment-key-retired` for a key the site retired, by its RFC 7638 thumbprint, whatever retired it: an admin's `revoke-key`, or a newer key's enroll. It also refuses a key that another of the workspace's sites at the same address (origin) retired and holds no live entry for. A key that's live on the site now enrolls, as before. The refusal comes only once the code checks out, so a caller without a good code still gets `401 site-enrollment-refused`, and it doesn't use the code up: the same code works with a new key until it expires. `SiteEnrollOutcome` gains `{ kind: 'key-retired' }`, which a runtime that doesn't check never returns. `kindgi sites code` and `kindgi sites revoke-key` say so, and so do the `revokeKey` and `auth.sites.enroll` operations and the TypeScript client's `enrollSite`. The WordPress plugin says where to set a new key when Kindgi refuses one set in `wp-config.php` or the environment, and that the same code still works.
+- Updated dependencies [6707cb9]
+- Updated dependencies [611d0b2]
+- Updated dependencies [a54e5e2]
+- Updated dependencies [e0bfdf7]
+- Updated dependencies [30dbad8]
+- Updated dependencies [ecd251e]
+- Updated dependencies [38aa185]
+- Updated dependencies [7062ba5]
+- Updated dependencies [21501e1]
+- Updated dependencies [fb947de]
+- Updated dependencies [fbf0357]
+- Updated dependencies [b3f40b8]
+- Updated dependencies [64d1461]
+- Updated dependencies [287c34c]
+- Updated dependencies [81b8af0]
+- Updated dependencies [7c10695]
+- Updated dependencies [0334286]
+- Updated dependencies [61322b4]
+- Updated dependencies [a122ed1]
+- Updated dependencies [999154a]
+  - @kindgi/types@0.6.0
+  - @kindgi/flow@0.6.0
+  - @kindgi/agents@0.6.0
+  - @kindgi/client@0.6.0
+  - @kindgi/handler-runtime@0.6.0
+  - @kindgi/sdk@0.6.0
+  - @kindgi/env-schema@0.6.0
+  - @kindgi/platform@0.6.0
+  - @kindgi/crypto@0.6.0
+  - @kindgi/secrets-dotenv@0.6.0
+  - @kindgi/dotenv-file@0.6.0
+  - @kindgi/log@0.6.0
+
+## 0.5.0
+
+### Patch Changes
+
+- 7c82512: `--clear-label` takes a schedule's, a webhook trigger's or a mail trigger's label off. On update, an empty or blank `--label=` is now a usage error that names `--clear-label`, and the label is saved trimmed.
+- 87a84df: **The CLI names connections, chooses which company connection an agent or a flow uses, and points a mail trigger at one.**
+  - A `<connection>` is its id or its name: its label, else its account's label, matched without regard to case. A name looks through every page of the connections it may be. A name that several connections have is refused, listing each one's name, account, app, whose it is and id; `--app` narrows it where the command has it. A name none has is refused, saying how to list them.
+  - `kindgi connections list` shows a LABEL column first: the connection's label, else its account's label. The JSON output is the server's.
+  - `kindgi connections connect <app>` takes `--label=<name>`, the new connection's name, and `--reconnect=<connection>`, one of yours (or, with `--for-company`, of the company's) at the app to sign in to again, which keeps its name. The finish names the connection by its label, with its account: `Connected support (support@acme.example at google, company)`.
+  - `kindgi connections update <connection> --label=<name>` renames a connection, and says its old name and its new one.
+  - `kindgi connection-choices` (project admins; members list them):
+    - `set <connection> --agent=<id>` (or `--flow=<id>`) chooses one of the project's company connections for an agent or a flow at its app, and says which choice it replaced, if any.
+    - `list` shows the project's choices (`--agent`, `--flow`, `--app`, `--include-removed`); `--table` names each connection.
+    - `unset <choice-id>` removes one, asking first at a terminal; without one it needs `--yes`.
+  - `kindgi mail-triggers create` and `update` take `--connection=<connection>` with `--as=company`: the company connection the mailbox is read with, one of the project's at the mailbox's app. On a person's mailbox it's refused before anything is sent. On update it goes with `--mailbox` and `--as`. When the project has several and none is named, the error lists them and the command again with each one. The `--table` MAILBOX column names the connection a trigger reads with (`google company support`).
+  - A connection the server can't find names the flag that sent it (`--reconnect`, `--connection`).
+- 83a54f3: **Every program the CLI starts is the one on `PATH`, never a copy in the folder it runs in.** As with git before, the CLI started these by a bare name: docker, the package manager (`pnpm`, `yarn`, `bun`, `npx`), `kindgi doctor`'s tools, a cloud's CLI for a token (`gcloud`, `az`, `aws`), the browser's opener, the feedback editor, an MCP server's runner, and the pack's Python, JDK, Maven and sbt. On Windows, Node looks for a bare name in the folder the program runs in (the pack's, or wherever `kindgi` was started) before `PATH`, unless `NoDefaultCurrentDirectoryInExePath` is set. On every platform, an empty or relative `PATH` entry points into that folder too. So a `docker.exe` or `python.exe` in the pack ran in the real one's place.
+  
+  Each is now found in `PATH`'s absolute entries and run by that path, and `kindgi dev`'s sandbox wraps the program it found. A command set as a path (`dev.python`, `JAVA_HOME`, `EDITOR=/usr/bin/vim`) runs as given, and a program that isn't on `PATH` fails as it did before. On Windows, a Store app's `python.exe` alias is still found. The WooCommerce starter's `connect-store` script finds its browser opener the same way.
+- f4fabce: `kindgi dev` runs runtime 0.5.0-rc.0.
+- 801ce8a: `kindgi dev` runs runtime 0.5.0.
+- 306f368: A deploy of an image that's deployed already says so, and says its pack service's state: asked for, ready or taken down. Its banner no longer calls it an idempotent replay.
+- a882e5d: **`kindgi exports create` exports connection choices:** each project's choices, removed ones included (`connection-choices.jsonl`), each line with the project it was read for. The connections a choice may name aren't exported, since a server works them out from the connections.
+- ab5403e: **`kindgi build` refuses a block file or template named in another case than the disk has.** On a disk that ignores case (macOS, Windows), `"templateFile": "Reply.liquid"` finds `reply.liquid`, and a blocks pattern's `blocks/` finds a `Blocks/` folder, so the pack indexes and runs under `kindgi dev`; a build on Linux, as in CI, doesn't find the file. The build now names each such template, and a pattern whose folder is in another case, as the pack names it and as the disk spells it. `kindgi dev` says the same once at boot or on the reload that brings it, and still loads the block.
+- fda29c0: **One agent can use several accounts of one app: the company's, or a person's own.**
+  
+  A person can connect an app more than once, once per account: connecting an account they already have reconnects that connection when the grant keeps every permission it holds, as the company's does. One of their connections through a registration in an environment is their main (`Connection.main`, `ConnectionCandidate.main`): the one their agents use when no choice names another. A person's first connection has no main. Their second connection makes the first one their main, and the connect finish says which (`main`: `set`, `kept` or `missing`, with `connectionId` for the first two). `PATCH /v1/connections/{connectionId}` with `{ "main": true }` makes a connection its owner's main, in place of the one that was. Only that person can do this; the company's connections have no main, and `main: false` is refused, since a main moves only when another is made main. A mail trigger's stored connection doesn't move with it.
+  
+  A choice can now be for one tool's connection, not only for an agent's or a flow's app: `toolId` and `need`, the tool's name for the connection, which may be left out when the tool uses the app once. A choice can also be a person's own (`person`), for their own runs: only they make, change or remove it. A choice a version would never read is refused (`bad-input`, field `person`): the company's for a tool's need that is each person's own, a person's for the company's, and an agent's or a flow's own choice when its tools, at the versions they resolve to now, use the app only as the other owner's. One whose tools don't use the app now may be made ahead. For a tool that changes nothing, a choice can be a set (`connectionIds`): 2 to 10 candidates, each named, with `connectionId` among them as the one a call that names none uses. The agent's model then sees an `accounts` input on that tool. That input names, by connection name, which of the set's connections a call reads; the model never sees connection ids. A name outside the set fails the call with `connection-missing`, without the name, and so does any name once the tool, at the version its agent or flow resolves to now, can't take a set: only a call that names none uses the default. A tool that changes things, declares `sensitive-data-egress` or has an `accounts` input of its own can't take a set.
+  
+  - `GET /v1/connection-choices/needs` lists an agent's or a flow's tools' connections at the versions they resolve to now: the tool, its `need`, the app, whose connection it is (`as`), and whether a choice for it may be a set (`set.allowed`, else `set.reason`: `changes`, `sensitive-data-egress` or `accounts-input`). Tools whose version couldn't be read are in `unread`.
+  - `GET /v1/connections/{connectionId}/choices` lists the live choices that name a connection, as `connectionId` or in a set, for its owner or a tenant admin.
+  - `GET /v1/connection-choices` takes `toolId`. It lists the company's choices and the caller's own, and a tenant admin reads every person's too; `owner=me` lists only the caller's own. `GET /v1/connection-choices/candidates` takes `owner=me` for the caller's own connections.
+  - A run's record of the connection a call used says how it was picked (`by`: `named` or `main` are new), whose it was (`as`), and for a set, how many it had (`setSize`), without naming the others. A person's connection on that record now carries only its account's id, not its label.
+  - An approval's `connection` names no account when it's a person's own, and `as` says whose. `ApprovalConnection` (and `HitlEnqueueInput.connection`) gains `as`, and its `account` is now optional, so code that read `account` as always there must allow for a person's approval without one. The reviewer sees "this person's <app> account". Approvals recorded before keep what they had.
+  - A mail trigger on a person's mailbox can name its owner's own connection (`config.mailbox.connectionId`). With none named it stores their main, else their only one; several and no main is `409 connection-not-chosen`, counting them and naming none. A person mailbox's `account` (its address) is read only by the trigger's owner and a tenant admin; anyone else reads the trigger without it. A take-over of a person's mailbox clears its stored connection and its `account` label until the next poll.
+  
+  - `@kindgi/api`: the routes above, and `ConnectionBinding` gains `choiceNeeds` and `listChoicesForConnection`, with `main`, `toolId`, `need`, `connectionIds`, `person` and `owners` on its inputs and records. New types: `ConnectFinishMain`, `ConnectionChoiceNeedRecord`, `ConnectionChoiceNeeds` and `ConnectionSetRefusal`. For tests, `@kindgi/api/testing`'s trigger registry gains `recordPoll`, which records a mail trigger's poll and the account it read.
+  - `@kindgi/tools`: `ResolveConnectionsInput.accounts`, a need's connection id named by the call; `ConnectionResolver.accountChoices`, the sets a turn offers, with the types `ConnectionAccountChoices` and `ConnectionAccountChoicesInput`; and `ConnectionPick`'s new `by` values, `as` and `setSize`.
+  - `@kindgi/agents`: a turn asks the resolver for its sets once, offers each as an `accounts` input, and takes it off the arguments before the tool runs. `connectionSetRefusal(tool)` is the one rule for which tools may take a set.
+  - `@kindgi/runtime`: `MailTriggerRecord.account`'s label is optional, and the scheduler's docs cover a person mailbox's connection.
+  - `@kindgi/connections-inmemory`: keeps mains, tool choices, person choices and sets the same way, and its resolver picks a call's connection in the same order.
+  - `@kindgi/client`: `client.connectionChoices.needs(...)`, which answers a `ConnectionChoiceNeeds`, `client.connections.choices(connectionId)`, and the new fields and queries above.
+  - `@kindgi/cli`: `kindgi connection-choices set` takes `--tool`, `--need`, `--default` and `--mine`, and `list` takes `--tool` and `--mine`, with TOOL, NEED and CONNECTIONS columns: your own choices marked `yours:`, and another person's counted, with their user id, not named. `kindgi connections update --main` makes a connection your main, and `kindgi connections list` marks it `(main)`. After a person's new connection, `connect` says which of theirs their agents use when they have several there: their main, or that none is, so a call that needs one stops with `connection-not-chosen` until one is. `kindgi mail-triggers` takes `--connection` with `--as=person`: your own connection that reads your mailbox. A person's mailbox's `connection-not-chosen` says how to name one, or make one main.
+- a9e4477: The CLI's help and messages, a new pack's `AGENTS.md` and the skills call the place a workspace, as the console does. What you type keeps `tenant`: `--tenant`, `kindgi tenant`, `tenantId`, `KINDGI_TENANT_*` and the scope value `tenant`. So do the tenant admin role and the text for the operator of a runtime that serves several workspaces. The CLI prints the server's own messages as they come.
+- Updated dependencies [6421d6f]
+- Updated dependencies [64f9f38]
+- Updated dependencies [c8afe3b]
+- Updated dependencies [04813e4]
+- Updated dependencies [e96b83b]
+- Updated dependencies [2251f96]
+- Updated dependencies [215b6c1]
+- Updated dependencies [c104300]
+- Updated dependencies [3360533]
+- Updated dependencies [fda29c0]
+- Updated dependencies [ba0feb8]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [8327900]
+- Updated dependencies [1365f49]
+- Updated dependencies [a9e4477]
+  - @kindgi/agents@0.5.0
+  - @kindgi/env-schema@0.5.0
+  - @kindgi/client@0.5.0
+  - @kindgi/sdk@0.5.0
+  - @kindgi/flow@0.5.0
+  - @kindgi/handler-runtime@0.5.0
+  - @kindgi/types@0.5.0
+  - @kindgi/platform@0.5.0
+  - @kindgi/secrets-dotenv@0.5.0
+  - @kindgi/crypto@0.5.0
+  - @kindgi/dotenv-file@0.5.0
+  - @kindgi/log@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

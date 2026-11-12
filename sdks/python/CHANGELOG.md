@@ -28,6 +28,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **a key carries the key it was minted with, and a revoke names
+  the keys that went with it.** `ApiToken.minted_with` is the key a key was
+  minted with, which revoking stops it with. `tokens.list(minted_with=...)`
+  lists the keys minted with a key, to any depth, and the page says
+  `minted_with`. `RevokeTokenResult.also_revoked` lists every key revoked
+  with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
+  minted with a removed person's. Each is absent from a runtime that doesn't
+  record which key minted which.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
@@ -41,6 +49,27 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+
+## 0.6.0
+
+- `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
+- `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
+  `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,
+  through the API's MCP server, to the people who can see it: an agent's tool
+  is named by its id, a flow's by `flow.` and its id. `"readOnly"` and
+  `"destructive"` become the tool's hints; left out, none is sent. With
+  `"expose": True`, the id must be a tool's name, and an agent's can't start
+  with `kindgi.` or `flow.`; the class refuses one that isn't when the module
+  loads. The indexer writes `mcp` into the pack index, and the vendored
+  `flow.schema.json` (1.10.0) and `pack-index.schema.json` (1.9.0) take it.
+  The client's models gain `McpExposure` and an `mcp` field on `Agent`,
+  `Flow` and their publish bodies.
+- `kindgi`: **`client.runs.list(acts_for="me")` lists only the runs that act
+  for you** (a run's `acts_for`); none when you act for no one. A runtime
+  before Kindgi 0.6.0 ignores it and lists every run you may see.
+
+## 0.5.0
+
 - `kindgi`: **one agent can use several accounts of one app: the company's, or a person's own.** `Connection.main` and `ConnectionCandidate.main` mark a person's main connection of an app, the one their agents use when no choice names another, and `client.connections.update(connection_id, main=True)` makes a connection its owner's main. `ConnectFinish.main` says what a person's connect did to it. `client.connection_choices.set(...)` takes `tool_id` and `need` for one tool's connection, `person` for a person's own choice, and `connection_ids` for a set a read-only tool's calls may pick from by name. `list(...)` takes `tool_id` and `owner="me"`, and `candidates(...)` takes `owner="me"`. `client.connection_choices.needs(project_id=..., agent_id=...)` (or `flow_id=`) lists the tools' connections and whether each may take a set, and `client.connections.choices(connection_id)` lists the choices that name a connection, each with their async twins. `ApprovalConnection` gains `as_`, and its `account` is optional: a person's account isn't named. A mail trigger on a person's mailbox can name its owner's own connection, and only its owner and a tenant admin read that mailbox's `account`.
 - `kindgi`: **the client's docstrings call the place a workspace**, as the
   API reference does. What you pass or read keeps `tenant`: `tenant_id`, the

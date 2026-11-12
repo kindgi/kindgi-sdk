@@ -165,6 +165,8 @@ interface TurnOptions {
   readonly records?: Map<string, unknown>;
   /** The step's scope. */
   readonly stepScope?: string;
+  /** More of the step's context: a retry's `attempt`, say. Absent: the first attempt. */
+  readonly node?: Pick<NodeContext, 'attempt'>;
   /** The sets the turn offers (`TurnContext.accountChoices`). */
   readonly accountChoices?: ConnectionAccountChoices;
   /** The call's arguments. Absent: `{to: 'someone'}`. */
@@ -293,6 +295,7 @@ async function turn(o: TurnOptions = {}) {
       {
         runId: RUN,
         ...(o.stepScope !== undefined && { stepScope: o.stepScope }),
+        ...o.node,
         waitForToken: (async (token: string, options?: { timeoutMs?: number }) => {
           waits.push({ token, ...(options?.timeoutMs !== undefined && options) });
           if (o.waitForToken !== undefined) return o.waitForToken(token);
@@ -442,7 +445,9 @@ describe('a call gets its connections before it runs', () => {
           account: { id: 'acct-shared', label: 'owner@acme.example' },
         },
       },
+      recordsRan: true,
     });
+    expect(t.records.get(`connection-gate:${CALL}:ran:1`)).toEqual({ kind: 'ran' });
     expect(t.failed).toEqual([]);
   });
 
@@ -1032,7 +1037,13 @@ describe("a call that acts with a person's connection is theirs to approve", () 
   test('the approval names its owner, and says the account it acts as is theirs, never naming it', async () => {
     const t = await turn({ policy: ask });
     expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
-    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
+    // Its id, for whoever may read the connection to look the account up.
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+      connectionId: 'conn-mail',
+    });
     expect(t.ran).toHaveLength(1);
   });
 
@@ -1044,6 +1055,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       appName: 'Acme',
       as: 'company',
       account: 'owner@acme.example',
+      connectionId: 'conn-shared',
     });
 
     const named = await turn({
@@ -1058,6 +1070,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       as: 'company',
       account: 'sales@acme.example',
       name: 'sales',
+      connectionId: 'conn-sales',
     });
     expect(named.ran).toHaveLength(1);
   });
@@ -1069,8 +1082,14 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       answers: [readyOn({ mail: { ...support, name: 'mine' }, archive: sales })],
     });
     expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
-    // Built from the run's record, which any project reader reads.
-    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
+    // Built from the run's record, which any project reader reads: the id
+    // is there already, the account and name never are.
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+      connectionId: 'conn-support',
+    });
   });
 
   test('the connect comes before the approval', async () => {
@@ -1253,13 +1272,16 @@ describe('which company connection a call uses', () => {
         choices: ['sales', 'support'],
       });
       expect(stringsOf(t.thrown).join(' ')).not.toContain('conn-');
-      if (key !== undefined) expect(t.records.get(key)).toEqual(notChosen);
+      if (key !== undefined) expect(t.records.get(key)).toEqual({ ...notChosen, as: 'company' });
     },
   );
 
-  test('the record keeps the choices, and a ready connection its name', async () => {
+  test('the record keeps the choices and whose need it was, and a ready connection its name', async () => {
     const refused = await turn({ needs: { shared }, answers: [notChosen] });
-    expect(refused.records.get(`connection-gate:${CALL}`)).toEqual(notChosen);
+    expect(refused.records.get(`connection-gate:${CALL}`)).toEqual({
+      ...notChosen,
+      as: 'company',
+    });
 
     const ready = await turn({ needs: { shared }, answers: [readyOn({ shared: support })] });
     expect(ready.records.get(`connection-gate:${CALL}`)).toEqual({
@@ -1267,8 +1289,23 @@ describe('which company connection a call uses', () => {
       connections: {
         shared: { app: 'acme', appName: 'Acme', ...support },
       },
+      recordsRan: true,
     });
     expect(ready.ran[0]?.connections?.shared?.name).toBe('support');
+  });
+
+  test('an older record, with no `as`, replays as before: the turn fails, and nothing is asked', async () => {
+    const records = new Map<string, unknown>([[`connection-gate:${CALL}`, notChosen]]);
+    const t = await turn({ needs: { shared }, records });
+    expect(t.asked).toEqual([]);
+    expect(t.ran).toEqual([]);
+    expect(t.thrown).toBeInstanceOf(AgentTurnFailure);
+    expect((t.thrown as AgentTurnFailure).payload).toEqual({
+      code: 'connection-not-chosen',
+      message: notChosen.kind === 'refused' ? notChosen.message : '',
+      connection: 'shared',
+      choices: ['sales', 'support'],
+    });
   });
 
   test("the record says how each was picked, and names a person's connection by its app and account id only", async () => {
@@ -1300,6 +1337,7 @@ describe('which company connection a call uses', () => {
           pick: { by: 'choice', choiceId: 'choice-1', registration },
         },
       },
+      recordsRan: true,
     });
     // The tool still reads its own connection's name; only the record leaves it out.
     expect(t.ran[0]?.connections?.mail?.name).toBe('mine');
@@ -1398,5 +1436,100 @@ describe('which company connection a call uses', () => {
     expect(t.failed).toEqual([]);
     expect(t.ran).toHaveLength(1);
     expect(t.ran[0]?.connections?.mail?.name).toBe('help desk');
+  });
+});
+
+describe("a call's record says whether its tool ran", () => {
+  const RAN = `connection-gate:${CALL}:ran:1`;
+  const ranKeys = (records: Map<string, unknown>) =>
+    [...records.keys()].filter((key) => key.startsWith(`connection-gate:${CALL}:ran:`));
+  const ready = readyFor({ needs: { mail } } as never, 1);
+
+  test('recorded right before its first run, and its ready record says so; a renewed run writes no other', async () => {
+    const records = new Map<string, unknown>();
+    const seen: unknown[] = [];
+    const t = await turn({
+      records,
+      run: async (_ctx, attempt) => {
+        seen.push(records.get(RAN));
+        if (attempt === 1) throw new ConnectionRejectedError('mail', 'Acme said 401.');
+        return { ok: true };
+      },
+    });
+    expect(t.ran).toHaveLength(2);
+    expect(seen).toEqual([{ kind: 'ran' }, { kind: 'ran' }]);
+    expect(ranKeys(t.records)).toEqual([RAN]);
+    expect(t.records.get(`connection-gate:${CALL}`)).toMatchObject({
+      kind: 'ready',
+      recordsRan: true,
+    });
+  });
+
+  test.each([
+    [
+      'another connection',
+      [readyOn({ mail: support }), readyOn({ mail: sales })],
+      'connection-changed',
+    ],
+    [
+      'a renewal that failed',
+      [ready, new ConnectionRenewError('mail', 'Acme did not answer.')],
+      'connection-renew-failed',
+    ],
+  ] as const)('stopped right before it ran, by %s: no such record', async (_, answers, code) => {
+    const t = await turn({ answers });
+    expect(t.ran).toEqual([]);
+    expect(t.failed.map((e) => e.error.code)).toEqual([code]);
+    expect(t.records.get(`connection-gate:${CALL}`)).toMatchObject({ recordsRan: true });
+    expect(ranKeys(t.records)).toEqual([]);
+  });
+
+  test('the app refused its token and the renewal failed: it ran once, and its record says so', async () => {
+    const t = await turn({
+      answers: [ready, ready, new ConnectionRenewError('mail', 'Acme did not answer.')],
+      run: async () => {
+        throw new ConnectionRejectedError('mail', 'Acme said 401.');
+      },
+    });
+    expect(t.ran).toHaveLength(1);
+    expect(t.failed.map((e) => e.error.code)).toEqual(['connection-renew-failed']);
+    expect(ranKeys(t.records)).toEqual([RAN]);
+  });
+
+  test('a pausing call records it on its run; the answer that resumes it writes no other', async () => {
+    const records = new Map<string, unknown>();
+    const parked = new Error('parked');
+    const first = await turn({
+      pauses: true,
+      run: async () => pauseOutcome({ tokenId: 'pause:k:1', timeoutMs: 60_000 }),
+      records,
+      waitForToken: async () => {
+        throw parked;
+      },
+    });
+    expect(first.thrown).toBe(parked);
+    expect(ranKeys(records)).toEqual([RAN]);
+    const resumed = await turn({ pauses: true, records, waitForToken: async () => ({ ok: true }) });
+    expect(resumed.ran).toEqual([]);
+    expect(ranKeys(records)).toEqual([RAN]);
+  });
+
+  test("its input failed the tool's input check: it was handed its connections, so it's recorded, and its tool didn't start", async () => {
+    const t = await turn({ arguments: { to: 5 } });
+    expect(t.ran).toEqual([]);
+    expect(t.results).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        error: expect.objectContaining({ kind: 'invalid-arguments' }),
+      }),
+    ]);
+    expect(ranKeys(t.records)).toEqual([RAN]);
+  });
+
+  test("a retried step's attempt records its own", async () => {
+    const records = new Map<string, unknown>([[RAN, { kind: 'ran' }]]);
+    const t = await turn({ records, node: { attempt: 2 } });
+    expect(t.ran).toHaveLength(1);
+    expect(ranKeys(t.records)).toEqual([RAN, `connection-gate:${CALL}:ran:2`]);
   });
 });

@@ -13,10 +13,19 @@ export {
   PLAIN_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
+  bearerAuthMiddleware,
   encodeSessionToken,
+  tokenSignInKey,
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
-export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
+export type {
+  BearerAuthMiddlewareOptions,
+  SessionCookieOptions,
+  TokenResolution,
+  TokenResolver,
+} from './middleware/auth.js';
+export type { McpServerInput } from './mcp-server/endpoint.js';
+export { MCP_SCOPES, type McpScope } from './mcp-server/scopes.js';
 export type {
   ConsoleLink,
   SignInLegalLinks,
@@ -1394,6 +1403,7 @@ export type {
   SecretVersionRecord,
 } from './secrets-binding.js';
 export {
+  MAX_REVOKE_OLD_AFTER_MS,
   RESERVED_SECRET_NAME_PREFIX,
   SECRET_NAME_ALLOWED,
   SECRET_NAME_MAX_LENGTH,

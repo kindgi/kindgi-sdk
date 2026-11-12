@@ -2119,6 +2119,12 @@ export interface InviteRenewed {
 export interface UnregisterUserResult {
   readonly user: User;
   readonly keysRevoked: number;
+  /**
+   * The keys minted with theirs, and with those in turn, revoked with
+   * them, whoever they act for. Not in `keysRevoked`. Absent from a
+   * runtime whose key store doesn't record which key minted which.
+   */
+  readonly mintedKeysRevoked?: number;
   readonly sessionsRevoked: number;
   readonly grantsRemoved: number;
 }
@@ -2270,6 +2276,17 @@ export interface Project {
    * start Improve.
    */
   readonly sortEndUserCorrections?: boolean;
+  /**
+   * `true`: everyone in the project's workspace can run its agents and
+   * flows without a role of their own; service accounts aren't included.
+   * That reads nothing more than running takes: the project, its agents
+   * and flows with their versions (an agent's owner by id alone), and each
+   * person's own runs, conversations and schedules. `false`: only people
+   * given a role. A new project has it unless its creator turns it off;
+   * existing projects and workspaces keep it `false` until a project admin
+   * turns it on. Absent from an older server.
+   */
+  readonly everyoneCanRun?: boolean;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
@@ -2284,6 +2301,11 @@ export interface ProjectSpec {
    * created by the server when the workspace is created, not by a caller.
    */
   readonly isDefault?: boolean;
+  /**
+   * `Project.everyoneCanRun`: `true` when left out; `false` to choose
+   * people one by one.
+   */
+  readonly everyoneCanRun?: boolean;
 }
 
 export interface ProjectPatch {
@@ -2293,16 +2315,20 @@ export interface ProjectPatch {
   readonly orgId?: import('@kindgi/types').OrgId | null;
   /** `Project.sortEndUserCorrections`. Admin on the project. */
   readonly sortEndUserCorrections?: boolean;
+  /** `Project.everyoneCanRun`. Admin on the project. */
+  readonly everyoneCanRun?: boolean;
 }
 
 /**
  * Roles on a `ProjectMembership` — the direct `User → Project`
- * grant shape. Additive with team-grants. `owner`, `admin`, `editor`
- * and `viewer`, each including the ones after it; `member` only reads
+ * grant shape. Additive with team-grants. `owner`, `admin`, `editor`,
+ * `runner` and `viewer`, each including the ones after it (a `runner`
+ * starts runs of the project's agents and flows, stops their own runs and
+ * keeps their own schedules); `member` only reads
  * back on a role given before it was retired (it grants what `viewer`
  * does), and writes refuse it.
  */
-export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+export type ProjectRole = 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
 
 export interface ProjectMembership {
   readonly projectId: import('@kindgi/types').ProjectId;
@@ -2351,6 +2377,12 @@ export interface ApiToken {
   readonly lastUsedAt?: import('@kindgi/types').Timestamp;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
   readonly revokedAt?: import('@kindgi/types').Timestamp;
+  /**
+   * The key it was minted with: the minter's key, or the key a token
+   * sign-in session was opened with. It stops when that key is revoked.
+   * Absent when none was, and for a key minted before keys recorded it.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 export interface ApiTokenSpec {
@@ -2397,7 +2429,7 @@ export type ServiceAccountGrant =
   | {
       readonly kind: 'project';
       readonly projectId: string;
-      readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+      readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
     };
 
 /**
@@ -2411,7 +2443,7 @@ export type ServiceAccountGrantInput =
   | {
       readonly kind: 'project';
       readonly projectId: string;
-      readonly role: 'viewer' | 'editor' | 'owner' | 'admin';
+      readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin';
     };
 
 /** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
@@ -2455,7 +2487,7 @@ export interface PersonGrants {
   readonly tenantMember?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
-    readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+    readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
   }[];
   readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
@@ -3268,6 +3300,7 @@ export interface CorrectionWithCopies extends Correction {
  * Input for `POST /v1/corrections` per `#CreateCorrectionBody`. At least one
  * of `decisions`, `answer` and `items`; `decisions: 'wrong'` needs an entry in
  * `shouldCall` or `mustNotCall`, and `answer: 'wrong'` needs `shouldSay` or `why`.
+ * A text of only spaces counts as not given.
  */
 export interface CreateCorrectionInput {
   readonly runId: string;
