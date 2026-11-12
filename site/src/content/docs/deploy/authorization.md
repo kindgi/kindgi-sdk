@@ -59,7 +59,10 @@ small team that trusts each other. `kindgi dev` runs without it.
 
 - **A runtime set up as in [Self-host Kindgi](../self-hosted/self-host/),** with its
   `kindgi` Docker network and its `kindgi-db` Postgres container.
-  `DB_PASSWORD` is that Postgres's password.
+  `db.env` holds that Postgres's password. If yours has no `db.env`, make it
+  in an editor, beside `kindgi.env`, with `POSTGRES_PASSWORD=` and the
+  password from `kindgi.env`'s `KINDGI_DATABASE_URL`, and
+  `chmod 600 db.env`.
 - **Runtime 0.1.4.1 or later.** On a managed Postgres whose database user
   has neither `BYPASSRLS` nor superuser, 0.1.6 and 0.1.7 don't start with
   authorization on: use 0.1.8 or later there.
@@ -73,19 +76,27 @@ OpenFGA security advisories affect that version
 OpenFGA keeps its data in Postgres:
 give it its own database on the runtime's server. These commands continue
 [Self-host Kindgi](../self-hosted/self-host/) (the `kindgi` network and the `kindgi-db`
-container):
+container). Put OpenFGA's database address in `openfga.env`, beside
+`kindgi.env`:
+
+```sh
+OPENFGA_DATASTORE_URI=postgres://kindgi:<DB_PASSWORD>@kindgi-db:5432/openfga?sslmode=disable
+```
+
+`<DB_PASSWORD>` is `db.env`'s `POSTGRES_PASSWORD`. The file holds the
+database password, so keep it to yourself: `chmod 600 openfga.env`. Then:
 
 ```sh
 docker exec kindgi-db psql -U kindgi -c 'CREATE DATABASE openfga'
 
-docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
-  --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
+docker run --rm --network kindgi --env-file openfga.env \
+  openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres
 
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  --env-file openfga.env \
   openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable" \
   --playground-enabled=false
 ```
 
@@ -96,8 +107,10 @@ migration done
 - `CREATE DATABASE openfga` gives OpenFGA a database of its own in the
   runtime's Postgres.
 - `migrate` makes OpenFGA's tables there, and prints `migration done`.
-  `--datastore-engine postgres` and `--datastore-uri` say where its data
-  goes.
+  `--datastore-engine postgres` and `openfga.env`'s `OPENFGA_DATASTORE_URI`
+  say where its data goes.
+- `--env-file openfga.env` gives OpenFGA its database's address and
+  password, so neither is on a command line.
 - `run` starts OpenFGA on the `kindgi` network, as `kindgi-openfga`. `-d`
   runs it in the background, and `--restart unless-stopped` has Docker
   start it again after a restart.
@@ -118,12 +131,19 @@ runtime's ([Back up Postgres](../self-hosted/back-up-and-restore/#back-up-postgr
 ### An OpenFGA you already run
 
 To move an OpenFGA from v1.9.0 to v1.22.0, run the new version's `migrate`
-against its database, then restart OpenFGA on the new version:
+against its database, then restart OpenFGA on the new version.
+
+If you have no `openfga.env` yet, write it as
+[Run OpenFGA next to the runtime](#run-openfga-next-to-the-runtime) shows.
+If you made it require a key, add `OPENFGA_AUTHN_METHOD=preshared` and
+`OPENFGA_AUTHN_PRESHARED_KEYS=<your key>` too, as
+[Require a key for OpenFGA](#require-a-key-for-openfga) does.
+`<your key>` is `kindgi.env`'s `KINDGI_OPENFGA_PRESHARED_KEY`.
 
 ```sh
-docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
-  --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
+docker run --rm --network kindgi --env-file openfga.env \
+  openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres
 docker stop kindgi-openfga && docker rm kindgi-openfga
 ```
 
@@ -206,17 +226,22 @@ calls.
 Use OpenFGA 1.14.0 or later with a key, with its playground off: before 1.14.0,
 the playground page shows the key to anyone who opens it
 ([OpenFGA: Playground Preshared Key Exposure](https://github.com/openfga/openfga/security/advisories/GHSA-68m9-983m-f3v5),
-CVE-2026-40293). Make a key, run
-OpenFGA with it, and give the runtime the same key:
+CVE-2026-40293). `openssl rand -hex 32` prints a new key. In `openfga.env`,
+add the method and that key, each on its own line:
 
 ```sh
-OPENFGA_KEY=$(openssl rand -hex 32)
+OPENFGA_AUTHN_METHOD=preshared
+OPENFGA_AUTHN_PRESHARED_KEYS=<the key openssl printed>
+```
 
+Then stop, remove and start OpenFGA again with the same `run` command:
+
+```sh
+docker stop kindgi-openfga && docker rm kindgi-openfga
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  --env-file openfga.env \
   openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable" \
-  --authn-method preshared --authn-preshared-keys "$OPENFGA_KEY" \
   --playground-enabled=false
 ```
 
@@ -225,6 +250,8 @@ In `kindgi.env`, beside the address:
 ```sh
 KINDGI_OPENFGA_PRESHARED_KEY=<the same key>
 ```
+
+`<the same key>` is `openfga.env`'s `OPENFGA_AUTHN_PRESHARED_KEYS`.
 
 The key is printable ASCII, without spaces or commas: it travels in a header,
 and OpenFGA's list of keys is comma-separated. After a
@@ -244,11 +271,14 @@ kindgi-runtime: fatal: Error: OpenFGA at http://127.0.0.1:63551 refused the serv
 **To change the key** with no call refused, use OpenFGA's list of keys, and
 restart each in turn:
 
-1. Add the new key to OpenFGA's: `--authn-preshared-keys "$OLD_KEY,$NEW_KEY"`.
-   Restart OpenFGA.
+1. Add the new key to OpenFGA's list: in `openfga.env`,
+   `OPENFGA_AUTHN_PRESHARED_KEYS=<old key>,<new key>`. `openssl rand -hex 32`
+   prints a new key. Stop and remove `kindgi-openfga`, and start it again with
+   the `run` command above. Docker reads `openfga.env` only when it creates
+   the container.
 2. Set the runtime's `KINDGI_OPENFGA_PRESHARED_KEY` to the new key. Restart the
    runtime.
-3. Drop the old key from OpenFGA's list. Restart OpenFGA.
+3. Drop the old key from that line. Stop, remove and start OpenFGA again.
 
 On Cloud Run, OpenFGA's IAM adds a second check:
 [OpenFGA behind Cloud Run IAM](../self-hosted/cloud-run/#openfga-behind-cloud-run-iam).

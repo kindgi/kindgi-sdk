@@ -14,9 +14,9 @@ inside it.
 
 - **A run that's running or waiting,** and its id. `kindgi runs list` lists
   runs, as [List runs](../list-runs/) shows.
-- **`kindgi dev` running** in your pack's directory, with Kindgi 0.5's CLI.
+- **`kindgi dev` running** in your pack's directory, with Kindgi 0.6's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.5's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.6's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 - **`write` on the run's project,** when authorization is on. Someone who
   may run the project, as its `runner` or because it lets everyone in the
@@ -87,7 +87,7 @@ Error [conflict]: Cannot cancel run: already cancelled
 
 ## What a cancel stops
 
-A cancel takes effect at once, wherever the run is:
+A cancel ends the run at once, wherever the run is:
 
 - **No step starts after it.** A flow between two steps, or in the middle of
   a loop, starts nothing more, and its journal records no start after
@@ -96,6 +96,19 @@ A cancel takes effect at once, wherever the run is:
   model and ends `cancelled`. A start that was waiting for the turn
   (`wait: true`) answers within seconds with `422 agent-turn-aborted`,
   "Agent turn cancelled".
+  - When the runtime instance that takes the cancel is the one running the
+    run, the step stops at once.
+  - With more than one instance, when another one runs it, that instance
+    stops the step at its next check for ended runs, every
+    [`KINDGI_RUN_ENDED_CHECK_MS`](../../../reference/env-vars/#kindgi_run_ended_check_ms)
+    (5 s by default). Until then, a model call in flight goes on.
+  - On either instance (runtime 0.7.0 or later), when it can't read which
+    of a tenant's runs ended, its log says
+    `could not check which of a tenant's runs ended: <cause>`
+    at `warn` on the `leases`
+    [subsystem](../../../deploy/self-hosted/logs/#the-subsystems), with
+    `tenantId`. That tenant's steps stop at the next check that succeeds, and
+    the other tenants' runs are checked as usual.
 - **A step that ends as it lands keeps its end.** Its `step.completed` comes
   after `run.cancelled` in the journal: it did finish.
 

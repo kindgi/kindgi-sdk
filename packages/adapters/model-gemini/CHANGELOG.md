@@ -1,5 +1,14 @@
 # @kindgi/adapter-model-gemini
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [6707cb9]
+  - @kindgi/types@0.6.0
+  - @kindgi/capabilities@0.6.0
+  - @kindgi/adapter-model-shared@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

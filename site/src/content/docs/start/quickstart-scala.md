@@ -26,12 +26,12 @@ You also need a JDK 17 or later, with `JAVA_HOME` set to it, and
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.5 init my-pack --template=scala
+npx --yes @kindgi/cli@0.6 init my-pack --template=scala
 cd my-pack
 sbt -batch test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.5` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.6` runs the Kindgi CLI these docs describe,
   without installing it
   ([Check this machine](../install/#check-this-machine) says how). The
   version is optional: `npx --yes @kindgi/cli init my-pack --template=scala`
@@ -51,7 +51,7 @@ sbt -batch test    # the template's tests: the tools, called directly
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.5,<0.6" kindgi init my-pack --template=scala`.
+`uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-pack --template=scala`.
 
 The pack is an sbt project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are objects in four packages:

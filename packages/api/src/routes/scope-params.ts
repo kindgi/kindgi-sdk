@@ -8,6 +8,7 @@ import type { Scope } from '@kindgi/platform';
 import type { AgentPinScope, ListScope, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
 import type { AppEnv } from '../types.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * The authorization resource for a request scope: the project or org it
@@ -168,8 +169,6 @@ export function parseScopeParams(
   return { kind: 'ok', scope, ...(inherit !== undefined && { inherit }) };
 }
 
-const SCOPE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * A content list's `?scopeKind` + `?scopeId` as a `ListScope`: a project
  * or an org narrows the list; no scope, or `tenant`, is the whole tenant.
@@ -187,7 +186,7 @@ export function parseListScope(
   const scope = parsed.scope;
   if (scope === undefined || scope.kind === 'tenant') return { kind: 'ok' };
   const id = (scope.kind === 'project' ? scope.projectId : scope.orgId) as unknown as string;
-  if (!SCOPE_ID_RE.test(id)) {
+  if (!UUID_RE.test(id)) {
     return {
       kind: 'err',
       message: `scope query parameters malformed: scopeId must be ${scope.kind === 'project' ? 'a project' : 'an org'} id (a UUID), got "${id}"`,

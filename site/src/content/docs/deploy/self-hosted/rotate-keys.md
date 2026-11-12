@@ -16,8 +16,8 @@ one stops working.
 - **Docker** and **OpenSSL**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
   where the `kindgi` commands read it.
-- **For `kindgi` commands:** Kindgi 0.5's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.5` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 
@@ -133,12 +133,15 @@ A new signing key replaces the one your pack's releases are signed with, and
 the old one is revoked.
 
 Rotate under a new key id. A key id stays bound to its public key, and a
-revoked id can't be trusted again.
+revoked id can't be trusted again. Don't start the id with
+`kindgi-promote-only:`: a key with such an id, and any key with its public
+key, signs builds that reach a project in production only by promotion
+([Put a project in production](../../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)).
 
 1. Create a key:
 
    ```sh
-   npx --yes @kindgi/cli@0.5 key create acme-selfhost-2 --env selfhost
+   npx --yes @kindgi/cli@0.6 key create acme-selfhost-2 --env selfhost
    ```
 
    `acme-selfhost-2` is the new key's id. `--env selfhost` also prints the
@@ -180,7 +183,7 @@ revoked id can't be trusted again.
    Then trust it on the runtime:
 
    ```sh
-   npx --yes @kindgi/cli@0.5 key trust acme-selfhost-2 --url http://localhost:4000
+   npx --yes @kindgi/cli@0.6 key trust acme-selfhost-2 --url http://localhost:4000
    ```
 
    `--url` is the runtime's URL. It prints the trusted key as JSON, then
@@ -236,7 +239,7 @@ revoked id can't be trusted again.
 3. Revoke the old key:
 
    ```sh
-   npx --yes @kindgi/cli@0.5 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
+   npx --yes @kindgi/cli@0.6 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
      --url http://localhost:4000
    ```
 

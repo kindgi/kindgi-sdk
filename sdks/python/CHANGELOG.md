@@ -13,6 +13,45 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
+  runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
+  runtime has a license key too, and answers `licensed`. What you pass or
+  read doesn't change.
+- `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
+  `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
+  connect's wait and one listed in `tokens` aren't `unattributed` either: it's
+  a wait that isn't an approval's, a connect's or one of `tokens`, or whose
+  approval, connect or token can't be read. What you pass or read doesn't
+  change.
+- `kindgi`: **a deployment can be promote-only.**
+  `DeploymentRegistrationBody.production_entry` and
+  `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
+  mark of a build that reaches a project in production only by promotion. A
+  deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **a key carries the key it was minted with, and a revoke names
+  the keys that went with it.** `ApiToken.minted_with` is the key a key was
+  minted with, which revoking stops it with. `tokens.list(minted_with=...)`
+  lists the keys minted with a key, to any depth, and the page says
+  `minted_with`. `RevokeTokenResult.also_revoked` lists every key revoked
+  with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
+  minted with a removed person's. Each is absent from a runtime that doesn't
+  record which key minted which.
+- `kindgi`: **the identity provider models' `join` docstring says `domain`
+  lets no one in on its own.** `OidcIdentityProviderConfig.join` and
+  `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
+  provider's `domains`, but sign-in doesn't use it: with either value, only
+  people a tenant admin added get in. What you pass or read doesn't change.
+- `kindgi`: **the docstrings say what a key or session limited to a project
+  may do on `identity.users.list_sessions`, `identity.users.revoke_sessions`,
+  `identity.users.grants`, `identity.me`'s second factor, `connections` and
+  `memory`:** only act inside that project. Its person's sessions and second
+  factor are refused, grants show only that project's role, connections are
+  those its runs there may use and none can be changed, and memory is written
+  only in that project. The methods' arguments and the shapes of their
+  answers don't change.
+
+## 0.6.0
+
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,

@@ -36,7 +36,7 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.5's client and CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.6's client and CLI.
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
   client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
@@ -303,8 +303,8 @@ pack whose ids all start with its pack id, so two clients' packs never share
 an id:
 
 ```sh
-npx --yes @kindgi/cli@0.5 projects create --name="Acme shop"
-npx --yes @kindgi/cli@0.5 init acme-shop --template=woocommerce
+npx --yes @kindgi/cli@0.6 projects create --name="Acme shop"
+npx --yes @kindgi/cli@0.6 init acme-shop --template=woocommerce
 cd acme-shop
 pnpm install
 pnpm exec kindgi deploy --project acme-shop
@@ -406,7 +406,9 @@ On a runtime you run yourself, with neither usage counting nor the
 production gate or limit below, being in production is only a label:
 agents, flows, triggers and approvals work the same in a project in
 production and out of it. The license key doesn't read it either
-([What a key covers](../../../concepts/licensing/#what-a-key-covers)).
+([What a key covers](../../../concepts/licensing/#what-a-key-covers)). Only
+a promote-only build tells them apart: it reaches a project in production
+only by promotion (below).
 
 To switch it from your app, ask your coding agent: "Put a customer's project
 in production when they go live." For reference, the commands and the code
@@ -539,6 +541,25 @@ isn't turned on for this workspace yet."
   ```
 - **A runtime whose projects can't be put in production** answers
   `501 production-unsupported`.
+- **A promote-only build reaches a project in production only by
+  promotion.** A build is promote-only when its signed envelope says
+  `productionEntry: 'promote-only'`, or when the key that signed it has an
+  id starting with `kindgi-promote-only:`, or the same public key as such a
+  key the workspace has trusted, revoked or not. A deploy of one into a
+  project in production, or into one whose production the runtime can't
+  read, is refused with `409 promote-only-build`, and nothing is deployed.
+  Deploy it into a project that comes before this one in its environment
+  order (a tenant admin makes one when there's none), then promote it from
+  there: the promotion keeps the mark and checks the signature over it
+  again. Turning production on for a project is refused the same way, with
+  `409 promote-only-build` naming the deployment, while a promote-only build
+  was deployed into it rather than promoted there, whether that build still
+  serves or not: one out of service can be brought back. So a project a
+  promote-only build was deployed into never goes into production. Put
+  another project after it in its environment order, turn production on
+  there, and promote into it. A runtime that doesn't know the field checks
+  the signature without it, so a build carrying it deploys only on a runtime
+  that knows it.
 
 ## Delete an org
 

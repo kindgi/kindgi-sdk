@@ -178,8 +178,10 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
   making them admin and what that gives them carry your `--reason`.
 - **A tenant created without `firstAdmin` whose admin key is lost** (runtime
   0.2.0 or later): `kindgi-runtime tenants admin-key` mints it again. The
-  live keys of the tenant's "First admin" service account are revoked, and
-  the console sessions they opened end. Then one key is minted for it,
+  live keys of the tenant's "First admin" service account are revoked, with
+  every key minted with them and with those in turn (a key an older runtime
+  minted stands alone: [API keys](../../people-and-keys/#api-keys)), and the
+  console sessions they opened end. Then one key is minted for it,
   carrying what the first one did: tenant admin, and the tenant's root
   capabilities, `secrets:reveal` among them. It runs against the runtime's
   database. Run it with `--dry-run` first:
@@ -190,10 +192,12 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
   ```
 
   The key is printed once, alone, on stdout, so it can go straight into a
-  secret store; the rest is said on stderr. With `--dry-run`, nothing is
-  minted, and what would change is said on stdout. It's refused when one of
-  those keys has a use recorded, unless `--revoke-used`: a key that was used
-  was received, and someone may be holding it. A use is recorded at most once
+  secret store; the rest is said on stderr, the keys revoked with them
+  among it, each with the key it was minted with. With `--dry-run`, nothing
+  is minted, and what would change is said on stdout, those keys too. It's
+  refused when one of those keys has a use recorded, unless `--revoke-used`:
+  a key that was used was received, and someone may be holding it, and may
+  have minted keys with it, which go with it. A use is recorded at most once
   a minute, so a key used just now may not show it yet. A suspended tenant
   gets the key too, as does a closing one inside its 30-day export window; a
   closing tenant past that window is refused. Each key revoked, and the key
@@ -207,7 +211,7 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
   `revoked:` line:
 
   ```sh
-  npx --yes @kindgi/cli@0.5 tokens revoke <key id>
+  npx --yes @kindgi/cli@0.6 tokens revoke <key id>
   ```
 
   A key that's already revoked stays revoked, and the sessions it left end,
@@ -450,12 +454,12 @@ Only the operator sets one, with a system key holding `system:env-refs` as
 `KINDGI_API_TOKEN`:
 
 ```sh
-npx --yes @kindgi/cli@0.5 env set STRIPE_KEY \
+npx --yes @kindgi/cli@0.6 env set STRIPE_KEY \
   --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.5 env list --cloud-secret \
+npx --yes @kindgi/cli@0.6 env list --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.5 env unset STRIPE_KEY --cloud-secret \
+npx --yes @kindgi/cli@0.6 env unset STRIPE_KEY --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
 ```
 

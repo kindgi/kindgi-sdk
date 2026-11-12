@@ -147,7 +147,9 @@ Claude Code's file tools never read the files that hold keys and tokens:
       "Read(./.kindgi/secrets.env)",
       "Read(./.kindgi/dev/runtime.env)",
       "Read(./kindgi.env)",
-      "Read(./pack.env)"
+      "Read(./pack.env)",
+      "Read(./db.env)",
+      "Read(./openfga.env)"
     ]
   }
 }
@@ -164,7 +166,7 @@ root, `kindgi init` also adds the rules, under the pack's path, to the root's
 `.claude/settings.json` (creating it if there's none), and says so:
 
 ```text
-✓ /…/acme/.claude/settings.json: created with 5 deny rules for apps/agent/, so an agent started at the repo root can't read this pack's keys
+✓ /…/acme/.claude/settings.json: created with 7 deny rules for apps/agent/, so an agent started at the repo root can't read this pack's keys
 ```
 
 The root's file then holds `"Read(./apps/agent/.env*)"`,
@@ -194,7 +196,9 @@ Tested with Claude Code 2.1.288:
       "Read(./.kindgi/secrets.env)",
       "Read(./.kindgi/dev/runtime.env)",
       "Read(./kindgi.env)",
-      "Read(./pack.env)"
+      "Read(./pack.env)",
+      "Read(./db.env)",
+      "Read(./openfga.env)"
     ]
   },
   "sandbox": {
@@ -207,7 +211,9 @@ Tested with Claude Code 2.1.288:
         "./.kindgi/secrets.env",
         "./.kindgi/dev/runtime.env",
         "./kindgi.env",
-        "./pack.env"
+        "./pack.env",
+        "./db.env",
+        "./openfga.env"
       ],
       "allowWrite": ["~/.npm"]
     },
@@ -257,6 +263,8 @@ extends = ":workspace"
 ".kindgi/dev/runtime.env" = "deny"
 "kindgi.env" = "deny"
 "pack.env" = "deny"
+"db.env" = "deny"
+"openfga.env" = "deny"
 ```
 
 The four `"read"` lines keep read-only the folders that Codex's default
@@ -280,7 +288,7 @@ instead, which holds whether the project is trusted or not:
 ```sh
 codex exec \
   -c 'default_permissions="kindgi"' \
-  -c 'permissions.kindgi={extends=":workspace",filesystem={":workspace_roots"={".git"="read",".codex"="read",".agents"="read",".aws"="read","**/.env*"="deny",".kindgi/secrets.env"="deny",".kindgi/dev/runtime.env"="deny","kindgi.env"="deny","pack.env"="deny"}}}' \
+  -c 'permissions.kindgi={extends=":workspace",filesystem={":workspace_roots"={".git"="read",".codex"="read",".agents"="read",".aws"="read","**/.env*"="deny",".kindgi/secrets.env"="deny",".kindgi/dev/runtime.env"="deny","kindgi.env"="deny","pack.env"="deny","db.env"="deny","openfga.env"="deny"}}}' \
   "<your prompt>"
 ```
 
@@ -303,6 +311,8 @@ them to one the project already has:
 .kindgi/dev/runtime.env
 kindgi.env
 pack.env
+db.env
+openfga.env
 ```
 
 Its docs name the tools that respect `.geminiignore` only by example (`@`

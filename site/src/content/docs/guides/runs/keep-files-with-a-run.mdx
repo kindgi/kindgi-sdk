@@ -19,7 +19,7 @@ Google Cloud Storage bucket, or in an S3 bucket.
 - **A runtime that keeps artifacts.** `kindgi dev` keeps them in the pack's
   `.kindgi/dev/artifacts`. Another runtime keeps them once you
   [turn them on](#turn-them-on).
-- **Kindgi 0.5's CLI**, and a file to keep, such as `report.pdf`.
+- **Kindgi 0.6's CLI**, and a file to keep, such as `report.pdf`.
 - **A run's id,** to keep the file with that run.
 
 ## Upload one
@@ -51,6 +51,9 @@ It prints the artifact's record, with its `blobId`.
 
 From your app, in TypeScript, `artifacts.upload` sends the file. `download`
 streams it back, and `head` reads what's kept without the bytes.
+
+To show an agent the file, name its `blobId` in a run's input, as
+[Give an agent its input](../../agents/give-an-agent-input/#files) shows.
 
 ## Find and download them
 

@@ -66,7 +66,17 @@ Up to 0.1.7, they're on this page, from
      registry.kindgi.com/kindgi/runtime:<version>
    ```
 
-When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says which set of migrations it was applying, such as `the storage migrations`, and why: `kindgi-runtime: fatal: Error: migration failed in the <name> migrations: …`.
+When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list the migrations themselves: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says which set of migrations it was applying, such as `the storage migrations`, and why: `kindgi-runtime: fatal: Error: migration failed in the <name> migrations: …`.
+
+A migration that adds an index to a large table builds it during that start, before the runtime serves, so the more rows the table has, the longer the start takes. Some of these builds don't block writes to the table. Each of those first waits for every transaction already open on the database to end, so a long one, such as a backup still running, holds the start until it ends. Let the start finish: a restart in the middle throws the build away, and the next start builds that index again from the beginning.
+
+The log names each build that doesn't block writes, at its start and at its end, on the `migrations` [subsystem](../logs/#the-subsystems) (runtime 0.7.0 or later):
+
+- `building index <index> on <table>; writes go on, and a large table takes a while`, with the fields `index`, `table`, `tableBytes` and `again`. `tableBytes` is the size of the table's main fork on disk as the build starts, as `pg_relation_size` gives it: without its indexes, or the long values Postgres keeps apart in its TOAST table.
+- `building index <index> on <table> again, as an earlier build stopped before it finished; writes go on, and a large table takes a while`, when an earlier start stopped that build (`again` is `true`).
+- `built index <index> in <N.N> s`, with `index`, `table`, `tableBytes` and `durationMs`. A build that fails logs no `built` line: the start fails with its error.
+
+The lines are at `info`, or at `debug` for a table with no rows, as on a fresh database, whose build is quick. An index a migration builds in a way that blocks writes logs no line.
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](../back-up-and-restore/#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
@@ -435,9 +445,9 @@ What to check before you upgrade, and what's different after:
   endpoint or a webhook endpoint that names one is refused, and so are its
   calls, connections and deliveries
   ([A model provider's key isn't a tool's](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools)).
-- **Expect a slower first start on a large database.** A new index on the
-  runs table is built at the first start after the upgrade, without blocking
-  writes; the more runs, the longer that start takes.
+- **Expect a slower first start on a large database.** Three new indexes on
+  the runs table are built at the first start after the upgrade, without
+  blocking writes; the more runs, the longer that start takes.
 - **Set `KINDGI_PAGINATION_KEY`.** List cursors are sealed, so they no longer
   show which row they point after. Without a key, a cursor handed out before
   a restart answers `400` after it, and a client starts the list again. More
@@ -530,9 +540,10 @@ What to check before you upgrade, and what's different after:
   Every secret and env write through the API is in the audit log too,
   never with a value.
 - **A turn stops when its run is stopped:** a model or tool call in flight
-  is aborted at once on a cancel or a shutdown. A step that writes nothing
-  for a while, such as a long model call, stops within
-  `KINDGI_RUN_ENDED_CHECK_MS` of a cancel (5 s by default).
+  is aborted on a shutdown once the runs executing have had their 7 s to
+  finish, and at once on a cancel taken by the instance running the run.
+  With more than one instance, a cancel another instance takes stops it
+  within `KINDGI_RUN_ENDED_CHECK_MS` (5 s by default).
 - **Cancelling a flow while it runs a loop stops the loop:** no more of its
   steps start after the cancel.
 - **Two runtime instances starting at once no longer deadlock or race each

@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.10"
+version: "0.1.13"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -65,7 +65,7 @@ You need a JDK 17 or later (`JAVA_HOME`). Maven comes with the pack
 (`./mvnw`).
 
 ```sh
-npx --yes @kindgi/cli@0.5 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.5,<0.6" kindgi init …
+npx --yes @kindgi/cli@0.6 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.6,<0.7" kindgi init …
 cd my-pack
 ./mvnw test        # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
@@ -104,7 +104,7 @@ reported as `file:line:col`, and the last good code keeps serving.
 In the app's directory (where its `pom.xml` is):
 
 ```sh
-npx --yes @kindgi/cli@0.5 init   # --pack-id=<id> if the app's artifactId doesn't make one
+npx --yes @kindgi/cli@0.6 init   # --pack-id=<id> if the app's artifactId doesn't make one
 ./kindgiw dev
 ```
 
@@ -251,7 +251,7 @@ Show it in the app's own UI. **Never:**
   gives no database access.
 - **link users to Kindgi's console**, or any Kindgi UI, for this data.
 
-Docs: https://docs.kindgi.com/v0.5/guides/runs/show-runs-in-your-app/
+Docs: https://docs.kindgi.com/v0.6/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -289,11 +289,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).
@@ -339,7 +339,8 @@ environment):
   put there by hand;
 - `.kindgi/secrets.env`: Kindgi's own secrets, where `./kindgiw secrets set` writes;
 - `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
-- a self-hosted deployment's `kindgi.env` or `pack.env`.
+- a self-hosted deployment's `kindgi.env`, `pack.env`, `db.env` or
+  `openfga.env`.
 
 A value you read lands in your context and in every later request to the
 model provider. To see which secrets exist, run

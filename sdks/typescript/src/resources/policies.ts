@@ -24,7 +24,7 @@ import type {
  * versions policies (semver per id); enforcement happens where each
  * kind is consumed, not in this resource.
  *
- * Routes back `author` (publish), `get`, `list`, `versions`,
+ * Routes back `publish`, `get`, `list`, `versions`,
  * `getVersion`, `unregister` and `reinstateVersion`. `activate` and
  * `evaluate` have no API route — a policy is active once published.
  */
@@ -53,7 +53,10 @@ export interface PoliciesClient {
     spec: PolicySpec,
     options?: { readonly idempotencyKey?: string },
   ): Promise<{ readonly policyId: PolicyId; readonly version: string }>;
-  /** @deprecated Use `policies.publish`; removed in 0.2. */
+  /**
+   * @deprecated Use `policies.publish`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   author(
     spec: PolicySpec,
     options?: { readonly idempotencyKey?: string },

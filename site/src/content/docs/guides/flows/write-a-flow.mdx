@@ -604,10 +604,14 @@ object ProcessOrder {
   (`runInput.…`) and earlier steps' outputs (`nodeOutputs.<step>.…`). See
   [Pass data between steps](../pass-data-between-steps/).
 
-The shape is checked when the file loads: ids, edges between steps that
-exist, `$start` and `$end`, no cycles. That the tools and the agent exist is
-checked when a run starts: a run of a flow that names a tool your workspace
-doesn't have is refused before anything runs.
+`kindgi dev` and `kindgi build` check every flow when they index the pack,
+in every language, with the checks a TypeScript flow gets from `defineFlow`:
+ids, edges between steps that exist, an edge from `$start`, no cycles, loop
+bodies and mappings. A flow that fails them is a file error that says what is
+wrong, and is left out: `kindgi dev` doesn't serve it, `kindgi build` stops,
+and a deploy refuses it. That the tools and the agent exist is checked when a
+run starts: a run of a flow that names a tool your workspace doesn't have is
+refused before anything runs.
 
 ## Run it
 

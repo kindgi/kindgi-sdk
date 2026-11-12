@@ -10,6 +10,10 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **the indexer refuses an agent, flow or tool version that breaks its kind's rule.** An agent's or a flow's own version is an exact semver with no build metadata (`1.2.3`, `1.2.3-rc.1`), and a tool's is `MAJOR.MINOR.PATCH` (`1.2.3`). Another is now an error of its file (`manifest-validation-failed`), and the rest of the pack still indexes: `0.1` or `v1.0.0` on an agent or a tool, `01.0.0` on any, `1.0.0+build.5` on an agent, or `2.1.0-rc.1` on a tool. Before, they went into the index as they were, and a deploy then refused every one but a leading zero. A flow's was already refused unless it had a leading zero. A tool with no version of its own still takes `pack.version`.
+
+## 0.6.0
+
 - `kindgi-models`, `kindgi-client`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) gains `connectionId`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it by that id. Approvals from before this change have none.
 
 ## 0.5.0

@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.22"
+version: "0.3.25"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -265,7 +265,8 @@ environment):
   put there by hand;
 - `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
 - `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
-- a self-hosted deployment's `kindgi.env` or `pack.env`.
+- a self-hosted deployment's `kindgi.env`, `pack.env`, `db.env` or
+  `openfga.env`.
 
 A value you read lands in your context and in every later request to the
 model provider. To see which secrets exist, run
@@ -339,7 +340,7 @@ const month = await kindgi.cost.usage.summary({
 // month.totalUsd; month.groups[i].key ({ month: '2026-10' }), .totalUsd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.5/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.6/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -350,7 +351,7 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.5/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.6/guides/runs/show-runs-in-your-app/
 
 ## Upgrading a deployment
 
@@ -371,11 +372,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

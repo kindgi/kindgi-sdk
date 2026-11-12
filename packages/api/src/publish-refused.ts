@@ -7,18 +7,23 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
+import type { ReferenceOutOfScopeError } from './reference-scope.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
 type PublishedPrimitive = 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
 
-/** A registry's answer to a deploy's publish, other than `ok` or `already-registered`. */
+/**
+ * A registry's answer to a deploy's publish, other than `ok`,
+ * `already-registered` or `held-version-gone` (which `refusedPublish`,
+ * in `deploy-versions.ts`, answers).
+ */
 type RefusedOutcome = Exclude<
   | Awaited<ReturnType<ToolRegistryBinding['publish']>>
   | Awaited<ReturnType<GuardrailRegistryBinding['register']>>
   | Awaited<ReturnType<AgentRegistryBinding['publish']>>
   | Awaited<ReturnType<FlowRegistryBinding['publish']>>
   | Awaited<ReturnType<BlockRegistryBinding['publish']>>,
-  { readonly kind: 'ok' | 'already-registered' }
+  { readonly kind: 'ok' | 'already-registered' | 'held-version-gone' }
 >;
 
 /**
@@ -100,6 +105,18 @@ export class PublishRefused extends Error {
     } else {
       this.code = outcome.kind;
     }
+  }
+}
+
+/**
+ * A deploy's agent or flow refused as reach refuses a reference: the
+ * deploy stops, what it published is rolled back, and the route answers
+ * `400 reference-out-of-scope` (`refusal`).
+ */
+export class ReferencesRefused extends Error {
+  constructor(readonly refusal: ReferenceOutOfScopeError) {
+    super(refusal.message);
+    this.name = 'ReferencesRefused';
   }
 }
 

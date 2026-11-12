@@ -68,8 +68,9 @@ export function envRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  // Authorization PEP — scope-anchored. Env reads are STRICT (scope admins
-  // or explicit `reader` grants), as for secrets. Every route takes its
+  // Authorization PEP — scope-anchored. Env reads are STRICT: `admin` on
+  // the scope, as for secrets; a `reader` grant on one value doesn't open
+  // these routes. Every route takes its
   // scope from `?scopeKind` + `?scopeId`, the same parameters the handlers
   // act on.
   const authorize = gate(authorizer);

@@ -25,7 +25,16 @@
  * rejecting.
  */
 
-import type { Filter, OrgId, Page, ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  Filter,
+  OrgId,
+  Page,
+  ProjectId,
+  SigningKeyId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 
 import type {
   Project,
@@ -136,6 +145,15 @@ export interface ProjectBinding {
    * both pass on the last place, and a limit changed meanwhile is the one
    * counted against. Taking a project out, and a project already in
    * production, are never counted.
+   *
+   * A binding that keeps the workspace's deployments in the same store
+   * answers `promote-only-build` without a change when a promote-only
+   * build was deployed into the project (not promoted there), read in the
+   * same step under the project's lock. A deploy registered with
+   * `promoteOnly` takes that lock too, so a deploy and the change landing
+   * at once can't both pass: whichever comes second sees the other. The
+   * production route asks the same before it calls this; a binding that
+   * never answers `promote-only-build` leaves that check the only one.
    */
   setProduction?(
     tenantId: TenantId,
@@ -261,6 +279,17 @@ export type ProjectProductionOutcome =
       readonly projectsInProduction: number;
       /** The workspace's projects in production now. */
       readonly inProduction: number;
+    }
+  | {
+      /**
+       * Not put in production: a promote-only build was deployed into the
+       * project, not promoted there, so it never goes into production.
+       */
+      readonly kind: 'promote-only-build';
+      /** The deployment that keeps it out (the first the binding found). */
+      readonly deploymentId: string;
+      /** The key that signed that deployment. */
+      readonly signerKeyId: SigningKeyId;
     };
 
 /** What `ProjectBinding.update` did. */

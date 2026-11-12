@@ -2,7 +2,7 @@
   "$schema": "https://kindgi.com/schemas/v1/type-manifest.schema.json",
   "package": "@kindgi/types",
   "version": "0.0.0",
-  "description": "Foundational TypeScript types. Type-only exports; zero runtime code.",
+  "description": "Foundational TypeScript types. Type-only exports, except a few small runtime checks with no dependencies.",
   "exports": {
     "brand": {
       "kind": "type",
@@ -93,7 +93,8 @@
     }
   },
   "runtime": {
-    "hasCode": false,
-    "note": "Compiles to .d.ts declarations only. Package emits no JavaScript."
+    "hasCode": true,
+    "dependencies": [],
+    "note": "Mostly .d.ts declarations. The JavaScript it emits is a few small checks with no dependencies, such as makeEnvName and UUID_RE."
   }
 }

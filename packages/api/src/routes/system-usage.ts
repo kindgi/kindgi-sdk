@@ -10,8 +10,7 @@ import { systemReadAcrossTenants } from '../middleware/system.js';
 import type { AppEnv } from '../types.js';
 import { USAGE_GROUP_KEYS, type UsageBinding } from '../usage.js';
 import { CURSOR_UNREADABLE, parseUsageQuery, usageBadInput } from './usage-query.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * `GET /v1/system/usage` (`system:usage:read`), the control plane's pull:
