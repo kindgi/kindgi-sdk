@@ -3188,6 +3188,55 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/deployments',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments',
+    operationId: 'systemHostedBuilds.register',
+    summary: "Register a signed build into a tenant's project",
+    description:
+      "Registers a signed deployment into one project of the tenant, as `POST /v1/deployments` does, with its body and its answers: the same checks, the same handler. It's the tenant's deploy, under the project-only key scope (the record's `keyScope` is `project`): the body's `projectId` is required, the pack's tools' secrets are recorded at that project only, and its schemas count against the tenant's compile budget. As the caller, the key reads and administers that one project and nothing else, and never answers for anyone else. The body's `builtFrom` is kept as signed and named beside the key in the audit event; who may ask for the build is the caller's to check. Recorded on the system access record, marking the tenant. Takes a key holding `system:hosted-builds` itself: `kindgi:system` doesn't stand in for it. A suspended or closing tenant is refused: `409 tenant-suspended` or `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('DeploymentRegistrationBody') },
+    responses: {
+      '201': { description: 'Deployment registered.', schema: ref('DeploymentRecord') },
+      '200': {
+        description:
+          'Digest replay: the same imageDigest already recorded; returns the existing record.',
+        schema: ref('DeploymentRecord'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "As `POST /v1/deployments` answers it: a signature that fails, an image that can't be verified, or `deployment-validation-failed` with per-primitive `details[]`.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:hosted-builds` itself (`system-scope-missing`). Or `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project. Or, as `POST /v1/deployments` answers it, a signer key not on the tenant's trust list. Nothing was deployed.",
+      ),
+      '404': ErrorResponse(
+        "No tenant with that id, or a purged one (`tenant-not-found`); or the body's `projectId` names no project of the tenant (`project-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'The tenant is suspended (`tenant-suspended`) or closing (`tenant-closing`); or an Idempotency-Key reused with another body. Or any conflict `POST /v1/deployments` answers, such as `project-suspended`, `environment-takes-promotions` or `promote-only-build`. Nothing was deployed.',
+      ),
+      '429': ErrorResponse(
+        `${SCHEMA_COMPILE_BUDGET_TEXT} Or the tenant's image reads unpacked as much as they may in an hour, on a server that bounds them. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      ),
+      '501': ErrorResponse(
+        "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it. Nothing was registered.",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/usage',
     openapiPath: '/v1/system/usage',
@@ -8295,7 +8344,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.register',
     summary: 'Register a signed deployment',
     description:
-      "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+      "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. Under a project-only key scope (a server's own setting for the caller's key; the request can't set it), each is recorded at the body's `projectId` only, the pack's env is read there only, and the record says so (`keyScope`). All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8314,13 +8363,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
-        "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+        "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '429': ErrorResponse(
         `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      ),
+      '501': ErrorResponse(
+        "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it, so the build could never be promoted. Nothing was registered.",
       ),
     },
   },
@@ -8580,7 +8632,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or, under a project-only key scope (a server's own setting for the caller's key), `permission-denied`: no promotion is made under it; have a key without the scope promote (the check still answers). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",

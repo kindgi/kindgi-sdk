@@ -3,6 +3,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 
+import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
@@ -32,7 +33,13 @@ import { makeEnvName } from '@kindgi/types';
 import { PROMOTE_ONLY_KEY_PREFIX } from '../src/deployment-envelope.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import {
+  SYSTEM_TENANT_ID,
+  agentTestSetId,
+  createApp,
+  resolveAtScope,
+  scopeOfRecorded,
+} from '../src/index.js';
 import type {
   AgentPinBindings,
   AgentPinResolveInput,
@@ -61,6 +68,7 @@ import type {
   ToolRegistryBinding,
 } from '../src/index.js';
 import { sameGuardrailDefinition } from '../src/routes/deployments.js';
+import type { AppEnv } from '../src/types.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -131,6 +139,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         activatedAt: new Date().toISOString(),
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
+        ...(input.keyScope !== undefined && { keyScope: input.keyScope }),
         primitives: input.primitives,
         contents: input.contents,
         ...(input.source !== undefined && { source: input.source }),
@@ -9237,5 +9246,398 @@ describe('POST /v1/deployments and /v1/deployments/check — a deploy against wh
     });
     // The thrown message's words, not its status alone: a random project id can hold '502'.
     expect(JSON.stringify(h.logger.warns)).not.toContain('answered 502');
+  });
+});
+
+// ---------------- under a project-only key scope ----------------
+
+describe('POST /v1/deployments under a project-only key scope', () => {
+  /** A pack whose one tool, `acme.lookup@1.0.0`, declares `ACME_LOOKUP_KEY`. */
+  const lookupPack = (artifactVersion: string) =>
+    buildSignedDeploy({
+      artifactVersion,
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion,
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.lookup',
+            description: 'Looks things up with its own key.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/lookup.js',
+            needsSpec: { secrets: { ACME_LOOKUP_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+  const TOOL = 'acme.lookup@1.0.0';
+  const tenantScope: Scope = { kind: 'tenant', tenantId };
+  const projectScope = (projectId: ProjectId): Scope => ({ kind: 'project', tenantId, projectId });
+
+  /**
+   * An app with `ACME_LOOKUP_KEY` set where `seed` says, a tool registry
+   * that keeps each version's project and the secret scopes its first
+   * publish recorded (as the runtime's does), and a deployment registry
+   * that keeps the key scope unless `keeps` is false. A `scoped` deploy
+   * goes through a server whose own middleware sets the scope, mounted
+   * before the app's routes; any other reaches the app as it is.
+   */
+  function setup(
+    packs: readonly SignedDeploy[],
+    opts: { readonly seed?: readonly Scope[]; readonly keeps?: boolean } = {},
+  ) {
+    const secrets = makeFixtureSecretBinding(
+      (opts.seed ?? []).map((scope) => ({
+        scope,
+        envName: 'prod',
+        name: 'ACME_LOOKUP_KEY',
+        currentVersion: 1,
+      })),
+    );
+    const tools = makeVersionedToolRegistry();
+    const keyOf = (id: unknown, version: unknown) => `${String(id)}@${String(version)}`;
+    const kept = new Map<string, Record<string, unknown>>();
+    const recorded: unknown[] = [];
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      publish: async (input) => {
+        const outcome = await tools.publish(input);
+        if (outcome.kind === 'ok') {
+          recorded.push(input.secretScopes);
+          kept.set(keyOf(input.tool.id, input.tool.version), {
+            projectId: input.projectId,
+            ...(input.secretScopes !== undefined && { secretScopes: input.secretScopes }),
+          });
+        }
+        return outcome;
+      },
+      getVersion: async (input) => {
+        const stored = await tools.getVersion(input);
+        const extra = kept.get(keyOf(input.toolId, input.version));
+        return stored === null ? null : ({ ...stored, ...extra } as never);
+      },
+    };
+    const registered: string[] = [];
+    const deployments = makeInMemoryDeploymentBinding();
+    const deploymentRegistry: DeploymentBinding = {
+      ...deployments,
+      ...(opts.keeps !== false && { keepsKeyScope: true as const }),
+      register: async (input) => {
+        registered.push(input.artifactVersion);
+        return deployments.register(input);
+      },
+    };
+    const { app } = makeApp({
+      toolRegistry,
+      deploymentRegistry,
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+      extra: { secretsBinding: secrets.binding, envName: 'prod' as never },
+    });
+    const server = new Hono<AppEnv>();
+    server.use('/v1/deployments', async (c, next) => {
+      c.set('deployKeyScope', 'project');
+      await next();
+    });
+    server.route('/', app);
+    const deploy = async (
+      f: SignedDeploy,
+      how: {
+        readonly scoped: boolean;
+        readonly projectId?: ProjectId;
+        readonly query?: string;
+        readonly headers?: Record<string, string>;
+        readonly body?: Record<string, unknown>;
+      },
+    ) => {
+      const res = await (how.scoped ? server : app).request(`/v1/deployments${how.query ?? ''}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          'content-type': 'application/json',
+          ...how.headers,
+        },
+        body: JSON.stringify({
+          ...f.wire,
+          ...(how.projectId !== undefined && { projectId: how.projectId }),
+          ...how.body,
+        }),
+      });
+      const body = (await res.json()) as Record<string, unknown> & {
+        error?: { code: string; message: string; details?: unknown };
+      };
+      return { status: res.status, body };
+    };
+    return { deploy, recorded, registered };
+  }
+
+  test('a deploy that names no project: 403 permission-denied, nothing written', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: true });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test("a deployment registry that doesn't keep the scope: 500, nothing written", async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, recorded, registered } = setup([pack], { seed: [tenantScope], keeps: false });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(500);
+    expect(answer.body.error?.message).toContain('keepsKeyScope');
+    expect(recorded).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test('a secret set only at the tenant is recorded at the project, and the record keeps the scope', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, recorded } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(201);
+    expect(answer.body.keyScope).toBe('project');
+    expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'project', projectId: CLIENT_A } }]);
+  });
+
+  test('without the scope, the same deploy records the tenant, and its record names no scope', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, recorded } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: false, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(201);
+    expect(answer.body).not.toHaveProperty('keyScope');
+    expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'tenant' } }]);
+  });
+
+  test('a kept version recorded wider than the project: 403 permission-denied, naming the tool and both ways out, nothing written', async () => {
+    const first = lookupPack('20260920.1');
+    const second = lookupPack('20260920.2');
+    const { deploy, registered } = setup([first, second], { seed: [tenantScope] });
+    expect((await deploy(first, { scoped: false, projectId: CLIENT_A })).status).toBe(201);
+    const answer = await deploy(second, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(answer.body.error?.message).toBe(
+      `The tool ${TOOL} wasn't published: version 1.0.0 is already published, and reads its secrets wider than this project, which a deploy under a project-only key scope doesn't keep; give the pack's tool a new version, or have an admin deploy; nothing was deployed`,
+    );
+    expect(answer.body.error?.details).toEqual({ primitive: 'tool', id: TOOL });
+    expect(registered).toEqual(['20260920.1']);
+  });
+
+  test.each([
+    ['deployed under the scope', true, [] as Scope[]],
+    ['deployed without it, with the secret set at the project', false, [projectScope(CLIENT_A)]],
+  ])('a kept version recorded at the project (%s) is kept', async (_how, firstScoped, seed) => {
+    const first = lookupPack('20260920.1');
+    const second = lookupPack('20260920.2');
+    const { deploy, recorded, registered } = setup([first, second], { seed });
+    expect((await deploy(first, { scoped: firstScoped, projectId: CLIENT_A })).status).toBe(201);
+    expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'project', projectId: CLIENT_A } }]);
+    const answer = await deploy(second, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(201);
+    expect(answer.body.keyScope).toBe('project');
+    expect(registered).toEqual(['20260920.1', '20260920.2']);
+  });
+
+  test('a version made in another project is refused, even recorded at that project', async () => {
+    // A call in CLIENT_A reads what a deploy into CLIENT_A recorded first,
+    // which the registry's reads don't show: so it counts as wider.
+    const first = lookupPack('20260920.1');
+    const second = lookupPack('20260920.2');
+    const { deploy, registered } = setup([first, second], { seed: [projectScope(CLIENT_B)] });
+    expect((await deploy(first, { scoped: false, projectId: CLIENT_B })).status).toBe(201);
+    const answer = await deploy(second, { scoped: true, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body.error?.code).toBe('permission-denied');
+    expect(answer.body.error?.details).toEqual({ primitive: 'tool', id: TOOL });
+    expect(registered).toEqual(['20260920.1']);
+  });
+
+  test.each([
+    ['a body field', { body: { deployKeyScope: 'project', keyScope: 'project' } }],
+    ['a query field', { query: '?deployKeyScope=project&keyScope=project' }],
+    [
+      'a header',
+      { headers: { deployKeyScope: 'project', keyScope: 'project', 'x-key-scope': 'project' } },
+    ],
+  ])('%s never sets the scope', async (_where, request) => {
+    // Under the scope, a deploy that names no project is refused; this one lands.
+    const pack = lookupPack('20260920.1');
+    const { deploy, recorded } = setup([pack], { seed: [tenantScope] });
+    const answer = await deploy(pack, { scoped: false, ...request });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(201);
+    expect(answer.body).not.toHaveProperty('keyScope');
+    expect(recorded).toEqual([{ ACME_LOOKUP_KEY: { kind: 'tenant' } }]);
+  });
+});
+
+// ---------------- a build registered into a tenant's project, by a system key ----------------
+
+describe("POST /v1/system/tenants/:tenantId/deployments: a build registered into a tenant's project", () => {
+  const HOSTED = 'kgi_sy_hosted_builds';
+  const FULL = 'kgi_sy_full';
+  const KEYS: Readonly<Record<string, readonly string[]>> = {
+    [HOSTED]: ['system:hosted-builds'],
+    [FULL]: ['kindgi:system'],
+  };
+  type TenantState = 'active' | 'suspended' | 'closing' | 'purged';
+
+  /**
+   * A runtime serving many tenants, with the deploy's bindings, a deployment
+   * registry that keeps the key scope, and the system routes' directory:
+   * `tenantId` in `state` (`unknown`: not there), no other tenant. `marked`
+   * is each tenant the system access record marks.
+   */
+  function setup(fixture: SignedDeploy, state: TenantState | 'unknown' = 'active') {
+    const deployments = makeInMemoryDeploymentBinding();
+    const marked: (string | undefined)[] = [];
+    const { app } = makeApp({
+      fixture,
+      deploymentRegistry: { ...deployments, keepsKeyScope: true as const },
+      extra: {
+        tenancy: 'multi',
+        tenantStates: { of: async () => undefined },
+        imagePrefixes: { of: async () => 'ghcr.io/acme' },
+        resolveToken: async (token) => {
+          const scopes = KEYS[token];
+          if (scopes === undefined) return resolveToken(token);
+          return {
+            tenantId: SYSTEM_TENANT_ID,
+            system: { keyId: token },
+            capabilities: [...scopes],
+          };
+        },
+        systemAccessAudit: {
+          record: async (entry) => {
+            marked.push(entry.tenantId);
+          },
+          begin: async () => 'a',
+          finish: async (_id, outcome) => {
+            marked.push(outcome.tenantId);
+          },
+        },
+        systemTenantDirectory: {
+          get: async (id) => (id === tenantId && state !== 'unknown' ? { id, state } : null),
+        },
+      },
+    });
+    const register = async (token: string, body: Record<string, unknown>) => {
+      const res = await app.request(`/v1/system/tenants/${tenantId}/deployments`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const answer = (await res.clone().json()) as Record<string, unknown> & {
+        error?: { code: string };
+      };
+      return { res, status: res.status, body: answer, code: answer.error?.code };
+    };
+    const registered = async () => (await deployments.list({ tenantId, limit: 10 })).data;
+    return { register, registered, marked };
+  }
+
+  test("system:hosted-builds registers it as the tenant's deploy, under the project-only key scope", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered, marked } = setup(fixture);
+    const answer = await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(201);
+    expect(answer.body).toMatchObject({ tenantId, projectId: CLIENT_A, keyScope: 'project' });
+    expect(await registered()).toHaveLength(1);
+    expect(marked).toContain(tenantId);
+  });
+
+  test('the same build again is the digest replay: 200, still the one record', async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    const body = { ...fixture.wire, projectId: CLIENT_A };
+    expect((await register(HOSTED, body)).status).toBe(201);
+    expect((await register(HOSTED, body)).status).toBe(200);
+    expect(await registered()).toHaveLength(1);
+  });
+
+  test('a body that names no project is refused, 403 permission-denied: nothing is registered', async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    expect(await register(HOSTED, fixture.wire)).toMatchObject({
+      status: 403,
+      code: 'permission-denied',
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("a project the tenant doesn't have is 404 project-not-found", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    expect(
+      await register(HOSTED, { ...fixture.wire, projectId: randomUUID() as ProjectId }),
+    ).toMatchObject({ status: 404, code: 'project-not-found' });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("a build signed for another tenant doesn't register into this one: 400 signature-invalid", async () => {
+    const fixture = buildSignedDeploy({ tenantIdOverride: otherTenantId });
+    const { register, registered } = setup(fixture);
+    expect(await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A })).toMatchObject({
+      status: 400,
+      code: 'signature-invalid',
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("kindgi:system doesn't stand in for system:hosted-builds, and a tenant's key is no system key", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    const body = { ...fixture.wire, projectId: CLIENT_A };
+    expect(await register(FULL, body)).toMatchObject({
+      status: 403,
+      code: 'system-scope-missing',
+    });
+    expect(await register(TOKEN, body)).toMatchObject({
+      status: 403,
+      code: 'system-principal-required',
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test.each([
+    ['an unknown tenant', 'unknown', 404, 'tenant-not-found'],
+    ['a purged tenant', 'purged', 404, 'tenant-not-found'],
+    ['a suspended tenant', 'suspended', 409, 'tenant-suspended'],
+    ['a closing tenant', 'closing', 409, 'tenant-closing'],
+  ] as const)('%s is refused, %i %s: nothing is registered', async (_what, state, status, code) => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture, state);
+    expect(await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A })).toMatchObject({
+      status,
+      code,
+    });
+    expect(await registered()).toEqual([]);
+  });
+
+  test("its schema compiles count against the tenant's budget: refused, nothing is registered", async () => {
+    const fixture = buildSignedDeploy();
+    const { register, registered } = setup(fixture);
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const answer = await register(HOSTED, { ...fixture.wire, projectId: CLIENT_A });
+      await expectCompileBudgetRefused(answer.res);
+      expect(await registered()).toEqual([]);
+    } finally {
+      restore();
+    }
   });
 });

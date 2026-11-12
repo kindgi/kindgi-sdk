@@ -581,6 +581,7 @@
           "promotion-values-not-ready": 409,
           "deployment-superseded": 409,
           "promotions-unsupported": 501,
+          "built-from-unsupported": 501,
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "slug-conflict": 409,
@@ -3283,6 +3284,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3333,6 +3335,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3389,6 +3392,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3462,6 +3466,7 @@
                       "system:env-refs",
                       "system:usage:read",
                       "system:license",
+                      "system:hosted-builds",
                       "kindgi:system"
                     ],
                     "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3526,6 +3531,7 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:hosted-builds",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -21262,6 +21268,42 @@
           }
         }
       },
+      "DeploymentBuiltFrom": {
+        "type": "object",
+        "description": "What a build was made from, as its builder signed it: covered by the signature when present, so the project and the person it names are the signer's word. The runtime keeps it and records it; nothing acts on the person yet. A deployment a promotion made keeps its source's. Absent for a build whose builder doesn't say. A runtime whose deployment ledger doesn't keep it refuses the build (`501 built-from-unsupported`), and one that doesn't know the field checks the signature without it, so the build doesn't verify there.",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "commit",
+          "requestedBy"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "kept-repo"
+            ],
+            "description": "`kept-repo`: a commit of a repository the runtime keeps for a project that has no GitHub repository, built for the person who asked."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "The project whose repository holds the commit, lower case."
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "The commit built: its full id, lower-case hex."
+          },
+          "requestedBy": {
+            "type": "string",
+            "pattern": "^user:[\\x21-\\x7e]{1,256}$",
+            "description": "Who asked for the build: `user:` and their id."
+          }
+        }
+      },
       "DeploymentEndpointProblem": {
         "type": "object",
         "additionalProperties": false,
@@ -21452,6 +21494,9 @@
             ],
             "description": "Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way."
           },
+          "builtFrom": {
+            "$ref": "#/components/schemas/DeploymentBuiltFrom"
+          },
           "activatedAt": {
             "type": "string",
             "format": "date-time",
@@ -21469,6 +21514,13 @@
             "type": "string",
             "minLength": 1,
             "description": "When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly."
+          },
+          "keyScope": {
+            "type": "string",
+            "enum": [
+              "project"
+            ],
+            "description": "`project`: deployed under a project-only key scope, a server's own setting for the caller's key. Its tools' secrets were recorded at its project only, and its pack's env is read at its project only. Absent for any other deploy, and from a runtime that doesn't keep it."
           },
           "packId": {
             "type": "string",
@@ -22237,7 +22289,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8."
+            "description": "Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` and `builtFrom` too when the body sends them, `builtFrom`'s keys sorted as well) with sorted keys, no whitespace, UTF-8."
           },
           "publishedAt": {
             "type": "string",
@@ -22250,6 +22302,9 @@
               "promote-only"
             ],
             "description": "Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there."
+          },
+          "builtFrom": {
+            "$ref": "#/components/schemas/DeploymentBuiltFrom"
           },
           "projectId": {
             "type": "string",
@@ -22499,6 +22554,7 @@
           "trigger-tools-allowed-unattended-set",
           "trigger-changed-for-owner",
           "environment-order-set",
+          "deployment-registered",
           "deployment-promoted",
           "deployment-replaced-block",
           "block-version-published",
@@ -22682,6 +22738,7 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
+              "deployment-registered",
               "deployment-promoted",
               "deployment-replaced-block",
               "block-version-published",
@@ -22888,6 +22945,7 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
+              "deployment-registered",
               "deployment-promoted",
               "deployment-replaced-block",
               "block-version-published",
@@ -22992,6 +23050,7 @@
                   "trigger-tools-allowed-unattended-set",
                   "trigger-changed-for-owner",
                   "environment-order-set",
+                  "deployment-registered",
                   "deployment-promoted",
                   "deployment-replaced-block",
                   "block-version-published",
@@ -34632,6 +34691,175 @@
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/deployments": {
+      "post": {
+        "operationId": "systemHostedBuilds.register",
+        "summary": "Register a signed build into a tenant's project",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "Digest replay: the same imageDigest already recorded; returns the existing record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRecord"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Deployment registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "As `POST /v1/deployments` answers it: a signature that fails, an image that can't be verified, or `deployment-validation-failed` with per-primitive `details[]`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key that doesn't hold `system:hosted-builds` itself (`system-scope-missing`). Or `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project. Or, as `POST /v1/deployments` answers it, a signer key not on the tenant's trust list. Nothing was deployed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`); or the body's `projectId` names no project of the tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is suspended (`tenant-suspended`) or closing (`tenant-closing`); or an Idempotency-Key reused with another body. Or any conflict `POST /v1/deployments` answers, such as `project-suspended`, `environment-takes-promotions` or `promote-only-build`. Nothing was deployed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this workspace's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again. Or the tenant's image reads unpacked as much as they may in an hour, on a server that bounds them. Nothing was deployed; `Retry-After` says when there's room again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it. Nothing was registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Registers a signed deployment into one project of the tenant, as `POST /v1/deployments` does, with its body and its answers: the same checks, the same handler. It's the tenant's deploy, under the project-only key scope (the record's `keyScope` is `project`): the body's `projectId` is required, the pack's tools' secrets are recorded at that project only, and its schemas count against the tenant's compile budget. As the caller, the key reads and administers that one project and nothing else, and never answers for anyone else. The body's `builtFrom` is kept as signed and named beside the key in the audit event; who may ask for the build is the caller's to check. Recorded on the system access record, marking the tenant. Takes a key holding `system:hosted-builds` itself: `kindgi:system` doesn't stand in for it. A suspended or closing tenant is refused: `409 tenant-suspended` or `409 tenant-closing`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentRegistrationBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -59803,7 +60031,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or, under a project-only key scope, `permission-denied`: the body names no `projectId`, or the runtime already holds one of the pack's tool versions whose secrets are read wider than that project (`details.primitive` is `tool`, `details.id` is `<id>@<version>`; the message says to give the tool a new version, or have an admin deploy). Nothing was deployed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59862,6 +60090,16 @@
               }
             }
           },
+          "501": {
+            "description": "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it, so the build could never be promoted. Nothing was registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
@@ -59873,7 +60111,7 @@
             }
           }
         },
-        "description": "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+        "description": "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. Under a project-only key scope (a server's own setting for the caller's key; the request can't set it), each is recorded at the body's `projectId` only, the pack's env is read there only, and the record says so (`keyScope`). All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -60588,7 +60826,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or, under a project-only key scope (a server's own setting for the caller's key), `permission-denied`: no promotion is made under it; have a key without the scope promote (the check still answers). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
             "content": {
               "application/json": {
                 "schema": {

@@ -24,6 +24,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 
+import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
@@ -44,7 +45,11 @@ import type {
   VersionDerivation,
 } from '@kindgi/types';
 
-import { type ProductionEntry, canonicalizeEnvelope } from '../src/deployment-envelope.js';
+import {
+  type BuiltFrom,
+  type ProductionEntry,
+  canonicalizeEnvelope,
+} from '../src/deployment-envelope.js';
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentPinBindings,
@@ -68,6 +73,7 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
+import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
@@ -123,6 +129,8 @@ function built(opts: {
   readonly endpoint?: DeploymentEndpoint;
   /** Signed into the envelope and kept, as a deploy that sent it keeps it. */
   readonly productionEntry?: ProductionEntry;
+  /** Signed into the envelope and kept, the same way. */
+  readonly builtFrom?: BuiltFrom;
 }): Deployment {
   minute += 1;
   const imageDigest = sha(opts.seed ?? 'build-1');
@@ -133,6 +141,7 @@ function built(opts: {
     tenantId: tenantId as unknown as string,
     publishedAt: '2026-10-01T09:00:00.000Z',
     ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
+    ...(opts.builtFrom !== undefined && { builtFrom: opts.builtFrom }),
   };
   const signed = signEd25519(keys.privateKey, canonicalizeEnvelope(fields));
   if (signed.kind === 'err') throw new Error(signed.error.message);
@@ -148,6 +157,7 @@ function built(opts: {
     signature: Buffer.from(signed.value).toString('base64'),
     publishedAt: fields.publishedAt,
     ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
+    ...(opts.builtFrom !== undefined && { builtFrom: opts.builtFrom }),
     activatedAt: new Date(Date.UTC(2026, 9, 1, 10, minute)).toISOString(),
     ...(opts.projectId !== undefined && { projectId: opts.projectId }),
     packId: 'acme.pack',
@@ -491,6 +501,8 @@ function harness(
     readonly cards?: { readonly pinned: string };
     /** What runs, for a promotion's check against it (`pinsAndRuns`). */
     readonly runs?: Runs;
+    /** The server's own middleware sets the project-only key scope (`deployKeyScope`). */
+    readonly keyScope?: 'project';
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -624,8 +636,17 @@ function harness(
       },
     }),
   });
+  const server = new Hono<AppEnv>();
+  if (opts.keyScope !== undefined) {
+    const keyScope = opts.keyScope;
+    server.use('/v1/deployments/*', async (c, next) => {
+      c.set('deployKeyScope', keyScope);
+      await next();
+    });
+  }
+  server.route('/', app);
   const call = async (path: string, body: unknown, token = TOKEN) => {
-    const res = await app.request(path, {
+    const res = await server.request(path, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -970,6 +991,35 @@ describe('rights on the projects themselves', () => {
     }
   });
 
+  test('under a project-only key scope no promotion is made, with an authorizer or without: 403 permission-denied, nothing written; the check answers', async () => {
+    const grants = [`read project:${S1}`, `admin project:${S2}`];
+    const secrets = [`project:${S2}:ACME_TOKEN`];
+    const setups = [
+      harness({ keyScope: 'project', secrets }),
+      harness({ keyScope: 'project', grants, secrets }),
+    ];
+    for (const h of setups) {
+      for (const res of [
+        await h.promote('dep-s1', S2),
+        await h.promoteAndPin('dep-s1', S2),
+        // A deployment that isn't there gets the same answer: the scope is asked first.
+        await h.promote('dep-none', S2),
+      ]) {
+        expect(res.status).toBe(403);
+        expect(res.body.error.code).toBe('permission-denied');
+        expect(res.body.error.message).toContain('project-only key scope');
+      }
+      expect(h.deployments.rows).toHaveLength(1);
+      expect(h.appended).toEqual([]);
+      const check = await h.check('dep-s1', S2);
+      expect(check.status).toBe(200);
+      expect(h.deployments.rows).toHaveLength(1);
+    }
+    // The same promotion without the scope is made.
+    const open = await harness({ grants, secrets }).promote('dep-s1', S2);
+    expect(open.status).toBe(201);
+  });
+
   test("read on the source's environment and admin on the target is enough: no tenant right", async () => {
     const h = harness({
       grants: [`read project:${S1}`, `admin project:${S2}`, `admin project:${S2}`],
@@ -1206,6 +1256,49 @@ describe('a build moves only while it serves and its signature holds', () => {
     expect(gainedRes.status).toBe(400);
     expect(gainedRes.body.error.code).toBe('signature-invalid');
     expect(gained.deployments.rows).toHaveLength(1);
+  });
+
+  const BUILT: BuiltFrom = {
+    kind: 'kept-repo',
+    projectId: '0b6f3c1e-8a2d-4f5b-9c7e-1d2a3b4c5d6e',
+    commit: 'c'.repeat(40),
+    requestedBy: 'user:user-1',
+  };
+
+  test('a build made from a kept repository moves with what it was built from, verified again', async () => {
+    const h = harness({ rows: [built({ id: 'dep-s1', projectId: S1, builtFrom: BUILT })] });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.deployment.builtFrom).toEqual(BUILT);
+    expect(res.body.deployment.promotedFromDeploymentId).toBe('dep-s1');
+  });
+
+  test('builtFrom the deployment no longer keeps, gained or changed: 400 signature-invalid', async () => {
+    const { builtFrom: _from, ...dropped } = built({
+      id: 'dep-s1',
+      projectId: S1,
+      builtFrom: BUILT,
+    });
+    const lost = harness({ rows: [dropped] });
+    expect((await lost.promote('dep-s1', S2)).body.error.code).toBe('signature-invalid');
+
+    const gained = harness({
+      rows: [{ ...built({ id: 'dep-s1', projectId: S1 }), builtFrom: BUILT }],
+    });
+    expect((await gained.promote('dep-s1', S2)).body.error.code).toBe('signature-invalid');
+
+    const changed = harness({
+      rows: [
+        {
+          ...built({ id: 'dep-s1', projectId: S1, builtFrom: BUILT }),
+          builtFrom: { ...BUILT, requestedBy: 'user:user-2' },
+        },
+      ],
+    });
+    const changedRes = await changed.promote('dep-s1', S2);
+    expect(changedRes.status).toBe(400);
+    expect(changedRes.body.error.code).toBe('signature-invalid');
+    expect(changed.deployments.rows).toHaveLength(1);
   });
 });
 

@@ -13,6 +13,18 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **An operator can register a signed build into a tenant's
+  project.** `client.system_hosted_builds.register`
+  (`POST /v1/system/tenants/{tenantId}/deployments`, a system key holding
+  `system:hosted-builds` itself) takes `deployments.register`'s body and gives
+  its answers, as the tenant's deploy under the project-only key scope: the
+  body's `project_id` is required, and the record's `key_scope` is `project`.
+- `kindgi`: **a deployment says when it was deployed under a project-only
+  key scope.** `DeploymentRecord` gains `key_scope` (`keyScope` on the
+  wire), `project` for such a deploy: its tools' secrets were recorded at
+  its project only, and its pack's env is read there only. `None` on any
+  other deploy.
+- `kindgi`: **a deployment can say what it was built from.** `DeploymentRecord` and `DeploymentRegistrationBody` gain `built_from` (`builtFrom` on the wire), a `DeploymentBuiltFrom` with `kind` `kept-repo`, `project_id`, `commit` and `requested_by`: a commit of a repository the runtime keeps for a project, and who asked for the build. It's set only when the build's signed envelope carries it, and the signature covers it, so a registration sends it as it was signed or not at all. A deployment a promotion made keeps its source's. It defaults to `None`, so code that builds either model needs no change.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or

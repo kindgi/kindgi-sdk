@@ -119,6 +119,13 @@ export const EVIDENCE_KINDS = [
   // was set, changed or cleared. The payload carries the order before and
   // after, each a list of project ids — never anything a project holds.
   'environment-order-set',
+  // A deploy registered a new deployment (not a repeat of one it has). The
+  // payload names the deployment, its image digest, version and signer key,
+  // and what it was built from when its signed envelope says (`builtFrom`:
+  // the project, the commit and who asked for the build) — never its
+  // contents. Its `actor` is who registered it, which for a build made for
+  // someone is the builder's identity, with the person in `builtFrom`.
+  'deployment-registered',
   // A deployment was promoted into the next environment of its order: a new
   // deployment there, or versions carried onto the one it had. The payload
   // names both deployments, both projects, the image digest and the

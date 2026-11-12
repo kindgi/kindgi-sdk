@@ -12,7 +12,7 @@ import type {
 } from '@kindgi/types';
 
 import type { PinActor } from './agent-pin-binding.js';
-import type { ProductionEntry } from './deployment-envelope.js';
+import type { BuiltFrom, ProductionEntry } from './deployment-envelope.js';
 import {
   PACK_ENV_PROBLEM_CODES,
   PACK_ENV_SECRET_GIVE_CODES,
@@ -99,7 +99,8 @@ export interface DeploymentBinding {
   /**
    * Promote a deployment into the next environment of its order, in one
    * transaction: a deployment in the target project with the source's
-   * signed fields (its `productionEntry` included), contents, pack, pack checks and git `source` (as
+   * signed fields (its `productionEntry` and `builtFrom` included),
+   * contents, pack, pack checks and git `source` (as
    * `register` writes one, with its routes and pending endpoint) and
    * `promotedFromDeploymentId`, and its own `replaced` (the input's, never
    * the source's); the versions carried with it; and where each tool's
@@ -118,6 +119,21 @@ export interface DeploymentBinding {
    * Absent: the runtime can't promote (`501 promotions-unsupported`).
    */
   promote?(input: DeploymentPromoteInput): Promise<DeploymentPromoteOutcome>;
+  /**
+   * `true` when `register` keeps the input's `keyScope` on the record and
+   * `get` answers it. Absent: a deploy under a project-only key scope is
+   * refused (`500 internal-server-error`) before anything is written, since
+   * the record would lose the mark that limits its pack's env read.
+   */
+  readonly keepsKeyScope?: true;
+  /**
+   * Set when `register` and `promote` keep a deployment's `builtFrom`.
+   * Absent: `POST /v1/deployments` refuses a build signed with it (`501
+   * built-from-unsupported`) before anything is written, since a
+   * deployment kept without it could never be promoted (a promotion
+   * verifies the signature again, over what the row kept).
+   */
+  readonly keepsBuiltFrom?: true;
 }
 
 // -------------------- record --------------------
@@ -136,11 +152,20 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
     signature: d.signature,
     publishedAt: d.publishedAt,
     ...(d.productionEntry !== undefined && { productionEntry: d.productionEntry }),
+    ...(d.builtFrom !== undefined && {
+      builtFrom: {
+        kind: d.builtFrom.kind,
+        projectId: d.builtFrom.projectId,
+        commit: d.builtFrom.commit,
+        requestedBy: d.builtFrom.requestedBy,
+      },
+    }),
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.promotedFromDeploymentId !== undefined && {
       promotedFromDeploymentId: d.promotedFromDeploymentId,
     }),
+    ...(d.keyScope !== undefined && { keyScope: d.keyScope }),
     ...(d.packId !== undefined && { packId: d.packId }),
     ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
     ...(d.packEnv !== undefined && {
@@ -456,6 +481,13 @@ export interface Deployment {
    * keep it, which then promotes only builds signed without it.
    */
   readonly productionEntry?: ProductionEntry;
+  /**
+   * Inside the signed envelope when present: what the build was made from
+   * (`BuiltFrom`). Kept so a promotion verifies the signature over it
+   * again; a promoted copy keeps its source's. A binding that doesn't keep
+   * it (no `DeploymentBinding.keepsBuiltFrom`) is never sent one.
+   */
+  readonly builtFrom?: BuiltFrom;
   /** Server-side ledger timestamp — when `register` returned OK. ISO-8601. */
   readonly activatedAt: string;
   /**
@@ -477,6 +509,13 @@ export interface Deployment {
    * Absent for a deployment registered directly.
    */
   readonly promotedFromDeploymentId?: string;
+  /**
+   * `project`: registered under a project-only key scope
+   * (`AppEnv.deployKeyScope`). Its secrets were recorded at its project
+   * only, and its pack's own env reads that project only. Absent:
+   * registered without one, or a promotion.
+   */
+  readonly keyScope?: 'project';
   /** The pack's id, from the image's index (`packId`), when the binding keeps it. */
   readonly packId?: string;
   /**
@@ -632,6 +671,8 @@ export interface DeploymentRegisterInput {
   readonly publishedAt: string;
   /** In the signed envelope when the deploy sent it; the binding keeps it verbatim. */
   readonly productionEntry?: ProductionEntry;
+  /** In the signed envelope when the deploy sent it; the binding keeps it verbatim. */
+  readonly builtFrom?: BuiltFrom;
   /**
    * Set when the build is promote-only, by its mark, its key id's prefix
    * or its key's bytes (the route asks the trust list): it reaches a
@@ -675,6 +716,11 @@ export interface DeploymentRegisterInput {
    * deployment keeps them, so whatever runs it can give it their values.
    */
   readonly packEnv?: PackEnvDeclaration;
+  /**
+   * `project`: the deploy ran under a project-only key scope
+   * (`Deployment.keyScope`). Sent only to a binding with `keepsKeyScope`.
+   */
+  readonly keyScope?: 'project';
   /** Where the pack lives in git (`Deployment.source`), when the deploy said. */
   readonly source?: DeploymentSource;
   /** The blocks the deploy put back on purpose (`Deployment.replaced`). */

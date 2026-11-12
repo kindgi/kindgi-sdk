@@ -453,6 +453,17 @@ export function mountDeploymentPromotions(
   });
 
   r.post('/:deploymentId/promotions', async (c) => {
+    // The project-only key scope (`AppEnv.deployKeyScope`): set only by the
+    // server's own middleware, never by the request. A promotion records the
+    // build's tool secrets and pack env as wide as the caller reads them,
+    // which the scope keeps a deploy from, so none is made under it. The
+    // check writes nothing and stays open.
+    if (c.get('deployKeyScope') === 'project') {
+      return refusal(c, 'permission-denied', {
+        message:
+          'a promotion under a project-only key scope is refused: have a key without the scope promote it. Nothing was promoted.',
+      });
+    }
     const body = await promotionBody(c, true);
     if (body instanceof Response) return body;
     const plan = await planPromotion(c, bindings, authorizer, body.toProjectId, true);
@@ -1186,13 +1197,14 @@ async function signerRefusal(
       tenantId: source.tenantId as unknown as string,
       publishedAt: source.publishedAt,
       ...(source.productionEntry !== undefined && { productionEntry: source.productionEntry }),
+      ...(source.builtFrom !== undefined && { builtFrom: source.builtFrom }),
     }),
     new Uint8Array(Buffer.from(source.signature, 'base64')),
   );
   if (verified.kind === 'ok' && verified.value) return undefined;
   return refusal(c, 'signature-invalid', {
     message:
-      "The deployment's signature doesn't verify over the fields it keeps { imageDigest, artifactVersion, indexHash, tenantId, publishedAt, and productionEntry when it has one }, so it isn't promoted. Nothing was promoted.",
+      "The deployment's signature doesn't verify over the fields it keeps { imageDigest, artifactVersion, indexHash, tenantId, publishedAt, and productionEntry and builtFrom when it has them }, so it isn't promoted. Nothing was promoted.",
   });
 }
 

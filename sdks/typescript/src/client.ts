@@ -74,6 +74,10 @@ import {
   makeSystemDeploymentsClient,
 } from './resources/system-deployments.js';
 import { type SystemEnvClient, makeSystemEnvClient } from './resources/system-env.js';
+import {
+  type SystemHostedBuildsClient,
+  makeSystemHostedBuildsClient,
+} from './resources/system-hosted-builds.js';
 import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -177,6 +181,12 @@ export interface KindgiClient {
    * reads from its cloud. System keys with `system:env-refs` only.
    */
   readonly systemEnv: SystemEnvClient;
+  /**
+   * Signed builds registered into one project of a tenant, as its deploy
+   * under the project-only key scope. System keys with
+   * `system:hosted-builds` only.
+   */
+  readonly systemHostedBuilds: SystemHostedBuildsClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
   /** Usage across tenants, aggregated. System keys only. */
@@ -266,6 +276,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
     systemEnv: makeSystemEnvClient(transport),
+    systemHostedBuilds: makeSystemHostedBuildsClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
     systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),
