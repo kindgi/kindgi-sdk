@@ -368,6 +368,7 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "toolErrors": _dict(agent.tool_errors),
             "parallelToolCalls": agent.parallel_tool_calls,
             "memory": _dict(agent.memory),
+            "mcp": _dict(agent.mcp),
             "settings": [dict(s) for s in agent.settings],
             "modelSettings": _dict(agent.model_settings),
             "modulePath": rel_path,
@@ -386,6 +387,7 @@ def _flow_entry(flow: Flow, rel_path: str, flow_spec: SchemaValidator) -> dict[s
             "edges": [dict(e) for e in flow.edges],
             "maxParallelism": flow.max_parallelism,
             "metadata": _dict(flow.metadata),
+            "mcp": _dict(flow.mcp),
             "output": _dict(flow.output),
         }
     )

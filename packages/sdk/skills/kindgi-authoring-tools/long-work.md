@@ -29,5 +29,5 @@ it. Ask the user how the other system reports back, then:
 - It can't call back: return the job's id, and check it from a scheduled
   flow.
 
-Docs: https://docs.kindgi.com/v0.5/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
-and https://docs.kindgi.com/v0.5/guides/tools/wait-for-another-system/
+Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+and https://docs.kindgi.com/v0.6/guides/tools/wait-for-another-system/

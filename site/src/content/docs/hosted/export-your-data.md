@@ -15,8 +15,8 @@ names and versions are.
 
 ## Before you start
 
-- **Kindgi 0.2's CLI,** which runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../start/install/)).
+- **Kindgi 0.6's CLI,** which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../start/install/)).
 - **A tenant admin's API key.** Some kinds only a tenant admin reads, such as
   the workspace's people, its API keys, its environments and its sign-ins. In
   the console, open **API keys** and **Create a key**, and under **How far it
@@ -29,7 +29,7 @@ names and versions are.
   account is open:
 
   ```sh
-  npx --yes @kindgi/cli@0.2 reviewers register --spec='{"role":"admin"}'
+  npx --yes @kindgi/cli@0.6 reviewers register --spec='{"role":"admin"}'
   ```
 
 - **The address and the key:**
@@ -47,7 +47,7 @@ names and versions are.
 Name a new or empty folder:
 
 ```sh
-npx --yes @kindgi/cli@0.2 exports create --out ./acme-export
+npx --yes @kindgi/cli@0.6 exports create --out ./acme-export
 ```
 
 It prints a line for each kind as it's written, and ends by saying how many
@@ -61,7 +61,7 @@ it again with `--resume`. It keeps the kinds already written and reads the
 others again, skipped ones included:
 
 ```sh
-npx --yes @kindgi/cli@0.2 exports create --out ./acme-export --resume
+npx --yes @kindgi/cli@0.6 exports create --out ./acme-export --resume
 ```
 
 `--resume` reads the folder's `manifest.json`, and refuses a folder that

@@ -13,7 +13,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -135,6 +135,12 @@ exists. That is checked when a run starts (see "Running a flow"). A
 flow that fails the checks is a file error in `kindgi dev` and
 `kindgi build`, which leave it out of the index, and a deploy refuses
 it.
+
+**In a chat app:** `mcp: { expose: true }` makes the flow a tool, named
+`flow.<id>`, in the chat apps (Claude, say) people connect to the workspace;
+each person sees it only if they can see the flow. Its id then takes letters,
+digits, `_`, `-` and `.`, at most 123. `readOnly` and `destructive` become
+the tool's hints; left out, none is sent.
 
 ## Nodes
 

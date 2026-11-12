@@ -45,6 +45,7 @@ import {
   presetSettingFlag,
   presetSettingMapValue,
 } from '../providers/preset-loader.js';
+import { hostAndPort, postgresUrlParts } from './postgres-url.js';
 
 /** A provider the config declares, as it will be registered. */
 export interface DeclaredProvider {
@@ -387,46 +388,91 @@ function databaseOf(databaseUrl: string | undefined): string {
     const url = new URL(databaseUrl);
     return `${url.hostname}:${url.port === '' ? '5432' : url.port}${url.pathname}`;
   } catch {
-    return createHash('sha256').update(databaseUrl).digest('hex').slice(0, 16);
+    return databaseNamed(databaseUrl);
   }
 }
 
 /**
- * Up to 0.1.3 the bundled Postgres's entries were keyed on its host and
- * port (`127.0.0.1:<port>/<database> tenant <id>`, a loopback host), and the port changes
- * when the container comes back. Moves such entries for this database and
- * tenant to the `bundled` key, once: else the providers this pack
- * registered would read as someone else's. A one-time migration of a
- * local file: remove it after 0.1.5.
+ * A URL `new URL` refuses (a list of hosts with ports, libpq's socket
+ * form), named as the runtime names the database it reaches, from its
+ * hosts, ports and name, never its credentials:
+ * - libpq's `?host=`: its list, each with `?port=`, else the address's
+ *   first port, else 5432; a socket directory (`/…`) as written;
+ * - else the address's list, each entry with its own port, else 5432;
+ * - then the database. `unknown` for a URL it can't split, or one whose
+ *   host would be read out of its credentials (an empty host, or an `@`
+ *   past the address: a raw `/`, `?` or `#` in the password).
  */
-export async function adoptLegacyBundledEntries(
+function databaseNamed(databaseUrl: string): string {
+  const parts = postgresUrlParts(databaseUrl);
+  if (parts === undefined) return 'unknown';
+  if (`${parts.path}${parts.query ?? ''}${parts.fragment}`.includes('@')) return 'unknown';
+  const params = new URLSearchParams(parts.query ?? '');
+  const host = params.get('host') || undefined;
+  if (host?.startsWith('/')) return `${host.replace(/\/+$/, '')}${parts.path}`;
+  const port = params.get('port') || hostAndPort(parts.hosts[0] ?? '').port || '5432';
+  const hosts =
+    host === undefined
+      ? parts.hosts.map((entry) => {
+          const address = hostAndPort(entry);
+          return `${address.host}:${address.port || '5432'}`;
+        })
+      : host.split(',').map((name) => `${name}:${port}`);
+  if (hosts.some((entry) => entry.startsWith(':'))) return 'unknown';
+  return `${hosts.join(',')}${parts.path}`;
+}
+
+/**
+ * The key a database URL `new URL` refuses had before it was named from
+ * its split: a hash of the whole URL.
+ */
+const HASH_KEY = /^[0-9a-f]{16} tenant /;
+
+/**
+ * Until this release, a database URL `new URL` refuses was keyed on 16
+ * hex of its sha256, credentials included. On a boot on such a URL, moves
+ * each tenant's entries under its old hash to the key from its split
+ * (`databaseNamed`), unless that key already has entries. Then, on every
+ * boot, deletes every key of the hash's shape: nothing reads them, and
+ * each is worked out from a password. A one-time migration of a local
+ * file: remove it in 0.7.0.
+ */
+export async function moveHashKeyedEntries(
   path: string,
-  database: string,
-  tenantId: string,
+  target: DevProvidersTarget,
 ): Promise<void> {
   const file = await readRecordFile(path);
   if (file === undefined) return;
-  const key = devProvidersKey({ kind: 'bundled', database }, tenantId);
-  if (file.runtimes[key] !== undefined) return;
-  const legacy = Object.keys(file.runtimes).filter((k) =>
-    isLegacyBundledKey(k, database, tenantId),
-  );
-  if (legacy.length === 0) return;
   const runtimes: Record<string, OwnedProviders> = { ...file.runtimes };
-  const adopted: Record<string, OwnedProvider> = {};
-  for (const k of legacy) {
-    Object.assign(adopted, runtimes[k]);
-    delete runtimes[k];
+  const named = target.kind === 'database' ? hashKeyedDatabase(target.url) : undefined;
+  if (named !== undefined) {
+    const prefix = `${named.hash} tenant `;
+    for (const key of Object.keys(runtimes)) {
+      if (!key.startsWith(prefix)) continue;
+      const moved = `${named.database} tenant ${key.slice(prefix.length)}`;
+      if (Object.keys(runtimes[moved] ?? {}).length === 0) runtimes[moved] = runtimes[key] ?? {};
+    }
   }
-  runtimes[key] = adopted;
+  const hashed = Object.keys(runtimes).filter((key) => HASH_KEY.test(key));
+  if (hashed.length === 0) return;
+  for (const key of hashed) delete runtimes[key];
   await writeRecordFile(path, { v: 1, runtimes });
 }
 
-function isLegacyBundledKey(key: string, database: string, tenantId: string): boolean {
-  const suffix = `/${database} tenant ${tenantId}`;
-  if (!key.endsWith(suffix)) return false;
-  // The bundled Postgres is on this machine; a database elsewhere was named.
-  return /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(key.slice(0, -suffix.length));
+/** The old hash and the new name of a URL whose key moves: one `new URL` refuses and the split names. */
+function hashKeyedDatabase(
+  databaseUrl: string | undefined,
+): { readonly hash: string; readonly database: string } | undefined {
+  if (databaseUrl === undefined) return undefined;
+  try {
+    new URL(databaseUrl);
+    return undefined;
+  } catch {
+    // Keyed on its hash until now: it moves.
+  }
+  const database = databaseNamed(databaseUrl);
+  if (database === 'unknown') return undefined;
+  return { hash: createHash('sha256').update(databaseUrl).digest('hex').slice(0, 16), database };
 }
 
 /** This pack's providers in that runtime and tenant; nothing when the record is missing or unreadable. */

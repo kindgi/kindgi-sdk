@@ -71,11 +71,16 @@ const resolveToken: TokenResolver = async (token) => {
   return null;
 };
 
-/** What the caller (Ada, a tenant admin) holds: enough to register and take over anything here. */
+/**
+ * What the caller (Ada, a tenant admin) holds: enough to register and take over anything here.
+ * Each fixture holds `run` on the project as its role does (`can_run` includes editor): a
+ * person's own schedule asks `run` there, not `write`.
+ */
 const ADA_GRANTS = [
   `admin tenant:${tenantId}`,
   `read project:${PROJECT}`,
   `write project:${PROJECT}`,
+  `run project:${PROJECT}`,
   `admin project:${PROJECT}`,
   `execute flow:${FLOW}`,
   `execute agent:${AGENT}`,
@@ -88,6 +93,7 @@ const ADA_GRANTS = [
 const PADMIN_GRANTS = [
   `padmin read project:${PROJECT}`,
   `padmin write project:${PROJECT}`,
+  `padmin run project:${PROJECT}`,
   `padmin admin project:${PROJECT}`,
   `padmin execute agent:${AGENT}`,
   `padmin execute agent:${AGENT2}`,
@@ -95,6 +101,7 @@ const PADMIN_GRANTS = [
 const PAT_GRANTS = [
   `pat read project:${PROJECT}`,
   `pat write project:${PROJECT}`,
+  `pat run project:${PROJECT}`,
   `pat execute agent:${AGENT}`,
 ];
 

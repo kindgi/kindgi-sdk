@@ -19,6 +19,7 @@ import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, pinChangeRefusal, pinWidthRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { beforeHandler } from '../middleware/error-mapper.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import type {
   PinnedVersion,
   PinnedVersionBinding,
@@ -35,6 +36,7 @@ import { actorOf } from './agent-pins.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { parsePinScopeBody, pinScopeToWire } from './pin-scope-wire.js';
+import { pinScopeResourceRef } from './scope-params.js';
 import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
@@ -84,7 +86,9 @@ export interface PinnedRouteDeps {
 /**
  * The rights a pin write asks, before its handler reads the body
  * (`pinChangeRefusal`). Install it ahead of the item's own middleware,
- * which leaves pin writes to it (`isPinWrite`).
+ * which leaves pin writes to it (`isPinWrite`). Without a store, a key or
+ * session limited to a project pins nothing tenant- or org-wide
+ * (`holdLimitedCaller`).
  */
 export function pinRightsMiddleware(
   kind: PinnedItemKind,
@@ -93,7 +97,13 @@ export function pinRightsMiddleware(
 ): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const authorizer = deps.authorizer;
-    if (authorizer === undefined || !isPinWrite(c.req.method, c.req.path)) return next();
+    if (!isPinWrite(c.req.method, c.req.path)) return next();
+    if (authorizer === undefined) {
+      const scope = await bodyPinScope(c);
+      if (scope === undefined) return next();
+      const tenantId = c.get('tenantId') as TenantId;
+      return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
+    }
     // Before the handler, so a store that couldn't be reached, or a database
     // too busy to read, answers 503 on any method (`beforeHandler`).
     const refused = await beforeHandler(c, async () =>

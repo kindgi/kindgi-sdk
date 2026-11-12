@@ -17,8 +17,8 @@ provider.
 - **Someone who can create a SAML app in your identity provider.**
 - **`openssl`,** if your identity provider wants signed sign-in requests
   ([When your identity provider wants signed requests](#when-your-identity-provider-wants-signed-requests)).
-- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the SAML URLs
@@ -26,7 +26,7 @@ provider.
 `start` with `--kind=saml` gives you the URLs a SAML app asks for:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers start acme-saml --kind=saml
+npx --yes @kindgi/cli@0.6 sso providers start acme-saml --kind=saml
 ```
 
 - `acme-saml` is the provider's id in your workspace.
@@ -74,7 +74,7 @@ Save the identity provider's metadata XML to a file, such as
 your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
+npx --yes @kindgi/cli@0.6 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
 ```
 
 - `--kind=saml` says the provider speaks SAML.
@@ -101,7 +101,7 @@ name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-npx --yes @kindgi/cli@0.2 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
 - `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
@@ -137,7 +137,7 @@ it stored:
 Then run `finish` again with the key's name and its certificate:
 
 ```sh
-npx --yes @kindgi/cli@0.7 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
+npx --yes @kindgi/cli@0.6 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
   --sp-signing-key-ref=ACME_SAML_SIGNING_KEY --sp-signing-certificate=@acme-sp-cert.pem
 ```
 
@@ -146,7 +146,7 @@ npx --yes @kindgi/cli@0.7 sso providers finish acme-saml --kind=saml --idp-metad
   provider metadata then carries the certificate, so an identity provider
   that imports the metadata has it. If yours doesn't, give whoever runs it
   `acme-sp-cert.pem` to add to the app.
-- The flag comes with `@kindgi/cli@0.7`, and the metadata carries the
+- The flag comes with CLI 0.7.0, and the metadata carries the
   certificate on runtime 0.7.0 or later. An earlier runtime takes the
   certificate and keeps none: `sso providers get acme-saml` then shows no
   `spSigningCertificates`, and the identity provider goes on refusing the

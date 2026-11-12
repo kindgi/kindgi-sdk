@@ -10,6 +10,7 @@ import type { Cursor, OrgId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
 import {
@@ -54,23 +55,20 @@ export function orgsRouter(
   //   DELETE /:orgId    → admin on the org
   //   GET /:orgId       → read on the org (per-resource check)
   //   GET /             → tenant-scoped fetch + filterByCan('read') strip
-  if (authorizer !== undefined) {
-    r.use('/', async (c, next) => {
-      if (c.req.method !== 'POST') return next();
-      const mw = authorizer.authorize('admin', (ctx) =>
-        ref('tenant', ctx.get('tenantId') as unknown as string),
-      );
-      return mw(c, next);
-    });
-    r.use('/:orgId', async (c, next) => {
-      const method = c.req.method;
-      if (method !== 'PATCH' && method !== 'DELETE' && !isReadMethod(method)) return next();
-      const orgId = c.req.param('orgId');
-      const action = isReadMethod(method) ? 'read' : method === 'DELETE' ? 'admin' : 'admin';
-      const mw = authorizer.authorize(action, () => ref('org', orgId));
-      return mw(c, next);
-    });
-  }
+  const authorize = gate(authorizer);
+  r.use('/', async (c, next) => {
+    if (c.req.method !== 'POST') return next();
+    const mw = authorize('admin', (ctx) => ref('tenant', ctx.get('tenantId') as unknown as string));
+    return mw(c, next);
+  });
+  r.use('/:orgId', async (c, next) => {
+    const method = c.req.method;
+    if (method !== 'PATCH' && method !== 'DELETE' && !isReadMethod(method)) return next();
+    const orgId = c.req.param('orgId');
+    const action = isReadMethod(method) ? 'read' : method === 'DELETE' ? 'admin' : 'admin';
+    const mw = authorize(action, () => ref('org', orgId));
+    return mw(c, next);
+  });
 
   // ---------- GET / (list, cursor-paginated + filtered) ----------
   r.get('/', async (c) => {

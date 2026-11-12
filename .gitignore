@@ -7,6 +7,11 @@ node_modules/
 dist/
 .astro/
 build/
+# packages/cli/src/build/ is source, not output: the pipeline stages of
+# `kindgi build` (as src/dev/ is for `kindgi dev`). Biome reads only this
+# file, not a package's own .gitignore, so the CLI's source folder is
+# re-included here.
+!packages/cli/src/build/
 out/
 *.tsbuildinfo
 .turbo/

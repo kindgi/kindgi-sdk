@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, Next } from 'hono';
 
 import type { ConversationBinding } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
@@ -16,7 +16,7 @@ import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 
 import type { Authorizer } from '../middleware/authorize.js';
-import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -37,7 +37,9 @@ import {
   signingNotConfigured,
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { actionOrRunRefusal, isOwnRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
 import { parseTimeInput } from './time-input.js';
 import { UUID_RE } from './uuid-param.js';
@@ -86,8 +88,9 @@ export function provenanceRouter(
   options: ProvenanceRouterOptions = {},
   /**
    * With one (T243 A): a run's provenance (and its export) needs `read`
-   * on the run's project; the list holds only records whose project the
-   * caller may read (the tenant, for one with no project).
+   * on the run's project, or, for a run of the caller's own (`isOwnRun`),
+   * `run` there; the list holds only records whose project the caller may
+   * read (the tenant, for one with no project).
    */
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
@@ -95,19 +98,24 @@ export function provenanceRouter(
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404 (`read` on the tenant).
     // An id that isn't a run id is never looked up (its uuid cast would
-    // fail the query as a 500). The run is read in the middleware's
-    // resource getter, so a database too busy for it answers 503 on any
-    // method, as nothing ran.
-    const onRunProject = authorizer.authorize('read', async (c: Context<AppEnv>) => {
+    // fail the query as a 500). The run is read, and the caller's right on
+    // it checked, before the handler (`beforeHandler`), so a database too
+    // busy for it answers 503 on any method, as nothing ran.
+    const runRefusal = async (c: Context<AppEnv>): Promise<Response | undefined> => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
       const run = UUID_RE.test(runId)
         ? await options.runBinding?.getRun(tenantId, runId as RunId)
         : undefined;
-      return run === undefined || run === null
-        ? ref('tenant', tenantId as unknown as string)
-        : ref('project', run.projectId as unknown as string);
-    });
+      if (run === undefined || run === null) {
+        return deniedBy(authorizer, c, 'read', ref('tenant', tenantId as unknown as string));
+      }
+      const project = run.projectId as unknown as string;
+      const own = isOwnRun(c, run) ? project : undefined;
+      return actionOrRunRefusal(authorizer, c, 'read', ref('project', project), own);
+    };
+    const onRunProject = async (c: Context<AppEnv>, next: Next) =>
+      (await beforeHandler(c, () => runRefusal(c))) ?? next();
     r.use('/:runId', async (c, next) =>
       isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
     );

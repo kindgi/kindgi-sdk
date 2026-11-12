@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.9"
+version: "0.1.10"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -192,6 +192,11 @@ public final class BriefWriter {
   them, and any other call on its own, in the order the model asked; the results reach the conversation in that order either way. A call that may wait, for another system's answer or for the person who started the run to connect an app, runs on its own too. `false`
   runs every call on its own, for read-only tools that mustn't overlap (a
   rate-limited API, say).
+- **`set("mcp", Map.of("expose", true))`:** makes the agent a tool, named by
+  its id, in the chat apps (Claude, say) people connect to the workspace; each person
+  sees it only if they can see the agent. Its id then can't start with
+  `kindgi.` or `flow.`. `readOnly` and `destructive` (true or false) become the
+  tool's hints; left out, none is sent.
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not

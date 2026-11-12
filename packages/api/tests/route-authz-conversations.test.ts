@@ -5,11 +5,15 @@
  * Conversations and authorization: reading one, its messages, or the list
  * needs `read` on its project (its agent, for one from before projects);
  * opening or closing one needs `execute` on its agent, as starting a run
- * does; unregistering one (a tombstone the retention sweep then deletes)
- * needs `write` on its project (or agent). A caller refused on one they
- * can't read gets the answer for a conversation that doesn't exist, byte
- * for byte; one who can read it keeps the 403. Closing one doesn't take
- * reading it.
+ * does, and closing one someone else opened, for a caller who may run its
+ * project, takes `write` there as well (a runner, or anyone where everyone
+ * may run the project, closes only their own); unregistering one (a
+ * tombstone the retention sweep then deletes) needs `write` on its project
+ * (or agent). A caller refused on one they can't read gets the answer for
+ * a conversation that doesn't exist, byte for byte; one who can read it
+ * keeps the 403. Closing one doesn't take reading it. One a person opened
+ * in a project they may run (though not read) is theirs to read, with its
+ * messages and in the list; another person's stays hidden.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -46,6 +50,17 @@ const inP = conversation(P);
 const legacy = conversation();
 const Q = randomUUID();
 const inQ = conversation(Q);
+/** Opened by the caller (`user-1`), and by another person, in P; by the caller before projects. */
+const callersInP = { ...conversation(P), openedBy: 'user:user-1' } as Conversation;
+const anothersInP = { ...conversation(P), openedBy: 'user:user-2' } as Conversation;
+const callersLegacy = { ...conversation(), openedBy: 'user:user-1' } as Conversation;
+/** Another person's in P, closed already; another person's from before projects. */
+const anothersClosedInP = {
+  ...conversation(P),
+  openedBy: 'user:user-2',
+  closedAt: '2026-10-07T09:00:00.000Z',
+} as Conversation;
+const anothersLegacy = { ...conversation(), openedBy: 'user:user-2' } as Conversation;
 
 /** The same person's keys limited to a project: Q's, and P's. */
 const LIMITED_TO_Q = 'route-authz-conversations-q';
@@ -64,7 +79,8 @@ const resolveToken: TokenResolver = async (token) =>
 /**
  * `projects`: the ones that exist; unset, the app has no project binding
  * and checks none. `gone`: conversations the binding doesn't find, as if
- * they had never been opened.
+ * they had never been opened. `filed`: the project the agent registry files
+ * every agent version in; unset, the app has no registry.
  */
 function harness(
   grants: readonly string[],
@@ -72,7 +88,16 @@ function harness(
     authzOn = true,
     projects,
     gone = [],
-  }: { authzOn?: boolean; projects?: readonly string[]; gone?: readonly string[] } = {},
+    list,
+    filed,
+  }: {
+    authzOn?: boolean;
+    projects?: readonly string[];
+    gone?: readonly string[];
+    /** The store's pages; unset, one page of `inP` and `legacy`. */
+    list?: ConversationBinding['listConversationsPage'];
+    filed?: string;
+  } = {},
 ) {
   const asked: string[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {
@@ -87,7 +112,16 @@ function harness(
   /** The refusals the authorizer decided itself and recorded, as `<action> <type>:<id> <failing>`. */
   const recorded: string[] = [];
   const reached: string[] = [];
-  const stored = [inP, legacy, inQ].filter((c) => !gone.includes(c.id as unknown as string));
+  const stored = [
+    inP,
+    legacy,
+    inQ,
+    callersInP,
+    anothersInP,
+    callersLegacy,
+    anothersClosedInP,
+    anothersLegacy,
+  ].filter((c) => !gone.includes(c.id as unknown as string));
   const conversations = {
     getConversation: async (_t: TenantId, id: string) => {
       const found = stored.find((c) => c.id === id);
@@ -96,10 +130,12 @@ function harness(
         ? { kind: 'err', error: { code: 'conversation-not-found', message: 'x' } }
         : { kind: 'ok', value: found };
     },
-    listConversationsPage: async () => ({
-      kind: 'ok',
-      value: { data: [inP, legacy], hasMore: false },
-    }),
+    listConversationsPage:
+      list ??
+      (async () => ({
+        kind: 'ok',
+        value: { data: [inP, legacy], hasMore: false },
+      })),
     openConversation: async () => {
       reached.push('open');
       return { kind: 'ok', value: inP };
@@ -127,6 +163,9 @@ function harness(
         get: async (_t: TenantId, id: string) => (projects.includes(id) ? { id } : undefined),
         getDefault: async () => undefined,
       } as never,
+    }),
+    ...(filed !== undefined && {
+      agentRegistry: { getVersion: async () => ({ projectId: filed }) } as never,
     }),
     ...(authzOn && {
       authz: {
@@ -232,6 +271,86 @@ describe('reading conversations needs read on their project (or agent)', () => {
   });
 });
 
+describe('a conversation a person opened, in a project they may run', () => {
+  test('is theirs to read, with its messages: read refused, then run allowed', async () => {
+    const { call, asked, reached } = harness([`run project:${P}`]);
+    expect((await call('GET', `/v1/conversations/${callersInP.id}`)).status).toBe(200);
+    expect((await call('GET', `/v1/conversations/${callersInP.id}/messages`)).status).toBe(200);
+    expect(asked).toEqual([
+      `read project:${P}`,
+      `run project:${P}`,
+      `read project:${P}`,
+      `run project:${P}`,
+    ]);
+    expect(reached).toEqual(['messages']);
+  });
+
+  test('one another person opened stays hidden: the 404 a missing one gets, run never asked', async () => {
+    const grants = [`run project:${P}`];
+    for (const path of [
+      `/v1/conversations/${anothersInP.id}`,
+      `/v1/conversations/${anothersInP.id}/messages`,
+    ]) {
+      const { call, asked, reached } = harness(grants);
+      expect(await answer(await call('GET', path))).toEqual(
+        await asIfMissing(grants, 'GET', path, anothersInP.id),
+      );
+      expect(asked).toEqual([`read project:${P}`]);
+      expect(reached).toEqual([]);
+    }
+  });
+
+  test('one they opened before projects is read on its agent alone', async () => {
+    const grants = [`run project:${P}`];
+    const path = `/v1/conversations/${callersLegacy.id}`;
+    const { call, asked } = harness(grants);
+    expect(await answer(await call('GET', path))).toEqual(
+      await asIfMissing(grants, 'GET', path, callersLegacy.id),
+    );
+    expect(asked).toEqual([`read agent:${AGENT}`]);
+  });
+
+  test("the list holds theirs and no one else's", async () => {
+    const { call } = harness([`run project:${P}`], {
+      list: async () => ({
+        kind: 'ok',
+        value: { data: [inP, callersInP, anothersInP, callersLegacy], hasMore: false },
+      }),
+    });
+    const body = (await (await call('GET', '/v1/conversations')).json()) as {
+      data: { id: string }[];
+    };
+    expect(body.data.map((c) => c.id)).toEqual([callersInP.id]);
+  });
+
+  test("a page of only another person's answers no rows and the next cursor; following it reaches theirs", async () => {
+    const pages: ConversationBinding['listConversationsPage'] = async (input) =>
+      input.before === undefined
+        ? {
+            kind: 'ok',
+            value: {
+              data: [anothersInP],
+              hasMore: true,
+              next: { openedAt: anothersInP.openedAt, id: anothersInP.id },
+            },
+          }
+        : { kind: 'ok', value: { data: [callersInP], hasMore: false } };
+    const { call } = harness([`run project:${P}`], { list: pages });
+    const first = (await (await call('GET', '/v1/conversations?limit=1')).json()) as {
+      data: { id: string }[];
+      hasMore: boolean;
+      nextCursor?: string;
+    };
+    expect(first.data).toEqual([]);
+    expect(first.hasMore).toBe(true);
+    expect(first.nextCursor).toBeDefined();
+    const second = (await (
+      await call('GET', `/v1/conversations?limit=1&cursor=${first.nextCursor ?? ''}`)
+    ).json()) as { data: { id: string }[] };
+    expect(second.data.map((c) => c.id)).toEqual([callersInP.id]);
+  });
+});
+
 describe('opening or closing one needs execute on its agent', () => {
   test("refused before the binding: opening 403; closing one the caller can't read, the 404 a missing one gets", async () => {
     const close = `/v1/conversations/${inP.id}/close`;
@@ -317,6 +436,122 @@ describe('opening or closing one needs execute on its agent', () => {
     const both = harness([`execute agent:${AGENT}`, `write project:${gone}`], { projects: [P] });
     expect((await both.call('POST', '/v1/conversations', body(gone))).status).toBe(400);
     expect(both.reached).toEqual([]);
+  });
+});
+
+describe('closing one someone else opened, for a caller who may run its project, takes write', () => {
+  /** As where a project lets everyone in its workspace run it: `run`, its agents' `execute`, no `read`. */
+  const everyone = [`execute agent:${AGENT}`, `run project:${P}`];
+  /**
+   * `run` and `read`, no `write`: a runner's, and a viewer's where everyone
+   * may run the project. The two hold the same rights, so they're one case.
+   */
+  const reads = [...everyone, `read project:${P}`];
+
+  test("another person's, or one with no opener, unread: the 404 a missing one gets, recorded, nothing closed", async () => {
+    for (const other of [anothersInP, inP]) {
+      const path = `/v1/conversations/${other.id}/close`;
+      const { call, asked, reached, recorded } = harness(everyone);
+      expect(await answer(await call('POST', path))).toEqual(
+        await asIfMissing(everyone, 'POST', path, other.id),
+      );
+      expect(asked).toEqual([
+        `execute agent:${AGENT}`,
+        `run project:${P}`,
+        `write project:${P}`,
+        `read project:${P}`,
+      ]);
+      expect(recorded).toContain(`write conversation:${other.id} actor`);
+      expect(reached).toEqual([]);
+    }
+  });
+
+  test("another person's closed already: the same 404, never its row", async () => {
+    const path = `/v1/conversations/${anothersClosedInP.id}/close`;
+    const { call, reached } = harness(everyone);
+    expect(await answer(await call('POST', path))).toEqual(
+      await asIfMissing(everyone, 'POST', path, anothersClosedInP.id),
+    );
+    expect(reached).toEqual([]);
+  });
+
+  test('their own closes, with nothing more asked', async () => {
+    const { call, asked, reached } = harness(everyone);
+    expect((await call('POST', `/v1/conversations/${callersInP.id}/close`)).status).toBe(200);
+    expect(asked).toEqual([`execute agent:${AGENT}`]);
+    expect(reached).toEqual(['close']);
+  });
+
+  test("a runner, or a viewer where everyone may run the project: another person's is the 403, recorded; their own closes", async () => {
+    const { call, asked, reached, recorded } = harness(reads);
+    for (const other of [anothersInP, inP]) {
+      const res = await call('POST', `/v1/conversations/${other.id}/close`);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: Record<string, unknown> }).error).toMatchObject({
+        code: 'permission-denied',
+        message: 'Closing a conversation someone else opened takes write on its project',
+      });
+      expect(recorded).toContain(`write conversation:${other.id} actor`);
+    }
+    expect(asked).toEqual(
+      [1, 2].flatMap(() => [
+        `execute agent:${AGENT}`,
+        `run project:${P}`,
+        `write project:${P}`,
+        `read project:${P}`,
+      ]),
+    );
+    expect(reached).toEqual([]);
+    expect((await call('POST', `/v1/conversations/${callersInP.id}/close`)).status).toBe(200);
+    expect(reached).toEqual(['close']);
+  });
+
+  test('with write as well (an editor, and up): any closes', async () => {
+    const { call, asked, reached } = harness([...reads, `write project:${P}`]);
+    for (const other of [anothersInP, inP]) {
+      expect((await call('POST', `/v1/conversations/${other.id}/close`)).status).toBe(200);
+    }
+    expect(asked).toEqual(
+      [1, 2].flatMap(() => [`execute agent:${AGENT}`, `run project:${P}`, `write project:${P}`]),
+    );
+    expect(reached).toEqual(['close', 'close']);
+  });
+
+  test("without run (execute or the project's call alone): another person's closes unread, as before", async () => {
+    const { call, asked, reached } = harness([`execute agent:${AGENT}`]);
+    expect((await call('POST', `/v1/conversations/${anothersInP.id}/close`)).status).toBe(200);
+    expect(asked).toEqual([`execute agent:${AGENT}`, `run project:${P}`]);
+    expect(reached).toEqual(['close']);
+  });
+
+  test("one from before projects: run where its agent's version is filed, write on the agent", async () => {
+    const path = `/v1/conversations/${anothersLegacy.id}/close`;
+    const filed = harness(everyone, { filed: P });
+    expect(await answer(await filed.call('POST', path))).toEqual(
+      await asIfMissing(everyone, 'POST', path, anothersLegacy.id),
+    );
+    expect(filed.asked).toEqual([
+      `execute agent:${AGENT}`,
+      `run project:${P}`,
+      `write agent:${AGENT}`,
+      `read agent:${AGENT}`,
+    ]);
+    expect(filed.recorded).toContain(`write conversation:${anothersLegacy.id} actor`);
+    expect(filed.reached).toEqual([]);
+    // With write on the agent: through.
+    const writes = harness([...everyone, `write agent:${AGENT}`], { filed: P });
+    expect((await writes.call('POST', path)).status).toBe(200);
+    expect(writes.asked).toEqual([
+      `execute agent:${AGENT}`,
+      `run project:${P}`,
+      `write agent:${AGENT}`,
+    ]);
+    expect(writes.reached).toEqual(['close']);
+    // Filed nowhere: no project to run it in, as before.
+    const nowhere = harness(everyone);
+    expect((await nowhere.call('POST', path)).status).toBe(200);
+    expect(nowhere.asked).toEqual([`execute agent:${AGENT}`]);
+    expect(nowhere.reached).toEqual(['close']);
   });
 });
 

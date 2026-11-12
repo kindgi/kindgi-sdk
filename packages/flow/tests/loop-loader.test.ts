@@ -451,3 +451,118 @@ describe('loadFlow — nested loops', () => {
     if (r.kind === 'err') expect(r.error.code).toBe('duplicate-node-id');
   });
 });
+
+// ---------- no fan-out in a loop body ----------
+
+function fanoutNode(id: string): unknown {
+  return {
+    id,
+    kind: 'fanout',
+    convergence: 'all-succeed',
+    branches: [
+      { branchId: 'one', handler: 'h-one', outputSchema: anySchema },
+      { branchId: 'two', handler: 'h-two', outputSchema: anySchema },
+    ],
+  };
+}
+
+describe('loadFlow — a fan-out in a loop body', () => {
+  test('is refused, naming the fan-out and the loop', () => {
+    const r = loadFlow(
+      outerWith(
+        foreachLoopNode({
+          body: {
+            nodes: [bodyNode('worker'), fanoutNode('fan')],
+            edges: [
+              bodyEdge('be1', LOOP_START_NODE, 'worker'),
+              bodyEdge('be2', 'worker', 'fan'),
+              bodyEdge('be3', 'fan', LOOP_END_NODE),
+            ],
+          },
+        }),
+      ),
+    );
+    expect(r).toEqual({
+      kind: 'err',
+      error: {
+        code: 'loop-body-fanout',
+        message:
+          'Loop node "foreach-1" body holds fan-out node "fan": a loop body can\'t run a fan-out. A subgraph node in the body can run a flow that has one.',
+        flowId: 'test.flow',
+        loopNodeId: 'foreach-1',
+        nodeId: 'fan',
+      },
+    });
+  });
+
+  test('in a nested loop’s body, is refused, naming the inner loop', () => {
+    const nested = whileLoopNode({
+      id: 'inner-loop',
+      body: {
+        nodes: [fanoutNode('inner-fan')],
+        edges: [
+          bodyEdge('inner-be1', LOOP_START_NODE, 'inner-fan'),
+          bodyEdge('inner-be2', 'inner-fan', LOOP_END_NODE),
+        ],
+      },
+    });
+    const r = loadFlow(
+      outerWith(
+        foreachLoopNode({
+          body: {
+            nodes: [nested],
+            edges: [
+              bodyEdge('outer-be1', LOOP_START_NODE, 'inner-loop'),
+              bodyEdge('outer-be2', 'inner-loop', LOOP_END_NODE),
+            ],
+          },
+        }),
+      ),
+    );
+    expect(r).toMatchObject({
+      kind: 'err',
+      error: { code: 'loop-body-fanout', loopNodeId: 'inner-loop', nodeId: 'inner-fan' },
+    });
+  });
+
+  test('is refused before the fan-out’s own rules are checked', () => {
+    // Two branches with one id: the schema takes it, the fan-out rules don't.
+    const twins = {
+      ...(fanoutNode('fan') as Record<string, unknown>),
+      branches: [
+        { branchId: 'one', handler: 'h-one', outputSchema: anySchema },
+        { branchId: 'one', handler: 'h-two', outputSchema: anySchema },
+      ],
+    };
+    const alone = loadFlow({
+      id: 'test.flow',
+      version: '1.0.0',
+      nodes: [twins],
+      edges: [outerEdge('oe1', '$start', 'fan'), outerEdge('oe2', 'fan', '$end')],
+    });
+    expect(alone).toMatchObject({ kind: 'err', error: { code: 'invalid-fanout-node' } });
+    const r = loadFlow(
+      outerWith(
+        foreachLoopNode({
+          body: {
+            nodes: [twins],
+            edges: [bodyEdge('be1', LOOP_START_NODE, 'fan'), bodyEdge('be2', 'fan', LOOP_END_NODE)],
+          },
+        }),
+      ),
+    );
+    expect(r).toMatchObject({ kind: 'err', error: { code: 'loop-body-fanout', nodeId: 'fan' } });
+  });
+
+  test('outside any loop, beside a loop, still loads', () => {
+    const flow = outerWith(foreachLoopNode(), [fanoutNode('fan')]) as {
+      edges: unknown[];
+    };
+    flow.edges = [
+      outerEdge('oe1', '$start', 'foreach-1'),
+      outerEdge('oe2', 'foreach-1', 'fan'),
+      outerEdge('oe3', 'fan', '$end'),
+    ];
+    expect(loadFlow(flow).kind).toBe('ok');
+  });
+});

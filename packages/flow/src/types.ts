@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { EdgeId, FlowId, NodeId, VersionDerivation } from '@kindgi/types';
+import type { EdgeId, FlowId, McpExposure, NodeId, VersionDerivation } from '@kindgi/types';
 
 import type { FlowPins } from './pins.js';
 
@@ -795,6 +795,13 @@ export interface Flow {
    * annotations (owner, ticket, tags).
    */
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * Whether the flow is a tool, named `flow.<id>`, in a person's chat app
+   * through the API's MCP server. Absent, or `expose: false`: it isn't one.
+   * With `expose: true`, the id takes letters, digits, `_`, `-` and `.`, at
+   * most 123 characters.
+   */
+  readonly mcp?: McpExposure;
   /**
    * The run's declared output (schema-version 1.8.0+), resolved when the
    * run completes. Absent → the output of the node feeding the run's
