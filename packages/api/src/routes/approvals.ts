@@ -155,7 +155,7 @@ export function approvalsRouter(
   runBinding: RunBinding,
   options: ApprovalsRouterOptions = {},
   /**
-   * With one (T243 A): on top of the reviewer role, a caller sees and
+   * With one: on top of the reviewer role, a caller sees and
    * decides only approvals whose project it may read (the approval's, or
    * its run's). Another project's approval is not found, as one above the
    * caller's tier is.

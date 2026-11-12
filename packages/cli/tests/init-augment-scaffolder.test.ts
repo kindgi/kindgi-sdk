@@ -856,7 +856,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
   });
 });
 
-describe("runInitAugment — npm's allowScripts (T277)", () => {
+describe("runInitAugment — npm's allowScripts", () => {
   async function init(packageManager: 'npm' | 'pnpm', pkg: Record<string, unknown> = {}) {
     await writePkgJson(root, { name: 'my-app', version: '1.0.0', ...pkg });
     const result = await runInitAugment({

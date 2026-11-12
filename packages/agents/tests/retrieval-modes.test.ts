@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Retrieval modes and how memory enters the prompt (T273 M-2): `same-user`,
+ * Retrieval modes and how memory enters the prompt: `same-user`,
  * no silent semantic skip, `both` fused by rank, the `<memory>` data block
  * and verified policies.
  */

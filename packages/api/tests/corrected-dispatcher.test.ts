@@ -386,7 +386,7 @@ describe('a comparison test run', () => {
   });
 });
 
-describe('an erased case (T273 M-5)', () => {
+describe('an erased case', () => {
   const erasedB: CorrectedTestCase = {
     caseId: 'case-b',
     runId: 'case-b',
@@ -477,7 +477,7 @@ describe('a case its project or tenant takes no new runs for (halt)', () => {
   });
 });
 
-describe('groupWeights (T200)', () => {
+describe('groupWeights', () => {
   /** Case A corrected by an expert group on its answer and m2 only; case B by none. */
   const expertSums = (yesWeight: number, totalWeight: number) => ({
     expert: { yesWeight, totalWeight },

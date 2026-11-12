@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Runs and authorization (T243 A): starting a run needs `execute` on the
+ * Runs and authorization: starting a run needs `execute` on the
  * agent or flow it names (one that doesn't exist keeps its 404); the run
  * list holds only runs whose project the caller may read; a run that
  * doesn't exist is still a 404 on its own routes, not a 403.
@@ -126,7 +126,7 @@ describe('starting a run', () => {
     expect(invoked).toEqual(['acme.desk']);
   });
 
-  test('naming a project needs write on it, and the refusal says to omit it (T307)', async () => {
+  test('naming a project needs write on it, and the refusal says to omit it', async () => {
     const named = randomUUID();
     const { call, asked, invoked } = harness(['execute agent:acme.desk']);
     const res = await call('POST', '/v1/runs', {

@@ -199,7 +199,7 @@ describe('expansion parity with dotenv-expand 10 (Next.js) and 12 (Vite)', () =>
 });
 
 // A key that refers to itself, with the environment holding it: both
-// versions take the environment's value (T377). Without it, dotenv-expand
+// versions take the environment's value. Without it, dotenv-expand
 // 10 overflows its stack, so those cases aren't compared. Not compared
 // either: `PATH=$PATH:/extra`. The hosts keep any name the environment
 // has and ignore the file's line (`/bin`); here a file's value is the

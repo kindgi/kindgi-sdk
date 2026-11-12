@@ -442,7 +442,7 @@ describe('API — guardrails register', () => {
   });
 });
 
-describe("API — guardrails register: the config against its check's configSchema (T338)", () => {
+describe("API — guardrails register: the config against its check's configSchema", () => {
   const SCHEMA = {
     type: 'object',
     properties: { maxChars: { type: 'integer', exclusiveMinimum: 0 } },

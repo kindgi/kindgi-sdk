@@ -7,7 +7,7 @@
  * agent it runs at no named version to its latest version, and `GET`
  * returns the pins and their digest. With pinned versions, such an agent
  * pins to what a run in the flow's project gets: its pinned version there,
- * else its latest (T268). A tool or agent with no published version
+ * else its latest. A tool or agent with no published version
  * refuses the publish. An agent node with its own version keeps it.
  * Without the tool and agent registries, nothing is pinned.
  */
@@ -228,7 +228,7 @@ describe('POST /v1/flows pins the version', () => {
     expect(flows.stored()).toEqual([]);
   });
 
-  test("with pinned versions, an agent with no version of its own pins to what's pinned for the flow's project (T268)", async () => {
+  test("with pinned versions, an agent with no version of its own pins to what's pinned for the flow's project", async () => {
     // The pinned case: 1.0.0 is pinned, 1.4.1 is the latest and was never pinned.
     const asked: AgentPinResolveInput[] = [];
     const { app } = makeApp(

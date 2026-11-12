@@ -71,7 +71,7 @@ export interface ProvenanceRouterOptions {
    * DAGs. Absent = the export omits messages (empty array).
    */
   readonly conversationBinding?: ConversationBinding;
-  /** Where a run's project is read, for the per-run checks (T243 A). */
+  /** Where a run's project is read, for the per-run checks. */
   readonly runBinding?: RunBinding;
 }
 
@@ -85,7 +85,7 @@ export function provenanceRouter(
   binding: ProvenanceBinding,
   options: ProvenanceRouterOptions = {},
   /**
-   * With one (T243 A): a run's provenance (and its export) needs `read`
+   * With one: a run's provenance (and its export) needs `read`
    * on the run's project; the list holds only records whose project the
    * caller may read (the tenant, for one with no project).
    */

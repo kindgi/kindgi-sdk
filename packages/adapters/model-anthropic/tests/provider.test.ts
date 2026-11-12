@@ -142,7 +142,7 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     ]);
   });
 
-  test("the system prompt names the call's tools as sent; the caller's messages keep the ids (T311)", async () => {
+  test("the system prompt names the call's tools as sent; the caller's messages keep the ids", async () => {
     const { client, create } = fakeClient();
     const provider = createAnthropicProvider({
       apiKey: 'sk-unused',

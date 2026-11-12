@@ -6,7 +6,7 @@
  * the same key and body runs the request themselves, and never gets another
  * caller's answer. A route whose answer carries a secret keeps none of it: a
  * repeat gets 409 `idempotency-key-replay-withheld`, with what succeeded and
- * when, instead of the secret or a second one (T392).
+ * when, instead of the secret or a second one.
  */
 
 import { Hono } from 'hono';
