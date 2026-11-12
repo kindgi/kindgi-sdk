@@ -12,8 +12,7 @@
  */
 
 import { isCursorTime } from './pagination.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from './uuid-param.js';
 
 export function isRegistryVersionsCursor(raw: string): boolean {
   const decoded = Buffer.from(raw, 'base64url').toString('utf8');

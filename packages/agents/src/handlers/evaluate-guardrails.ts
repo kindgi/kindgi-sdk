@@ -601,7 +601,11 @@ export function judgeUsageSink(ctx: TurnContext, kctx: NodeContext): UsageSink |
  * (`bindings.guardrailOutcomes`). A replay or a dry run records nothing:
  * its outcomes aren't production's. Outcomes that couldn't be recorded
  * fail the step, as an unrecorded model call does, so the counts never
- * silently miss a turn.
+ * silently miss a turn. A retried step whose checks came to none still
+ * records, with none, so what an earlier attempt recorded for the step is
+ * replaced and the counts are the last attempt's. A first attempt with
+ * none writes nothing, and nor does a turn without guardrails, which never
+ * recorded any.
  */
 export async function recordOutcomes(
   ctx: TurnContext,
@@ -612,7 +616,8 @@ export async function recordOutcomes(
   where?: PointWhere,
 ): Promise<void> {
   const sink = ctx.bindings.guardrailOutcomes;
-  if (sink === undefined || checks.length === 0) return;
+  const retried = (kctx.attempt ?? 1) > 1 && (ctx.guardrails?.length ?? 0) > 0;
+  if (sink === undefined || (checks.length === 0 && !retried)) return;
   if (ctx.input.replay !== undefined || kctx.dryRun) return;
   try {
     await sink.record({

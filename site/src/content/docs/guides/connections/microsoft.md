@@ -27,7 +27,7 @@ directory, which you register with Kindgi once.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)).
-  Kindgi 0.4's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
+  Kindgi 0.6's CLI runs from any folder as `npx --yes @kindgi/cli@0.6`
   ([Install](../../../start/install/)).
 
 ## 1. Choose who can connect
@@ -108,7 +108,7 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant
+npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_MICROSOFT_CONNECT_SECRET` is the secret's name. The registration
@@ -139,7 +139,7 @@ step 2.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.4 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=prod/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
+npx --yes @kindgi/cli@0.6 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=prod/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
 ```
 
 `<directory>` is the directory from step 1. The command prints the
@@ -225,7 +225,7 @@ Before yours expires:
 2. **Store it as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.4 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next

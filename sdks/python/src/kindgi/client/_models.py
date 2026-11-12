@@ -58,7 +58,7 @@ class RunStatus(
 
 class OtherItem(BaseModel):
     """
-    `child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.
+    `child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait that isn't an approval's, a connect's or one of `tokens`, or whose approval, connect or token can't be read. `no-open-wait`: the journal shows none; the runtime picks the run up again.
     """
 
     model_config = ConfigDict(
@@ -6312,7 +6312,7 @@ class MCPAuthHeader(BaseModel):
         str, Field(max_length=256, min_length=1, pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
     ]
     """
-    An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.
+    An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, any `Mcp-Param-…`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.
     """
     secret_ref: Annotated[MCPEndpointSecretRef, Field(alias="secretRef")]
     prefix: Annotated[str | None, Field(max_length=64, min_length=1)] = None
@@ -7964,7 +7964,7 @@ class OidcIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8029,7 +8029,7 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -9836,11 +9836,17 @@ class DeploymentRegistrationBody(BaseModel):
     """
     signature: str
     """
-    Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }) with sorted keys, no whitespace, UTF-8.
+    Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8.
     """
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
     Issuer-supplied ISO-8601 timestamp — covered by the signature.
+    """
+    production_entry: Annotated[Literal["promote-only"] | None, Field(alias="productionEntry")] = (
+        None
+    )
+    """
+    Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -13360,7 +13366,7 @@ class MCPEndpointConfigHttpSse(BaseModel):
     """
     headers: dict[str, str] | None = None
     """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`. Nor one of MCP's own headers, whatever its case: `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` or any `Mcp-Param-…` is refused (`invalid-mcp-endpoint`, reason `transport-header-in-config`). The MCP client sets them itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments.
     """
 
 
@@ -13377,7 +13383,7 @@ class MCPEndpointConfigStreamableHttp(BaseModel):
     url: AnyUrl
     headers: dict[str, str] | None = None
     """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`. Nor one of MCP's own headers, whatever its case: `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` or any `Mcp-Param-…` is refused (`invalid-mcp-endpoint`, reason `transport-header-in-config`). The MCP client sets them itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments.
     """
 
 
@@ -13454,7 +13460,7 @@ class RegisterMCPEndpointBodyConfigHttpSse(BaseModel):
     """
     headers: dict[str, str] | None = None
     """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`. Nor one of MCP's own headers, whatever its case: `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` or any `Mcp-Param-…` is refused (`invalid-mcp-endpoint`, reason `transport-header-in-config`). The MCP client sets them itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments.
     """
 
 
@@ -13471,7 +13477,7 @@ class RegisterMCPEndpointBodyConfigStreamableHttp(BaseModel):
     url: AnyUrl
     headers: dict[str, str] | None = None
     """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`. Nor one of MCP's own headers, whatever its case: `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` or any `Mcp-Param-…` is refused (`invalid-mcp-endpoint`, reason `transport-header-in-config`). The MCP client sets them itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments.
     """
 
 
@@ -15864,7 +15870,7 @@ class LicenseStatus(BaseModel):
     )
     mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
     """
-    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
+    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
     """
     name: str | None = None
     """
@@ -17274,6 +17280,12 @@ class DeploymentRecord(BaseModel):
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
     Issuer-supplied timestamp inside the signed envelope.
+    """
+    production_entry: Annotated[
+        Annotated[Literal["promote-only"] | str, _open.OPEN] | None, Field(alias="productionEntry")
+    ] = None
+    """
+    Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way.
     """
     activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
     """

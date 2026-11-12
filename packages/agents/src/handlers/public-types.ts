@@ -237,7 +237,9 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * Statically-injected workspace policy for model routing. When a
    * `policyRegistry` also yields a policy, the two are MERGED so the
    * result is at least as strict as each: allow lists intersect, deny
-   * lists union, cost/token caps take the smaller value.
+   * lists union, `maxCostPerCallUsd` (a highest prompt price) takes the
+   * smaller value and `maxTokensPerCall` (a smallest context window) the
+   * larger.
    *
    * Absent-and-registry-absent = router runs without any workspace policy.
    */

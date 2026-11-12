@@ -13,6 +13,37 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
+  runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
+  runtime has a license key too, and answers `licensed`. What you pass or
+  read doesn't change.
+- `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
+  `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
+  connect's wait and one listed in `tokens` aren't `unattributed` either: it's
+  a wait that isn't an approval's, a connect's or one of `tokens`, or whose
+  approval, connect or token can't be read. What you pass or read doesn't
+  change.
+- `kindgi`: **a deployment can be promote-only.**
+  `DeploymentRegistrationBody.production_entry` and
+  `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
+  mark of a build that reaches a project in production only by promotion. A
+  deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **the identity provider models' `join` docstring says `domain`
+  lets no one in on its own.** `OidcIdentityProviderConfig.join` and
+  `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
+  provider's `domains`, but sign-in doesn't use it: with either value, only
+  people a tenant admin added get in. What you pass or read doesn't change.
+- `kindgi`: **the docstrings say what a key or session limited to a project
+  may do on `identity.users.list_sessions`, `identity.users.revoke_sessions`,
+  `identity.users.grants`, `identity.me`'s second factor, `connections` and
+  `memory`:** only act inside that project. Its person's sessions and second
+  factor are refused, grants show only that project's role, connections are
+  those its runs there may use and none can be changed, and memory is written
+  only in that project. The methods' arguments and the shapes of their
+  answers don't change.
+
+## 0.6.0
+
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,
@@ -28,6 +59,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 - `kindgi`: **`client.runs.list(acts_for="me")` lists only the runs that act
   for you** (a run's `acts_for`); none when you act for no one. A runtime
   before Kindgi 0.6.0 ignores it and lists every run you may see.
+
+## 0.5.0
+
 - `kindgi`: **one agent can use several accounts of one app: the company's, or a person's own.** `Connection.main` and `ConnectionCandidate.main` mark a person's main connection of an app, the one their agents use when no choice names another, and `client.connections.update(connection_id, main=True)` makes a connection its owner's main. `ConnectFinish.main` says what a person's connect did to it. `client.connection_choices.set(...)` takes `tool_id` and `need` for one tool's connection, `person` for a person's own choice, and `connection_ids` for a set a read-only tool's calls may pick from by name. `list(...)` takes `tool_id` and `owner="me"`, and `candidates(...)` takes `owner="me"`. `client.connection_choices.needs(project_id=..., agent_id=...)` (or `flow_id=`) lists the tools' connections and whether each may take a set, and `client.connections.choices(connection_id)` lists the choices that name a connection, each with their async twins. `ApprovalConnection` gains `as_`, and its `account` is optional: a person's account isn't named. A mail trigger on a person's mailbox can name its owner's own connection, and only its owner and a tenant admin read that mailbox's `account`.
 - `kindgi`: **the client's docstrings call the place a workspace**, as the
   API reference does. What you pass or read keeps `tenant`: `tenant_id`, the

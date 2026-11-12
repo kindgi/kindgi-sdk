@@ -31,6 +31,7 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * A project's queue rules and the queue they fill (mounted at
@@ -63,7 +64,7 @@ export function expertQueueRouter(
 
   const projectGate: MiddlewareHandler<AppEnv> = async (c, next) => {
     const projectId = c.req.param('projectId') as string;
-    if (!UUID.test(projectId)) {
+    if (!UUID_RE.test(projectId)) {
       return fail(c, 'bad-input', `"${projectId}" isn't a project id`);
     }
     if (authorizer !== undefined) {
@@ -375,7 +376,6 @@ export function expertQueueRouter(
   return r;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES: readonly ExpertQueueState[] = ['open', 'corrected', 'dismissed', 'erased'];
 /**
  * The run endings a rule may match today: a correction needs a completed run

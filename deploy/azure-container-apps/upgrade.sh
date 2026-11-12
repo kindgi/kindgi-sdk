@@ -1105,13 +1105,7 @@ EOT
 EOT
       ;;
     0.5.0)
-      # STEPS-PENDING marks a release whose runtime steps here aren't final
-      # yet: they come from its release notes' Upgrade steps before its rc,
-      # and the rc's cut stops while either script has the marker.
       cat <<'EOT'
-   - STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet.
-     Don't upgrade a deployment you keep with it: read the 0.5.0 release
-     notes' Upgrade steps.
    - Two new migrations: three new tables (connection_choices,
      connection_choice_uses and connection_choice_members), and new columns
      on connections and connection_requests that are empty, with nothing
@@ -1142,11 +1136,21 @@ EOT
      account is connected. A call that isn't an agent's or a flow's can't
      have a choice, so it needs a project with one company connection of
      the app.
+   - A person's account label is no longer recorded: when a call runs on a
+     person's own connection, the run's journal keeps the account's id
+     without its label. Runs and approvals recorded before 0.5.0 keep the
+     label they were recorded with.
    - To list Google calendars, add this scope to your Google Cloud
      project's consent screen:
        https://www.googleapis.com/auth/calendar.calendarlist.readonly
      A connection made before grants it once, when it's reconnected; the
      permissions it had stay.
+   - On a server serving many tenants, run this once after the upgrade,
+     with the new runtime's kindgi-runtime:
+       kindgi-runtime tenants repair --all
+     It sets right the authorization parents that earlier moves of
+     projects and teams, and deletes of orgs, left behind. A server
+     serving one tenant does it when it starts.
 EOT
       ;;
     0.6.0)

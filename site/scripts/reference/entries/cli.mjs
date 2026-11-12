@@ -75,7 +75,8 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'a hash of the request body',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory',
-    project: "none: a workspace-wide deploy, into the workspace's default project",
+    project:
+      "the project stored with your key, else none: a workspace-wide deploy, into the workspace's default project",
     'published-at': 'for an inline build: the build time',
     reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
@@ -324,7 +325,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'agents publish': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     spec: 'required',
   },
   'agents owner': {
@@ -393,7 +394,7 @@ export const CLI_DEFAULTS = {
   },
   'tools publish': {
     manifest: 'required',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'tools versions': {
     cursor: 'none',
@@ -427,7 +428,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'guardrails register': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     spec: 'required',
   },
   'memory facts list': {
@@ -573,7 +574,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'flows publish': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     spec: 'required',
   },
   'flows versions': {
@@ -762,22 +763,22 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': '`20`',
     origin: 'required',
     'people-cap': '`50`',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     'reviewer-ceiling': '`standard`',
     'role-map':
       'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
     vouching: '`on`',
   },
   'sites code': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites get': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites update': {
     'allowed-role': 'unchanged',
@@ -786,25 +787,25 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': 'unchanged',
     origin: 'unchanged',
     'people-cap': 'unchanged',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     'reviewer-ceiling': 'unchanged',
     'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
     vouching: 'unchanged',
   },
   'sites pause': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites resume': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites revoke-key': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites restore-person': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'sites unregister': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
@@ -903,7 +904,7 @@ export const CLI_DEFAULTS = {
     weight: 'unchanged',
   },
   'queue-rules create': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     name: 'required',
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
@@ -917,15 +918,15 @@ export const CLI_DEFAULTS = {
     'queue-since': 'none',
   },
   'queue-rules list': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules show': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'queue-rules update': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     name: 'unchanged',
     agent: 'unchanged (any match flag replaces `when` whole)',
     flow: 'unchanged (any match flag replaces `when` whole)',
@@ -936,19 +937,19 @@ export const CLI_DEFAULTS = {
     group: 'unchanged',
   },
   'queue-rules remove': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'queue-rules versions': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules results': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     since: 'none (every result)',
   },
   'queue-rules preview': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
     'agent-version': 'none (any version)',
@@ -958,12 +959,12 @@ export const CLI_DEFAULTS = {
     rule: 'none (preview the given flags, not an existing rule)',
   },
   'queue-rules queue-recent': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     last: 'none (give `--last` and/or `--since`)',
     since: 'none (give `--last` and/or `--since`)',
   },
   'expert-queue list': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     state: 'none (every state)',
     agent: 'none',
     rule: 'none',
@@ -974,18 +975,18 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
   },
   'expert-queue dismiss': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     reason: 'none',
   },
   'expert-queue reopen': {
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
   },
   'test-runs start': {
     project: 'required',
     agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'the latest version',
+    'agent-version': 'required on test cases (a `corrections` test set); else none',
     flow: 'required: one of `--agent`, `--flow`',
-    'flow-version': 'the latest version',
+    'flow-version': 'required on test cases (a `corrections` test set); else none',
     with: 'none',
     baseline: '`recorded`',
     'baseline-project': 'none',
@@ -1120,7 +1121,7 @@ export const CLI_DEFAULTS = {
     default: 'none (required with several connections)',
     flow: 'none (`--agent` or `--flow` is required)',
     need: 'none (required when the tool uses the app twice)',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     tool: "none (the agent's or flow's own choice)",
   },
   'connection-choices list': {
@@ -1129,7 +1130,7 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     flow: 'none',
     limit: '`25` (at most `100`)',
-    project: "the workspace's default project",
+    project: "the project stored with your key, else the workspace's default project",
     tool: 'none',
   },
   'connection-apps list': {
@@ -1234,7 +1235,7 @@ export const GLOBAL_FLAG_DEFAULTS = {
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. A `project` stored beside a key (an id or a slug) goes with it, as the default `--project` of `kindgi deploy` and of the commands that would take the workspace's default project. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
   url: "`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; with `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
 };
 
@@ -2791,7 +2792,10 @@ export const CLI_GROUP_SEE_ALSO = {
   'connection-choices': ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
-  environments: ['guides/projects/organize-by-org-and-project', 'concepts/local-staging-production'],
+  environments: [
+    'guides/projects/organize-by-org-and-project',
+    'concepts/local-staging-production',
+  ],
   promote: ['guides/projects/organize-by-org-and-project', 'concepts/local-staging-production'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],

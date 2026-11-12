@@ -7,7 +7,7 @@
  * runs; the real runner is checked against a stand-in `docker` on PATH.
  */
 
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -96,12 +96,21 @@ function fakeTty(answer: string) {
   };
 }
 
+/** Each test's own home folder: a login with a license key keeps it there for kindgi dev. */
+let registryHome = '';
+beforeEach(async () => {
+  registryHome = await mkdtemp(join(tmpdir(), 'kindgi-registry-home-'));
+});
+afterEach(async () => {
+  await rm(registryHome, { recursive: true, force: true });
+});
+
 function runRegistry(argv: readonly string[], seam: RegistryAuthSeam) {
   return runCli({
     argv: ['auth', 'registry', ...argv],
     env: {},
     cwd: tmpdir(),
-    home: '/tmp/fake-home',
+    home: registryHome,
     registryAuthSeam: seam,
   });
 }
@@ -496,9 +505,33 @@ describe("Kindgi's registry: the license key logs in", () => {
     for (const call of fake.calls) expect(call.args.join(' ')).not.toContain(KEY);
     expect(fake.calls.at(-1)?.args).toEqual(['buildx', 'imagetools', 'inspect', KINDGI_IMAGE]);
     expect(out.stdout + out.stderr).not.toContain(KEY);
+    const kept = join(registryHome, '.kindgi', 'license', 'license-key');
     expect(out.stderr).toContain(
-      '✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.',
+      `✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store, and kindgi dev's copy is in ${kept}, readable only by you. When your key renews, log in again with the new one.`,
     );
+    expect(await readFile(kept, 'utf8')).toBe(`${KEY}\n`);
+  });
+
+  test("a copy it can't keep: still logged in, with a warning that kindgi dev reads the shell instead", async () => {
+    // A file where the key's folder goes: the copy can't be written there.
+    const blocked = join(registryHome, '.kindgi', 'license');
+    await mkdir(join(registryHome, '.kindgi'));
+    await writeFile(blocked, 'not a folder\n');
+    const fake = fakeDocker();
+    const out = await runRegistry([...ON_KINDGI, '--password-stdin'], {
+      docker: fake.run,
+      readStdin: async () => KEY,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(fake.calls.find((c) => c.args[0] === 'login')?.options).toEqual({ stdin: KEY });
+    expect(out.stderr).toContain(
+      '✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store. When your key renews, log in again with the new one.',
+    );
+    expect(out.stderr).toContain("⚠ Couldn't keep the key for kindgi dev: ");
+    expect(out.stderr).toContain('kindgi dev reads KINDGI_LICENSE_KEY from your shell instead.');
+    expect(out.stderr).not.toContain('copy is in');
+    expect(out.stdout + out.stderr).not.toContain(KEY);
+    expect(await readFile(blocked, 'utf8')).toBe('not a folder\n');
   });
 
   test('--password-stdin reads it, without the whitespace around it', async () => {

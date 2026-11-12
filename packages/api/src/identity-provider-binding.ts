@@ -129,9 +129,9 @@ export interface ProviderConfigBase {
    */
   readonly domains?: readonly string[];
   /**
-   * Who may sign in the first time: `invite` (default) only people a
-   * tenant admin added; `domain` also anyone from one of `domains`, once
-   * the deployment has verified them.
+   * Who may sign in the first time: `invite` (default) lets in only people
+   * a tenant admin added. `domain` is saved, but sign-in doesn't use it,
+   * so it lets in the same people as `invite`.
    */
   readonly join?: 'invite' | 'domain';
   /**

@@ -97,8 +97,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   // Authorization PEP — scope-anchored.
-  // STRICT-READ: only scope-admins or explicit `reader` grantees pass
-  // `can_read` on a secret. Each check derives the scope with the same
+  // STRICT-READ: `admin` on the scope; a `reader` grant on one secret
+  // doesn't open these routes. Each check derives the scope with the same
   // parser as its handler: `POST /` from `body.scope`; `POST /:name/rotate`
   // from `body.scope` or the query (resolveRotateScope); every other route
   // from `?scopeKind` + `?scopeId`.

@@ -150,10 +150,17 @@ export interface ConnectionAppsClient {
   remove(appId: string, options?: RemoveConnectionAppOptions): Promise<RemoveConnectionAppResult>;
 }
 
+/** A key or session limited to a project reads connections, and connects, changes and disconnects none. */
 export interface ConnectionsClient {
-  /** @wire GET /v1/connections — a member's own; every one for a tenant admin. */
+  /**
+   * @wire GET /v1/connections — a member's own; every one for a tenant admin. A key or
+   * session limited to a project lists those its runs there may use.
+   */
   list(filter?: ListConnectionsFilter): Promise<ConnectionPage>;
-  /** @wire GET /v1/connections/:connectionId */
+  /**
+   * @wire GET /v1/connections/:connectionId — for a key or session limited to a project,
+   * only one its runs there may use.
+   */
   get(connectionId: string): Promise<Connection>;
   /**
    * @wire PATCH /v1/connections/:connectionId — one change: renames it
@@ -166,7 +173,8 @@ export interface ConnectionsClient {
   ): Promise<Connection>;
   /**
    * @wire GET /v1/connections/:connectionId/choices — the live choices that
-   * name it, as their one or default or in a set; for its owner or a tenant admin.
+   * name it, as their one or default or in a set; for its owner or a tenant admin. A key or
+   * session limited to a project sees only that project's.
    */
   choices(
     connectionId: string,

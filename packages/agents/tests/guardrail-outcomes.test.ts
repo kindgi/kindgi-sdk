@@ -6,6 +6,8 @@
  * (`bindings.guardrailOutcomes`): passes, violations, blocks and errors,
  * a blocked turn before it fails, with no content. A replay or a dry run
  * records nothing, and outcomes that couldn't be recorded fail the step.
+ * A guardrail listed twice is checked and counted once, and a retried step
+ * whose checks came to none replaces what an earlier attempt recorded.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -16,6 +18,7 @@ import type { NodeContext } from '@kindgi/handler';
 import type { GuardrailId, TenantId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
+import { resolveGuardrails } from '../src/guardrails-gate.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { buildEvaluateGuardrailsHandler } from '../src/handlers/evaluate-guardrails.js';
@@ -121,8 +124,13 @@ const loopOutput = {
   stopReason: 'exit-condition',
 };
 
-const step = (dryRun = false) =>
-  ({ runId: 'run-7', nodeId: 'evaluate-guardrails', dryRun }) as unknown as NodeContext;
+const step = (dryRun = false, attempt?: number) =>
+  ({
+    runId: 'run-7',
+    nodeId: 'evaluate-guardrails',
+    dryRun,
+    ...(attempt !== undefined && { attempt }),
+  }) as unknown as NodeContext;
 
 const run = (ctx: TurnContext, kctx = step()) =>
   buildEvaluateGuardrailsHandler(ctx)(loopOutput, kctx).catch((e: unknown) => e);
@@ -199,6 +207,85 @@ describe('the gate records every check it ran', () => {
   test('nothing to record when no guardrail was checked', async () => {
     const { ctx, order } = turn([CI_ONLY]);
     await run(ctx);
+    expect(order).not.toContain('recorded');
+    await run(ctx, step(false, 1));
+    expect(order).not.toContain('recorded');
+  });
+
+  test('a guardrail the agent lists twice is checked once, and counted once', async () => {
+    const { ctx, recorded } = turn([PASSES, LOGS, PASSES]);
+    let calls = 0;
+    (ctx.bindings.checks as CheckRegistry).register({
+      id: 'acme.counted',
+      kind: 'zero-llm',
+      evaluate: async () => {
+        calls += 1;
+        return { passed: true };
+      },
+    });
+    const COUNTED = guardrail('acme.counted', 'acme.counted', 'halt');
+    const agent = { ...ctx.input.agent, guardrails: ['acme.counted', 'acme.tone', 'acme.counted'] };
+    const resolution = resolveGuardrails(agent, { guardrails: [COUNTED, LOGS] });
+    expect(resolution.resolved.map((g) => g.id)).toEqual(['acme.counted', 'acme.tone']);
+    await run({ ...ctx, guardrails: resolution.resolved } as TurnContext);
+    expect(calls).toBe(1);
+    expect(recorded[0]?.checks.map((c) => c.guardrailId)).toEqual(['acme.counted', 'acme.tone']);
+  });
+
+  test('a missing guardrail the agent lists twice is named once', () => {
+    const { ctx } = turn([PASSES]);
+    const agent = { ...ctx.input.agent, guardrails: ['acme.gone', 'acme.polite', 'acme.gone'] };
+    expect(resolveGuardrails(agent, { guardrails: [PASSES] })).toEqual({
+      resolved: [PASSES],
+      missing: ['acme.gone'],
+    });
+  });
+});
+
+describe('a retried step replaces what an earlier attempt recorded', () => {
+  /** A ledger that keeps one record per run's step, as the sink's contract says. */
+  function ledger(): {
+    sink: (record: GuardrailOutcomeRecord) => Promise<void>;
+    steps: Map<string, GuardrailOutcomeRecord>;
+  } {
+    const steps = new Map<string, GuardrailOutcomeRecord>();
+    return {
+      steps,
+      sink: async (record) => {
+        steps.set(`${record.runId}/${record.nodeId}`, record);
+      },
+    };
+  }
+
+  test('checks on the first attempt, none on the retry: the step holds none', async () => {
+    const { sink, steps } = ledger();
+    const { ctx, order } = turn([PASSES, LOGS], { sink });
+    await run(ctx, step(false, 1));
+    expect(steps.get('run-7/evaluate-guardrails')?.checks).toHaveLength(2);
+    // The retry's checks come to none: its guardrails didn't match the turn.
+    await run({ ...ctx, guardrails: [CI_ONLY] } as TurnContext, step(false, 2));
+    expect(order.filter((o) => o === 'recorded')).toHaveLength(2);
+    expect(steps.get('run-7/evaluate-guardrails')?.checks).toEqual([]);
+  });
+
+  test('a retry with checks records them, as a first attempt does', async () => {
+    const { sink, steps } = ledger();
+    const { ctx } = turn([PASSES], { sink });
+    await run(ctx, step(false, 2));
+    expect(steps.get('run-7/evaluate-guardrails')?.checks).toEqual([
+      expect.objectContaining({ guardrailId: 'acme.polite', outcome: 'passed' }),
+    ]);
+  });
+
+  test('a retry of a turn without guardrails writes nothing', async () => {
+    const { ctx, order } = turn([]);
+    await run(ctx, step(false, 3));
+    expect(order).not.toContain('recorded');
+  });
+
+  test('a retried dry run writes nothing', async () => {
+    const { ctx, order } = turn([CI_ONLY]);
+    await run(ctx, step(true, 2));
     expect(order).not.toContain('recorded');
   });
 });

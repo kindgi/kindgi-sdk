@@ -33,8 +33,8 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
   `curl` examples read the same two variables.
-- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.4` ([Install](../../start/install/)). Inside a pack
+- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
@@ -58,11 +58,12 @@ With authorization on:
 - **A service account** has only what it's granted. It isn't a tenant member
   unless you make it one.
 - **A capability** is needed on top of the role to trust signing keys
-  (`signing-keys:write`) and to write secrets and environment values
-  (`secrets:write`, `env:write` and the like). A workspace's first admin, the
-  person it was created with on a runtime serving many tenants, holds every
-  one but `secrets:reveal`, and no other person holds any. A key carries
-  those it was made with ([API keys](#api-keys)).
+  (`signing-keys:write`) and to write secrets, environment values and the
+  workspace's config entries (`secrets:write`, `env:write` and the like). A
+  workspace's first admin, the person it was created with on a runtime
+  serving many tenants, holds every one but `secrets:reveal`, and no other
+  person holds any. A key carries those it was made with
+  ([API keys](#api-keys)).
 
 Lists hold only what the caller may read.
 
@@ -79,14 +80,15 @@ team. `kindgi dev` runs this way. Serving many tenants needs authorization:
 with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 
 - **Everyone it lets in works in every project,** by a sign-in or a key:
-  its agents, runs, conversations and deployments. Writing secrets and
-  environment values still takes its capability: a key made with it
-  carries it, and a sign-in carries none ([API keys](#api-keys)).
+  its agents, runs, conversations and deployments. Writing secrets,
+  environment values and the workspace's config entries still takes its
+  capability: a key made with it carries it, and a sign-in carries none
+  ([API keys](#api-keys)).
 - **Workspace settings are the tenant admin's.** Anyone reads the workspace's
-  policies, model providers, adapters, identity providers and signing keys,
-  and only the tenant admin changes them. Webhook endpoints and compliance
-  evidence are the tenant admin's to read too, as are people, keys for
-  others and service accounts. Anyone else gets `403 permission-denied`.
+  name, policies, model providers, adapters, identity providers and signing
+  keys, and only the tenant admin changes them. Webhook endpoints and
+  compliance evidence are the tenant admin's to read too, as are people, keys
+  for others and service accounts. Anyone else gets `403 permission-denied`.
 - **The tenant admin is whoever uses the runtime's API token,** or an
   `admin` key made for the seed user, and a console signed in with either
   ([Signing in with an API token](../self-hosted/sign-in/#signing-in-with-an-api-token)).
@@ -110,7 +112,7 @@ Adding a person gives them a place in the workspace, so they can sign in and
 get keys:
 
 ```sh
-npx --yes @kindgi/cli@0.4 people add --name="Sam Rivera" --email=sam@acme.example
+npx --yes @kindgi/cli@0.6 people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -247,7 +249,7 @@ with their email, or send it again. To send it again, open for 7 days from
 then:
 
 ```sh
-npx --yes @kindgi/cli@0.4 people invite <user-id>
+npx --yes @kindgi/cli@0.6 people invite <user-id>
 ```
 
 Someone who has joined, or was never invited, is refused with
@@ -266,7 +268,7 @@ The people invited who haven't signed in yet, with a STATE of `pending` or
 `expired`:
 
 ```sh
-npx --yes @kindgi/cli@0.4 people list --pending --table
+npx --yes @kindgi/cli@0.6 people list --pending --table
 ```
 
 Here Lee Park's invitation expired before they signed in:
@@ -294,8 +296,8 @@ A tenant admin can do everything in the workspace. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-npx --yes @kindgi/cli@0.4 people grant <user-id> --tenant-admin
-npx --yes @kindgi/cli@0.4 people ungrant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.6 people grant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.6 people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
@@ -350,8 +352,8 @@ admin stops being a tenant admin or is removed, and as a tenant admin,
 whoever holds it can make new keys with its capabilities:
 
 ```sh
-npx --yes @kindgi/cli@0.4 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
-npx --yes @kindgi/cli@0.4 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
+npx --yes @kindgi/cli@0.6 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
+npx --yes @kindgi/cli@0.6 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
 
 It can trust signing keys, so keep it out of CI: trusting CI's signing key
@@ -377,8 +379,9 @@ a role.
   - whether you can decide at all.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
-- **`tokenCapabilities`:** what your token itself carries for secret, env and
-  signing-key writes. A sign-in session carries the ones you hold as a person.
+- **`tokenCapabilities`:** what your token itself carries for secret, env,
+  config-entry and signing-key writes. A sign-in session carries the ones you
+  hold as a person.
   A workspace's first admin, the person it was created with, holds every one but
   `secrets:reveal`; no one else holds any. An API key carries those it was
   minted with, none by default, and only ones its minter holds.
@@ -413,9 +416,10 @@ a role.
   couldn't read its tenants just then, and on an older runtime: ask
   `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
-  view a project, when a tenant admin set one. It's in the workspace's config,
+  view a project, when one is set. It's in the workspace's config,
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
-  most 280 characters.
+  most 280 characters. Setting it takes `env:write`, as every config entry
+  does ([Who can do what](#who-can-do-what)).
 
 A key limited to a project sees that project alone. A `member` key is never
 a tenant admin. You see only what you may read: no project you can't read,
@@ -434,7 +438,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-npx --yes @kindgi/cli@0.4 tokens create --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.6 tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -469,6 +473,19 @@ Make longer-lived keys with one of those, such as the 90-day key in
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
+  A body names a project with `projectId`, `scope.projectId`,
+  `improve.projectId`, or `scopeKind: 'project'` with `scopeId`, and a
+  query with `scopeKind` and `scopeId`. Setting or clearing the workspace's
+  or an org's environment order names other projects, so it's refused the
+  same way (runtime 0.6.0 or later). On a runtime without an
+  [authorization store](../authorization/), a write above the key's
+  project, to the workspace (such as its settings, a new project, or a
+  secret, env value or MCP endpoint for the whole workspace or an org), to
+  an org or to a team, is refused with `403 key-project-mismatch` too
+  (runtime 0.6.0 or later); with one, the authorization model refuses it
+  with `permission-denied`, as before. Without a store, a write to an
+  existing item by its id is judged as before, except a memory fact's,
+  which goes by the fact's scope, as writing one does.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -476,10 +493,24 @@ Make longer-lived keys with one of those, such as the 90-day key in
   it. The key uses them only as far as its role goes: trusting signing keys
   takes `--role=admin`.
 
+A key limited to a project, and a session limited to one, act only inside
+that project, even for their own person:
+
+- They don't list or revoke their person's sessions, and a session doesn't
+  read, set up or take off its person's second factor. Those reach every
+  project, so they're refused with `403 permission-denied`.
+- `GET /v1/identity/users/<user-id>/grants` shows their person's role in
+  that project only.
+- They see only the connections their runs in that project may use, and
+  connect, change and disconnect none
+  ([Who can see and change a connection](../../guides/connections/reference/#a-connections-states)).
+- They write memory only in that project
+  ([Who sees what](../../guides/agents/memory-reference/#who-sees-what)).
+
 A tenant admin made Sam's first key:
 
 ```sh
-npx --yes @kindgi/cli@0.4 tokens create --for=user:<user-id> --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.6 tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -503,7 +534,7 @@ npx --yes @kindgi/cli@0.4 tokens create --for=user:<user-id> --label=laptop --ex
 ```
 
 ```sh
-npx --yes @kindgi/cli@0.4 tokens list --table
+npx --yes @kindgi/cli@0.6 tokens list --table
 ```
 
 ```text
@@ -516,6 +547,16 @@ ID                                    FOR                                       
 A tenant admin sees everyone's, and `--for=user:<id>` narrows it to one
 person's. Someone else's key reads as `404`. `kindgi tokens revoke
 <token-id>` refuses the key from its next request on, with `401`.
+
+A key or session with limits, one limited to a project or with the
+`member` role, lists, reads and revokes only those of your keys within its
+limits: the keys limited to the same project and, for `member`, the
+`member` keys (runtime 0.6.0 or later). Those are the keys no wider than
+itself, and every key it can make is among them. Reading or revoking one
+of your keys beyond its limits answers `403`, naming its own limit
+(`key-project-mismatch`, or `permission-denied` for an `admin` key), and
+says nothing about that key. A key or session without limits sees what it
+did before: a tenant admin's, every key; anyone else's, all of their own.
 
 ## Service accounts
 
@@ -539,7 +580,7 @@ Make one. A deploy into a project takes `admin` on it, so this one, which
 deploys from CI, is an admin of one project:
 
 ```sh
-npx --yes @kindgi/cli@0.4 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
+npx --yes @kindgi/cli@0.6 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
 ```
 
 - `acme-ci` is the account's name.
@@ -567,7 +608,7 @@ npx --yes @kindgi/cli@0.4 service-accounts create acme-ci --description="Deploys
 Then make it a key, limited to that same project:
 
 ```sh
-npx --yes @kindgi/cli@0.4 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.6 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed, and
@@ -662,7 +703,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-npx --yes @kindgi/cli@0.4 people remove <user-id>
+npx --yes @kindgi/cli@0.6 people remove <user-id>
 ```
 
 ```text

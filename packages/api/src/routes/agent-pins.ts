@@ -70,8 +70,7 @@ import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { serializeReleaseGate } from './release-gate-wire.js';
 import { parseSegmentsQuery } from './segments.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from './uuid-param.js';
 
 /** The routes that change what's pinned: authorized as `pin` on the agent, not `admin`. */
 export function isAgentPinWrite(method: string, path: string): boolean {
