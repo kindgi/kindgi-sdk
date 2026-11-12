@@ -11038,6 +11038,18 @@ export const SamlIdentityProviderConfigSchema: JsonSchema = {
       description:
         'Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key.',
     },
+    spSigningCertificates: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description:
+        "The certificates (PEM) of `spSigningKeyRef`'s key, published in the service provider's metadata, so an IdP that imports it can check signed AuthnRequests. Several during a rollover: publish the new key's beside the old one, then change `spSigningKeyRef`. Needs `spSigningKeyRef`.",
+    },
+    spDecryptionCertificates: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description:
+        "The certificates (PEM) of `spDecryptionKeyRef`'s key, published in the service provider's metadata, so an IdP that imports it can encrypt assertions. The IdP may encrypt to any of them, so each is of that one key (a renewed certificate beside the old). Needs `spDecryptionKeyRef`.",
+    },
     wantAssertionsSigned: {
       type: 'boolean',
       description: 'Require signed assertions. Default `true`.',
@@ -11346,6 +11358,8 @@ export const UpdateIdentityProviderBodySchema: JsonSchema = {
     idpCertificates: NULLABLE_STRINGS,
     spSigningKeyRef: NULLABLE_STRING,
     spDecryptionKeyRef: NULLABLE_STRING,
+    spSigningCertificates: NULLABLE_STRINGS,
+    spDecryptionCertificates: NULLABLE_STRINGS,
     wantAssertionsSigned: { type: ['boolean', 'null'] },
     attributeMapping: {
       oneOf: [
