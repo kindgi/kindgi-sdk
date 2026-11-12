@@ -3,8 +3,10 @@
 
 import { sameAddress, storedIn } from '../api-address.js';
 import {
+  type HomeLogin,
   type ListedLogin,
   type ResolvedConfig,
+  keepsProject,
   listHomeLogins,
   readHomeLogin,
   removeHomeLogin,
@@ -12,6 +14,7 @@ import {
   saveHomeProfile,
 } from '../config.js';
 import type { CommandContext } from '../context.js';
+import { DEV_LICENSE_KEY_VAR } from '../dev/license-key.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
   DEFAULT_RUNTIME_IMAGE,
@@ -32,6 +35,7 @@ import {
   pullCredentialNeeded,
   registryLoginCommand,
 } from '../dev/runtime-registry.js';
+import { licenseKeyHome, saveHomeLicenseKey } from '../license/home-key.js';
 import { LICENSE_KEY_PREFIX, checkLicenseKey } from '../license/license-key.js';
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import {
@@ -80,6 +84,8 @@ const login: LeafCommand = {
     if (lost !== undefined && ctx.options.force !== true) {
       return { kind: 'error', stderr: keptLogin(lost, url), exitCode: 2 };
     }
+    // A profile holds no project: only the login without a name has one to drop.
+    const before = profile === undefined ? await readHomeLogin(ctx.home) : undefined;
     const path =
       profile === undefined
         ? await saveHomeConfig({ apiUrl: url, token }, ctx.home)
@@ -94,12 +100,11 @@ const login: LeafCommand = {
       },
       ctx.globals.format,
     );
-    if (lost === undefined) return { kind: 'ok', rendered };
-    // A key no longer stored is a warning: said under --quiet too.
-    const replaced = warning(`⚠ ${replacedNote(lost, path)}`);
+    const warnings = loginWarnings(path, lost, droppedProject(before, url, token));
+    if (warnings.length === 0) return { kind: 'ok', rendered };
     return {
       kind: 'ok',
-      rendered: { ...rendered, stderr: renderLines([replaced], ctx.globals.format === 'quiet') },
+      rendered: { ...rendered, stderr: renderLines(warnings, ctx.globals.format === 'quiet') },
     };
   },
 };
@@ -243,6 +248,42 @@ function replacedNote(lost: LostLogin, path: string): string {
   return lost.problem === undefined
     ? `Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`
     : `Replaced ${whoseLogin(lost)}, in ${path}.`;
+}
+
+/**
+ * The project stored beside the login this one replaced: it went with that
+ * key and address (`keepsProject`). `before` is the login without a name's;
+ * `undefined` under a profile.
+ */
+function droppedProject(
+  before: HomeLogin | undefined,
+  url: string,
+  token: string,
+): string | undefined {
+  return before?.project !== undefined && !keepsProject(before, { apiUrl: url, token })
+    ? before.project
+    : undefined;
+}
+
+/**
+ * What a login warns of, under --quiet too: the login it replaced (a key
+ * no longer stored), and the project that was stored with it.
+ */
+function loginWarnings(
+  path: string,
+  lost: LostLogin | undefined,
+  dropped: string | undefined,
+): ReturnType<typeof warning>[] {
+  const lines: ReturnType<typeof warning>[] = [];
+  if (lost !== undefined) lines.push(warning(`⚠ ${replacedNote(lost, path)}`));
+  if (dropped !== undefined) {
+    lines.push(
+      warning(
+        `⚠ Removed project ${dropped} from ${path}: it was stored with the login this one replaced.`,
+      ),
+    );
+  }
+  return lines;
 }
 
 /**
@@ -482,7 +523,7 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
 
   const lines: SaidLine[] = [];
   if (args.username !== undefined) {
-    const login = await logIn(run, seam, args, args.username);
+    const login = await logIn(run, seam, args, args.username, licenseKeyHome(ctx));
     if (login.kind === 'error') return login;
     lines.push(...login.lines);
   }
@@ -518,13 +559,16 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
 
 /**
  * The login: the token (or license key) read, then `docker login` with it
- * as `username`. What it says, line by line.
+ * as `username`. A license key Kindgi's registry took is kept for
+ * `kindgi dev` too (`~/.kindgi/license/license-key`, owner-only): every
+ * runtime needs one. What it says, line by line.
  */
 async function logIn(
   run: DockerRunner,
   seam: RegistryAuthSeam,
   args: RegistryArgs,
   username: string,
+  home: string | undefined,
 ): Promise<{ readonly kind: 'ok'; readonly lines: readonly SaidLine[] } | TokenReadError> {
   const secret = args.withKey
     ? await readKey(seam, args)
@@ -535,17 +579,40 @@ async function logIn(
   if (secret.kind === 'error') return secret;
   const login = await dockerLogin(run, args.host, username, secret.token);
   if (login.kind === 'error') return { kind: 'error', stderr: `${login.message}\n`, exitCode: 1 };
+  // What docker login warned about: said under --quiet too.
+  const dockerNotes = login.notes.map((said) => warning(`    docker: ${said}`));
+  if (!args.withKey) {
+    return {
+      kind: 'ok',
+      lines: [
+        note(
+          `  ✓ Logged in to ${args.host} as ${username}. Docker keeps the credential in its own credential store; Kindgi stores nothing.`,
+        ),
+        ...dockerNotes,
+      ],
+    };
+  }
   const from = args.keyFrom !== undefined ? ` from ${args.keyFrom.describe}` : '';
+  const kept = await saveHomeLicenseKey(secret.token, home).then(
+    (path) => ({ kind: 'ok' as const, path }),
+    (cause: unknown) => ({ kind: 'error' as const, message: (cause as Error).message }),
+  );
   return {
     kind: 'ok',
     lines: [
       note(
-        args.withKey
-          ? `  ✓ Logged in to ${args.host} with your license key${from}. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.`
-          : `  ✓ Logged in to ${args.host} as ${username}. Docker keeps the credential in its own credential store; Kindgi stores nothing.`,
+        kept.kind === 'ok'
+          ? `  ✓ Logged in to ${args.host} with your license key${from}. Docker keeps it in its own credential store, and kindgi dev's copy is in ${kept.path}, readable only by you. When your key renews, log in again with the new one.`
+          : `  ✓ Logged in to ${args.host} with your license key${from}. Docker keeps it in its own credential store. When your key renews, log in again with the new one.`,
       ),
-      // What docker login warned about: said under --quiet too.
-      ...login.notes.map((said) => warning(`    docker: ${said}`)),
+      ...(kept.kind === 'error'
+        ? [
+            warning(
+              `  ⚠ Couldn't keep the key for kindgi dev: ${kept.message} kindgi dev reads ${DEV_LICENSE_KEY_VAR} from your shell instead.`,
+            ),
+          ]
+        : []),
+      ...dockerNotes,
     ],
   };
 }

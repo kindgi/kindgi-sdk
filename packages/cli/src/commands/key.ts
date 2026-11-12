@@ -65,13 +65,22 @@ function pickRunners(
   };
 }
 
-function pickHomeFromCtx(ctx: CommandContext): string {
+function pickHomeFromCtx(
+  ctx: CommandContext,
+  subcommand: string,
+): { readonly kind: 'ok'; readonly home: string } | (CommandResult & { readonly kind: 'error' }) {
   const flag = ctx.options.home;
-  return pickHome({
+  const home = pickHome({
     ...(typeof flag === 'string' && flag !== '' ? { flag } : {}),
     ...(ctx.home !== undefined ? { ctxHome: ctx.home } : {}),
     ...(typeof ctx.env.HOME === 'string' && ctx.env.HOME !== '' ? { envHome: ctx.env.HOME } : {}),
   });
+  if (home !== undefined) return { kind: 'ok', home };
+  return {
+    kind: 'error',
+    stderr: `kindgi key ${subcommand}: found no home folder for .kindgi/keys/, since HOME is empty. Set HOME, or pass --home <dir>.\n`,
+    exitCode: 1,
+  };
 }
 
 function validateKeyId(
@@ -210,7 +219,9 @@ const createCmd: LeafCommand = {
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
 
-    const home = pickHomeFromCtx(ctx);
+    const homeOutcome = pickHomeFromCtx(ctx, 'create');
+    if (homeOutcome.kind === 'error') return homeOutcome;
+    const home = homeOutcome.home;
     const paths = resolveKeyPaths(home);
     const privPath = paths.privateKeyPath(keyId);
     const pubPath = paths.publicKeyPath(keyId);
@@ -359,8 +370,9 @@ const exportCmd: LeafCommand = {
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
 
-    const home = pickHomeFromCtx(ctx);
-    const paths = resolveKeyPaths(home);
+    const homeOutcome = pickHomeFromCtx(ctx, 'export');
+    if (homeOutcome.kind === 'error') return homeOutcome;
+    const paths = resolveKeyPaths(homeOutcome.home);
     const pubPath = paths.publicKeyPath(keyId);
 
     const pubPem = await runners.readFile(pubPath);
@@ -428,8 +440,9 @@ const listCmd: LeafCommand = {
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
 
-    const home = pickHomeFromCtx(ctx);
-    const paths = resolveKeyPaths(home);
+    const homeOutcome = pickHomeFromCtx(ctx, 'list');
+    if (homeOutcome.kind === 'error') return homeOutcome;
+    const paths = resolveKeyPaths(homeOutcome.home);
 
     const entries = await runners.readdir(paths.keysDir);
     const fileNames = new Set(entries.filter((e) => e.isFile).map((e) => e.name));
@@ -536,7 +549,9 @@ const trustCmd: LeafCommand = {
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
 
-    const pubPath = resolveKeyPaths(pickHomeFromCtx(ctx)).publicKeyPath(keyId);
+    const homeOutcome = pickHomeFromCtx(ctx, 'trust');
+    if (homeOutcome.kind === 'error') return homeOutcome;
+    const pubPath = resolveKeyPaths(homeOutcome.home).publicKeyPath(keyId);
     const pubPem = await runners.readFile(pubPath);
     if (pubPem === null) {
       return {

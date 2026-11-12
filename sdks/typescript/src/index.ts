@@ -175,9 +175,9 @@ export type {
   CapabilityFilter,
   ProviderFilter,
   // Note: `ProvidersClient` and `Provider` are re-exported from
-  // `./resources/providers.js` below. Both `client.providers` (top
-  // level) and `client.capabilities.providers` exist and use the same
-  // wire shape.
+  // `./resources/providers.js` below: `client.providers`. The older
+  // `client.capabilities.providers` is deprecated; its methods call
+  // `client.providers`'s.
 } from './resources/capabilities.js';
 export type {
   AdapterConfigureInput,
@@ -290,6 +290,8 @@ export type {
   MintPublicRunTokenInput,
   PublicRunToken,
   TokenFilter,
+  TokenPage,
+  TokenRevoked,
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
@@ -825,7 +827,9 @@ export type {
   ProvenanceRecordMetadata,
   ProvenanceVerifyResult,
   // `Provider` is re-exported from `./resources/providers.js`. Only
-  // the branded id / spec are exported from here.
+  // the branded id, the deprecated spec and the deprecated alias are
+  // exported from here.
+  LegacyCapabilitiesProvider,
   ProviderId,
   ProviderSpec,
   PutArtifactInput,

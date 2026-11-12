@@ -58,20 +58,22 @@ export function storedKeyFor(
 }
 
 /**
- * `config` with the stored key for `url` (`storedKeyFor`) as its key: for
- * a command that goes to another address than the CLI's own (`kindgi
- * deploy --endpoint`). A key given for the command stays as it is.
+ * `config` with the stored key for `url` (`storedKeyFor`) as its key, and
+ * the project stored beside that key as its `keyProject`: for a command
+ * that goes to another address than the CLI's own (`kindgi deploy
+ * --endpoint`). A key given for the command stays as it is.
  */
 export function keyedFor(config: ResolvedConfig, url: string): ResolvedConfig {
   if (config.source.token !== 'file' || config.storedKeys === undefined) return config;
   const key = storedKeyFor(config.storedKeys, url);
   if (key === undefined) return config;
-  const { keyAddress: _old, ...rest } = config;
+  const { keyAddress: _old, keyProject: _oldProject, ...rest } = config;
   return {
     ...rest,
     token: key.token,
     files: { ...config.files, token: key.file },
     ...(key.apiUrl !== undefined && { keyAddress: key.apiUrl }),
+    ...(key.project !== undefined && { keyProject: key.project }),
   };
 }
 

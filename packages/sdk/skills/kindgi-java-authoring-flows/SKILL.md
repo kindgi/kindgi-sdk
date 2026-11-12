@@ -15,7 +15,7 @@ description: >
   kindgi-java-authoring-tools, Java agents by kindgi-java-authoring-agents.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.4"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -212,10 +212,16 @@ public final class TriageTicket {
 - **The maps are the wire's shape,** so their keys are camelCase
   (`inputMapping`, `loopKind`, `maxIterations`).
 - **Where it's checked:** the indexer checks every flow against
-  `flow.schema.json` (version, node and edge shapes, `$start` / `$end`).
-  `kindgi dev` reports a mistake as a file error that says what and where,
-  while the pack's other primitives keep serving. Whether a step's tool or
-  agent exists is checked when a run starts (see "Running a flow").
+  `flow.schema.json` (version, node and edge shapes), and then `kindgi dev`
+  and `kindgi build` run the checks a TypeScript flow gets from
+  `defineFlow`: ids, edges between steps that exist, an edge from `$start`,
+  no cycles, loop bodies and mappings. `kindgi dev` reports a mistake as a
+  file error that says what and where (`flow 'acme.triage-ticket' is
+  invalid: cycle-detected: Flow "acme.triage-ticket" contains a cycle:
+  parse → classify → parse`), while the pack's other primitives keep
+  serving. `kindgi build` stops on it, and a deploy refuses a flow that
+  fails the `defineFlow` checks. Whether a step's tool or agent exists is
+  checked when a run starts (see "Running a flow").
 - `Map.of` takes up to ten pairs. For a bigger map, use `Map.ofEntries` or a
   `LinkedHashMap`.
 

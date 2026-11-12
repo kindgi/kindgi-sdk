@@ -18,9 +18,10 @@
  *    runtime resolves real paths through them);
  * 4. close the secrets inside all of that again: `.env*`, `.kindgi`
  *    (but the dev outputs it runs, and the indexer's output folder),
- *    `.git`, `kindgi.env`, `pack.env`, `.kindgirc.json`, `.npmrc`,
- *    `.pypirc`, `.netrc`; and keep the app's Kindgi configuration
- *    unwritable (`kindgi dev` loads it, and it says how wide this is);
+ *    `.git`, `kindgi.env`, `pack.env`, `db.env`, `openfga.env`,
+ *    `.kindgirc.json`, `.npmrc`, `.pypirc`, `.netrc`; and keep the app's
+ *    Kindgi configuration unwritable (`kindgi dev` loads it, and it says
+ *    how wide this is);
  * 5. no UNIX sockets (the Docker socket, ssh-agent, a database's) but
  *    DNS's (`mDNSResponder`) and `dev.sandbox.allowUnixSockets`;
  * 6. no Apple Events, LaunchServices (`open -a Terminal <a file it
@@ -116,7 +117,7 @@ export function seatbeltProfile(policy: SandboxPolicy): string {
     '; Closed again, wherever they are: secrets.',
     '(deny file-read* file-write*',
     '  (regex #"/\\.env[^/]*$")',
-    '  (regex #"/(kindgi\\.env|pack\\.env|\\.kindgirc\\.json|\\.npmrc|\\.pypirc|\\.netrc)$")',
+    '  (regex #"/(kindgi\\.env|pack\\.env|db\\.env|openfga\\.env|\\.kindgirc\\.json|\\.npmrc|\\.pypirc|\\.netrc)$")',
     '  (regex #"/\\.git(/|$)")',
     '  (regex #"/\\.kindgi(/|$)"))',
     '; but the dev outputs the service runs.',

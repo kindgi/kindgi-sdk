@@ -1,12 +1,11 @@
 ---
 title: Features by SDK
-description: Which features the TypeScript, Python, Java and Scala SDKs have, and what to do where one lacks a feature.
+description: Which features the TypeScript, Python, Java and Scala SDKs have.
 sidebar:
   label: Features by SDK
 ---
 
-This page shows which features each SDK has, and what to do where your
-language's SDK lacks one.
+This page shows which features each SDK has.
 
 Kindgi has an SDK for TypeScript, Python, Java and Scala. Each one does two
 jobs:
@@ -36,7 +35,7 @@ Java client.
 | Cancellation | Yes | Yes | Yes | Yes |
 | [A tool's secrets](../../guides/tools/give-a-tool-a-secret/) and [per-project values](../../guides/tools/give-a-tool-env-values/) | Yes | Yes | Yes | Yes |
 | [Settings blocks](../../guides/improve/change-a-prompt-or-setting/) a tool reads | Yes | Yes | Yes | Yes |
-| [HTTP tools without code](../../guides/tools/http-tools/) | Yes | Yes | No | No |
+| [HTTP tools without code](../../guides/tools/http-tools/) | Yes | Yes | Yes | Yes |
 | [Guardrails](../../guides/guardrails/write-a-guardrail/) with your own check | Yes | Yes | Yes | Yes |
 | [Agents](../../guides/agents/write-an-agent/), with [typed answers](../../guides/agents/typed-answer/), [memory](../../guides/agents/give-an-agent-memory/) and [budgets](../../guides/agents/budgets/) | Yes | Yes | Yes | Yes |
 | [Flows](../../guides/flows/write-a-flow/): branches, loops, parallel steps, retries, approvals | Yes | Yes | Yes | Yes |
@@ -59,14 +58,6 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 | [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | Yes | Yes |
 | [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | Yes | Yes |
 
-## Where an SDK lacks a feature
-
-- **HTTP tools without code:** in a Java or Scala pack, write a tool whose
-  handler makes the request
-  ([When to write a handler instead](../../guides/tools/http-tools/#when-to-write-a-handler-instead)).
-
 The guides show each language in its own tab. Where a guide has no tab for
 your language, the [In a pack](#in-a-pack) and [In your app](#in-your-app)
 tables say whether its SDK has the feature.
-[Where an SDK lacks a feature](#where-an-sdk-lacks-a-feature) says what to do
-instead.

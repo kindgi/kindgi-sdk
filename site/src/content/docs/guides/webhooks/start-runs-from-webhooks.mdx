@@ -25,7 +25,7 @@ app a request when a run ends, see
 
 ## Before you start
 
-- **A pack and a runtime,** such as `kindgi dev`, with Kindgi 0.4's CLI.
+- **A pack and a runtime,** such as `kindgi dev`, with Kindgi 0.6's CLI.
 - **A secrets store and `KINDGI_ENV` on the runtime,** which `kindgi dev`
   has. A trigger's signing secret is kept in the store, in the env the
   runtime serves, so without either the runtime has no webhook triggers:
@@ -721,8 +721,9 @@ whenever the workspace has a registered service account the webhook doesn't
 already run as. Its **Runs
 as** list has "You — with your access", which takes it over, and each
 registered service account, such as "nightly-bot — a service account, with
-its own access". The account it runs as now isn't listed, and on a webhook
-that runs as you the list starts at "Pick a service account". Under the
+its own access". The account it runs as now isn't listed: on a webhook
+that runs as you, that's "You", and the list starts at "Pick a service
+account". Under the
 list, the dialog says what changes before anything does, such as "The runs
 it starts from now on act as nightly-bot, with its access, not yours: it
 needs its own access to what this webhook starts." Naming an account needs

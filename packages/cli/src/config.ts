@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isLocalAddress, sameAddress, storedKeyFor } from './api-address.js';
-import { writePrivateFile } from './private-file.js';
+import { homeFolder } from './home.js';
+import { makePrivateDir, writePrivateFile } from './private-file.js';
 import {
   PROFILE_ENV,
   PROFILE_NAME,
@@ -24,7 +24,8 @@ import {
  * (`KINDGI_API_URL`, `KINDGI_API_TOKEN`), or a profile named by
  * `KINDGI_PROFILE` (never both) > file (`.kindgirc.json` in cwd, then
  * `~/.kindgi/config.json`'s login without a name). A profile skips the
- * folder's `.kindgirc.json`, and its key is reached only by its name.
+ * folder's `.kindgirc.json`, and its key is reached only by its name. A
+ * file may also hold a `project` beside its key: see `keyProject`.
  */
 export interface ResolvedConfig {
   readonly apiUrl: string | undefined;
@@ -43,6 +44,15 @@ export interface ResolvedConfig {
    * address the key is for. Set when the key came from a file that has one.
    */
   readonly keyAddress?: string;
+  /**
+   * The project stored beside the key, in the key's own file: an id or a
+   * slug, as `--project` takes. A command that names no project goes into
+   * it (`kindgi deploy`, and the commands that would take the tenant's
+   * default project). Set only when the key came from a file that has one,
+   * so a key given with `--token` or `KINDGI_API_TOKEN` has none, and nor
+   * does a profile's.
+   */
+  readonly keyProject?: string;
   /**
    * When the key is a stored one: every key the config files hold, each
    * with the address stored beside it, the home file's before this
@@ -91,10 +101,11 @@ export interface ResolvedConfig {
 
 export type ConfigSource = 'flag' | 'env' | 'file' | 'unset';
 
-/** A key a config file holds, and the address stored beside it, if any. */
+/** A key a config file holds, and the address and project stored beside it, if any. */
 export interface StoredKey {
   readonly token: string;
   readonly apiUrl?: string;
+  readonly project?: string;
   readonly file: ConfigFile;
 }
 
@@ -130,6 +141,8 @@ export interface ConfigInputs {
 interface FileConfig {
   readonly apiUrl?: string;
   readonly token?: string;
+  /** The project for the key beside it: `keyProject`. */
+  readonly project?: string;
   /** `kindgi dev` writes these beside its runtime's address and key. */
   readonly packServicePort?: unknown;
   readonly packServiceToken?: unknown;
@@ -139,7 +152,7 @@ interface FileConfig {
 
 /** A config file that was there, and what it holds. */
 interface ReadConfigFile extends ConfigFile {
-  readonly values: Pick<FileConfig, 'apiUrl' | 'token'>;
+  readonly values: Pick<FileConfig, 'apiUrl' | 'token' | 'project'>;
   /** `kindgi dev` wrote it: it has the pack service's port or token. */
   readonly writtenByDev: boolean;
   /** Its profiles: the home file's only. */
@@ -161,11 +174,13 @@ async function defaultReadFile(path: string): Promise<string | null> {
 export async function loadConfig(inputs: ConfigInputs = {}): Promise<ResolvedConfig> {
   const env = inputs.env ?? process.env;
   const cwd = inputs.cwd ?? process.cwd();
-  const home = inputs.home ?? homedir();
+  const home = homeFolder(inputs.home);
   const read = inputs.readFile ?? defaultReadFile;
 
-  const homePath = join(home, '.kindgi', 'config.json');
-  const homeFile = await readConfigFile(homePath, 'home', read);
+  // With no home folder there's no home file, rather than one under the current folder.
+  const homePath = home === undefined ? undefined : join(home, '.kindgi', 'config.json');
+  const homeFile =
+    homePath === undefined ? undefined : await readConfigFile(homePath, 'home', read);
   const folderFile = await readConfigFile(join(cwd, '.kindgirc.json'), 'folder', read);
   const named = profileNamed(inputs.flagProfile, env);
   if (named !== undefined) {
@@ -211,7 +226,7 @@ function profileConfig(
   named: { readonly name: string; readonly from: 'flag' | 'env' },
   inputs: ConfigInputs,
   env: Readonly<Record<string, string | undefined>>,
-  homePath: string,
+  homePath: string | undefined,
   homeFile: ReadConfigFile | undefined,
   folderFile: ReadConfigFile | undefined,
 ): ResolvedConfig {
@@ -232,9 +247,9 @@ function profileConfig(
       profileRefusal: held.refusal,
     };
   }
-  const { entry } = held;
+  const { entry, path } = held;
   const by = from === 'flag' ? `--profile ${name}` : `${PROFILE_ENV}=${name}`;
-  const file: ConfigFile = { path: homePath, kind: 'home', profile: name };
+  const file: ConfigFile = { path, kind: 'home', profile: name };
   const apiUrl = pickWithSource(inputs.flagUrl, undefined, entry.apiUrl);
   const token = pickWithSource(inputs.flagToken, undefined, entry.token);
   const stored = token.source === 'file';
@@ -275,14 +290,15 @@ type ProfileRefusal = NonNullable<ResolvedConfig['profileRefusal']>;
 /**
  * The named profile's entry, or why it can't be used before its address is
  * read: KINDGI_PROFILE isn't a name, or is set beside KINDGI_API_URL or
- * KINDGI_API_TOKEN, or the home file holds no usable entry by that name.
+ * KINDGI_API_TOKEN, or there's no home folder, or the home file holds no
+ * usable entry by that name.
  */
 function heldProfile(
   named: { readonly name: string; readonly from: 'flag' | 'env' },
   exported: readonly string[],
-  homePath: string,
+  homePath: string | undefined,
   profiles: ReadProfiles | undefined,
-): { readonly entry: ProfileLogin } | { readonly refusal: ProfileRefusal } {
+): { readonly entry: ProfileLogin; readonly path: string } | { readonly refusal: ProfileRefusal } {
   const { name, from } = named;
   if (from === 'env' && !PROFILE_NAME.test(name)) {
     return {
@@ -303,9 +319,17 @@ function heldProfile(
       },
     };
   }
-  const entry = profiles?.usable.get(name);
-  if (entry !== undefined) return { entry };
   const by = from === 'flag' ? `--profile ${name}` : `${PROFILE_ENV}=${name}`;
+  if (homePath === undefined) {
+    return {
+      refusal: {
+        kind: 'unknown',
+        message: `${by}: found no home folder for .kindgi/config.json, which holds the profiles, since HOME is empty. Set HOME and run it again.`,
+      },
+    };
+  }
+  const entry = profiles?.usable.get(name);
+  if (entry !== undefined) return { entry, path: homePath };
   const summaries = profiles?.summaries ?? [];
   // A held entry that isn't usable is a malformed one, or `profiles` itself is.
   const problem = profiles?.malformed ?? summaries.find((p) => p.name === name)?.problem;
@@ -371,19 +395,27 @@ function resolveConfig(
     source: { apiUrl: apiUrl.source, token: token.source },
     ...(Object.keys(from).length > 0 && { files: from }),
     ...(key?.apiUrl !== undefined && { keyAddress: key.apiUrl }),
+    ...(key?.project !== undefined && { keyProject: key.project }),
     ...(key !== undefined && { storedKeys: keys }),
     // Never candidates for an address: only named in a refusal (api-address.ts).
     ...(profiles.length > 0 && { profiles }),
   };
 }
 
-/** The keys `files` hold, in their order, each with the address beside it. */
+/** The keys `files` hold, in their order, each with the address and project beside it. */
 function storedKeysOf(files: readonly (ReadConfigFile | undefined)[]): StoredKey[] {
   return files.flatMap((f) => {
     const token = f?.values.token;
     if (f === undefined || token === undefined) return [];
-    const apiUrl = f.values.apiUrl;
-    return [{ token, ...(apiUrl !== undefined && apiUrl !== '' && { apiUrl }), file: fileRef(f) }];
+    const { apiUrl, project } = f.values;
+    return [
+      {
+        token,
+        ...(apiUrl !== undefined && apiUrl !== '' && { apiUrl }),
+        ...(project !== undefined && { project }),
+        file: fileRef(f),
+      },
+    ];
   });
 }
 
@@ -423,6 +455,8 @@ async function readConfigFile(
     values: {
       ...(typeof parsed.apiUrl === 'string' && { apiUrl: parsed.apiUrl }),
       ...(typeof parsed.token === 'string' && { token: parsed.token }),
+      ...(typeof parsed.project === 'string' &&
+        parsed.project !== '' && { project: parsed.project }),
     },
     writtenByDev:
       typeof parsed.packServicePort === 'number' || typeof parsed.packServiceToken === 'string',
@@ -444,12 +478,15 @@ function parseJson(raw: string, path: string): FileConfig {
 
 /**
  * What `~/.kindgi/config.json` holds now for one login, the one without a
- * name or a profile: its path, and its address and key, each when there.
+ * name or a profile: its path, and its address, key and project, each when
+ * there. A profile holds no project.
  */
 export interface HomeLogin {
   readonly path: string;
   readonly apiUrl?: string;
   readonly token?: string;
+  /** For the login without a name: the project stored beside its key. */
+  readonly project?: string;
   /** For a profile: the file holds an entry by that name, usable or not. */
   readonly held?: boolean;
   /** For a profile: why its entry (or `profiles` itself) can't be used. */
@@ -465,10 +502,7 @@ export interface HomeLogin {
  * Read `~/.kindgi/config.json` as it is now, as `kindgi auth login` finds
  * it before a save: the login without a name, or `profile`'s.
  */
-export async function readHomeLogin(
-  home: string | undefined = homedir(),
-  profile?: string,
-): Promise<HomeLogin> {
+export async function readHomeLogin(home?: string, profile?: string): Promise<HomeLogin> {
   const path = homeConfigPath(home);
   const raw = await defaultReadFile(path);
   const parsed = raw === null ? {} : parseJson(raw, path);
@@ -477,6 +511,8 @@ export async function readHomeLogin(
       path,
       ...(typeof parsed.apiUrl === 'string' && parsed.apiUrl !== '' && { apiUrl: parsed.apiUrl }),
       ...(typeof parsed.token === 'string' && parsed.token !== '' && { token: parsed.token }),
+      ...(typeof parsed.project === 'string' &&
+        parsed.project !== '' && { project: parsed.project }),
     };
   }
   const profiles = readProfiles(parsed.profiles);
@@ -510,7 +546,7 @@ export interface ListedLogin {
  * profile in the file's order. Never a key. `problem` says why
  * `profiles` itself can't be read.
  */
-export async function listHomeLogins(home: string | undefined = homedir()): Promise<{
+export async function listHomeLogins(home?: string): Promise<{
   readonly path: string;
   readonly logins: readonly ListedLogin[];
   readonly problem?: string;
@@ -551,18 +587,37 @@ export async function listHomeLogins(home: string | undefined = homedir()): Prom
   };
 }
 
-/** `~/.kindgi/config.json`. */
-export function homeConfigPath(home: string | undefined = homedir()): string {
-  return join(home ?? homedir(), '.kindgi', 'config.json');
+/**
+ * Whether a file's `project` stays when `patch` is saved over it: it's the
+ * project for the key beside it, so a new key or address drops it.
+ */
+export function keepsProject(
+  file: Pick<FileConfig, 'apiUrl' | 'token'>,
+  patch: Pick<FileConfig, 'apiUrl' | 'token'>,
+): boolean {
+  return (
+    (patch.token === undefined || patch.token === file.token) &&
+    (patch.apiUrl === undefined ||
+      (file.apiUrl !== undefined && sameAddress(patch.apiUrl, file.apiUrl)))
+  );
 }
 
-/** `~/.kindgi` holds the API key: this account's only. */
-const HOME_DIR_MODE = 0o700;
+/** `~/.kindgi/config.json`, which a login needs a home folder for. */
+function homeConfigPath(home: string | undefined): string {
+  const folder = homeFolder(home);
+  if (folder === undefined) {
+    throw new Error(
+      'Found no home folder for .kindgi/config.json, since HOME is empty. Set HOME and run it again.',
+    );
+  }
+  return join(folder, '.kindgi', 'config.json');
+}
 
 /**
  * Persist a config file at `~/.kindgi/config.json`. Called by
  * `kindgi auth login`. Merges with any existing file so a partial
- * write does not clobber other keys.
+ * write does not clobber other keys. A `project` stays only when the
+ * key and address do (`keepsProject`).
  *
  * The file is `0600` and `~/.kindgi` `0700`, an older looser one
  * included: the new text is a new file that replaces the old one
@@ -570,11 +625,11 @@ const HOME_DIR_MODE = 0o700;
  * file it points to is the one replaced.
  * Windows has no such modes: the write there is as before.
  */
-export async function saveHomeConfig(
-  patch: FileConfig,
-  home: string | undefined = homedir(),
-): Promise<string> {
-  return rewriteHomeConfig((base) => ({ ...base, ...patch }), home);
+export async function saveHomeConfig(patch: FileConfig, home?: string): Promise<string> {
+  return rewriteHomeConfig((base) => {
+    const { project: _dropped, ...withoutProject } = base;
+    return { ...(keepsProject(base, patch) ? base : withoutProject), ...patch };
+  }, home);
 }
 
 /**
@@ -586,7 +641,7 @@ export async function saveHomeConfig(
 export async function saveHomeProfile(
   profile: string,
   login: { readonly apiUrl: string; readonly token: string },
-  home: string | undefined = homedir(),
+  home?: string,
 ): Promise<string> {
   return rewriteHomeConfig(
     (base) => ({ ...base, profiles: { ...profilesObject(base.profiles), [profile]: login } }),
@@ -596,16 +651,14 @@ export async function saveHomeProfile(
 
 /**
  * Remove a login from `~/.kindgi/config.json`: `profile`'s, or the one
- * without a name (its `apiUrl` and `token`). Everything else stays; an
- * empty `profiles` goes. The file stays `0600`.
+ * without a name (its `apiUrl` and `token`, and the `project` stored
+ * beside them). Everything else stays; an empty `profiles` goes. The file
+ * stays `0600`.
  */
-export async function removeHomeLogin(
-  profile: string | undefined,
-  home: string | undefined = homedir(),
-): Promise<string> {
+export async function removeHomeLogin(profile: string | undefined, home?: string): Promise<string> {
   return rewriteHomeConfig((base) => {
     if (profile === undefined) {
-      const { apiUrl: _apiUrl, token: _token, ...rest } = base;
+      const { apiUrl: _apiUrl, token: _token, project: _project, ...rest } = base;
       return rest;
     }
     const { [profile]: _gone, ...others } = profilesObject(base.profiles);
@@ -629,14 +682,8 @@ async function rewriteHomeConfig(
   const base = existing === null ? {} : (JSON.parse(existing) as FileConfig);
   const next = change(base);
   const text = `${JSON.stringify(next, null, 2)}\n`;
-  await mkdir(dirname(path), { recursive: true, mode: HOME_DIR_MODE });
-  // One made earlier, by hand or by an older CLI, may be looser.
-  if (
-    process.platform !== 'win32' &&
-    ((await stat(dirname(path))).mode & 0o777 & ~HOME_DIR_MODE) !== 0
-  ) {
-    await chmod(dirname(path), HOME_DIR_MODE);
-  }
+  // `~/.kindgi` holds the API key: this account's only.
+  await makePrivateDir(dirname(path));
   await writePrivateFile(path, text);
   return path;
 }

@@ -16,11 +16,42 @@ import { runCli } from '../src/main.js';
 import { MIN_NODE } from '../src/node-version.js';
 import { loadProviderPresets } from '../src/providers/preset-loader.js';
 
+// Every Kindgi runtime needs a license key: each test's home keeps one, as
+// kindgi auth registry would, signed with a key the default seam trusts.
+const LICENSE_SIGNER = generateKeyPairSync('ed25519');
+const LICENSE_PUBLIC_KEYS = {
+  'test-lk': Buffer.from(
+    LICENSE_SIGNER.publicKey.export({ format: 'jwk' }).x as string,
+    'base64url',
+  ).toString('base64'),
+};
+function signedLicenseKey(payload: Record<string, unknown>): string {
+  const signed = `kgi_lk_${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+  return `${signed}.${sign(null, Buffer.from(signed, 'ascii'), LICENSE_SIGNER.privateKey).toString('base64url')}`;
+}
+const keptLicenseKey = (h: string) => join(h, '.kindgi', 'license', 'license-key');
+async function keepLicenseKey(key: string): Promise<void> {
+  await mkdir(join(home, '.kindgi', 'license'), { recursive: true, mode: 0o700 });
+  await writeFile(keptLicenseKey(home), `${key}\n`, { mode: 0o600 });
+}
+
 let dir: string;
 let home: string;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'kindgi-doctor-'));
   home = await mkdtemp(join(tmpdir(), 'kindgi-doctor-home-'));
+  const now = Math.floor(Date.now() / 1000);
+  await keepLicenseKey(
+    signedLicenseKey({
+      v: 1,
+      kid: 'test-lk',
+      sub: 'gh-42',
+      name: 'octo',
+      use: 'non-production',
+      iat: now - 86_400,
+      exp: now + 365 * 86_400,
+    }),
+  );
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -84,6 +115,7 @@ function seam(
     image: IMAGE,
     docker: over.docker ?? dockerThat('ok'),
     sandbox: over.sandbox ?? (async () => ({ kind: 'available', engine: 'seatbelt' })),
+    licensePublicKeys: over.licensePublicKeys ?? LICENSE_PUBLIC_KEYS,
     presets: async () => ({
       anthropic: {
         name: 'anthropic',
@@ -1436,15 +1468,9 @@ describe('console sign-in: can anyone sign in to the console of the runtime the 
 describe('the license key', () => {
   const NOW = 1_791_500_000_000;
   const DAY = 86_400;
-  const signer = generateKeyPairSync('ed25519');
-  const licensePublicKeys = {
-    'test-lk': Buffer.from(
-      signer.publicKey.export({ format: 'jwk' }).x as string,
-      'base64url',
-    ).toString('base64'),
-  };
-  const key = (over: Record<string, unknown> = {}) => {
-    const payload = {
+  const licensePublicKeys = LICENSE_PUBLIC_KEYS;
+  const key = (over: Record<string, unknown> = {}) =>
+    signedLicenseKey({
       v: 1,
       kid: 'test-lk',
       sub: 'gh-42',
@@ -1453,10 +1479,7 @@ describe('the license key', () => {
       iat: NOW / 1000 - 30 * DAY,
       exp: NOW / 1000 + 57 * DAY,
       ...over,
-    };
-    const signed = `kgi_lk_${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
-    return `${signed}.${sign(null, Buffer.from(signed, 'ascii'), signer.privateKey).toString('base64url')}`;
-  };
+    });
   const licenseOf = async (env: Record<string, string> = {}) => {
     const { report } = await doctor({
       env,
@@ -1465,11 +1488,37 @@ describe('the license key', () => {
     return report?.checks.find((c) => c.id === 'license');
   };
 
-  test('none here: skipped (kindgi dev needs none)', async () => {
-    expect(await licenseOf()).toMatchObject({
-      status: 'skip',
-      message: expect.stringContaining('kindgi dev needs none'),
+  test('none here, nor kept for kindgi dev: a failure, saying how to get one', async () => {
+    await rm(keptLicenseKey(home));
+    expect(await licenseOf()).toEqual({
+      id: 'license',
+      status: 'fail',
+      message:
+        'No license key here (KINDGI_LICENSE_KEY, kindgi.env in this folder, or ~/.kindgi/license/license-key). Every Kindgi runtime needs one, in development mode too.',
+      fix: 'Get a free one at https://access.kindgi.com, then run kindgi auth registry with it: it logs Docker in and keeps the key for kindgi dev. A deployment gives its runtime KINDGI_LICENSE_KEY.',
     });
+  });
+
+  test("the key kindgi auth registry kept: checked, with a laptop's way to renew it", async () => {
+    await keepLicenseKey(key({ exp: NOW / 1000 + 12 * DAY }));
+    const check = await licenseOf();
+    expect(check?.status).toBe('warn');
+    expect(check?.message).toMatch(
+      /^octo's non-production key expires in 12 days \(\d{4}-\d{2}-\d{2}\)\.$/,
+    );
+    expect(check?.fix).toBe(
+      'Renew it: sign in at https://access.kindgi.com, which shows your latest key, then run kindgi auth registry with it again',
+    );
+  });
+
+  test("a kept key it can't read: a failure naming the file, never a pass", async () => {
+    await chmod(keptLicenseKey(home), 0o000);
+    const check = await licenseOf();
+    expect(check?.status).toBe('fail');
+    expect(check?.message).toContain(`Couldn't read the license key in ${keptLicenseKey(home)}:`);
+    expect(check?.fix).toBe(
+      'Run kindgi auth registry with your key again: it writes the file readable only by you.',
+    );
   });
 
   test('KINDGI_LICENSE_KEY with time left: whose, which use, until when', async () => {
