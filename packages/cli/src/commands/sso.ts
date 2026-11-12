@@ -74,6 +74,23 @@ const configOptions = {
     description:
       'SAML: the NAME of the signing key, for identity providers that want signed requests.',
   },
+  'sp-signing-certificate': {
+    type: 'string' as const,
+    multiple: true,
+    description:
+      "SAML: the signing key's certificate (PEM), as `@<file>`, published in the metadata your identity provider imports; repeatable (a new key's beside the old).",
+  },
+  'sp-decryption-key-ref': {
+    type: 'string' as const,
+    description:
+      'SAML: the NAME of the decryption key, for identity providers that encrypt assertions.',
+  },
+  'sp-decryption-certificate': {
+    type: 'string' as const,
+    multiple: true,
+    description:
+      "SAML: the decryption key's certificate (PEM), as `@<file>`, published in the metadata your identity provider imports; repeatable.",
+  },
   spec: {
     type: 'string' as const,
     description: 'Any other provider fields, as inline JSON or `@<file>` (flags win).',
@@ -94,6 +111,8 @@ async function configFromFlags(ctx: CommandContext): Promise<Record<string, unkn
   if (metadataArg !== undefined && !metadataArg.startsWith('@')) {
     throw new Error('--idp-metadata takes a file: --idp-metadata=@<path-to-metadata.xml>');
   }
+  const spSigningCertificates = await certificatesOf(ctx, 'sp-signing-certificate');
+  const spDecryptionCertificates = await certificatesOf(ctx, 'sp-decryption-certificate');
   const flags: Record<string, unknown> = {
     kind: stringFlag(ctx, 'kind'),
     displayName: stringFlag(ctx, 'name'),
@@ -101,13 +120,25 @@ async function configFromFlags(ctx: CommandContext): Promise<Record<string, unkn
     clientId: stringFlag(ctx, 'client-id'),
     clientSecretRef: stringFlag(ctx, 'client-secret-ref'),
     spSigningKeyRef: stringFlag(ctx, 'sp-signing-key-ref'),
+    spDecryptionKeyRef: stringFlag(ctx, 'sp-decryption-key-ref'),
     ...(domains.length > 0 && { domains }),
+    ...(spSigningCertificates.length > 0 && { spSigningCertificates }),
+    ...(spDecryptionCertificates.length > 0 && { spDecryptionCertificates }),
     ...(metadataArg !== undefined && {
       idpMetadataXml: await readFile(metadataArg.slice(1), 'utf8'),
     }),
   };
   for (const [k, v] of Object.entries(flags)) if (v === undefined) delete flags[k];
   return { ...(spec as Record<string, unknown>), ...flags };
+}
+
+/** A repeatable `--<flag>=@<file>`: each file's certificate (PEM), in the order given. */
+async function certificatesOf(ctx: CommandContext, flag: string): Promise<string[]> {
+  const files = listFlag(ctx, flag);
+  if (files.some((f) => !f.startsWith('@'))) {
+    throw new Error(`--${flag} takes a file: --${flag}=@<path-to-certificate.pem>`);
+  }
+  return Promise.all(files.map((f) => readFile(f.slice(1), 'utf8')));
 }
 
 function kindFlag(ctx: CommandContext): Kind | undefined {
