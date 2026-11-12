@@ -20,8 +20,8 @@ sees what, and the errors.
 
 ## Before you start
 
-- **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
-  0.1's CLI. This guide uses `acme.order-desk` and `acme.desk`.
+- **An agent,** in a pack on a runtime such as `kindgi dev`, with
+  Kindgi 0.6's CLI. This guide uses `acme.order-desk` and `acme.desk`.
 - **A model with reliable tool calling,** for an agent that remembers.
 - **An embeddings endpoint on the runtime,** for search by meaning, as
   [Search by meaning](../memory-reference/#search-by-meaning) shows. Without
@@ -291,6 +291,14 @@ name.
 
   ```text
   You don't have permission to remember facts for everyone in the organization: that needs a tenant admin.
+  ```
+
+  A run started with access that can't act as a tenant admin, such as one
+  started [from Claude](../../chat/), is refused even when the person it
+  acts for is a tenant admin, and the model is told:
+
+  ```text
+  This run was started with access that can't act as a tenant admin, so it can't remember facts for everyone in the organization. A tenant admin can, in a run they start from the console.
   ```
 - **Every remembered fact** is `unverified`, attributed to the agent version
   and the tool call that wrote it, and kept `keepDays` (30 by default) unless

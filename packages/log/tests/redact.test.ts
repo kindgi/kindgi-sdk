@@ -225,4 +225,62 @@ describe('rule 3: the full mask, for an error a run shows', () => {
     expect(full(full(text))).toBe(full(text));
     expect(scrubText(scrubText(text))).toBe(scrubText(text));
   });
+
+  test("the masks keep the patterns' own matches, in time in step with the text", () => {
+    // The two masks as patterns, as they were: the reference.
+    const URL_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):[^\s@/]+@/gi;
+    const URL_PARAM = /([?&#])([^\s=&#"'<>]+)=([^\s&#"'<>]*)/g;
+    const secretParam = (name: string): boolean =>
+      name.toLowerCase().replace(/[-_]/g, '') === 'key' || isSecretKey(name, ['signature', 'sig']);
+    const reference = (text: string, fullMask: boolean): string => {
+      const masked = text.replace(URL_PASSWORD, '$1:***@');
+      if (!fullMask) return masked;
+      return masked.replace(URL_PARAM, (match, mark: string, name: string, value: string) =>
+        value !== '' && secretParam(name) ? `${mark}${name}=[redacted]` : match,
+      );
+    };
+    const nbsp = `a://u${String.fromCharCode(0xa0)}:p@h`;
+    for (const text of [
+      'postgres://kindgi:hunter2@db.internal:5432/kindgi',
+      '1.postgres://u:p@h',
+      '_a://u:p@h',
+      'a://u:p@b://v:q@c',
+      'a://u:p:b://v:q@c',
+      'HTTPS://U:P@H',
+      `x${'1'.repeat(100)}://u:p@h`,
+      ':://u:p@h',
+      'a://u:@h',
+      'a://:p@h',
+      'a://u:p q@h',
+      nbsp,
+      '?token=abc',
+      '??key=x',
+      '?a?token=x',
+      'x?sort_key=1&key=s#access_token=t',
+      '?=x',
+      '?token=',
+      '&&token=x',
+      '?a b=c',
+      '?debug&token=abc',
+      '?token=a=b?c&x=1',
+    ]) {
+      expect(full(text), text).toBe(reference(text, true));
+      expect(scrubText(text), text).toBe(reference(text, false));
+    }
+    expect(full('1.postgres://u:p@h')).toBe('1.postgres://u:***@h');
+    expect(full('_a://u:p@h')).toBe('_a://u:p@h');
+    expect(full(nbsp)).toBe(nbsp);
+    expect(full('?token=abc')).toBe('?token=[redacted]');
+    expect(full('??key=x')).toBe('??key=x');
+    expect(full('?a?token=x')).toBe('?a?token=[redacted]');
+    expect(full('?debug&token=abc')).toBe('?debug&token=[redacted]');
+
+    // 64 KiB each. The patterns take seconds on these.
+    const run = 'a.'.repeat(32 * 1024);
+    for (const text of [run, `${run}://x`, '?a'.repeat(32 * 1024)]) {
+      const started = performance.now();
+      expect(full(text)).toBe(text);
+      expect(performance.now() - started, text.slice(-8)).toBeLessThan(500);
+    }
+  });
 });

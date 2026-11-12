@@ -42,8 +42,8 @@ API token or an `admin` key made for the seed user
   GitHub and the emailed link still work, and adding or changing a
   workspace's own provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
-- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Turn it on
@@ -460,7 +460,7 @@ sign in.
 A tenant admin can require one for the whole workspace:
 
 ```sh
-npx --yes @kindgi/cli@0.4 sign-in settings --require-second-factor=on
+npx --yes @kindgi/cli@0.6 sign-in settings --require-second-factor=on
 ```
 
 - Someone without one sets one up at their next sign-in.
@@ -484,7 +484,7 @@ factor for the rest of that time (`second-factor-locked`). For a lost phone, a t
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
-npx --yes @kindgi/cli@0.4 people reset-second-factor <user-id>
+npx --yes @kindgi/cli@0.6 people reset-second-factor <user-id>
 ```
 
 An admin's own isn't removed this way: they take it off on My access, with a

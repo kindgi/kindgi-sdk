@@ -635,6 +635,29 @@ describe('API — mcp endpoints register + get', () => {
       }
     });
 
+    test("header: MCP's own headers, whatever their case, an Mcp-Param- one among them → 400 invalid-auth, naming the header", async () => {
+      const { app } = makeApp();
+      const one = (name: string) => ({ scheme: 'header', headers: [{ name, secretRef: ref }] });
+      for (const name of [
+        'Mcp-Method',
+        'mcp-name',
+        'MCP-PROTOCOL-VERSION',
+        'Mcp-Param-Region',
+        'mcp-param-sku',
+      ]) {
+        const res = await post(app, { ...http, auth: one(name) });
+        const body = (await res.clone().json()) as { error: { message: string } };
+        expect(await refusal(res), name).toEqual([400, 'invalid-mcp-endpoint', 'invalid-auth']);
+        expect(body.error.message).toBe(
+          `endpoint "acme-shop" auth.headers[0].name "${name}" is a header the MCP transport sets itself`,
+        );
+      }
+      // A name that only starts like one is a header of the server's own.
+      expect(
+        (await post(app, { ...http, endpointId: 'acme-params', auth: one('Mcp-Params') })).status,
+      ).toBe(201);
+    });
+
     test('header: a name auth sends that config.headers sets too → 400 auth-header-in-config', async () => {
       const { app } = makeApp();
       const tenantKey = { scheme: 'header', headers: [{ name: 'X-Tenant-Key', secretRef: ref }] };
@@ -709,6 +732,36 @@ describe('API — mcp endpoints register + get', () => {
           'credential-in-headers',
         ]);
       }
+    });
+
+    test("MCP's own headers in config.headers, whatever their case, an Mcp-Param- one among them → 400 transport-header-in-config, naming the header", async () => {
+      const { app } = makeApp();
+      for (const name of [
+        'Mcp-Session-Id',
+        'mcp-protocol-version',
+        'Mcp-Method',
+        'MCP-NAME',
+        'Mcp-Param-Region',
+        'mcp-param-sku',
+      ]) {
+        for (const transport of ['streamable-http', 'http-sse']) {
+          const res = await post(app, withHeaders({ 'X-Region': 'eu', [name]: 'v' }, transport));
+          const body = (await res.clone().json()) as { error: { message: string } };
+          expect(await refusal(res), `${transport} ${name}`).toEqual([
+            400,
+            'invalid-mcp-endpoint',
+            'transport-header-in-config',
+          ]);
+          expect(body.error.message).toBe(
+            `endpoint "acme-shop" config.headers "${name}" is a header the MCP transport sets itself. Drop it from config.headers.`,
+          );
+        }
+      }
+      // A name that only starts like one is a plain header.
+      expect(
+        (await post(app, { ...withHeaders({ 'Mcp-Params': 'v' }), endpointId: 'acme-params' }))
+          .status,
+      ).toBe(201);
     });
 
     test('plain headers register as before, including names near a credential word', async () => {
@@ -1444,6 +1497,58 @@ describe('API — mcp prompts routes', () => {
 });
 
 // -------------------- scope filter --------------------
+
+describe('API — a key limited to a project registers an endpoint in no other project', () => {
+  const P1 = randomUUID();
+  const P2 = randomUUID();
+  const LIMITED = 'mcp-token-limited-to-p1';
+
+  // No authorization store: the key's own limit is all that holds it.
+  function makeLimitedApp() {
+    const inner = makeInMemoryBinding();
+    const registered: string[] = [];
+    const binding: MCPEndpointRegistryBinding = {
+      ...inner,
+      async register(input) {
+        registered.push(input.endpoint.endpointId);
+        return inner.register(input);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) => (token === LIMITED ? { tenantId, tokenProjectId: P1 } : null),
+      runHandler,
+      mcpEndpointRegistry: binding,
+      tenantHostAccess: 'local',
+    });
+    const register = (endpointId: string, scopeId: string) =>
+      app.request('/v1/mcp/endpoints', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${LIMITED}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...stdioEndpoint({ endpointId }), scopeKind: 'project', scopeId }),
+      });
+    return { register, registered };
+  }
+
+  test('scopeKind project with another project as scopeId: 403 key-project-mismatch, nothing registered', async () => {
+    const { register, registered } = makeLimitedApp();
+    const res = await register('acme-other', P2);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error).toMatchObject({
+      code: 'key-project-mismatch',
+      details: { keyProjectId: P1, projectId: P2 },
+    });
+    expect(registered).toEqual([]);
+  });
+
+  test('its own project: registered', async () => {
+    const { register, registered } = makeLimitedApp();
+    const res = await register('acme-own', P1);
+    expect(res.status).toBe(201);
+    expect(registered).toEqual(['acme-own']);
+  });
+});
 
 describe('API — mcp endpoints scope filter', () => {
   function makeSpy() {

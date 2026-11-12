@@ -81,7 +81,9 @@ function tenantApp(
   const app = createApp({
     ...createStubAppBindings(),
     tenantHierarchyBinding: hierarchy(renameTenant),
-    resolveToken: async (token) => (token === 'acme-token' ? { tenantId: ACME, userId } : null),
+    // Without a store, a rename is a tenant admin's: the key carries the scope.
+    resolveToken: async (token) =>
+      token === 'acme-token' ? { tenantId: ACME, userId, scopes: ['tenant-admin'] } : null,
     runHandler,
     ...(authz !== undefined && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: authz },
@@ -238,6 +240,22 @@ describe('PATCH /v1/tenant', () => {
     expect(refused.status).toBe(403);
     expect(member.asked).toEqual([`read tenant:${ACME}`, `admin tenant:${ACME}`]);
     expect(calls).toEqual([{ tenantId: ACME, name: 'Acme Store' }]);
+  });
+
+  test('without a store, a key that isn’t a tenant admin is refused before the binding', async () => {
+    const { calls, renameTenant } = renamer();
+    const app = createApp({
+      ...createStubAppBindings(),
+      tenantHierarchyBinding: hierarchy(renameTenant),
+      resolveToken: async (token) => (token === 'acme-key' ? { tenantId: ACME, userId } : null),
+      runHandler,
+    });
+    const refused = await send(app, 'acme-key', 'PATCH', '/v1/tenant', { name: 'Globex' });
+    expect(refused.status).toBe(403);
+    expect(refused.error?.code).toBe('permission-denied');
+    expect(calls).toEqual([]);
+    const got = await app.request('/v1/tenant', { headers: { authorization: 'Bearer acme-key' } });
+    expect(got.status).toBe(200);
   });
 
   test('a binding without renameTenant: no route, and GET still answers', async () => {

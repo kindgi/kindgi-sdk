@@ -156,6 +156,8 @@ export type {
   TenantConfigClient,
   TenantUsageClient,
   TokenFilter,
+  TokenPage,
+  TokenRevoked,
   TokensClient,
   ReinstateToolVersionResult,
   ToolFilter,

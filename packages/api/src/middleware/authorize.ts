@@ -38,6 +38,7 @@ import {
 
 import { toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { beforeHandlerAnswer } from './error-mapper.js';
 
 /**
  * Callback that produces the resource being acted upon from the Hono
@@ -330,15 +331,30 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     },
     authorize(action, getResource) {
       return async (c, next) => {
-        const resource = await getResource(c);
-        const decision = await checkInternal(c, action, resource);
+        let resource: ResourceRef;
+        let decision: Decision;
+        try {
+          resource = await getResource(c);
+          decision = await checkInternal(c, action, resource);
+        } catch (err) {
+          // The handler hasn't run (asked inside one, with `deniedBy`, it
+          // hasn't written yet; one that asks after a write throws on this
+          // answer): a store that couldn't be reached, or a database too
+          // busy for the check's read or the resource getter's, answers 503
+          // on any method, as nothing ran. Anything else, a getter's own
+          // refusal included, is the error handler's.
+          const answer = beforeHandlerAnswer(err, c);
+          if (answer !== undefined) return answer;
+          throw err;
+        }
         if (!decision.allowed) {
           // In the error envelope every route answers in, so clients type it
           // (`permission-denied` is an auth error, forbidden); what was
-          // denied, and why, is in `details`.
+          // denied, and why, is in `details`. The 403 is the answer's, not
+          // set on the request: a handler that asks this itself (`deniedBy`)
+          // may go on past the refusal, and answers with its own status.
           const deny = denyPayload(action, resource.type, resource.id, decision.reason);
           const requestId = c.get('requestId');
-          c.status(403);
           return c.json(
             toWireError(
               {
@@ -350,6 +366,7 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
               },
               typeof requestId === 'string' ? requestId : '',
             ),
+            403,
           );
         }
         return next();
@@ -479,13 +496,33 @@ function keyCeilingDeny(
       `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the workspace`,
     );
   }
+  return beyondKeyProject(c, action, resource)
+    ? keyDecision(
+        action,
+        resource,
+        `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
+      )
+    : undefined;
+}
+
+/**
+ * Whether a key or session limited to a project is refused `action` on
+ * `resource` for that limit alone, whatever its principal's grants:
+ * another project, or above its own (the tenant, an org, a team) an
+ * `admin` action for a key, any action for a session. With a store,
+ * `keyCeilingDeny` refuses it; without one, `holdLimitedCaller` refuses
+ * its writes.
+ */
+export function beyondKeyProject(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): boolean {
   const keyProject = c.get('tokenProjectId');
-  if (keyProject === undefined) return undefined;
+  if (keyProject === undefined) return false;
   const otherProject = resource.type === 'project' && resource.id !== keyProject;
   const session = c.get('sessionId') !== undefined;
   const aboveIt =
     resource.type !== 'project' && STRUCTURAL.has(resource.type) && (action === 'admin' || session);
-  return otherProject || aboveIt
-    ? keyDecision(action, resource, `${limitedOne(c)} is limited to project ${keyProject}`)
-    : undefined;
+  return otherProject || aboveIt;
 }

@@ -8,6 +8,7 @@ import type { AgentPinScope, Cursor, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import type { ReleaseGateBinding, ReleaseGateError } from '../release-gate-binding.js';
 import type { AppEnv } from '../types.js';
 import { parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
@@ -41,13 +42,12 @@ export function releaseGatesRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  if (authorizer !== undefined) {
-    r.use('*', async (c, next) => {
-      if (c.req.method !== 'POST') return next();
-      const tenantId = c.get('tenantId') as unknown as string;
-      return authorizer.authorize('admin', () => ref('tenant', tenantId))(c, next);
-    });
-  }
+  const authorize = gate(authorizer);
+  r.use('*', async (c, next) => {
+    if (c.req.method !== 'POST') return next();
+    const tenantId = c.get('tenantId') as unknown as string;
+    return authorize('admin', () => ref('tenant', tenantId))(c, next);
+  });
 
   /** Whether the caller may read a release gate: `read` on its scope. */
   const canRead = async (c: Ctx, gate: { readonly scope: AgentPinScope }): Promise<boolean> =>

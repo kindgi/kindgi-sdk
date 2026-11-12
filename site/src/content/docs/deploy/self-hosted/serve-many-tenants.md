@@ -13,7 +13,9 @@ around it, for tenants who don't trust one another. The runtime's license
 applies as on any deployment ([Licensing](../../../concepts/licensing/)).
 
 Commands that take the operator's token read it from `$KINDGI_API_TOKEN`, and
-the runtime's address from `$KINDGI_URL`.
+the runtime's address from `$KINDGI_API_URL`, the names the `kindgi` CLI
+reads. A step that a service runs with a system key of its own (below) reads
+that key from `$SYSTEM_KEY`.
 
 ## What changes
 
@@ -110,7 +112,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `kindgi:system` | All of them: a full key |
 
 ```sh
-curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
+curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -135,7 +137,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
 ## Create a tenant
 
 ```sh
-curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
+curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -178,8 +180,10 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   making them admin and what that gives them carry your `--reason`.
 - **A tenant created without `firstAdmin` whose admin key is lost** (runtime
   0.2.0 or later): `kindgi-runtime tenants admin-key` mints it again. The
-  live keys of the tenant's "First admin" service account are revoked, and
-  the console sessions they opened end. Then one key is minted for it,
+  live keys of the tenant's "First admin" service account are revoked, with
+  every key minted with them and with those in turn (a key an older runtime
+  minted stands alone: [API keys](../../people-and-keys/#api-keys)), and the
+  console sessions they opened end. Then one key is minted for it,
   carrying what the first one did: tenant admin, and the tenant's root
   capabilities, `secrets:reveal` among them. It runs against the runtime's
   database. Run it with `--dry-run` first:
@@ -190,10 +194,12 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   ```
 
   The key is printed once, alone, on stdout, so it can go straight into a
-  secret store; the rest is said on stderr. With `--dry-run`, nothing is
-  minted, and what would change is said on stdout. It's refused when one of
-  those keys has a use recorded, unless `--revoke-used`: a key that was used
-  was received, and someone may be holding it. A use is recorded at most once
+  secret store; the rest is said on stderr, the keys revoked with them
+  among it, each with the key it was minted with. With `--dry-run`, nothing
+  is minted, and what would change is said on stdout, those keys too. It's
+  refused when one of those keys has a use recorded, unless `--revoke-used`:
+  a key that was used was received, and someone may be holding it, and may
+  have minted keys with it, which go with it. A use is recorded at most once
   a minute, so a key used just now may not show it yet. A suspended tenant
   gets the key too, as does a closing one inside its 30-day export window; a
   closing tenant past that window is refused. Each key revoked, and the key
@@ -207,7 +213,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `revoked:` line:
 
   ```sh
-  npx --yes @kindgi/cli@0.4 tokens revoke <key id>
+  npx --yes @kindgi/cli@0.6 tokens revoke <key id>
   ```
 
   A key that's already revoked stays revoked, and the sessions it left end,
@@ -315,8 +321,8 @@ that don't an installation each
 3. **Record its endpoint:**
 
    ```sh
-   curl -sS -X PUT "$KINDGI_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
-     -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY") \
+   curl -sS -X PUT "$KINDGI_API_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
+     -H @<(printf 'Authorization: Bearer %s\n' "$SYSTEM_KEY") \
      -H 'Content-Type: application/json' \
      -d @<(printf '{"url": "https://%s", "auth": "token", "token": "%s"}' "$SERVICE_HOST" "$PACK_TOKEN")
    ```
@@ -450,12 +456,12 @@ Only the operator sets one, with a system key holding `system:env-refs` as
 `KINDGI_API_TOKEN`:
 
 ```sh
-npx --yes @kindgi/cli@0.4 env set STRIPE_KEY \
+npx --yes @kindgi/cli@0.6 env set STRIPE_KEY \
   --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.4 env list --cloud-secret \
+npx --yes @kindgi/cli@0.6 env list --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.4 env unset STRIPE_KEY --cloud-secret \
+npx --yes @kindgi/cli@0.6 env unset STRIPE_KEY --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
 ```
 
@@ -556,8 +562,8 @@ system key holding `system:tenants:purge`, or `kindgi:system`. No other scope
 includes it: give it to the tooling that ends accounts, and to nothing else.
 
 ```sh
-curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
-  -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants/$TENANT_ID/purge" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$SYSTEM_KEY") \
   -H 'Content-Type: application/json' \
   -d '{"confirm": "acme-shop"}'
 ```

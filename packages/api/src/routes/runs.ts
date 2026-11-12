@@ -43,7 +43,7 @@ import type {
 import type { HitlBinding } from '../hitl-binding.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -219,10 +219,15 @@ export function runsRouter(
         ? ref('tenant', c.get('tenantId') as unknown as string)
         : ref('project', row.projectId as unknown as string);
     };
+    // The run's read comes before the handler, so a database too busy for
+    // it answers 503 on any method, as the check's own read does
+    // (`beforeHandler`). It's outside the middleware: the action depends on
+    // what it finds.
     const onRunProject =
       (action: 'read' | 'write') =>
       async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
-        const resource = await projectFromRun(c);
+        const resource = await beforeHandler(c, () => projectFromRun(c));
+        if (resource instanceof Response) return resource;
         const mw = authorizer.authorize(
           resource.type === 'tenant' ? 'read' : action,
           () => resource,
@@ -231,23 +236,23 @@ export function runsRouter(
       };
     // Reading a run, and stopping it: `action` on its project, or `run`
     // there for a run of the caller's own (`isOwnRun`: one they started,
-    // or their own schedule did). Anyone else gets `action`'s 403.
+    // or their own schedule did). Anyone else gets `action`'s 403. As in
+    // `onRunProject`, the run's read and the check on it come before the
+    // handler (`beforeHandler`), so a database too busy for them answers
+    // 503 on any method.
     const onRunProjectOrOwn =
       (action: 'read' | 'write') =>
       async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
-        const row = await runOf(c);
+        const row = await beforeHandler(c, () => runOf(c));
+        if (row instanceof Response) return row;
         if (row === null) {
           const tenant = ref('tenant', c.get('tenantId') as unknown as string);
           return authorizer.authorize('read', () => tenant)(c, next);
         }
         const project = row.projectId as unknown as string;
         const own = isOwnRun(c, row) ? project : undefined;
-        const refused = await actionOrRunRefusal(
-          authorizer,
-          c,
-          action,
-          ref('project', project),
-          own,
+        const refused = await beforeHandler(c, () =>
+          actionOrRunRefusal(authorizer, c, action, ref('project', project), own),
         );
         return refused ?? next();
       };

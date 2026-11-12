@@ -20,7 +20,8 @@
  *
  * The prose that names a line, "Kindgi 0.4's CLI" and "Kindgi 0.4's
  * client", takes the version's major and minor, at a pre-release too: it
- * names the line, not the build. The CLI's forms follow
+ * names the line, not the build. A page may wrap it over two lines; a move
+ * keeps the break. The CLI's forms follow
  * packages/cli/package.json, and the client's prose follows
  * packages/sdk/package.json, the version the TypeScript, Python and JVM
  * clients share.
@@ -45,10 +46,14 @@ const V = String.raw`\d(?:[0-9A-Za-z.-]*[0-9A-Za-z])?`;
 const NPM_FORM = new RegExp(String.raw`@kindgi\/cli@${V}`, 'g');
 /** `kindgi-cli>=<version>,<<version>`, as `uv add --dev` and `uvx --from` take it; a floor alone too. */
 const UV_FORM = new RegExp(String.raw`kindgi-cli>=${V}(?:,<${V})?`, 'g');
-/** "Kindgi 0.4's CLI", or "the Kindgi 0.4 CLI". */
-const CLI_PROSE = /\bKindgi \d+(?:\.\d+)*((?:['’]s)? CLI)\b/g;
-/** "Kindgi 0.4's client". */
-const CLIENT_PROSE = /\bKindgi \d+(?:\.\d+)*((?:['’]s)? client)\b/g;
+/**
+ * "Kindgi 0.4's CLI", or "the Kindgi 0.4 CLI", with any whitespace between the words, so a
+ * phrase wrapped over two lines is one too. Its groups are the whitespace after "Kindgi" and
+ * what follows the version.
+ */
+const CLI_PROSE = /\bKindgi(\s+)\d+(?:\.\d+)*((?:['’]s)?\s+CLI)\b/g;
+/** "Kindgi 0.4's client", with the same groups. */
+const CLIENT_PROSE = /\bKindgi(\s+)\d+(?:\.\d+)*((?:['’]s)?\s+client)\b/g;
 
 const PEP440_PRE = { alpha: 'a', beta: 'b', rc: 'rc' };
 
@@ -81,20 +86,23 @@ export function uvCliRequirement(version) {
 
 /**
  * Each form, with what it should say for `cli` (packages/cli's version) and
- * `sdk` (packages/sdk's).
+ * `sdk` (packages/sdk's), given its groups: a prose form keeps its whitespace.
  *
- * @type {readonly { pattern: RegExp, want: (cli: string, sdk: string, tail: string) => string }[]}
+ * @type {readonly { pattern: RegExp, want: (cli: string, sdk: string, gap: string, tail: string) => string }[]}
  */
 const FORMS = [
   { pattern: NPM_FORM, want: (cli) => npmCliSpec(cli) },
   { pattern: UV_FORM, want: (cli) => uvCliRequirement(cli) },
-  { pattern: CLI_PROSE, want: (cli, _sdk, tail) => `Kindgi ${lineOf(cli)}${tail}` },
-  { pattern: CLIENT_PROSE, want: (_cli, sdk, tail) => `Kindgi ${lineOf(sdk)}${tail}` },
+  { pattern: CLI_PROSE, want: (cli, _sdk, gap, tail) => `Kindgi${gap}${lineOf(cli)}${tail}` },
+  { pattern: CLIENT_PROSE, want: (_cli, sdk, gap, tail) => `Kindgi${gap}${lineOf(sdk)}${tail}` },
 ];
 
+/** A form as one line reads it: a wrapped phrase's whitespace as one space. */
+const onOneLine = (form) => form.replace(/\s+/g, ' ');
+
 /**
- * The forms in `text` that aren't on the line, in order: where each is (1-based line), what it
- * says and what it should say.
+ * The forms in `text` that aren't on the line, in order: where each starts (1-based line), what
+ * it says and what it should say, each on one line.
  *
  * @param {string} text
  * @param {{ cli: string, sdk: string }} versions
@@ -104,9 +112,9 @@ export function offLine(text, { cli, sdk }) {
   const found = [];
   for (const { pattern, want } of FORMS) {
     for (const match of text.matchAll(pattern)) {
-      const wanted = want(cli, sdk, match[1] ?? '');
+      const wanted = want(cli, sdk, match[1] ?? '', match[2] ?? '');
       if (match[0] === wanted) continue;
-      found.push({ index: match.index, found: match[0], want: wanted });
+      found.push({ index: match.index, found: onOneLine(match[0]), want: onOneLine(wanted) });
     }
   }
   return found
@@ -129,8 +137,10 @@ export function moveToLine(text, { cli, sdk }) {
   let moved = 0;
   let next = text;
   for (const { pattern, want } of FORMS) {
-    next = next.replace(pattern, (form, tail) => {
-      const wanted = want(cli, sdk, typeof tail === 'string' ? tail : '');
+    // replace passes the form, its groups, then where it is and the whole text.
+    next = next.replace(pattern, (form, ...rest) => {
+      const [gap = '', tail = ''] = rest.slice(0, -2);
+      const wanted = want(cli, sdk, gap, tail);
       if (form === wanted) return form;
       moved += 1;
       return wanted;
@@ -151,8 +161,8 @@ export function withoutCliLine(text) {
   return text
     .replace(NPM_FORM, '@kindgi/cli@X.Y')
     .replace(UV_FORM, (form) => (form.includes(',<') ? 'kindgi-cli>=X.Y,<X.Y' : 'kindgi-cli>=X.Y'))
-    .replace(CLI_PROSE, (_form, tail) => `Kindgi X.Y${tail}`)
-    .replace(CLIENT_PROSE, (_form, tail) => `Kindgi X.Y${tail}`);
+    .replace(CLI_PROSE, (_form, gap, tail) => `Kindgi${gap}X.Y${tail}`)
+    .replace(CLIENT_PROSE, (_form, gap, tail) => `Kindgi${gap}X.Y${tail}`);
 }
 
 /** The docs pages, without the release notes, which are history. */

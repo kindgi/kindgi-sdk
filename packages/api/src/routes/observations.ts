@@ -28,6 +28,7 @@ import type {
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
+import { UUID_RE } from './uuid-param.js';
 
 const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
   'succeeded',
@@ -210,8 +211,6 @@ export function observationsRouter(
 
   return r;
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * A request's cursor: where the last page ended (an observation's

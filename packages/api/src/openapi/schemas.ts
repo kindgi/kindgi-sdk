@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { MAX_REVOKE_OLD_AFTER_MS } from '../secrets-binding.js';
+
 /**
  * JSON Schemas for every request + response body on the platform API.
  *
@@ -1191,7 +1193,7 @@ export const RunWaitingForSchema: JsonSchema = {
         type: 'object',
         required: ['what'],
         description:
-          '`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.',
+          "`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait that isn't an approval's, a connect's or one of `tokens`, or whose approval, connect or token can't be read. `no-open-wait`: the journal shows none; the runtime picks the run up again.",
         properties: {
           what: {
             type: 'string',
@@ -1658,6 +1660,12 @@ export const ApiTokenSchema: JsonSchema = {
       format: 'date-time',
       description: 'When the key last authenticated a request (updated at most once a minute).',
     },
+    mintedWith: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.",
+    },
   },
 };
 
@@ -2030,6 +2038,12 @@ export const ApiTokenPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+    mintedWith: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The key a list asked for with `?mintedWith=` was narrowed to, on every page. Absent from an older runtime, which ignores the filter and lists every key the caller sees.',
+    },
   },
 };
 
@@ -3279,7 +3293,7 @@ export const LicenseStatusSchema: JsonSchema = {
       type: 'string',
       enum: ['development', 'licensed'],
       description:
-        "`development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.",
+        "`development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.",
     },
     name: { type: 'string', description: 'Whose key: the name the banner prints.' },
     use: { type: 'string', enum: ['production', 'non-production'] },
@@ -7014,6 +7028,12 @@ export const RevokeTokenResultSchema: JsonSchema = {
   properties: {
     tokenId: { type: 'string', format: 'uuid' },
     revoked: { type: 'boolean', const: true },
+    alsoRevoked: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description:
+        "The keys revoked with it: every key minted with it, and with those in turn, that wasn't revoked yet, oldest first. Absent where the deployment's key store doesn't record which key minted which.",
+    },
   },
 };
 
@@ -8645,7 +8665,7 @@ export const MCPAuthHeaderSchema: JsonSchema = {
       maxLength: 256,
       pattern: "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
       description:
-        'An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.',
+        'An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, any `Mcp-Param-…`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.',
     },
     secretRef: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
     prefix: {
@@ -8698,7 +8718,7 @@ const MCP_CONFIG_HEADERS: JsonSchema = {
   type: 'object',
   additionalProperties: { type: 'string' },
   description:
-    'Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.',
+    "Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`. Nor one of MCP's own headers, whatever its case: `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` or any `Mcp-Param-…` is refused (`invalid-mcp-endpoint`, reason `transport-header-in-config`). The MCP client sets them itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments.",
 };
 
 /** A stdio endpoint's `config.env`: plain variables, never a credential. */
@@ -10925,7 +10945,7 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
     type: 'string',
     enum: ['invite', 'domain'],
     description:
-      'Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.',
+      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.",
   },
   signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
   metadata: { type: 'object', additionalProperties: true },
@@ -11681,6 +11701,12 @@ export const UnregisterUserResultSchema: JsonSchema = {
   properties: {
     user: { $ref: '#/components/schemas/UserRecord' },
     keysRevoked: { type: 'integer', minimum: 0 },
+    mintedKeysRevoked: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The keys minted with theirs, and with those in turn, revoked with them, whoever they act for. Not in `keysRevoked`. Absent where the key store doesn't record which key minted which.",
+    },
     sessionsRevoked: { type: 'integer', minimum: 0 },
     grantsRemoved: { type: 'integer', minimum: 0 },
   },
@@ -12722,6 +12748,12 @@ export const DeploymentRecordSchema: JsonSchema = {
       format: 'date-time',
       description: 'Issuer-supplied timestamp inside the signed envelope.',
     },
+    productionEntry: {
+      type: 'string',
+      enum: ['promote-only'],
+      description:
+        'Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way.',
+    },
     activatedAt: {
       type: 'string',
       format: 'date-time',
@@ -13399,12 +13431,18 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
     signature: {
       type: 'string',
       description:
-        'Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }) with sorted keys, no whitespace, UTF-8.',
+        'Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8.',
     },
     publishedAt: {
       type: 'string',
       format: 'date-time',
       description: 'Issuer-supplied ISO-8601 timestamp — covered by the signature.',
+    },
+    productionEntry: {
+      type: 'string',
+      enum: ['promote-only'],
+      description:
+        "Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.",
     },
     projectId: {
       type: 'string',
@@ -14769,7 +14807,12 @@ export const SecretVersionRecordSchema: JsonSchema = {
       nullable: true,
       description: 'Present + non-null only on `resolve` responses.',
     },
-    revokedAt: { type: 'string', format: 'date-time' },
+    revokedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then.',
+    },
   },
 };
 
@@ -14863,7 +14906,12 @@ export const SecretRotateOutcomeSchema: JsonSchema = {
         kind: { type: 'string', enum: ['ok'] },
         newVersionId: { type: 'integer', minimum: 1 },
         oldVersionId: { type: 'integer', minimum: 1 },
-        oldVersionRevokedAt: { type: 'string', format: 'date-time' },
+        oldVersionRevokedAt: {
+          type: 'string',
+          format: 'date-time',
+          description:
+            'When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.',
+        },
       },
     },
     {
@@ -15110,7 +15158,13 @@ export const SecretRotateRequestSchema: JsonSchema = {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
     newValue: { type: 'string' },
-    revokeOldAfterMs: { type: 'integer', minimum: 0 },
+    revokeOldAfterMs: {
+      type: 'integer',
+      minimum: 0,
+      maximum: MAX_REVOKE_OLD_AFTER_MS,
+      description:
+        'Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid.',
+    },
   },
 };
 
@@ -15123,7 +15177,12 @@ export const SecretRotateResponseSyncSchema: JsonSchema = {
     kind: { type: 'string', enum: ['sync'] },
     newVersionId: { type: 'integer', minimum: 1 },
     oldVersionId: { type: 'integer', minimum: 1 },
-    oldVersionRevokedAt: { type: 'string', format: 'date-time' },
+    oldVersionRevokedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.',
+    },
   },
 };
 
@@ -17347,6 +17406,12 @@ export const ConnectionChoiceNeedSchema: JsonSchema = {
       enum: ['company', 'person'],
       description: "Whose connection: the company's, or the run's person's.",
     },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The entry's permission keys the need asks for, from the tool's `needsSpec`: `gmail.send`. A connection that lacks one can't serve it until it's connected again for more, with `reconnects`.",
+    },
     set: { $ref: '#/components/schemas/ConnectionChoiceNeedSet' },
   },
 };
@@ -17435,7 +17500,12 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
     },
-    connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.',
+    },
     connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
     expiresAt: { type: 'string', format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -17484,7 +17554,7 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.",
+        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.",
     },
   },
 };

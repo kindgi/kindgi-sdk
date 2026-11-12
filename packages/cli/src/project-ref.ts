@@ -7,12 +7,10 @@
  */
 
 import type { KindgiClient } from '@kindgi/client';
+import { UUID_RE } from '@kindgi/types';
 
 import type { CommandContext } from './context.js';
 import { UsageError } from './errors.js';
-
-/** A project id, as `kindgi deploy --project` tells one from a slug. */
-export const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The fields of a project row read from `GET /v1/projects`. */
 export interface ProjectRow {
@@ -73,7 +71,7 @@ export type Resolution =
  * renamed from it) is ambiguous.
  */
 export function resolveAgainst(rows: readonly ProjectRow[], ref: string): Resolution {
-  if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
+  if (UUID_RE.test(ref)) return { kind: 'ok', id: ref };
   const matches = rows.filter((r) => r.slug === ref);
   const renamed = rows.filter((r) => r.slug !== ref && r.formerSlugs?.includes(ref) === true);
   const [only] = matches;
@@ -134,7 +132,7 @@ export async function resolveProjectRefs(
   refs: readonly ProjectRef[],
   client?: KindgiClient,
 ): Promise<string[]> {
-  const needsList = refs.some((r) => !PROJECT_ID_RE.test(r.ref));
+  const needsList = refs.some((r) => !UUID_RE.test(r.ref));
   const rows = needsList ? await listAllProjects(ctx, client) : [];
   return refs.map(({ ref, where }) => idOf(rows, ref, where));
 }
@@ -145,7 +143,7 @@ export async function resolveProjectRef(
   ref: string,
   where: string,
 ): Promise<string> {
-  return idOf(PROJECT_ID_RE.test(ref) ? [] : await listAllProjects(ctx), ref, where);
+  return idOf(UUID_RE.test(ref) ? [] : await listAllProjects(ctx), ref, where);
 }
 
 /** The id `ref` names in `rows`, or a `UsageError` for a slug that names none, an old one, or several. */

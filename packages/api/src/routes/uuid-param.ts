@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { UUID_RE } from '@kindgi/types';
 import type { MiddlewareHandler } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
-/** A UUID, the shape of a run's and a conversation's id. */
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The one check of a UUID id's shape, from `@kindgi/types`. */
+export { UUID_RE };
 
 /**
  * A path parameter that must be a UUID: one that isn't is a 400 naming

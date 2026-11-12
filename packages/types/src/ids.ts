@@ -10,8 +10,8 @@
  *
  * These are pure compile-time constructs; there is no runtime cost. Construction
  * is by cast (`as`). The one exception is `EnvName`, which has the validated
- * factory `makeEnvName` (the only runtime export of this package); validation of
- * wire payloads lives in `@kindgi/schema`.
+ * factory `makeEnvName`. `UUID_RE` (below) is the one check of a UUID id's
+ * shape. Validation of wire payloads lives in `@kindgi/schema`.
  *
  * Naming convention:
  *   - `<Entity>Id`     — a single identifier for that entity kind.
@@ -223,3 +223,11 @@ export function makeEnvName(raw: string): EnvName | null {
   if (!ENV_NAME_GRAMMAR.test(raw)) return null;
   return raw as EnvName;
 }
+
+/**
+ * A UUID in its usual form: 8-4-4-4-12 hex digits, any version, either
+ * case. The one pattern every UUID id is checked against, such as a run's,
+ * a project's, a tenant's, a pin's, a cursor's, or a webhook event field
+ * with format `uuid`. It has no `g` or `y` flag, so `test` keeps no state.
+ */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

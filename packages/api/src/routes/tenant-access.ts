@@ -42,7 +42,8 @@ export function tenantResourceAccess(
 
 /**
  * Access to a tenant setting every call of which is an admin's (webhook
- * endpoints, compliance), with an authorizer or without one.
+ * endpoints, compliance, connection apps), with an authorizer or without
+ * one.
  */
 export function tenantAdminAccess(authorizer: Authorizer | undefined): MiddlewareHandler<AppEnv> {
   return async (c, next) => {

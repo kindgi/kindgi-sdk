@@ -14,9 +14,9 @@ import {
   type KindgiClient,
   type ListConnectionsFilter,
 } from '@kindgi/client';
+import { UUID_RE } from '@kindgi/types';
 
 import { UsageError, extractKindgiError } from './errors.js';
-import { PROJECT_ID_RE } from './project-ref.js';
 
 /** A connection as a name is matched against it. */
 export interface ConnectionRow {
@@ -62,7 +62,7 @@ export function resolveConnectionAgainst(
   rows: readonly ConnectionRow[],
   ref: string,
 ): ConnectionResolution {
-  if (PROJECT_ID_RE.test(ref)) {
+  if (UUID_RE.test(ref)) {
     const row = rows.find((r) => r.connectionId.toLowerCase() === ref.toLowerCase());
     return { kind: 'ok', id: ref, ...(row !== undefined && { row }) };
   }
@@ -104,7 +104,7 @@ export async function resolveConnectionRef(
   ref: string,
   lookup: ConnectionLookup,
 ): Promise<{ readonly id: string; readonly row?: ConnectionRow }> {
-  if (PROJECT_ID_RE.test(ref)) return { id: ref };
+  if (UUID_RE.test(ref)) return { id: ref };
   const rows = await lookup.rows();
   const resolved = resolveConnectionAgainst(rows, ref);
   if (resolved.kind === 'none') {

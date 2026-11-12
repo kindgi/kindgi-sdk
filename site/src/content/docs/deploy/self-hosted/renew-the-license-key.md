@@ -36,7 +36,7 @@ a new key instead, or write to contact@kindgi.com.
   from your deployment**: your GitHub login, or an `em-…` id.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. It runs from any folder as
-  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
+  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 - **A place for each key,** from [Where the keys are kept](#where-the-keys-are-kept).
 
@@ -88,7 +88,7 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-npx --yes @kindgi/cli@0.4 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+npx --yes @kindgi/cli@0.6 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
 - `--for` is that account: your GitHub login, or the `em-…` id your key page
@@ -144,7 +144,7 @@ it there. Each person can stop only the deployments they added.
 where the runtime reads the key:
 
 ```sh
-npx --yes @kindgi/cli@0.4 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
+npx --yes @kindgi/cli@0.6 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
   --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 

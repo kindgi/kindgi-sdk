@@ -9,9 +9,10 @@ import type { Cursor, ProjectId, TenantId, ToolId } from '@kindgi/types';
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import { type BlockPins, resolveBlockPins } from './block-pins.js';
-import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
+import { type DeployedVersionOutcome, deployVersion, refusedPublish } from './deploy-versions.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
+import { agentReferences } from './reference-scope.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
 /** One block reference that matched no published version. */
@@ -171,6 +172,8 @@ export interface PublishDeployedAgentInput {
   readonly agent: Agent;
   readonly pins: AgentPins;
   readonly enqueueTuples: TupleEnqueueHook;
+  /** Where the pack names it (`/agents/0`), for a refusal's issues. */
+  readonly path: string;
 }
 
 /** Register a deployed agent with its pins, by the deploy rule (`deployVersion`). */
@@ -211,7 +214,12 @@ export async function publishDeployedAgent(
       });
       if (outcome.kind === 'ok') return 'ok';
       if (outcome.kind === 'already-registered') return 'taken';
-      throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome);
+      throw refusedPublish(
+        input.path,
+        { kind: 'agent', id: agent.id, version: version.version },
+        outcome,
+        agentReferences(version),
+      );
     },
   });
 }

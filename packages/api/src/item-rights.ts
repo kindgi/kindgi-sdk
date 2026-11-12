@@ -52,9 +52,11 @@ import type {
   OrderItemKind,
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
+import { beforeHandler } from './middleware/error-mapper.js';
 import { isReadMethod } from './read-method.js';
 import { deniedBy } from './routes/denied.js';
 import { noteReadItself, readableOrRun } from './routes/runner-reach.js';
+import { UUID_RE } from './routes/uuid-param.js';
 import type { AppEnv } from './types.js';
 
 type Ctx = Context<AppEnv>;
@@ -870,12 +872,14 @@ export async function writeWhereMade(
   );
 }
 
-/** The 403 a refusal answers, in the envelope the authorizer's own 403 uses. */
+/**
+ * The 403 a refusal answers, in the envelope the authorizer's own 403 uses,
+ * and as it does, the answer's status, not set on the request.
+ */
 export function forbidden(c: Ctx, refused: ItemRefusal, message?: string): Response {
   const { action, resource, decision } = refused;
   const deny = denyPayload(action, resource.type, resource.id, decision.reason);
   const requestId = c.get('requestId');
-  c.status(403);
   return c.json(
     toWireError(
       {
@@ -887,6 +891,7 @@ export function forbidden(c: Ctx, refused: ItemRefusal, message?: string): Respo
       },
       typeof requestId === 'string' ? requestId : '',
     ),
+    403,
   );
 }
 
@@ -1173,6 +1178,10 @@ export async function pinWidthRefusal(
  * that lets those who may run the item read it, the item's project, where
  * `run` lets a refused `read` through (`undefined`: not such a route);
  * asked only once `read` is refused.
+ *
+ * Its reads and checks come before the handler, so a store that couldn't
+ * be reached, or a database too busy to read, answers 503 on any method
+ * (`beforeHandler`), as the `authorize` middleware's own do.
  */
 export function itemMiddleware(how: {
   readonly authorizer: Authorizer;
@@ -1185,23 +1194,38 @@ export function itemMiddleware(how: {
   readonly runIn?: (c: Ctx) => Promise<string | undefined>;
 }): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const today = await how.today(c);
-    if (today === undefined) return next();
-    const id = how.id(c);
-    const projects = await how.rights?.multi(c, how.kind, id);
-    if (how.rights !== undefined && projects !== undefined) {
-      const check = await how.check(c, projects);
-      return (
-        (await how.rights.enforce(c, how.kind, id, projects, check, how.versionNotFound)) ?? next()
-      );
-    }
-    const type = ITEM_TYPE[how.kind];
-    if (type === undefined) return next();
-    if (today !== 'read' || how.runIn === undefined) {
-      return how.authorizer.authorize(today, () => ref(type, id))(c, next);
-    }
-    return (await readOrRunRefusal(how.authorizer, c, ref(type, id), how.runIn)) ?? next();
+    const gate = await beforeHandler(c, () => itemGate(c, how));
+    if (gate instanceof Response) return gate;
+    if (gate === undefined) return next();
+    // One project (or no item-rights binding): the item's own check, by the
+    // `authorize` middleware, which answers its own 503s.
+    const { action, resource } = gate;
+    return how.authorizer.authorize(action, () => resource)(c, next);
   };
+}
+
+/**
+ * `itemMiddleware`'s reads and checks: its refusal, the item's own check
+ * for the `authorize` middleware to ask, or `undefined` to go on.
+ */
+async function itemGate(
+  c: Ctx,
+  how: Parameters<typeof itemMiddleware>[0],
+): Promise<Response | { readonly action: Action; readonly resource: ResourceRef } | undefined> {
+  const today = await how.today(c);
+  if (today === undefined) return undefined;
+  const id = how.id(c);
+  const projects = await how.rights?.multi(c, how.kind, id);
+  if (how.rights !== undefined && projects !== undefined) {
+    const check = await how.check(c, projects);
+    return how.rights.enforce(c, how.kind, id, projects, check, how.versionNotFound);
+  }
+  const type = ITEM_TYPE[how.kind];
+  if (type === undefined) return undefined;
+  if (today !== 'read' || how.runIn === undefined) {
+    return { action: today, resource: ref(type, id) };
+  }
+  return readOrRunRefusal(how.authorizer, c, ref(type, id), how.runIn);
 }
 
 /**
@@ -1230,8 +1254,6 @@ export type ShownLatest<T> =
   | { readonly kind: 'ok'; readonly row: T }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'bad-input'; readonly message: string };
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Which version `GET /:id` answers, given the item's newest active one.

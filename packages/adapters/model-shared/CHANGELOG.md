@@ -1,5 +1,20 @@
 # @kindgi/adapter-model-shared
 
+## 0.6.0
+
+### Patch Changes
+
+- @kindgi/capabilities@0.6.0
+
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies [6421d6f]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [1365f49]
+  - @kindgi/capabilities@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes
