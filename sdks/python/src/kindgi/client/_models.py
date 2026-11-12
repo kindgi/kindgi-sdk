@@ -9323,6 +9323,39 @@ class DeploymentSource(BaseModel):
     """
 
 
+class DeploymentBuiltFrom(BaseModel):
+    """
+    What a build was made from, as its builder signed it: covered by the signature when present, so the project and the person it names are the signer's word. The runtime keeps it and records it; nothing acts on the person yet. A deployment a promotion made keeps its source's. Absent for a build whose builder doesn't say. A runtime whose deployment ledger doesn't keep it refuses the build (`501 built-from-unsupported`), and one that doesn't know the field checks the signature without it, so the build doesn't verify there.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["kept-repo"] | str, _open.OPEN]
+    """
+    `kept-repo`: a commit of a repository the runtime keeps for a project that has no GitHub repository, built for the person who asked.
+    """
+    project_id: Annotated[
+        UUID,
+        Field(
+            alias="projectId",
+            pattern="^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        ),
+    ]
+    """
+    The project whose repository holds the commit, lower case.
+    """
+    commit: Annotated[str, Field(pattern="^([0-9a-f]{40}|[0-9a-f]{64})$")]
+    """
+    The commit built: its full id, lower-case hex.
+    """
+    requested_by: Annotated[str, Field(alias="requestedBy", pattern="^user:[\\x21-\\x7e]{1,256}$")]
+    """
+    Who asked for the build: `user:` and their id.
+    """
+
+
 class DeploymentEndpointProblem(BaseModel):
     """
     While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.
@@ -9784,7 +9817,7 @@ class DeploymentRegistrationBody(BaseModel):
     """
     signature: str
     """
-    Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` too when the body sends it) with sorted keys, no whitespace, UTF-8.
+    Base64 of the Ed25519 signature over canonicalise({ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, with `productionEntry` and `builtFrom` too when the body sends them, `builtFrom`'s keys sorted as well) with sorted keys, no whitespace, UTF-8.
     """
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
@@ -9796,6 +9829,7 @@ class DeploymentRegistrationBody(BaseModel):
     """
     Covered by the signature when sent. `promote-only`: the build reaches a project in production only by promotion. A deploy of it into a project in production, or one whose production the runtime can't read, is `409 promote-only-build`; a key whose id starts with `kindgi-promote-only:` makes every build it signs promote-only, sent or not. Another value is `400`. Absent: the build may be deployed into any project. A runtime that doesn't know the field checks the signature without it, so the build doesn't verify there.
     """
+    built_from: Annotated[DeploymentBuiltFrom | None, Field(alias="builtFrom")] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a workspace-wide deploy, into the workspace's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
@@ -9923,6 +9957,7 @@ class EvidenceKind(RootModel[str]):
                 "trigger-tools-allowed-unattended-set",
                 "trigger-changed-for-owner",
                 "environment-order-set",
+                "deployment-registered",
                 "deployment-promoted",
                 "deployment-replaced-block",
                 "block-version-published",
@@ -10108,6 +10143,7 @@ class ComplianceEvidence(BaseModel):
                 "trigger-tools-allowed-unattended-set",
                 "trigger-changed-for-owner",
                 "environment-order-set",
+                "deployment-registered",
                 "deployment-promoted",
                 "deployment-replaced-block",
                 "block-version-published",
@@ -10221,6 +10257,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "trigger-tools-allowed-unattended-set",
                 "trigger-changed-for-owner",
                 "environment-order-set",
+                "deployment-registered",
                 "deployment-promoted",
                 "deployment-replaced-block",
                 "block-version-published",
@@ -10311,6 +10348,7 @@ class Filter(BaseModel):
                 "trigger-tools-allowed-unattended-set",
                 "trigger-changed-for-owner",
                 "environment-order-set",
+                "deployment-registered",
                 "deployment-promoted",
                 "deployment-replaced-block",
                 "block-version-published",
@@ -17187,6 +17225,7 @@ class DeploymentRecord(BaseModel):
     """
     Inside the signed envelope when present. `promote-only`: the build reaches a project in production only by promotion, never by a deploy. Absent: either way.
     """
+    built_from: Annotated[DeploymentBuiltFrom | None, Field(alias="builtFrom")] = None
     activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
     """
     Server-side ledger timestamp — when the register call succeeded.

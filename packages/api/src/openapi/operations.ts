@@ -8322,6 +8322,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '429': ErrorResponse(
         `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
       ),
+      '501': ErrorResponse(
+        "`built-from-unsupported`: the body has `builtFrom`, and this runtime's deployment ledger doesn't keep it, so the build could never be promoted. Nothing was registered.",
+      ),
     },
   },
   {
