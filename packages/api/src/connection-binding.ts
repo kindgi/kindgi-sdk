@@ -65,6 +65,12 @@ export interface ConnectionAppRecord {
   readonly tenantId: TenantId;
   /** The app's entry id: `'google'`. */
   readonly app: string;
+  /**
+   * `'kindgi'`: the app connects through Kindgi's own app (its entry's
+   * sign-in is `kindgi-app`). The server makes this registration itself,
+   * with no `oauth2` or `githubApp`.
+   */
+  readonly via?: 'kindgi';
   readonly label?: string;
   readonly oauth2?: {
     readonly clientId: string;
@@ -205,6 +211,13 @@ export interface ConnectRequestRecord {
    * (`newInstallation`).
    */
   readonly installations?: readonly ConnectRequestInstallation[];
+  /**
+   * For an app that connects through Kindgi's own app, while the request
+   * is `pending`: the accounts the business shared that fit the app, when
+   * the finish found several and none was picked. They pick one and start
+   * again (`startRequest`'s `accountId`).
+   */
+  readonly accounts?: readonly ConnectionAccount[];
   readonly connectionId?: string;
   /** Absolute: the server's public URL. */
   readonly connectUrl: string;
@@ -498,7 +511,13 @@ export type ConnectFinishOutcome =
    * installations and none was picked. The request stays `pending`, with
    * its `installations` to pick from.
    */
-  | { readonly kind: 'pick-installation'; readonly request: ConnectRequestRecord };
+  | { readonly kind: 'pick-installation'; readonly request: ConnectRequestRecord }
+  /**
+   * Through Kindgi's own app: the business shared several accounts that
+   * fit the app and none was picked. The request stays `pending`, with its
+   * `accounts` to pick from.
+   */
+  | { readonly kind: 'pick-account'; readonly request: ConnectRequestRecord };
 
 /**
  * The store behind the connections routes. A runtime implements it; an
@@ -522,7 +541,9 @@ export interface ConnectionBinding {
   /**
    * A project uses one registration of an app: one that would serve a
    * project another live registration of the app serves is refused
-   * (`connection-app-invalid`, `projects`).
+   * (`connection-app-invalid`, `projects`). An entry that signs in through
+   * Kindgi's own app (`kindgi-app`) is refused (`connection-app-invalid`,
+   * `app`): the server makes that registration itself (`via: 'kindgi'`).
    */
   createApp(input: ConnectionAppCreateInput): Promise<Result<ConnectionAppRecord, ConnectionError>>;
   /**
@@ -530,7 +551,8 @@ export interface ConnectionBinding {
    * were granted to (`oauth2.clientId`, `oauth2.tenant` as the sign-in uses
    * it, `githubApp.appNumber` or `githubApp.clientId`) while it has live
    * connections is refused (`connection-app-invalid`, that field): disconnect
-   * them first, then change it and connect again.
+   * them first, then change it and connect again. A registration
+   * `via: 'kindgi'` has no client of its own: only `label` and `projects`.
    */
   updateApp(input: ConnectionAppUpdateInput): Promise<Result<ConnectionAppRecord, ConnectionError>>;
   /** With `withConnections: false`, a registration that still has live connections is refused (`connection-app-in-use`). */
@@ -705,6 +727,10 @@ export interface ConnectionBinding {
    * A GitHub App's goes to the app's install page while the app has no
    * installation, or with `newInstallation`; otherwise to GitHub's user
    * authorization. Either field on another app's request is `bad-input`.
+   *
+   * One through Kindgi's own app goes to Kindgi's connect step, and
+   * `accountId` names the account to connect, one of the request's
+   * `accounts`. `accountId` on another app's request is `bad-input`.
    */
   startRequest(input: {
     readonly tenantId: TenantId;
@@ -714,6 +740,8 @@ export interface ConnectionBinding {
     readonly installationId?: string;
     /** A GitHub App's: install the app on another account, even when it has installations. */
     readonly newInstallation?: true;
+    /** Through Kindgi's own app: the account to connect, one of the request's `accounts`. */
+    readonly accountId?: string;
   }): Promise<Result<{ readonly authorizeUrl: string }, ConnectionError>>;
   /**
    * Only whoever started it may finish it (`connection-not-yours`). Checks
