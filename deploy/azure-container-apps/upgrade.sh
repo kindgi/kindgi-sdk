@@ -77,7 +77,7 @@
 # Usage:
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
-#                [--to 0.6.0] [--from <version>] \
+#                [--to 0.7.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -100,12 +100,12 @@
 #                      release's tag, then copied into the module's registry
 #                      by its whole index.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
+#                      0.7.0). An rc such as 0.7.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
-#                      script knows the steps up to 0.6.0; for a later
+#                      script knows the steps up to 0.7.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -150,7 +150,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -1185,6 +1185,47 @@ EOT
      target. Register the URL it redirects to.
 EOT
       ;;
+    0.7.0)
+      cat <<'EOT'
+   - The first start runs this release's migrations: they add tables and
+     columns, and fill nothing in.
+   - A server serving many tenants no longer brings every tenant's
+     authorization store up to the new model when it starts: it brings
+     each one up the first time it uses it, and logs "authz: store
+     brought up to the current model". One that fails logs "authz: could
+     not bring a store up to the current model" at WARN, goes on with the
+     store's model, and a later use tries again. A server serving one
+     tenant still does it when it starts.
+   - If this server served many tenants on 0.6.x, run this once after the
+     upgrade, with the new runtime's kindgi-runtime and the server's
+     database and OpenFGA settings (KINDGI_OPENFGA_API_URL, with its
+     preshared key and auth):
+       kindgi-runtime tenants repair --all
+     It brings each tenant's access in OpenFGA back in line with its
+     record, so it puts back the runner roles 0.6.x may have dropped.
+     With --dry-run it shows, for each tenant, what it would put back
+     and take away, and changes nothing. A server serving one tenant
+     doesn't need it.
+   - Within about a minute of the first start, the runtime ends each
+     unfinished run that was part of a run whose record was deleted (by
+     retention, for example). It fails it with "Interrupted: a run it was
+     part of was deleted, so nothing waits for it." So runs that showed as
+     running or waiting for a long time may change to failed.
+   - The runtime reports its usage to Kindgi at most once a day, with its
+     license key, to https://access.kindgi.com/v1/report, through
+     HTTPS_PROXY when that's set: let the server reach it. A report that
+     can't be sent never stops the runtime; it tries again within the
+     hour. Its answer can renew the key: the runtime keeps a renewed key
+     in its database, and runs on it from then on. A key marked offline
+     never reports: a server that can't reach Kindgi can ask for one.
+   - With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants
+     purge and tenants repurge erase a tenant's secrets in the secret
+     manager too. Run them with the server's secret manager settings
+     (KINDGI_SECRETS_MANAGER and that manager's): without them, a purge
+     of a tenant with secrets there is refused, and says how many and in
+     which manager.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1223,6 +1264,16 @@ EOT
     0.6.0)
       cat <<'EOT'
    - 0.6.0 doesn't change the module.
+EOT
+      ;;
+    0.7.0)
+      cat <<'EOT'
+   - With license_renewal_schedule set, the plan changes the key-expiring
+     alert (license_key_expiring) in place: its description, and its query,
+     which now fires on any "It expires in N days" line the renewal job
+     logs, from the key's warning window (30 days before it expires, or
+     fewer when the key sets its own) rather than its last 7 days. Without
+     it, 0.7.0 doesn't change the module.
 EOT
       ;;
   esac
@@ -1276,6 +1327,12 @@ plan_allowed_changes() {
           "azurerm_container_app.pack template.container.startup_probe.interval_seconds" \
           "azurerm_container_app.pack template.container.startup_probe.timeout" \
           "azurerm_container_app.pack template.container.startup_probe.failure_count_threshold"
+        ;;
+      0.7.0)
+        # The key-expiring alert, there only with license_renewal_schedule set.
+        printf '%s\n' \
+          "azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring description" \
+          "azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring criteria.query"
         ;;
     esac
   done
