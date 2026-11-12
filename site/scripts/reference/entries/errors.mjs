@@ -2487,7 +2487,7 @@ export const ERROR_ENTRIES = {
   },
   'purge-setting-missing': {
     description:
-      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), or an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`). The message says which. Nothing was changed.",
+      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`), or secrets a secret manager may still hold, on a runtime that doesn't keep its secrets in one (`KINDGI_SECRETS_MANAGER`; the message says to purge it with `kindgi-runtime tenants purge`). The message says which. Nothing was changed.",
     details: [
       {
         key: 'tenantId',

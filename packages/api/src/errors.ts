@@ -359,7 +359,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tenant-export-window-open': 409,
   /** A purge on a runtime with nowhere set to keep purge records, so a restore couldn't purge it again. */
   'purge-record-unset': 409,
-  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
+  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store, its secrets in a secret manager). */
   'purge-setting-missing': 409,
   /** A purge's delete of the tenant's authorization store failed; the message says what that left. */
   'authz-store-delete-failed': 502,

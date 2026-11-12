@@ -36,6 +36,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **`SystemTenantPurge.left_because`'s docstring says it also names
+  a secret the secret manager didn't erase.** It named only a setting the
+  runtime lacks. What you pass or read doesn't change.
 - `kindgi`: **a key carries the key it was minted with, and a revoke names
   the keys that went with it.** `ApiToken.minted_with` is the key a key was
   minted with, which revoking stops it with. `tokens.list(minted_with=...)`

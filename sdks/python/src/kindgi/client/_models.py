@@ -1517,7 +1517,7 @@ class SystemTenantPurge(BaseModel):
     """
     left_because: Annotated[str | None, Field(alias="leftBecause")] = None
     """
-    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase.
     """
 
 
