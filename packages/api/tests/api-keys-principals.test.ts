@@ -631,6 +631,12 @@ describe('a key limited to a project', () => {
       await h.call(key.token, 'POST', '/v1/agents/acme.agent/pinned/unpin', {
         scope: { kind: 'project', projectId: P2 },
       }),
+      // As the query names one: an MCP endpoint's register body.
+      await h.call(key.token, 'POST', '/v1/mcp/endpoints', { scopeKind: 'project', scopeId: P2 }),
+      // An Improve schedule's target.
+      await h.call(key.token, 'POST', '/v1/schedules', {
+        improve: { agentId: 'acme.agent', projectId: P2 },
+      }),
     ];
     for (const r of refused) {
       expect(r.status).toBe(403);
@@ -768,7 +774,7 @@ describe('/v1/service-accounts', () => {
       role: 'boss',
     });
     expect(boss.body.error).toMatchObject({
-      message: "A project grant's `role` must be one of: viewer, editor, owner, admin",
+      message: "A project grant's `role` must be one of: viewer, runner, editor, owner, admin",
     });
   });
 

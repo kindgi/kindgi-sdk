@@ -317,6 +317,40 @@ describe('defineAgent — parallelToolCalls', () => {
   });
 });
 
+describe('defineAgent — mcp', () => {
+  const withMcp = (mcp: unknown, id = baseSpec.id) =>
+    defineAgent({ ...baseSpec, id, mcp } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test('kept on the agent as given', () => {
+    const r = withMcp({ expose: true, readOnly: true });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') expect(r.value.mcp).toEqual({ expose: true, readOnly: true });
+  });
+
+  test('left out, the agent has none: it is not a tool', () => {
+    const r = defineAgent(baseSpec);
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') expect(r.value).not.toHaveProperty('mcp');
+  });
+
+  test('a value that is not one is refused at /mcp', () => {
+    const r = withMcp({ expose: 'yes' });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toEqual([
+        { path: '/mcp/expose', message: 'mcp.expose must be true or false' },
+      ]);
+    }
+  });
+
+  test('an exposed agent may not take a reserved prefix; an unexposed one may', () => {
+    expect(withMcp({ expose: false }, 'kindgi.helper').kind).toBe('ok');
+    const r = withMcp({ expose: true }, 'kindgi.helper');
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') expect(r.error.issues[0]?.message).toContain('"kindgi."');
+  });
+});
+
 describe('defineAgent — hitl.separateApprover', () => {
   const withFourEyes = (separateApprover: unknown) =>
     defineAgent({

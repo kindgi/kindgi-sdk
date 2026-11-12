@@ -77,7 +77,10 @@ function authorizerGranting(grants: readonly string[], asked: string[]): Authori
   };
 }
 
-/** A binding whose methods answer `answers`' own, else an empty page (`list`) or a refusal. */
+/**
+ * A binding whose methods answer `answers`' own, else an empty page (`list`,
+ * `listVersions`: a refused read asks the item's project to run in) or a refusal.
+ */
 function binding(answers: Readonly<Record<string, unknown>> = {}): never {
   return new Proxy(
     {},
@@ -86,7 +89,7 @@ function binding(answers: Readonly<Record<string, unknown>> = {}): never {
         if (prop === 'then') return undefined;
         if (typeof prop === 'string' && prop in answers) return answers[prop];
         return async () =>
-          prop === 'list'
+          prop === 'list' || prop === 'listVersions'
             ? { data: [], items: [] }
             : { kind: 'err', error: { code: 'bad-input', message: 'stub' } };
       },

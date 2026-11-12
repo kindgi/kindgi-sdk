@@ -13,7 +13,9 @@ around it, for tenants who don't trust one another. The runtime's license
 applies as on any deployment ([Licensing](../../../concepts/licensing/)).
 
 Commands that take the operator's token read it from `$KINDGI_API_TOKEN`, and
-the runtime's address from `$KINDGI_URL`.
+the runtime's address from `$KINDGI_API_URL`, the names the `kindgi` CLI
+reads. A step that a service runs with a system key of its own (below) reads
+that key from `$SYSTEM_KEY`.
 
 ## What changes
 
@@ -110,7 +112,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `kindgi:system` | All of them: a full key |
 
 ```sh
-curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
+curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -135,7 +137,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
 ## Create a tenant
 
 ```sh
-curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
+curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -209,7 +211,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `revoked:` line:
 
   ```sh
-  npx --yes @kindgi/cli@0.2 tokens revoke <key id>
+  npx --yes @kindgi/cli@0.6 tokens revoke <key id>
   ```
 
   A key that's already revoked stays revoked, and the sessions it left end,
@@ -317,8 +319,8 @@ that don't an installation each
 3. **Record its endpoint:**
 
    ```sh
-   curl -sS -X PUT "$KINDGI_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
-     -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY") \
+   curl -sS -X PUT "$KINDGI_API_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
+     -H @<(printf 'Authorization: Bearer %s\n' "$SYSTEM_KEY") \
      -H 'Content-Type: application/json' \
      -d @<(printf '{"url": "https://%s", "auth": "token", "token": "%s"}' "$SERVICE_HOST" "$PACK_TOKEN")
    ```
@@ -452,12 +454,12 @@ Only the operator sets one, with a system key holding `system:env-refs` as
 `KINDGI_API_TOKEN`:
 
 ```sh
-npx --yes @kindgi/cli@0.4 env set STRIPE_KEY \
+npx --yes @kindgi/cli@0.6 env set STRIPE_KEY \
   --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.4 env list --cloud-secret \
+npx --yes @kindgi/cli@0.6 env list --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-npx --yes @kindgi/cli@0.4 env unset STRIPE_KEY --cloud-secret \
+npx --yes @kindgi/cli@0.6 env unset STRIPE_KEY --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
 ```
 
@@ -558,8 +560,8 @@ system key holding `system:tenants:purge`, or `kindgi:system`. No other scope
 includes it: give it to the tooling that ends accounts, and to nothing else.
 
 ```sh
-curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
-  -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants/$TENANT_ID/purge" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$SYSTEM_KEY") \
   -H 'Content-Type: application/json' \
   -d '{"confirm": "acme-shop"}'
 ```
@@ -776,6 +778,21 @@ for you, named:
 tenant f309aaca-024a-4fb9-aff8-ef76c4c40e16 (tenant-a): Default project created; no authorization store, and none can be made without naming its first admin: left for the operator; 0 tuples added; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant gone through; 1 left for the operator (named above).
 ```
+
+The default project it adds is First Project, with the slug `first-project`.
+With the runtime 0.6.0 or later, when a project without an org has that slug,
+or another project of the tenant had it before it was renamed, the default
+project gets the first free one of `first-project-2`, `first-project-3` and
+so on, and the tenant's line starts, after its name, with:
+
+```text
+Default project created with the slug "first-project-2" ("first-project" is another project's, now or before it was renamed)
+```
+
+The runtime finds the default project by its being the default, never by its
+slug: a deploy that names no project still goes into it. A one-tenant runtime
+adds its default project when it starts, and logs a note when it takes
+another slug.
 
 Run it with the version you upgraded to, after its server has started. The
 `tenants` commands, `repair` among them, run only on a database migrated to

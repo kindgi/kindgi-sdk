@@ -198,7 +198,11 @@ export async function collectPythonContextFiles(packDir: string): Promise<Python
         if (SKIPPED_DIRS.has(entry.name) || entry.name.endsWith('.egg-info')) continue;
         if (forbiddenReason(`${child}/x`) !== undefined) continue;
         await walk(child);
-      } else if (entry.isFile() && forbiddenReason(child) === undefined && !entry.name.endsWith('.pyc')) {
+      } else if (
+        entry.isFile() &&
+        forbiddenReason(child) === undefined &&
+        !entry.name.endsWith('.pyc')
+      ) {
         files.push(child);
       }
     }

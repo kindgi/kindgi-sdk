@@ -148,7 +148,7 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    'List API keys, newest first, revoked ones included; never secrets. A tenant admin sees every key (`--for` narrows to one principal); anyone else, their own.',
+    'List API keys, newest first, revoked ones included; never secrets. A tenant admin sees every key (`--for` narrows to one principal); anyone else, their own, and a key or session with limits only those within them.',
   usage: 'kindgi tokens list [--for=user:<id>|sa:<id>] [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: {
     for: { type: 'string', description: "Only this principal's keys (tenant admins)." },

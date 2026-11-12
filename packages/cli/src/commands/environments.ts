@@ -11,7 +11,7 @@ import { envNamesByProject, envProjectRefs } from '../env-projects.js';
 import { UsageError } from '../errors.js';
 import { type Column, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
-import { listAllProjects, resolveProjectRefs } from '../project-ref.js';
+import { type ProjectRef, listAllProjects, resolveProjectRefs } from '../project-ref.js';
 import { environmentsOf } from '../value-target.js';
 import { projectOfEnv } from './build.js';
 import { commandResultFromThrown, runSdk, stringFlag } from './helpers.js';
@@ -28,7 +28,7 @@ export function packDirOf(ctx: CommandContext): string {
  * outside a pack), else the positional environment names, each resolved
  * through the pack config's `environments.<name>.project`.
  */
-async function refsForSet(ctx: CommandContext): Promise<string[]> {
+async function refsForSet(ctx: CommandContext): Promise<ProjectRef[]> {
   const projectsFlag = stringFlag(ctx, 'projects');
   if (projectsFlag !== undefined) {
     const refs = projectsFlag
@@ -37,7 +37,7 @@ async function refsForSet(ctx: CommandContext): Promise<string[]> {
       .filter((s) => s !== '');
     if (refs.length === 0)
       throw new UsageError('--projects needs at least one project id or slug.');
-    return refs;
+    return refs.map((ref) => ({ ref, where: '--projects' }));
   }
   const names = ctx.positionals;
   if (names.length === 0) {
@@ -62,7 +62,7 @@ async function refsForSet(ctx: CommandContext): Promise<string[]> {
       `${configName} names no project for environment "${missing.name}". Add \`environments.${missing.name}.project\`, or pass --projects <id-or-slug,…>.`,
     );
   }
-  return resolved.map((r) => r.ref as string);
+  return resolved.map((r) => ({ ref: r.ref as string, where: `environments.${r.name}.project` }));
 }
 
 /**

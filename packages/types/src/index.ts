@@ -7,6 +7,7 @@ export type * from './file.js';
 export type * from './filter.js';
 export type * from './hash.js';
 export type * from './ids.js';
+export type * from './mcp-exposure.js';
 export type * from './pinned.js';
 export type * from './refs.js';
 export type * from './result.js';
@@ -40,3 +41,7 @@ export { CORRECTION_ITEM } from './correction.js';
 // A stored file as a plain JSON value, which several packages pass on;
 // its shape check takes no dependency.
 export { FILE_NOT_READ_REASONS, FILE_NOT_SHOWN_REASONS, isFileValue } from './file.js';
+
+// Whether an agent or a flow is a tool in a person's chat app: the check
+// `defineAgent` and `loadFlow` share, with the tool-name prefixes Kindgi keeps.
+export { MCP_RESERVED_PREFIXES, mcpExposureIssues } from './mcp-exposure.js';

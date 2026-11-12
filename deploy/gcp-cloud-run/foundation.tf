@@ -42,6 +42,8 @@ resource "google_project_service" "apis" {
 # reaches them through Direct VPC egress with all its traffic routed into
 # this VPC, so its internet-bound calls (a model provider's API, webhooks)
 # leave through Cloud NAT, and Google APIs through Private Google Access.
+# Behind your load balancer (server_ingress), the pack orchestrator's Job
+# reaches the server's internal run.app URL the same way.
 
 locals {
   direct = var.network_mode == "direct"

@@ -472,6 +472,53 @@ Error [unresolved-guardrail]: Agent "acme.order-desk" references guardrails not 
 In Python, passing the guardrail object you import (as above) keeps the id
 right.
 
+## Offer it in a chat app
+
+With `mcp`, the agent is a tool in the chat apps people connect to your
+Kindgi, such as Claude (runtime 0.6.0 or later). Each person gets the tool
+only if they can see the agent, and running it still takes their permission
+to run it ([Use Kindgi from Claude](../../chat/)). In the definition:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+mcp: { expose: true, readOnly: true },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+mcp={"expose": True, "readOnly": True},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.set("mcp", Map.of("expose", true, "readOnly", true))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.set("mcp", Map("expose" -> true, "readOnly" -> true))
+```
+
+</TabItem>
+</Tabs>
+
+- **The tool is named by the agent's id.** With `expose: true`, the id must
+  be a tool's name: letters, digits, `_`, `-` and `.`, at most 128
+  characters. It can't start with `kindgi.` or `flow.`, the prefixes Kindgi
+  keeps, and the error names the prefix.
+- **`readOnly` and `destructive`** (true or false) become the tool's
+  `readOnlyHint` and `destructiveHint`. Left out, no hint is sent, and the
+  chat app applies the protocol's defaults.
+- **Without `mcp`,** nothing changes, and the agent isn't offered.
+
 ## When a file doesn't load
 
 `kindgi dev` keeps serving the rest of the pack and names the file:

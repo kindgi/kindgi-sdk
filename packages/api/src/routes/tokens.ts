@@ -13,6 +13,7 @@ import { statusFor, toWireError } from '../errors.js';
 import { tokenSignInKey } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { limitedCaller } from '../middleware/key-project.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
@@ -34,7 +35,10 @@ import { parseTimeInput } from './time-input.js';
  * a ceiling under them and its project a narrowing.
  *
  * - **Your own keys:** a person, or a service account's key, may mint,
- *   list, read and revoke the keys that act for them.
+ *   list, read and revoke the keys that act for them. A caller with
+ *   limits (a key or a session limited to a project, or with the
+ *   `member` role) lists, reads and revokes only those within its limits:
+ *   the keys no wider than itself, every key it can mint among them.
  * - **Someone else's:** only a tenant admin (`admin` on the tenant when
  *   authorization is on, otherwise the `tenant-admin` scope) mints keys
  *   for another principal, and sees and revokes every key. A tenant admin
@@ -120,9 +124,23 @@ export function tokensRouter(
     if (filter.kind === 'err') return fail(c, filter.error, requestId);
     // Only narrows what the caller sees: never someone else's key to a non-admin.
     const mintedWith = mintedWithQuery(c.req.query('mintedWith'));
-    // An admin sees every key (or one principal's); anyone else, their own.
-    const principal = (await isTenantAdmin(c, authorizer)) ? filter.value : keyOwner(c);
-    const records = await admin.list(listInput(tenantId, limit + 1, principal, mintedWith, after));
+    // An admin sees every key (or one principal's); anyone else, their own
+    // within the caller's limits.
+    const tenantAdmin = await isTenantAdmin(c, authorizer);
+    const principal = tenantAdmin ? filter.value : keyOwner(c);
+    // The store doesn't filter on the caller's limits, so a limited
+    // caller's page is read on until it's full or the store has no more.
+    // Anyone else's is one read, as before.
+    const records: ApiTokenRecord[] = [];
+    for (let from = after; ; ) {
+      const batch = await admin.list(listInput(tenantId, limit + 1, principal, mintedWith, from));
+      for (const record of batch) {
+        if (tenantAdmin || limitExceeded(c, record) === undefined) records.push(record);
+      }
+      const lastRead = batch[batch.length - 1];
+      if (records.length > limit || batch.length <= limit || lastRead === undefined) break;
+      from = { createdAt: lastRead.createdAt, tokenId: lastRead.tokenId };
+    }
     const hasMore = records.length > limit;
     const page = hasMore ? records.slice(0, limit) : records;
     const last = page[page.length - 1];
@@ -146,9 +164,10 @@ export function tokensRouter(
   r.get('/:tokenId', async (c) => {
     const requestId = c.get('requestId');
     const tokenId = c.req.param('tokenId') as ApiTokenId;
-    const record = await visibleKey(c, admin, authorizer, tokenId);
-    if (record === undefined) return notFound(c, tokenId, requestId);
-    return c.json(toWire(record));
+    const seen = await visibleKey(c, admin, authorizer, tokenId, 'read');
+    if (seen === undefined) return notFound(c, tokenId, requestId);
+    if ('refused' in seen) return fail(c, seen.refused, requestId);
+    return c.json(toWire(seen.record));
   });
 
   // ---------- POST /:tokenId/revoke ----------
@@ -157,9 +176,9 @@ export function tokensRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const tokenId = c.req.param('tokenId') as ApiTokenId;
     // Someone else's key reads as missing, as it does for `get`.
-    if ((await visibleKey(c, admin, authorizer, tokenId)) === undefined) {
-      return notFound(c, tokenId, requestId);
-    }
+    const seen = await visibleKey(c, admin, authorizer, tokenId, 'admin');
+    if (seen === undefined) return notFound(c, tokenId, requestId);
+    if ('refused' in seen) return fail(c, seen.refused, requestId);
     const revokedBy = callerRef(c);
     const outcome = await admin.revoke({
       tenantId,
@@ -293,7 +312,10 @@ async function mintRefusal(
       code: 'limited-session-cannot-mint',
     });
   }
-  if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
+  // An admin key from a `member` caller is refused above (it needs a tenant
+  // admin), so whatever this lets through is a key `limitExceeded` lets
+  // its minter see and revoke.
+  if (limitExceeded(c, body) === 'project') {
     return refuse({
       action: 'admin',
       // A body naming another project is refused before here, by
@@ -409,20 +431,61 @@ function mintingKey(c: Context<AppEnv>): ApiTokenId | undefined {
   return tokenSignInKey(c.get('providerId'));
 }
 
-/** A key the caller may see: any, for a tenant admin; otherwise only their own. */
+/**
+ * Which of the caller's limits `key` goes beyond, if any: `project` when
+ * the caller is limited to a project and the key isn't limited to the
+ * same one; `role` when the caller has the `member` role and the key is an
+ * `admin` key. Minting refuses a key beyond the project, so a caller sees
+ * every key it can mint, and no key wider than itself.
+ */
+function limitExceeded(
+  c: Context<AppEnv>,
+  key: { readonly role: ApiTokenRole; readonly projectId?: ProjectId | undefined },
+): 'project' | 'role' | undefined {
+  const narrowedTo = c.get('tokenProjectId');
+  if (narrowedTo !== undefined && key.projectId !== (narrowedTo as unknown as ProjectId)) {
+    return 'project';
+  }
+  if (c.get('tokenRole') === 'member' && key.role === 'admin') return 'role';
+  return undefined;
+}
+
+/**
+ * A key the caller may see: any, for a tenant admin; otherwise only their
+ * own (someone else's reads as missing), within the caller's limits. One
+ * of their own beyond those is refused, 403, naming only the caller's
+ * limit, never the key's.
+ */
 async function visibleKey(
   c: Context<AppEnv>,
   admin: TokenAdmin,
   authorizer: Authorizer | undefined,
   tokenId: ApiTokenId,
-): Promise<ApiTokenRecord | undefined> {
+  action: 'read' | 'admin',
+): Promise<{ readonly record: ApiTokenRecord } | { readonly refused: WireError } | undefined> {
   const tenantId = c.get('tenantId') as TenantId;
   const record = await admin.get({ tenantId, tokenId });
   if (record === undefined) return undefined;
-  if (await isTenantAdmin(c, authorizer)) return record;
-  return record.principal !== undefined && samePrincipal(record.principal, keyOwner(c))
-    ? record
-    : undefined;
+  if (await isTenantAdmin(c, authorizer)) return { record };
+  if (record.principal === undefined || !samePrincipal(record.principal, keyOwner(c))) {
+    return undefined;
+  }
+  const beyond = limitExceeded(c, record);
+  if (beyond === undefined) return { record };
+  const narrowedTo = c.get('tokenProjectId');
+  const refusal: Refusal = {
+    action,
+    resource: ref('tenant', tenantId as unknown as string),
+    message:
+      beyond === 'project'
+        ? `${limitedCaller(c)} is limited to project ${narrowedTo}: it reads and revokes only keys limited to that project`
+        : `${limitedCaller(c)} has the member role: it reads and revokes only member keys`,
+    failing: 'scope',
+    code: beyond === 'project' ? 'key-project-mismatch' : 'permission-denied',
+    ...(beyond === 'project' && { details: { keyProjectId: narrowedTo } }),
+  };
+  recordRefusal(c, authorizer, refusal);
+  return { refused: refusalError(refusal) };
 }
 
 function toWire(record: ApiTokenRecord): Record<string, unknown> {

@@ -626,7 +626,10 @@ async function pullsFor(
   const { pattern, blocks } = await packBlocksAt(ctx, packDir);
   const suggested = await client.suggestedChanges.get(id);
   const project = stringFlag(ctx, 'project');
-  if (project !== undefined && (await resolveProjectRef(ctx, project)) !== suggested.projectId) {
+  if (
+    project !== undefined &&
+    (await resolveProjectRef(ctx, project, '--project')) !== suggested.projectId
+  ) {
     throw new UsageError(
       `${id} is for ${suggested.projectId === undefined ? 'no project' : `project ${suggested.projectId}`}, not ${project}.`,
     );

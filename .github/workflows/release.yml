@@ -57,6 +57,11 @@ name: Release
 # of its own waits until it does, for up to two hours, before the npm job:
 # npm's approval comes up only once Central serves. A slower Central fails
 # that job before npm's approval comes up, so a rerun asks for it only once.
+# `skip-maven: true` skips the JVM SDKs and the wait for them, for a release
+# Central won't take for now (the Portal refuses the upload, say): npm, the
+# GitHub release and kindgi-cli go on without them. The CLI it publishes
+# then scaffolds Java and Scala packs on a kindgi-pack version Central
+# doesn't serve yet. It's off by default.
 #
 # Last, the release's GitHub release (scripts/github-release.mjs), on the
 # `@kindgi/sdk@<version>` tag the npm job pushes, carries the WordPress
@@ -75,6 +80,10 @@ on:
         description: "Build, check, and pack only; do not publish"
         type: boolean
         default: true
+      skip-maven:
+        description: "Skip the JVM SDKs (Maven Central) and the wait for them; npm, the GitHub release and kindgi-cli go on"
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -112,7 +121,9 @@ jobs:
       # (scripts/sync-python-version.mjs), and uv re-locks them. It moves the
       # JVM SDKs' poms too and stamps their changelog
       # (scripts/sync-jvm-version.mjs --release; text edits, no Maven), and
-      # moves the skills' docs links to the new line (scripts/sync-docs-line.mjs).
+      # moves the skills' docs links to the new line (scripts/sync-docs-line.mjs),
+      # and the docs' CLI install lines to the new version
+      # (scripts/sync-cli-line.mjs).
       - uses: astral-sh/setup-uv@v6
         with:
           version-file: sdks/python/pyproject.toml
@@ -131,7 +142,7 @@ jobs:
 
   publish-maven:
     name: Publish the JVM SDKs to Maven Central
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.skip-maven
     runs-on: ubuntu-latest
     environment: maven-publish
     permissions:
@@ -246,9 +257,10 @@ jobs:
           # Plain Node for central-bundle: no install, so no package-manager cache (it
           # would look for pnpm, which this job never sets up).
           package-manager-cache: false
-      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm never
-      # gets a CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
-      # this waits out Central's sync, and stops a release that skipped it).
+      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm gets
+      # no CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
+      # this waits out Central's sync, and stops a release that skipped it), unless the
+      # run asked for skip-maven, which skips this job and publish-maven both.
       - name: The JVM SDKs at the CLI's version are on Maven Central
         if: ${{ !inputs.dry-run }}
         run: node scripts/central-bundle.mjs on-central --wait-minutes 120 --version "$(node -p "require('./packages/cli/package.json').version")"
@@ -256,9 +268,10 @@ jobs:
   publish:
     name: Publish to npm
     # After Central serves the JVM artifacts (the job before): a release's npm packages
-    # wait for them. A dry run goes on either way, so it reports npm's problems too.
+    # wait for them. A dry run goes on either way, so it reports npm's problems too,
+    # and so does a run with skip-maven, which skips both jobs before this one.
     needs: [publish-maven, maven-on-central]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || needs.maven-on-central.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || inputs.skip-maven || needs.maven-on-central.result == 'success') }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -323,6 +336,9 @@ jobs:
     needs: publish
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || needs.publish.result == 'success') }}
     runs-on: ubuntu-latest
+    # Without the JVM SDKs (skip-maven), the notes say they reach Maven Central later.
+    env:
+      SKIP_MAVEN: ${{ inputs.skip-maven }}
     permissions:
       contents: write # the GitHub release
     steps:
@@ -394,9 +410,11 @@ jobs:
 
   publish-pypi-cli:
     name: Publish kindgi-cli to PyPI
-    if: github.event_name == 'workflow_dispatch'
-    # The wheel carries the @kindgi/cli the npm job publishes.
+    # The wheel carries the @kindgi/cli the npm job publishes. With !cancelled():
+    # a skip-maven run skips the jobs before npm's, and without it GitHub skips
+    # every job after a skipped one, this one too.
     needs: publish
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.publish.result == 'success' }}
     runs-on: ubuntu-latest
     environment: pypi-publish
     permissions:
