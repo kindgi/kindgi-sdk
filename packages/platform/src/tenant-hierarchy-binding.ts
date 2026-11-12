@@ -15,11 +15,15 @@
 //
 
 import type { OrgId, ProjectId, Result, TeamId, TenantId, UserId } from '@kindgi/types';
-import type { ProjectMembershipUpdateRoleOutcome } from './project-binding.js';
+import type {
+  ProjectMembershipUpdateRoleOutcome,
+  ProjectUpdateOutcome,
+} from './project-binding.js';
 import type { TeamMembershipUpdateRoleOutcome } from './team-binding.js';
 import type { TeamProjectGrant } from './team-project-grant-binding.js';
 import type {
   OrgSpec,
+  ProjectPatch,
   ProjectRole,
   ProjectSpec,
   TeamProjectRole,
@@ -78,7 +82,17 @@ export interface CreateProjectParams {
 }
 
 export type CreateProjectError =
-  | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
+  | {
+      /**
+       * Another project in its org has `spec.slug`, or, with
+       * `heldAs: 'old-slug'`, another project of the workspace had it before it
+       * was renamed (`ProjectBinding.create`'s outcome, the same way).
+       */
+      readonly code: 'slug-conflict';
+      readonly message: string;
+      readonly heldAs?: 'old-slug';
+      readonly cause?: unknown;
+    }
   /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
   | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }
@@ -187,6 +201,13 @@ export type TeamProjectGrantUpdateRoleOutcome =
   | { readonly kind: 'ok'; readonly grant: TeamProjectGrant }
   | { readonly kind: 'project-not-found' }
   | { readonly kind: 'team-grant-not-found' };
+
+/** Which project to change, and how. */
+export interface UpdateProjectParams {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly patch: ProjectPatch;
+}
 
 /** Which team to delete. */
 export interface DeleteTeamParams {
@@ -367,6 +388,16 @@ export interface TenantHierarchyBinding {
   deleteTeam?(
     params: DeleteTeamParams,
   ): Promise<Result<{ readonly deleted: boolean }, MembershipWriteError>>;
+  /**
+   * Change a project: the whole patch, as `ProjectBinding.update` does,
+   * together with the grants it moves, in one transaction. Today that's
+   * `everyoneCanRun`'s: `run` for every person in the project's
+   * workspace. Where authorization is enforced,
+   * `PATCH /v1/projects/{projectId}` sends a patch that changes
+   * `everyoneCanRun` here, whole, and refuses that field without this
+   * method.
+   */
+  updateProject?(params: UpdateProjectParams): Promise<ProjectUpdateOutcome>;
   /**
    * Look up a workspace by id. Returns `null` when no workspace exists.
    * Not itself workspace-scoped: it is how a caller finds out which

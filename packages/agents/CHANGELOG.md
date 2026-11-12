@@ -1,5 +1,51 @@
 # @kindgi/agents
 
+## 0.6.0
+
+### Patch Changes
+
+- 6707cb9: **An agent or a flow can be a tool in a person's chat app.** A new optional field, **`mcp`** (`{ expose, readOnly?, destructive? }`), on agents and flows says whether one is offered as a tool, through the API's MCP server, to the people who can see it. An agent's tool is named by its id, a flow's by `flow.` and its id. With `expose: true`, the id must be a tool's name (letters, digits, `_`, `-` and `.`, at most 128 characters, or 123 for a flow), and an agent's can't start with `kindgi.` or `flow.`, the prefixes Kindgi keeps; the error names the prefix. `readOnly` and `destructive` become the tool's `readOnlyHint` and `destructiveHint`; left out, no hint is sent and the chat app applies the protocol's defaults. Absent, nothing changes: an agent or flow without it is stored and answered as before, with no `mcp` key.
+  
+  It is in `agent.schema.json` (1.8.0), `flow.schema.json` (1.10.0) and `pack-index.schema.json` (1.9.0); `Agent`, `defineAgent` (which refuses an invalid one), `Flow` and `loadFlow` (a new error, `invalid-mcp-exposure`); `McpExposure` and `mcpExposureIssues` in `@kindgi/types`; the indexed pack agent and flow; `POST /v1/agents`, `POST /v1/flows`, their `GET` answers and a deployment's agents and flows (the API's new `McpExposure` schema); and the Python SDK's `Agent(mcp=...)` and `Flow(mcp=...)`. The authoring skills for agents and flows (TypeScript, Python, Java and Scala) say how to set it.
+- a54e5e2: **An approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.**
+  
+  An approval still names no account of a person's own connection: it's built from the run's record, which any project reader reads and which never names it. With several accounts of one app, "this person's Google account" didn't say which. `ApprovalConnection` (on an approval, and in a run's `waitingFor`) and `HitlEnqueueInput.connection` gain the optional `connectionId`, for a company connection too. Whoever may read the connection, its person or a tenant admin, looks its account up by it with `GET /v1/connections/{connectionId}`. Anyone else gets that route's `404`, and the approval reads as before. Approvals from before this change have no `connectionId`.
+  
+  - `@kindgi/agents`: the connection gate sets `connectionId` on the approval it asks for, from the run's record.
+  - `@kindgi/api`: `ApprovalConnection.connectionId`, on `GET /v1/approvals`, `GET /v1/approvals/{approvalId}` and a run's `waitingFor`.
+  - `@kindgi/client`: the wire types gain the field.
+- 38aa185: **A run's record says when a call's tool is handed its connections.** The gate records its ready answer before the call's approval, and the call's tokens are asked again right before its tool runs, so that ask can still stop the call: its connection changed, or a renewal failed. Before, a reader couldn't tell such a call from one that ran unless it had the call's result, and a running or failed turn has none. A call that ran once, then had its token refused and its renewal fail, couldn't be told apart either.
+  
+  - `@kindgi/tools`: `ConnectionGateRecord` gains `kind: 'ran'`, and its `ready` record gains `recordsRan`, set by a gate that records the handover. A `ran` record means the call's tool was handed its connections, right before its first run on them. A call whose input then failed the tool's input check has one too, and its tool didn't start: its result says the input failed. With `recordsRan`, a call with no `ran` record didn't run. Older records have neither. `connectionGateRecordOf` never builds `ran` and never sets `recordsRan`.
+  - `@kindgi/agents`: an agent's call records `ran` under `connection-gate:<call id>:ran:<attempt>`, once per attempt of its step, right before its tool's first run on the connections it got. A renewed run after the app refused a token records no other. Its gate's `ready` records set `recordsRan`.
+- 7062ba5: **A run's record of a call its connections stopped says whose connection the call needed.** A refused connection record in the run's journal gains `as`: `company`, or `person`, the run's person. Records from before have none.
+  
+  - `@kindgi/tools`: `ConnectionGateRecord` and `RecordedConnection`, the record a call's connection gate keeps in the run's journal, never with a connection's token; `connectionGateRecordOf`, which builds it from the resolver's answer and the tool's needs; and `CONNECTION_GATE_RECORD_PREFIX`, its key's prefix. A runtime's flow tool step records the same shape.
+  - `@kindgi/agents`: the connection gate builds its record with `connectionGateRecordOf`.
+- Updated dependencies [6707cb9]
+- Updated dependencies [38aa185]
+- Updated dependencies [7062ba5]
+- Updated dependencies [fbf0357]
+- Updated dependencies [8618cf7]
+- Updated dependencies [64d1461]
+- Updated dependencies [7c10695]
+- Updated dependencies [0334286]
+  - @kindgi/types@0.6.0
+  - @kindgi/flow@0.6.0
+  - @kindgi/tools@0.6.0
+  - @kindgi/bounds@0.6.0
+  - @kindgi/authz@0.6.0
+  - @kindgi/runtime@0.6.0
+  - @kindgi/capabilities@0.6.0
+  - @kindgi/compliance@0.6.0
+  - @kindgi/embedding@0.6.0
+  - @kindgi/guardrails@0.6.0
+  - @kindgi/handler@0.6.0
+  - @kindgi/memory@0.6.0
+  - @kindgi/policy-contract@0.6.0
+  - @kindgi/provenance@0.6.0
+  - @kindgi/schema@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

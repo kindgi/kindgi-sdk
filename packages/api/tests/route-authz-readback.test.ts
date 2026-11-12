@@ -10,8 +10,9 @@
  *     with no project), and the list is filtered the same way; an
  *     aggregate needs `read` on the scope it asks about.
  *   - Provenance: a run's record and its export need `read` on the run's
- *     project (a run that isn't there is the handler's 404, behind `read`
- *     on the tenant); the list holds only records the caller may read.
+ *     project, or, for a run of the caller's own, `run` there (a run that
+ *     isn't there is the handler's 404, behind `read` on the tenant); the
+ *     list holds only records the caller may read.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -34,6 +35,9 @@ const MINE = randomUUID();
 const THEIRS = randomUUID();
 const RUN_MINE = randomUUID();
 const RUN_THEIRS = randomUUID();
+// Runs in THEIRS that act for someone: the caller (`user-1`), and another person.
+const RUN_CALLERS = randomUUID();
+const RUN_ANOTHERS = randomUUID();
 const TENANT_READ = `read tenant:${tenantId}`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -84,13 +88,18 @@ function harness(grants: readonly string[]) {
     };
   };
   const stubs = createStubAppBindings();
-  const runs: Record<string, string> = { [RUN_MINE]: MINE, [RUN_THEIRS]: THEIRS };
+  const runs: Record<string, Partial<KernelRunRecord>> = {
+    [RUN_MINE]: { projectId: MINE as never },
+    [RUN_THEIRS]: { projectId: THEIRS as never },
+    [RUN_CALLERS]: { projectId: THEIRS as never, actsFor: 'user:user-1' },
+    [RUN_ANOTHERS]: { projectId: THEIRS as never, actsFor: 'user:user-2' },
+  };
   const run = {
     ...stubs.kernelBinding.run,
     // As Postgres's uuid cast does, a malformed id fails the query.
     getRun: async (_t: TenantId, runId: string) => {
       if (!UUID.test(runId)) throw new Error(`invalid input syntax for type uuid: "${runId}"`);
-      return runs[runId] === undefined ? null : ({ projectId: runs[runId] } as KernelRunRecord);
+      return (runs[runId] as KernelRunRecord | undefined) ?? null;
     },
   } as unknown as RunBinding;
   const costs = [
@@ -235,6 +244,20 @@ describe("provenance needs `read` on the run's project", () => {
     const { call } = harness([`read project:${MINE}`]);
     expect((await call('GET', `/v1/provenance/${RUN_MINE}`)).status).toBe(404);
     expect((await call('POST', `/v1/provenance/${RUN_MINE}/export`, {})).status).not.toBe(403);
+  });
+
+  test("a runner's own run: its record and its export pass on run, though read refuses", async () => {
+    const { call } = harness([`run project:${THEIRS}`]);
+    expect((await call('GET', `/v1/provenance/${RUN_CALLERS}`)).status).toBe(404);
+    expect((await call('POST', `/v1/provenance/${RUN_CALLERS}/export`, {})).status).not.toBe(403);
+  });
+
+  test("a runner gets no other person's run: its record, its HEAD and its export are refused (403)", async () => {
+    const { call } = harness([`run project:${THEIRS}`]);
+    expect((await call('GET', `/v1/provenance/${RUN_ANOTHERS}`)).status).toBe(403);
+    expect((await call('HEAD', `/v1/provenance/${RUN_ANOTHERS}`)).status).toBe(403);
+    expect((await call('POST', `/v1/provenance/${RUN_ANOTHERS}/export`, {})).status).toBe(403);
+    expect((await call('GET', `/v1/provenance/${RUN_THEIRS}`)).status).toBe(403);
   });
 
   test("an id that isn't a run id is never looked up for the check: the handler's 404", async () => {

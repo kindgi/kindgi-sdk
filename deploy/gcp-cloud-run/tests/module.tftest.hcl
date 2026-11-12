@@ -1306,6 +1306,125 @@ run "a_public_server_s_key_steps_send_no_identity_token" {
   }
 }
 
+# ---- server_ingress: behind your own load balancer ---------------------------
+# All by default. Behind your load balancer, the run.app URL takes only
+# internal calls: the Job reaches it through the VPC, and you through public_url.
+
+run "the_server_takes_all_ingress_by_default" {
+  command = plan
+  variables {
+    orchestrator_key_version = "1"
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.ingress == "INGRESS_TRAFFIC_ALL"
+    error_message = "By default the server's run.app URL takes every caller, as before server_ingress."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_job.orchestrator[0].template[0].template[0].vpc_access) == 0
+    error_message = "With all ingress, the Job calls the server's run.app URL with no VPC egress of its own."
+  }
+}
+
+# public_url alone (sign-in) moves nothing: the run.app URL still takes everyone.
+run "with_all_ingress_server_url_stays_the_run_app_url" {
+  command = apply
+  variables {
+    public_url = "https://kindgi.acme.example"
+  }
+  assert {
+    condition     = output.server_url == google_cloud_run_v2_service.server.uri
+    error_message = "With all ingress, server_url is the server's run.app URL, public_url or not."
+  }
+  assert {
+    condition     = strcontains(output.orchestrator_key_steps, "curl -sS -X POST \"${google_cloud_run_v2_service.server.uri}/v1/system/keys\"")
+    error_message = "With all ingress, the key steps mint the orchestrator's key at the run.app URL."
+  }
+}
+
+run "behind_a_load_balancer_the_job_reaches_the_server_through_the_vpc" {
+  command = apply
+  variables {
+    orchestrator_key_version = "1"
+    server_ingress           = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    public_url               = "https://kindgi.acme.example/"
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.ingress == "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    error_message = "server_ingress is the server's ingress."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].vpc_access[0].egress == "ALL_TRAFFIC" &&
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].vpc_access[0].network_interfaces[0].network == google_compute_network.kindgi[0].id &&
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].vpc_access[0].network_interfaces[0].subnetwork == google_compute_subnetwork.run[0].id
+    )
+    error_message = "Behind a load balancer, the Job's calls all go through the module's VPC and subnet, as the server's do."
+  }
+  assert {
+    condition     = one([for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value if e.name == "KINDGI_ORCHESTRATOR_RUNTIME_URL"]) == google_cloud_run_v2_service.server.uri
+    error_message = "The Job keeps calling the server's run.app URL, through the VPC."
+  }
+  assert {
+    condition     = output.server_url == "https://kindgi.acme.example"
+    error_message = "Behind a load balancer, server_url is public_url, with no trailing slash: the run.app URL refuses callers from outside."
+  }
+}
+
+run "behind_a_load_balancer_the_key_steps_go_through_it" {
+  command = apply
+  variables {
+    server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    public_url     = "https://kindgi.acme.example"
+  }
+  assert {
+    condition = (
+      strcontains(output.orchestrator_key_steps, "curl -sS -X POST \"https://kindgi.acme.example/v1/system/keys\"") &&
+      !strcontains(output.orchestrator_key_steps, google_cloud_run_v2_service.server.uri)
+    )
+    error_message = "Behind a load balancer, the key steps mint the orchestrator's key through it, never at the run.app URL."
+  }
+}
+
+run "a_load_balancer_needs_direct_mode_not_none" {
+  command = plan
+  variables {
+    network_mode   = "none"
+    pack_ingress   = "INGRESS_TRAFFIC_ALL"
+    server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    public_url     = "https://kindgi.acme.example"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_load_balancer_needs_direct_mode_not_a_connector" {
+  command = plan
+  variables {
+    network_mode             = "connector"
+    vpc_connector            = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress             = "INGRESS_TRAFFIC_ALL"
+    orchestrator_key_version = "1"
+    server_ingress           = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    public_url               = "https://kindgi.acme.example"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_load_balancer_needs_public_url" {
+  command = plan
+  variables {
+    server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "server_ingress_refuses_internal_only" {
+  command = plan
+  variables {
+    server_ingress = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  }
+  expect_failures = [var.server_ingress]
+}
+
 # ---- database_instance: serving from another instance ------------------------
 
 run "unset_the_server_serves_from_its_own_instance" {

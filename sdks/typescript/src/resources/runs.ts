@@ -294,6 +294,12 @@ export interface ListRunsFilter {
   readonly flowId?: FlowId | string;
   /** With `flowId`: only runs of this version. */
   readonly flowVersion?: string;
+  /**
+   * `me`: only the runs that act for the caller (a run's `actsFor`); none
+   * for a caller who acts for no one. A runtime before Kindgi 0.6.0 ignores
+   * the filter and lists every run the caller may see.
+   */
+  readonly actsFor?: 'me';
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -678,6 +684,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
           ...(filter?.flowId !== undefined && { flowId: filter.flowId as string }),
           ...(filter?.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
+          ...(filter?.actsFor !== undefined && { actsFor: filter.actsFor }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });

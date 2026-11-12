@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Every generated enum and union reads a value a newer runtime sends that this client doesn't know
@@ -125,8 +126,8 @@ class OpenValuesTest {
       Object read = KindgiJson.read(body, type);
       assertThat(read).as(type.getName()).isInstanceOf(unrecognized);
       assertThat(unrecognized.getMethod("properties").invoke(read)).as(type.getName()).isEqualTo(KindgiJson.read("{" + others + "}", Map.class));
-      // Compared as maps: Jackson 3 may write the property spelled like the map first.
-      assertThat(KindgiJson.read(KindgiJson.write(read), Map.class)).as(type.getName()).isEqualTo(KindgiJson.read(body, Map.class));
+      // Compared as trees: Jackson 3 may write the property spelled like the map first.
+      assertThat(KindgiJson.read(KindgiJson.write(read), JsonNode.class)).as(type.getName()).isEqualTo(KindgiJson.read(body, JsonNode.class));
       if (info.use() == JsonTypeInfo.Id.NAME) {
         Method tag = tagOf(type);
         assertThat(tag.invoke(read)).as(type.getName()).isEqualTo(UNKNOWN);
@@ -143,7 +144,7 @@ class OpenValuesTest {
     FactScope read = KindgiJson.read(body, FactScope.class);
     assertThat(read.tenantId()).isEqualTo("acme");
     assertThat(read.additionalProperties()).isEqualTo(KindgiJson.read("{" + others + "}", Map.class));
-    assertThat(KindgiJson.read(KindgiJson.write(read), Map.class)).isEqualTo(KindgiJson.read(body, Map.class));
+    assertThat(KindgiJson.read(KindgiJson.write(read), JsonNode.class)).isEqualTo(KindgiJson.read(body, JsonNode.class));
   }
 
   /** A tagged union's own method for its tag: the one abstract method it declares that reads text. */

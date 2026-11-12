@@ -18,7 +18,8 @@ get the next one depends on where the key came from:
   can be renewed by the deployment itself. You enroll the deployment once.
   Then you run `kindgi license renew` whenever you like, by hand or from your
   own scheduler. Nothing calls Kindgi unless you run it. You can also sign in
-  at access.kindgi.com for a new key.
+  at access.kindgi.com for a new key, unless a deployment is renewing it
+  ([Add the renewer](#2-add-the-renewer-at-accesskindgicom)).
 
 :::note
 Renewing from a deployment needs to be turned on at access.kindgi.com. Where
@@ -35,7 +36,7 @@ a new key instead, or write to contact@kindgi.com.
   from your deployment**: your GitHub login, or an `em-…` id.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. It runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 - **A place for each key,** from [Where the keys are kept](#where-the-keys-are-kept).
 
@@ -87,7 +88,7 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-npx --yes @kindgi/cli@0.2 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+npx --yes @kindgi/cli@0.6 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
 - `--for` is that account: your GitHub login, or the `em-…` id your key page
@@ -129,13 +130,21 @@ you gave `--for`. Under **Renew the key from your deployment**, add the
 `kgi_lrp_…` line that `enroll` printed.
 access.kindgi.com keeps only the renewer's public key.
 
+While the deployment is renewing the key, signing in at access.kindgi.com
+shows the key but doesn't renew it. A deployment is renewing the key when its
+last `kindgi license renew`, in the last 7 days, got a key back or was held
+for review (`held-for-review`), or when it was added in the last 7 days and
+hasn't run one yet. Once the key has expired, signing in renews it. To renew
+by signing in again, select **Stop renewing** next to each deployment renewing
+it there. Each person can stop only the deployments they added.
+
 ## 3. Renew
 
 `renew` asks access.kindgi.com for the key's next version, and writes it
 where the runtime reads the key:
 
 ```sh
-npx --yes @kindgi/cli@0.2 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
+npx --yes @kindgi/cli@0.6 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
   --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
@@ -360,9 +369,10 @@ From 30 days before the key's date, the runtime's banner warns, and ends
 with how to renew:
 
 - **For a non-production key from access.kindgi.com,** that's the `renew`
-  command, or signing in at access.kindgi.com. The command has this
-  deployment's `--key` and `--renewer` when it sets `KINDGI_LICENSE_KEY_REF`
-  and `KINDGI_LICENSE_RENEWER_REF`, as the Azure module does.
+  command, or signing in at access.kindgi.com unless a deployment is renewing
+  the key. The command has this deployment's `--key` and `--renewer` when it
+  sets `KINDGI_LICENSE_KEY_REF` and `KINDGI_LICENSE_RENEWER_REF`, as the Azure
+  module does.
 - **For a production key,** it's contact@kindgi.com.
 
 A tenant admin sees a line on every console page too.

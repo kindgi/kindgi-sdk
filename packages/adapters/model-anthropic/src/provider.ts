@@ -8,6 +8,7 @@ import type {
   ModelCallResult,
   ModelCallWarning,
   ModelInfo,
+  ModelMessage,
   ModelProvider,
   ModelThinking,
   ProviderMetadata,
@@ -184,7 +185,8 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         documents: vision,
         contextWindow: modelInfo.contextWindow,
       });
-      const translated = toAnthropicMessages(input.messages, files);
+      // Turns this model answered with thinking go back with it (`fromAnthropicResponse`).
+      const translated = toAnthropicMessages(input.messages, files, input.model);
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
       const toolNames = input.tools?.map((t) => t.name) ?? [];
@@ -234,14 +236,19 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const response = counted.value;
 
       const durationMs = Date.now() - startedAt;
-      const message = fromAnthropicResponse(response, toolIdOf);
+      const message = fromAnthropicResponse(response, toolIdOf, input.model);
+      const finishReason = mapStopReason(response.stop_reason);
+      const warnings = [
+        ...sampling.warnings,
+        ...thinking.warnings,
+        ...thinkingUsedMaxTokens(input.model, response, message, finishReason, maxTokens),
+      ];
       const usage = toFrameworkUsage(response.usage);
       const costUsd = computeCostUsd(response.usage, modelInfo.cost);
-      const warnings = [...sampling.warnings, ...thinking.warnings];
 
       return {
         message,
-        finishReason: mapStopReason(response.stop_reason),
+        finishReason,
         usage,
         costUsd,
         durationMs,
@@ -258,6 +265,35 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       };
     },
   };
+}
+
+/** The warning code an answer carries when thinking took its whole output cap. */
+export const THINKING_USED_MAX_TOKENS = 'thinking-used-max-tokens';
+
+/**
+ * A `thinking-used-max-tokens` warning when the call hit its output cap after
+ * the model thought and before it wrote any answer text: thinking counts
+ * against `max_tokens`. A tool call the cap cut short isn't run (the call
+ * finished with `length`, not `tool-use`), so either way the turn would end on
+ * an empty answer with nothing saying why.
+ */
+function thinkingUsedMaxTokens(
+  model: string,
+  response: Anthropic.Message,
+  message: ModelMessage,
+  finishReason: ModelCallResult['finishReason'],
+  maxTokens: number,
+): readonly ModelCallWarning[] {
+  const thought = response.content.some(
+    (b) => b.type === 'thinking' || b.type === 'redacted_thinking',
+  );
+  if (finishReason !== 'length' || !thought || message.content !== '') return [];
+  return [
+    {
+      code: THINKING_USED_MAX_TOKENS,
+      message: `${model} used all ${maxTokens} output tokens, its thinking included, and gave no answer: raise maxOutputTokens in the agent's model-settings block or on the provider's model.`,
+    },
+  ];
 }
 
 /** What a call sends about thinking, and what it says about it. */

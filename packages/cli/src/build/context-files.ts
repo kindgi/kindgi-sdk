@@ -51,7 +51,9 @@ export interface BundleConfig {
 /** `bundle` from `kindgi.config.*` — validated; `include` defaults to none. */
 export function readBundleConfig(
   config: Readonly<Record<string, unknown>>,
-): { readonly kind: 'ok'; readonly bundle: BundleConfig } | { readonly kind: 'invalid'; readonly message: string } {
+):
+  | { readonly kind: 'ok'; readonly bundle: BundleConfig }
+  | { readonly kind: 'invalid'; readonly message: string } {
   const bundle = config.bundle;
   if (bundle === undefined) return { kind: 'ok', bundle: { include: [] } };
   const include = (bundle as { include?: unknown } | null)?.include;
@@ -63,7 +65,8 @@ export function readBundleConfig(
   ) {
     return {
       kind: 'invalid',
-      message: '`bundle.include` in kindgi.config.ts must be a list of file globs relative to the pack root.',
+      message:
+        '`bundle.include` in kindgi.config.ts must be a list of file globs relative to the pack root.',
     };
   }
   return { kind: 'ok', bundle: { include: (include as string[] | undefined) ?? [] } };
