@@ -28,6 +28,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **a key carries the key it was minted with, and a revoke names
+  the keys that went with it.** `ApiToken.minted_with` is the key a key was
+  minted with, which revoking stops it with. `tokens.list(minted_with=...)`
+  lists the keys minted with a key, to any depth, and the page says
+  `minted_with`. `RevokeTokenResult.also_revoked` lists every key revoked
+  with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
+  minted with a removed person's. Each is absent from a runtime that doesn't
+  record which key minted which.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
