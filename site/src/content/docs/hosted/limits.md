@@ -47,6 +47,10 @@ retry-after: 33
 {"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
+Any call your workspace's keys and sessions make can get it, and the
+[API reference](../../reference/api/) names it on each. It also names
+`Retry-After` on every answer that can send it: whole seconds, at least 1.
+
 ### Webhook receives
 
 Each trigger also has a limit of its own, checked first: 600 deliveries a

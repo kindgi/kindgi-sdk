@@ -1,0 +1,5 @@
+---
+"@kindgi/api": patch
+---
+
+The OpenAPI document declares `Retry-After` on every answer that can send it (`components.headers.RetryAfter`: whole seconds, at least 1), and names three answers the runtime already gave where it didn't say so. Every call a workspace's key or session makes, but the system routes, can get `429 rate-limit-exceeded` with `details.limit: "api-requests"` on a runtime that sets workspace limits (Kindgi Cloud). Every write a closing or suspended workspace is refused can get `503 tenant-state-unavailable` on a runtime serving many workspaces, when the workspace's state can't be read. Every write that takes an `Idempotency-Key` can get `409 idempotency-key-in-flight` while a request with the same key still runs. The `429`s of the sign-in options, a site's enrollment and a site's sign-in, the `503` of your permissions, and a webhook's `429` say they send `Retry-After`; a webhook's `429` also names the workspace's limit on webhook deliveries a minute (`details.limit: "webhook-receives"`).
