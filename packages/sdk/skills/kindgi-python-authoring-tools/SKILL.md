@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -285,6 +285,13 @@ Docs: https://docs.kindgi.com/v0.5/guides/connections/use-a-connection/
   `handler-throw` and the exception's message. In an agent turn the
   failure goes to the model only when the agent's `tool_errors` policy
   includes `tool-error` — retrying must be safe for that tool.
+- Raise `ToolFailure` (`from kindgi import ToolFailure`) when the tool ran
+  and knows why the call can't give an answer:
+  `raise ToolFailure("order-not-found", f"No order {order_id}", details={"orderId": order_id})`.
+  The call fails with `tool-failed`, the code as `reason`, the message as
+  written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. An agent sends it to the model only with
+  `"tool-failed"` in `tool_errors` `retryOn`. An outcome the caller acts on
+  belongs in the output model instead (`found: False`).
 - `print()` and `logging` go to the pack service's stdout/stderr
   (`kindgi dev` shows them as `[pack] …`), never into a result.
 

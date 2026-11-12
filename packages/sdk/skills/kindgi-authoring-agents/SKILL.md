@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.14"
+version: "0.4.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -188,6 +188,9 @@ export default defined.value;
   failed and why) so it can correct the call, up to `maxRetries` times
   per turn (default 1), for the kinds in `retryOn` (default
   `['invalid-arguments', 'unknown-tool']`, failures where nothing ran).
+  Add `'tool-failed'` to send back a tool's failure on purpose
+  (`ToolFailure`) with its code, words and details, so the model can tell
+  the person or try another way; `'tool-error'` doesn't cover it.
   Add `'tool-error'` to retry a tool that ran and failed — only when
   retrying it is safe (a mutating tool may have changed something before
   failing). Each retry costs a step against `budget.maxSteps`. Past the

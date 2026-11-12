@@ -11,6 +11,8 @@ candidates, and theirs are just below it.
 ## Unreleased
 
 - `kindgi-pack`, `kindgi-pack-scala`: **the indexer refuses an agent, flow or tool version that breaks its kind's rule.** An agent's or a flow's own version is an exact semver with no build metadata (`1.2.3`, `1.2.3-rc.1`), and a tool's is `MAJOR.MINOR.PATCH` (`1.2.3`). Another is now an error of its file (`manifest-validation-failed`), and the rest of the pack still indexes: `0.1` or `v1.0.0` on an agent or a tool, `01.0.0` on any, `1.0.0+build.5` on an agent, or `2.1.0-rc.1` on a tool. Before, they went into the index as they were, and a deploy then refused every one but a leading zero. A flow's was already refused unless it had a leading zero. A tool with no version of its own still takes `pack.version`.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can fail a call on purpose, with its own code and words.** `throw new ToolFailureException("order-not-found", "No order " + id, Map.of("orderId", id))` (Scala: `throw ToolFailureException("order-not-found", s"No order $id", Map("orderId" -> id))`) answers the call `tool-failed` (pack protocol 2.12.0): the code is its `reason`, the message is said as written, and the details go with it, to the run's `failure` and, in an agent whose `toolErrors.retryOn` names `tool-failed`, to the model. A code that isn't kebab case, an empty message, or details that aren't a JSON object of at most 4 KiB throw `IllegalArgumentException`, so the call is a crash that says why.
+- `kindgi-models`, `kindgi-client`: **an agent's `toolErrors.retryOn` takes `tool-failed`,** and `RunFailure`'s Javadoc says what a `tool-failed` failure carries: the tool's code as `reason`, its details, and the tool as `cause`.
 
 ## 0.5.0
 

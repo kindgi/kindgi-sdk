@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -275,6 +275,13 @@ Docs: https://docs.kindgi.com/v0.5/guides/connections/use-a-connection/
   exception's message. In an agent turn, the model sees the failure only
   when the agent's `toolErrors` policy includes `tool-error`, so retrying
   must be safe for that tool.
+- Throw `ToolFailureException` when the tool ran and knows why the call
+  can't give an answer:
+  `throw new ToolFailureException("order-not-found", "No order " + id, Map.of("orderId", id))`.
+  The call fails with `tool-failed`, the code as `reason`, the message as
+  written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. An agent sends it to the model only with
+  `tool-failed` in `toolErrors.retryOn`. An outcome the caller acts on
+  belongs in the output record instead (`found: false`).
 - What the handler logs (your app's logger, `System.err`) goes to the pack
   service's output (`kindgi dev` shows it as `[pack] …`), never into a
   result.

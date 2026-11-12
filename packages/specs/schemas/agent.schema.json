@@ -172,8 +172,8 @@
         "retryOn": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["invalid-arguments", "unknown-tool", "tool-error"] },
-          "description": "Which failures are sent back: arguments that don't fit the input schema, a tool the agent doesn't have, a tool that ran and failed. Default `invalid-arguments`, `unknown-tool`."
+          "items": { "enum": ["invalid-arguments", "unknown-tool", "tool-error", "tool-failed"] },
+          "description": "Which failures are sent back: arguments that don't fit the input schema, a tool the agent doesn't have, a tool that ran and failed, a tool that failed the call on purpose. Default `invalid-arguments`, `unknown-tool`."
         }
       }
     },
