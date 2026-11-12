@@ -16,13 +16,13 @@ the agent's model sees what was said before.
 
 ## Before you start
 
-- **An agent with a tool,** on a runtime such as `kindgi dev`, with Kindgi
-  0.1's CLI. This guide uses `acme.order-desk` and its `acme.lookup-order`
-  tool, from [Write an agent](../write-an-agent/).
+- **An agent with a tool,** on a runtime such as `kindgi dev`, with
+  Kindgi 0.6's CLI. This guide uses `acme.order-desk` and its
+  `acme.lookup-order` tool, from [Write an agent](../write-an-agent/).
 - **A registered model** for answers worth reading. Without one, `dev-echo`
   answers.
 - **Node 22.18 or later, which runs a TypeScript file directly, Python
-  3.11 or later, or Java 17 or later,** with Kindgi 0.4's client.
+  3.11 or later, or Java 17 or later,** with Kindgi 0.6's client.
   The scripts read the API's URL and token from `KINDGI_API_URL` and
   `KINDGI_API_TOKEN`. With `kindgi dev`, they're `apiUrl` and `token` in the
   pack's `.kindgirc.json`.
@@ -435,11 +435,18 @@ one project's or org's.
 - **With [authorization](../../../deploy/authorization/) on,** reading a
   conversation or its messages takes `read` on its project. Closing one
   takes `execute` on its agent, or, for an agent more than one project
-  serves, `call` on the conversation's project; reading it isn't needed. A
-  conversation you can't read answers `404 conversation-not-found`, as if it
-  weren't there, when you read it or its messages, or are refused closing
-  it, unregistering it or adding a turn (runtime 0.2.0 or later). If you can
-  read it, a refusal is a `403`.
+  serves, `call` on the conversation's project; reading it isn't needed.
+  Someone who may run the project but not edit it (a `runner`, or anyone
+  in its workspace when
+  [everyone can run it](../../../deploy/authorization/#everyone-can-run-a-project))
+  closes only the conversations they opened: closing anyone else's, or one
+  that names no opener, takes `write` on its project, as stopping someone
+  else's run does (runtime 0.6.0 or later). An editor and above close any,
+  and so does a caller with `execute` or `call` and no `run`, such as an
+  app's backend. A conversation you can't read answers
+  `404 conversation-not-found`, as if it weren't there, when you read it or
+  its messages, or are refused closing it, unregistering it or adding a
+  turn (runtime 0.2.0 or later). If you can read it, a refusal is a `403`.
 - A turn into a closed conversation is refused with
   `409 conversation-closed`: start a new conversation instead. It's
   refused before a run is made, with `wait: false` too (runtime 0.1.10

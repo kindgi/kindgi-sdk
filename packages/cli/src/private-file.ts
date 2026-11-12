@@ -7,9 +7,24 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 
 const PRIVATE_FILE_MODE = 0o600;
+
+/** A folder that holds keys (`~/.kindgi`): this account's only. */
+const PRIVATE_DIR_MODE = 0o700;
+
+/**
+ * Make `dir` (and its parents) when it isn't there, `0700`. One made
+ * earlier, by hand or by an older CLI, may be looser: it's made `0700`
+ * too. Windows has no such modes: there it's only made.
+ */
+export async function makePrivateDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: PRIVATE_DIR_MODE });
+  if (process.platform !== 'win32' && ((await stat(dir)).mode & 0o777 & ~PRIVATE_DIR_MODE) !== 0) {
+    await chmod(dir, PRIVATE_DIR_MODE);
+  }
+}
 
 /**
  * Replace `path` with `text` in one step: a new `0600` file beside it, then

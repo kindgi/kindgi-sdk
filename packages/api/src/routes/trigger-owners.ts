@@ -20,7 +20,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { TriggerOwner } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { deniedBy, refused } from './denied.js';
+import { deniedBy, refused, refuses } from './denied.js';
 
 /**
  * Where a trigger owner's name is read (`owner.displayName`): the person's
@@ -100,8 +100,11 @@ export interface ResolveTriggerOwnerDeps {
    * non-reader can't tell a missing account from one it may not name.
    */
   readonly canReadServiceAccounts: () => Promise<boolean>;
-  /** Whether the caller may not `act_as` the account (`true` → refused). */
-  readonly actAsDenied: (serviceAccountId: string) => Promise<boolean>;
+  /**
+   * Whether the caller may not `act_as` the account (`true` → refused); an
+   * answer that isn't a refusal, such as a store's `503`, to return as is.
+   */
+  readonly actAsDenied: (serviceAccountId: string) => Promise<boolean | Response>;
   /**
    * Whether the account can't run the trigger's target, as every fire
    * checks it (`true` → refused). Without an authorization model, `false`:
@@ -208,9 +211,9 @@ export async function resolveTriggerOwner(
         : forbidden(),
     };
   }
-  if (await deps.actAsDenied(serviceAccountId)) {
-    return { kind: 'refused', response: forbidden() };
-  }
+  const actAs = await deps.actAsDenied(serviceAccountId);
+  if (actAs instanceof Response) return { kind: 'refused', response: actAs };
+  if (actAs) return { kind: 'refused', response: forbidden() };
   if (await deps.cannotRun(serviceAccountId, target)) {
     return {
       kind: 'refused',
@@ -324,12 +327,12 @@ async function mayNotActAs(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   serviceAccountId: string,
-): Promise<boolean> {
+): Promise<boolean | Response> {
   if (authorizer === undefined) return !(await isTenantAdmin(c, authorizer));
-  return (
-    (await deniedBy(authorizer, c, 'act_as', ref('service_account', serviceAccountId))) !==
-    undefined
-  );
+  const answer = await deniedBy(authorizer, c, 'act_as', ref('service_account', serviceAccountId));
+  if (answer === undefined) return false;
+  // A store that couldn't be reached isn't a no: its 503 goes back as is.
+  return refuses(answer) ? true : answer;
 }
 
 /**
@@ -360,8 +363,8 @@ export function triggerOwnerDeps(
  * Whether the service account can't run `target`: the fire's own check
  * (`targetAccess`), asked of the account, not the caller. Without an
  * authorization model, no: there a grant limits nothing, so the account's
- * runs aren't limited by one either. A store that fails throws, as the
- * `act_as` check does, so the request fails rather than letting it pass.
+ * runs aren't limited by one either. A store that fails throws, so the
+ * request fails rather than letting it pass.
  */
 async function accountCannotRun(
   c: Context<AppEnv>,

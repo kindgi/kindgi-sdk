@@ -1563,7 +1563,7 @@ describe("kindgi init — a coding agent's settings", () => {
     expect(out.exitCode).toBe(0);
     const root = join(cwd, '.claude', 'settings.json');
     expect(out.stderr).toContain(
-      `✓ ${root}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
+      `✓ ${root}: created with 7 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
     );
     const deny = (JSON.parse(await readFile(root, 'utf8')) as { permissions: { deny: string[] } })
       .permissions.deny;

@@ -74,7 +74,9 @@ export interface FlowsClient {
 
   /**
    * A flow's versions: list, get, unregister and reinstate. Calling it
-   * directly lists them (deprecated: use `flows.versions.list`).
+   * directly lists them. That is deprecated: use `flows.versions.list`,
+   * which sends the same request. A later minor release removes it,
+   * announced in advance.
    */
   readonly versions: FlowVersionsClient;
   /**
@@ -83,15 +85,26 @@ export interface FlowsClient {
    * takes the newest version the project reaches.
    */
   readonly pinned: PinnedVersionsClient;
-  /** @deprecated Use `flows.versions.get`; removed in 0.2. */
+  /**
+   * @deprecated Use `flows.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   getVersion(id: FlowId, version: string): Promise<FlowVersionRow>;
-  /** @deprecated Use `flows.versions.unregister`; removed in 0.2. */
+  /**
+   * @deprecated Use `flows.versions.unregister`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   *   It answers `void`; `versions.unregister` answers
+   *   `{ flowId, version, unregistered }`.
+   */
   delete(
     id: FlowId,
     version: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<void>;
-  /** @deprecated Use `flows.versions.reinstate`; removed in 0.2. */
+  /**
+   * @deprecated Use `flows.versions.reinstate`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   reinstateVersion(
     id: FlowId,
     version: string,
@@ -100,7 +113,10 @@ export interface FlowsClient {
 }
 
 export interface FlowVersionsClient {
-  /** @deprecated Use `flows.versions.list`; removed in 0.2. */
+  /**
+   * @deprecated Use `flows.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   (id: FlowId, filter?: PageFilter): Promise<ListPage<Flow>>;
   /**
    * Historical versions of a flow.id: active ones, or with

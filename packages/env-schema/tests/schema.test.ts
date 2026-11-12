@@ -572,7 +572,7 @@ describe('validateEnvForTarget', () => {
     }
   });
 
-  test('KINDGI_LICENSE_KEY is a server variable the schema leaves optional (the server requires it outside development mode)', () => {
+  test('KINDGI_LICENSE_KEY is a server variable the schema leaves optional (the server requires it, in development mode too from 0.7.0)', () => {
     const key = envVarsForTarget({}).find((v) => v.name === LICENSE_KEY_VAR);
     expect(key?.required).toBe(false);
     expect(key?.appliesTo({})).toBe(true);

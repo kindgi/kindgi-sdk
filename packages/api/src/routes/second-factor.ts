@@ -4,6 +4,7 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
+import { ref } from '@kindgi/authz';
 import type { SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { callerIdentity, isTenantAdmin } from '../caller.js';
@@ -11,6 +12,7 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { personWideRefusal } from '../middleware/key-project.js';
 import type {
   SecondFactorBinding,
   SecondFactorProof,
@@ -151,6 +153,15 @@ export function secondFactorIdentityRouter(options: SecondFactorRouterOptions): 
         'Your own second factor is set up and taken off when signed in (a session), not with an API key.',
       );
     }
+    // Yours in every project, so never a session limited to one.
+    const limited = personWideRefusal(
+      c,
+      authorizer,
+      c.req.method === 'GET' ? 'read' : 'write',
+      ref('user', userId as unknown as string),
+      "its person's second factor reaches beyond it",
+    );
+    if (limited !== undefined) return limited;
     return { tenantId: c.get('tenantId') as TenantId, userId: userId as unknown as string };
   };
 

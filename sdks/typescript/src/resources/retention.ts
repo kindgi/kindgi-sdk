@@ -7,7 +7,7 @@ import type { RetentionDomain, RetentionScheduledPage, RetentionSweepResult } fr
 /**
  * Retention resource — what happens to deleted rows. Deleting most
  * things is a tombstone; a `retention` policy per domain (published with
- * `policies.author`) sets how long a tombstone stays before a sweep
+ * `policies.publish`) sets how long a tombstone stays before a sweep
  * purges it for good. Nothing sweeps on its own: call `sweep` from a
  * schedule. Both need `admin` on the workspace.
  */

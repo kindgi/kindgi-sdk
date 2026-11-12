@@ -9,7 +9,7 @@ import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { type Refusal, recordRefusal, refused } from './denied.js';
+import { type Refusal, recordRefusal, refused, refuses } from './denied.js';
 
 /** A stored conversation, as far as who may add a turn to it goes. */
 export interface TurnConversation {
@@ -143,7 +143,9 @@ export function ownConversationIn(
  * one that doesn't exist (`conversationNotFound`) when the caller can't read
  * it, else `refusal` as it is. The refusal was recorded when it was made; a
  * caller who can read the conversation keeps its 403. Only for a caller the
- * route refused: one it lets through goes through, read or not.
+ * route refused: one it lets through goes through, read or not. An answer
+ * that isn't a refusal ({@link refuses}), such as a store's `503`, goes back
+ * as is: it tells nothing, and the store can't say who may read.
  */
 export async function hiddenOr(
   c: Context<AppEnv>,
@@ -152,6 +154,7 @@ export async function hiddenOr(
   conversation: TurnConversation,
   refusal: Response,
 ): Promise<Response> {
+  if (!refuses(refusal)) return refusal;
   return (await unreadable(c, authorizer, conversation))
     ? conversationNotFound(c, conversationId)
     : refusal;

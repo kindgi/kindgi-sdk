@@ -6,13 +6,8 @@ import type { Filter } from '@kindgi/types';
 import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type {
-  CapabilityDeclaration,
-  CapabilityNeed,
-  LegacyCapabilitiesProvider as Provider,
-  ProviderSpec,
-  RouteResult,
-} from '../types.js';
+import type { CapabilityDeclaration, CapabilityNeed, RouteResult } from '../types.js';
+import { type Provider, type RegisterProviderInput, makeProvidersClient } from './providers.js';
 
 /**
  * Capabilities resource — capability declarations + model router +
@@ -31,8 +26,9 @@ import type {
  *     set the router depends on).
  *   - `GET /v1/providers` + `GET /v1/providers/{id}` + `POST /v1/providers`
  *     + `POST /v1/providers/{id}/unregister` (full CRUD) — providers
- *     are tenant-owned model endpoints. The same routes back the
- *     top-level `client.providers`.
+ *     are tenant-owned model endpoints, served by the top-level
+ *     `client.providers`. The `providers` sub-client here is deprecated:
+ *     its methods call `client.providers`'s and answer as they do.
  *
  * `capabilities.route` (preview routing) and provider `enable` /
  * `disable` have no API route (providers have no active/inactive state
@@ -62,49 +58,66 @@ export interface CapabilitiesClient {
    */
   route(needs: readonly CapabilityNeed[]): Promise<RouteResult>;
 
+  /**
+   * @deprecated Use `client.providers`, which these methods call: `list`
+   *   is `providers.list`, `get` is `providers.get`, `configure` is
+   *   `providers.register`, `capabilitiesFor(id)` is
+   *   `(await providers.capabilities(id)).data`, and `delete` is
+   *   `providers.unregister`. `enable` and `disable` have none: a
+   *   provider has no enabled state, and unregistering removes one.
+   */
   readonly providers: ProvidersClient;
 }
 
+/** @deprecated Use `client.providers` (`ProvidersClient` from the package). */
 export interface ProvidersClient {
   /**
-   * Paginated list of registered providers.
+   * Paginated list of registered providers, as the API sends them (each
+   * with its `models[]`).
    *
+   * @deprecated Use `client.providers.list`.
    * @wire `GET /v1/providers` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1providers/get`.
    */
   list(filter?: ProviderFilter): Promise<ListPage<Provider>>;
 
   /**
+   * @deprecated Use `client.providers.get`.
    * @wire `GET /v1/providers/{providerId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1providers~1{providerId}/get`.
    */
   get(id: string): Promise<Provider>;
 
   /**
-   * Register a new provider. Server validates the shape via
-   * `@kindgi/capabilities.createProviderRegistry`'s validator and
-   * rejects with `409 provider-already-registered` on duplicate id.
-   * Credentials do NOT cross the wire — they are bound at deployment
-   * boot in the caller-plugged `ProviderRegistryBinding`.
+   * Register a new provider: its routing metadata (`metadata`, with its
+   * `models[]`), the adapter that instantiates it (`adapter_id`), and
+   * that adapter's plumbing (`secret_ref`, `adapter_config`). A
+   * duplicate id answers `409 provider-already-registered`. Credentials
+   * never cross the wire: `secret_ref` names the workspace secret that
+   * holds one.
    *
+   * @deprecated Use `client.providers.register`.
    * @wire `POST /v1/providers` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1providers/post`.
    */
   configure(
-    spec: ProviderSpec,
+    input: RegisterProviderInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<{ readonly providerId: string }>;
 
   /**
-   * List the capabilities exposed by a specific provider (derived from
-   * the provider's `features[]` + `capabilityKind`).
+   * The catalog capabilities this provider satisfies: the features of
+   * its models (`models[].features`), for its `capabilityKind`.
    *
+   * @deprecated Use `client.providers.capabilities`, whose `data` this is.
    * @wire `GET /v1/providers/{providerId}/capabilities` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1providers~1{providerId}~1capabilities/get`.
    */
   capabilitiesFor(id: string): Promise<readonly CapabilityDeclaration[]>;
 
   /**
+   * @deprecated A provider has no enabled state; unregistering removes one
+   *   (`client.providers.unregister`).
    * @unwired The API has no `POST /v1/providers/{id}/enable` route —
    *   providers have no active/inactive state (a provider is either
    *   registered or unregistered).
@@ -112,15 +125,17 @@ export interface ProvidersClient {
   enable(id: string): Promise<void>;
 
   /**
+   * @deprecated A provider has no enabled state; unregistering removes one
+   *   (`client.providers.unregister`).
    * @unwired The API has no `POST /v1/providers/{id}/disable` route.
    */
   disable(id: string): Promise<void>;
 
   /**
-   * Retire a provider. Idempotent on already-unregistered ids —
-   * returns `unregistered: true` in either case; only unknown ids
-   * produce a `404 provider-not-found`.
+   * Retire a provider. An unknown or already-unregistered id answers
+   * `not-found`, with the resource kind `provider`.
    *
+   * @deprecated Use `client.providers.unregister`.
    * @wire `POST /v1/providers/{providerId}/unregister` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1providers~1{providerId}~1unregister/post`.
    */
@@ -136,11 +151,12 @@ export interface CapabilityFilter extends Filter {
 }
 
 export interface ProviderFilter extends Filter {
-  /** Server-side match on any provider whose `features[]` contains this value. */
+  /** Server-side match on any provider with a model whose `features[]` contains this value. */
   readonly feature?: string;
 }
 
 export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient {
+  const current = makeProvidersClient(transport);
   return {
     async list(filter) {
       const page = await transport.request<WirePage<CapabilityDeclaration>>({
@@ -171,46 +187,29 @@ export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient
       );
     },
 
+    // The deprecated sub-client: `client.providers`'s methods, under the
+    // older names.
     providers: {
       async list(filter) {
-        const page = await transport.request<WirePage<Provider>>({
-          method: 'GET',
-          path: '/v1/providers',
-          query: {
+        return listPage(
+          await current.list({
             ...(filter?.limit !== undefined && { limit: filter.limit }),
             ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
             ...(filter?.feature !== undefined && { feature: filter.feature }),
-          },
-        });
-        return listPage(page);
+          }),
+        );
       },
 
       async get(id) {
-        return transport.request<Provider>({
-          method: 'GET',
-          path: `/v1/providers/${encodeURIComponent(id)}`,
-        });
+        return current.get(id);
       },
 
-      async configure(spec, options) {
-        return transport.request<{ readonly providerId: string }>({
-          method: 'POST',
-          path: '/v1/providers',
-          body: spec,
-          ...(options?.idempotencyKey !== undefined && {
-            idempotencyKey: options.idempotencyKey,
-          }),
-        });
+      async configure(input, options) {
+        return current.register(input, options);
       },
 
       async capabilitiesFor(id) {
-        const envelope = await transport.request<{
-          readonly data: readonly CapabilityDeclaration[];
-        }>({
-          method: 'GET',
-          path: `/v1/providers/${encodeURIComponent(id)}/capabilities`,
-        });
-        return envelope.data;
+        return (await current.capabilities(id)).data;
       },
 
       async enable(_id) {
@@ -232,17 +231,7 @@ export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient
       },
 
       async delete(id, options) {
-        return transport.request<{
-          readonly providerId: string;
-          readonly unregistered: true;
-        }>({
-          method: 'POST',
-          path: `/v1/providers/${encodeURIComponent(id)}/unregister`,
-          body: {},
-          ...(options?.idempotencyKey !== undefined && {
-            idempotencyKey: options.idempotencyKey,
-          }),
-        });
+        return current.unregister(id, options);
       },
     },
   };

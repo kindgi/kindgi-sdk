@@ -450,6 +450,24 @@ describe('createTestSetFreeze', () => {
     expect((await h.run()).testSetVersion).toBe('1.0.2');
   });
 
+  test('numbers past an unregistered newest version while an older one is in use', async () => {
+    const h = harness();
+    const first = await h.corrected(WRONG_ANSWER);
+    await h.run();
+    const second = await h.corrected({ answer: 'right' });
+    await h.run();
+    await h.testSets.registry.unregister({ tenantId, testSetId, version: '1.0.1' });
+    // 1.0.0 is the newest in use, and the unregistered 1.0.1 keeps its number.
+    const third = await h.corrected({ answer: 'right' });
+    expect(await h.run()).toMatchObject({
+      testSetVersion: '1.0.2',
+      cases: [{ caseId: first.id }, { caseId: second.id }, { caseId: third.id }],
+    });
+    expect(h.testSets.versionsOf(testSetId)).toEqual(['1.0.0', '1.0.1', '1.0.2']);
+    expect((await h.stored('1.0.1')).map((c) => c.caseId)).toEqual([first.id, second.id]);
+    expect((await h.stored('1.0.2')).map((c) => c.caseId)).toEqual([first.id, second.id, third.id]);
+  });
+
   test('a version whose cases were never stored is frozen again', async () => {
     const h = harness();
     const c = await h.corrected(WRONG_ANSWER);

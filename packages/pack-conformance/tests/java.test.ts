@@ -21,9 +21,15 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, describe, test } from 'vitest';
 
-import { describePackServiceConformance, fixturePackDir } from '../src/index.js';
+import {
+  type IndexFileError,
+  type IndexPins,
+  describePackServiceConformance,
+  fixturePackDir,
+} from '../src/index.js';
 
 const packDir = fixturePackDir('java-pack');
+const invalidFlowPackDir = fixturePackDir('java-invalid-flow-pack');
 const moduleDir = fileURLToPath(new URL('../../../sdks/java/kindgi-pack', import.meta.url));
 const classes = join(moduleDir, 'target', 'classes');
 const classpathFile = join(moduleDir, 'target', 'classpath.txt');
@@ -68,30 +74,74 @@ if (why !== undefined) {
     test.skip(why, () => {});
   });
 } else {
-  // The fixture pack, compiled as a pack's build compiles it: against the
-  // module's classes and its runtime classpath.
+  // The fixture packs, compiled as a pack's build compiles it: against the
+  // module's classes and its runtime classpath, each into its own folder.
   const workDir = mkdtempSync(join(tmpdir(), 'kindgi-java-pack-'));
   afterAll(() => rmSync(workDir, { recursive: true, force: true }));
-  const fixtureClasses = join(workDir, 'classes');
   const dependencies = readFileSync(classpathFile, 'utf8').trim();
   const compileClasspath = [classes, dependencies].join(delimiter);
-  const sources = javaSources(join(packDir, 'src'));
-  execFileSync(
-    bin('javac'),
-    [
-      '--release',
-      '17',
-      '-Xlint:all',
-      '-Werror',
-      '-d',
-      fixtureClasses,
-      '-cp',
-      compileClasspath,
-      ...sources,
-    ],
-    { stdio: 'pipe' },
-  );
-  const classpath = [fixtureClasses, compileClasspath].join(delimiter);
+  /** Compile a fixture pack, and return the classpath that runs it. */
+  const compile = (dir: string, name: string): string => {
+    const fixtureClasses = join(workDir, name);
+    execFileSync(
+      bin('javac'),
+      [
+        '--release',
+        '17',
+        '-Xlint:all',
+        '-Werror',
+        '-d',
+        fixtureClasses,
+        '-cp',
+        compileClasspath,
+        ...javaSources(join(dir, 'src')),
+      ],
+      { stdio: 'pipe' },
+    );
+    return [fixtureClasses, compileClasspath].join(delimiter);
+  };
+  const classpath = compile(packDir, 'classes');
+  const invalidFlowClasspath = compile(invalidFlowPackDir, 'invalid-flow-classes');
+
+  /** Index a pack, and return the indexer's file errors. */
+  const index = (
+    dir: string,
+    packClasspath: string,
+    outputPath: string,
+    pins: IndexPins,
+  ): readonly IndexFileError[] => {
+    let stdout: string;
+    try {
+      stdout = execFileSync(
+        bin('java'),
+        [
+          '-cp',
+          packClasspath,
+          'com.kindgi.pack.Main',
+          'index',
+          '--pack-dir',
+          dir,
+          '--output',
+          outputPath,
+          '--artifact-version',
+          pins.artifactVersion,
+          '--published-at',
+          pins.publishedAt,
+          '--json',
+        ],
+        { encoding: 'utf8', stdio: 'pipe' },
+      );
+    } catch (cause) {
+      const failed = cause as { stdout?: string; stderr?: string };
+      throw new Error(`indexer failed: ${failed.stdout ?? ''}${failed.stderr ?? ''}`);
+    }
+    const outcome = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
+      kind: string;
+      value?: { fileErrors: IndexFileError[] };
+    };
+    if (outcome.kind !== 'ok' || outcome.value === undefined) throw new Error(`indexer: ${stdout}`);
+    return outcome.value.fileErrors;
+  };
 
   describePackServiceConformance({
     name: 'java',
@@ -101,38 +151,11 @@ if (why !== undefined) {
     // The JVM pack service doesn't answer with a pause, or store or read files, yet.
     unsupported: ['pause', 'files'],
     async buildIndex(outputPath, pins) {
-      let stdout: string;
-      try {
-        stdout = execFileSync(
-          bin('java'),
-          [
-            '-cp',
-            classpath,
-            'com.kindgi.pack.Main',
-            'index',
-            '--pack-dir',
-            packDir,
-            '--output',
-            outputPath,
-            '--artifact-version',
-            pins.artifactVersion,
-            '--published-at',
-            pins.publishedAt,
-            '--json',
-          ],
-          { encoding: 'utf8', stdio: 'pipe' },
-        );
-      } catch (cause) {
-        const failed = cause as { stdout?: string; stderr?: string };
-        throw new Error(`indexer failed: ${failed.stdout ?? ''}${failed.stderr ?? ''}`);
-      }
-      const outcome = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
-        kind: string;
-        value?: { fileErrors: { message: string }[] };
-      };
-      if (outcome.kind !== 'ok' || (outcome.value?.fileErrors.length ?? 0) > 0) {
-        throw new Error(`indexer: ${stdout}`);
-      }
+      const fileErrors = index(packDir, classpath, outputPath, pins);
+      if (fileErrors.length > 0) throw new Error(fileErrors.map((e) => e.message).join('\n'));
+    },
+    async indexInvalidFlowPack(outputPath, pins) {
+      return index(invalidFlowPackDir, invalidFlowClasspath, outputPath, pins);
     },
   });
 }

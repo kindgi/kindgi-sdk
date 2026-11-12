@@ -1,5 +1,20 @@
 # @kindgi/specs
 
+## 0.6.0
+
+### Patch Changes
+
+- 6707cb9: **An agent or a flow can be a tool in a person's chat app.** A new optional field, **`mcp`** (`{ expose, readOnly?, destructive? }`), on agents and flows says whether one is offered as a tool, through the API's MCP server, to the people who can see it. An agent's tool is named by its id, a flow's by `flow.` and its id. With `expose: true`, the id must be a tool's name (letters, digits, `_`, `-` and `.`, at most 128 characters, or 123 for a flow), and an agent's can't start with `kindgi.` or `flow.`, the prefixes Kindgi keeps; the error names the prefix. `readOnly` and `destructive` become the tool's `readOnlyHint` and `destructiveHint`; left out, no hint is sent and the chat app applies the protocol's defaults. Absent, nothing changes: an agent or flow without it is stored and answered as before, with no `mcp` key.
+  
+  It is in `agent.schema.json` (1.8.0), `flow.schema.json` (1.10.0) and `pack-index.schema.json` (1.9.0); `Agent`, `defineAgent` (which refuses an invalid one), `Flow` and `loadFlow` (a new error, `invalid-mcp-exposure`); `McpExposure` and `mcpExposureIssues` in `@kindgi/types`; the indexed pack agent and flow; `POST /v1/agents`, `POST /v1/flows`, their `GET` answers and a deployment's agents and flows (the API's new `McpExposure` schema); and the Python SDK's `Agent(mcp=...)` and `Flow(mcp=...)`. The authoring skills for agents and flows (TypeScript, Python, Java and Scala) say how to set it.
+
+## 0.5.0
+
+### Patch Changes
+
+- 1533b9a: **Pack protocol 2.11.0: a connection's name.** Each entry of a call's `ctx.connections` can carry `name`, the connection's name: its label, else its account's, as `@kindgi/tools`' `ToolConnection.name` has it. `pack-protocol.schema.json` (schema-version 2.11.0) gains it, optional, and the Python SDK's copy matches. The Python and JVM packs hand it to the handler as `ToolConnection.name` (`None` or `null` from an older runtime), and a TypeScript pack service passes it on as it is. A pack service from before 2.11.0 ignores it. In all four languages, the conformance suite sends it and checks that each SDK hands it to the handler. The suite also checks that its own call matches the schema, and that an older service still answers a call that carries it.
+- 1365f49: The spec schemas' descriptions, the doc text of the types a pack author reads, and the indexer's `check-id-unprefixed` warning call the place a workspace, as the console does. The policy spec's title is Workspace policy. What you type keeps `tenant`: `tenantId`, the `kindgi-tenant-id` header, `KINDGI_PACK_TENANT_ID`, the scope and context-slot value `tenant`, and error codes such as `pack-tenant-mismatch`. So does the multi-tenant text: a cross-tenant call is still refused by that name.
+
 ## 0.4.0
 
 ### Patch Changes
