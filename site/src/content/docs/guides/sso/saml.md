@@ -93,7 +93,7 @@ sign-in requests. Keycloak's metadata always says so. `finish` then refuses
 without a key:
 
 ```text
-Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, give IT the certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name
+Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name and `spSigningCertificates` to the certificate
 ```
 
 Make a key and certificate, and store the key in Kindgi's secret store by
@@ -134,17 +134,29 @@ it stored:
   Set ACME_SAML_SIGNING_KEY at tenant in production.
 ```
 
-Give the certificate, `acme-sp-cert.pem`, to whoever runs your identity
-provider, to add to the app. Kindgi's service provider metadata doesn't
-carry the certificate, so they add it by hand. Then run `finish` again with
-the key's name:
+Then run `finish` again with the key's name and its certificate:
 
 ```sh
 npx --yes @kindgi/cli@0.6 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
-  --sp-signing-key-ref=ACME_SAML_SIGNING_KEY
+  --sp-signing-key-ref=ACME_SAML_SIGNING_KEY --sp-signing-certificate=@acme-sp-cert.pem
 ```
 
-`--sp-signing-key-ref` is the signing key's name in the secret store.
+- `--sp-signing-key-ref` is the signing key's name in the secret store.
+- `--sp-signing-certificate` is its certificate's file. Kindgi's service
+  provider metadata then carries the certificate, so an identity provider
+  that imports the metadata has it. If yours doesn't, give whoever runs it
+  `acme-sp-cert.pem` to add to the app.
+- The flag comes with CLI 0.7.0, and the metadata carries the
+  certificate on runtime 0.7.0 or later. An earlier runtime takes the
+  certificate and keeps none: `sso providers get acme-saml` then shows no
+  `spSigningCertificates`, and the identity provider goes on refusing the
+  signed requests.
+
+To change the key, first run `update` with both certificates, the old
+key's and the new one's, each with its own `--sp-signing-certificate`. Once
+the identity provider has the new metadata, run `update` again with the new
+key's name and only its certificate.
+
 [Keycloak](../keycloak/#saml) has these steps for one identity provider,
 checked end to end.
 

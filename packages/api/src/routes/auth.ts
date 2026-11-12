@@ -506,7 +506,9 @@ function serializeProviderConfig(c: ProviderConfig): Record<string, unknown> {
           'idpSsoUrl',
           'idpCertificates',
           'spSigningKeyRef',
+          'spSigningCertificates',
           'spDecryptionKeyRef',
+          'spDecryptionCertificates',
           'wantAssertionsSigned',
           'attributeMapping',
         ]),
@@ -748,7 +750,10 @@ function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedEr
       );
     }
     const spSigningKeyRef = r.optStr('spSigningKeyRef');
+    const spSigningCertificates = r.strings('spSigningCertificates', false);
     const spDecryptionKeyRef = r.optStr('spDecryptionKeyRef');
+    const spDecryptionCertificates = r.strings('spDecryptionCertificates', false);
+    r.error ??= spCertificatesRefusal(b);
     const wantAssertionsSigned = r.bool('wantAssertionsSigned');
     const mappingRaw = r.object('attributeMapping');
     let attributeMapping: SamlAttributeMapping | undefined;
@@ -773,13 +778,42 @@ function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedEr
       ...(idpSsoUrl !== undefined && { idpSsoUrl }),
       ...(idpCertificates !== undefined && { idpCertificates }),
       ...(spSigningKeyRef !== undefined && { spSigningKeyRef }),
+      ...(spSigningCertificates !== undefined && { spSigningCertificates }),
       ...(spDecryptionKeyRef !== undefined && { spDecryptionKeyRef }),
+      ...(spDecryptionCertificates !== undefined && { spDecryptionCertificates }),
       ...(wantAssertionsSigned !== undefined && { wantAssertionsSigned }),
       ...(attributeMapping !== undefined && { attributeMapping }),
     };
   }
   if (r.error !== undefined) return r.error;
   return { kind: 'ok', value };
+}
+
+/** The service provider's certificates, each beside the key they certify. */
+const SP_CERTIFICATE_KEYS: Readonly<Record<string, string>> = {
+  spSigningCertificates: 'spSigningKeyRef',
+  spDecryptionCertificates: 'spDecryptionKeyRef',
+};
+
+/**
+ * Certificates are refused without the key they certify, and when one holds
+ * a private key: they're published in the metadata, so a key never goes in.
+ */
+function spCertificatesRefusal(b: Record<string, unknown>): ParsedErr | undefined {
+  for (const [field, key] of Object.entries(SP_CERTIFICATE_KEYS)) {
+    const certificates = b[field];
+    if (certificates === undefined) continue;
+    if (b[key] === undefined) return invalid(`\`${field}\` needs \`${key}\`, the key they certify`);
+    if (
+      Array.isArray(certificates) &&
+      certificates.some((c) => String(c).includes('PRIVATE KEY'))
+    ) {
+      return invalid(
+        `\`${field}\` holds a private key, which would be published: give only the certificate, and the key by \`${key}\`, a reference the deployment resolves`,
+      );
+    }
+  }
+  return undefined;
 }
 
 function parseClaimMapping(raw: unknown): ParsedOk<ClaimMappingSpec> | ParsedErr {
