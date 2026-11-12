@@ -111,6 +111,7 @@ async function compare(options: {
   readonly answers?: AnswerCheckBinding;
   readonly judging?: TestRunJudging;
   readonly abortSignal?: AbortSignal;
+  readonly keyCeiling?: 'sandbox';
 }) {
   const cases = inMemoryCaseStore();
   await cases.putCases({
@@ -138,6 +139,7 @@ async function compare(options: {
     projectId: 'p-run' as ProjectId,
     ...(options.comparison !== undefined && { comparison: options.comparison }),
     ...(options.judging !== undefined && { judging: options.judging }),
+    ...(options.keyCeiling !== undefined && { keyCeiling: options.keyCeiling }),
     subject: {
       invoke: async (input) => {
         invoked.push(input);
@@ -195,6 +197,15 @@ describe('a comparison test run', () => {
       ['find b', { of: 'case-b', caseId: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
     ]);
     expect(invoked[0]?.target).toEqual({ agentId: 'acme.agent', version: '2.0.0' });
+  });
+
+  test("each case's invoke carries the test run's key ceiling, and none without one", async () => {
+    const marked = await compare({ keyCeiling: 'sandbox' });
+    expect(marked.invoked).toHaveLength(2);
+    for (const input of marked.invoked) expect(input.keyCeiling).toBe('sandbox');
+    const { invoked } = await compare({});
+    expect(invoked).toHaveLength(2);
+    for (const input of invoked) expect(input).not.toHaveProperty('keyCeiling');
   });
 
   test("a case named for its correction replays the case's run, and names the case", async () => {

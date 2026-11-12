@@ -6,6 +6,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
+import type { Action, AuthzCheckBinding, ResourceRef } from '@kindgi/authz';
 import type { ApiTokenId, SessionId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -67,7 +68,26 @@ const KEYS: Record<string, TokenResolution> = {
     tokenId: 'tok-6' as ApiTokenId,
     tokenProjectId: randomUUID(),
   },
+  // A key with a ceiling always has a project; one that came without is narrowed all the same.
+  kgi_ceiling_no_project: {
+    tenantId,
+    userId: alice,
+    tokenId: 'tok-8' as ApiTokenId,
+    tokenCeiling: 'sandbox',
+  },
 };
+
+/** An authorization check that grants everything: only the key's own facts hold a caller back. */
+const grantsAll = {
+  check: async (_p: unknown, action: Action, resource: ResourceRef) => ({
+    allowed: true,
+    reason: 'test: granted',
+    evidence: { action, relation: '', resource: resource.id, actorSubject: 'alice' },
+  }),
+  checkBatch: async (_p: unknown, _a: unknown, refs: readonly ResourceRef[]) =>
+    refs.map(() => ({ allowed: true })),
+  inProject: async () => true,
+} as unknown as AuthzCheckBinding;
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -181,6 +201,8 @@ function makeApp(
     secondFactor?: SecondFactorBinding;
     /** The deployment's API keys; `null`: it has none to read. Default: `makeKeys()`. */
     keys?: ReturnType<typeof makeKeys> | null;
+    /** Run with an authorizer that grants everything. Default: none. */
+    authz?: boolean;
   } = {},
 ) {
   const { store, created } = makeStore();
@@ -201,6 +223,9 @@ function makeApp(
     ...(extra.secondFactor !== undefined && { secondFactor: extra.secondFactor }),
     ...(keys !== null && { tokenAdmin: keys.admin }),
     ...(session !== null && { session }),
+    ...(extra.authz === true && {
+      authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: grantsAll },
+    }),
     auditEvents,
   });
   return { app, created, audit, store };
@@ -436,6 +461,22 @@ describe('POST /v1/auth/token-sign-in', () => {
     expect(error.code).toBe('token-sign-in-not-allowed');
     expect(error.message.toLowerCase()).toContain(says.toLowerCase());
     expect(created).toHaveLength(0);
+  });
+
+  test('a key with a ceiling opens no session, even one that came without its project', async () => {
+    const held = makeApp(undefined, { authz: true });
+    const refused = await signIn(held.app, 'kgi_ceiling_no_project');
+    expect(refused.status).toBe(403);
+    const error = await codeOf(refused);
+    expect(error.code).toBe('token-sign-in-not-allowed');
+    expect(error.message).toContain('a ceiling');
+    expect(held.created).toHaveLength(0);
+    // A runtime without authorization holds no key to a ceiling: it refuses the request first.
+    const bare = makeApp();
+    const unsupported = await signIn(bare.app, 'kgi_ceiling_no_project');
+    expect(unsupported.status).toBe(501);
+    expect((await codeOf(unsupported)).code).toBe('key-ceiling-unsupported');
+    expect(bare.created).toHaveLength(0);
   });
 
   test('already signed in by a session: 400, nothing to exchange', async () => {

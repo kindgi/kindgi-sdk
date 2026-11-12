@@ -7776,6 +7776,12 @@ class TestRun(BaseModel):
     The id the run was started with. `pin:<change id>` is a test run Kindgi started for a pin change, and `latest:<agent id>:<project id>` one it started for Latest moving in a project; a caller can't start a run with either.
     """
     comparison: TestRunComparison | None = None
+    key_ceiling: Annotated[
+        Annotated[Literal["sandbox"] | str, _open.OPEN] | None, Field(alias="keyCeiling")
+    ] = None
+    """
+    The ceiling of the API key that started the test run (`sandbox`, the key's `ceiling`; a rescore's is the rescoring key's), recorded when it started. A mark only: the runs of its cases carry it as well, and act as the key's person, not the ceiling. Absent on a test run no key with a ceiling started, and from a runtime that doesn't record it.
+    """
 
 
 class TestRunCollectionPage(BaseModel):
@@ -9196,6 +9202,10 @@ class MyKeyLimits(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
     The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The key's ceiling, when it has one: its project's `role` shows `editor` at most, `capabilities` holds only the actions the ceiling keeps, and the key decides no approval (no `reviewerRole`).
     """
 
 
@@ -15217,6 +15227,10 @@ class MintTokenBody(BaseModel):
     """
     Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.
     """
+    ceiling: Literal["sandbox"] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. A run the key starts runs as the key's person: its tool and MCP calls use that person's grants or the agent's, not the ceiling, and the run is marked with it (the run's `keyCeiling`). Needs `projectId`, the `member` role (or none) and no capabilities, else `bad-input`. A runtime that doesn't authorize can't keep a ceiling: `501 key-ceiling-unsupported`. A store that didn't keep it: the new key is revoked, `500 key-ceiling-not-kept`.
+    """
 
 
 class MintTokenResult(BaseModel):
@@ -15242,6 +15256,10 @@ class MintTokenResult(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. A run the key starts runs as the key's person: its tool and MCP calls use that person's grants or the agent's, not the ceiling, and the run is marked with it (the run's `keyCeiling`).
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -15443,6 +15461,10 @@ class ApiToken(BaseModel):
     """
     The project the key is limited to.
     """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. A run the key starts runs as the key's person: its tool and MCP calls use that person's grants or the agent's, not the ceiling, and the run is marked with it (the run's `keyCeiling`).
+    """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
     Who minted it: `user:<id>` or `service_account:<id>`.
@@ -15482,6 +15504,10 @@ class Datum4(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The most the key may do, under its principal's grants, whatever its role: `sandbox` keeps only what a plain project editor holds in the key's project (read, write, call, execute, cancel), only reads on the workspace, its orgs and teams, and nothing else: no admin action, no keys (`403 key-ceiling-refused` on every keys route), no new or changed schedule or trigger, no approval decided. Its capabilities are none. A run the key starts runs as the key's person: its tool and MCP calls use that person's grants or the agent's, not the ceiling, and the run is marked with it (the run's `keyCeiling`).
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -19067,6 +19093,12 @@ class Run(BaseModel):
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
+    key_ceiling: Annotated[
+        Annotated[Literal["sandbox"] | str, _open.OPEN] | None, Field(alias="keyCeiling")
+    ] = None
+    """
+    The ceiling of the API key that started the run (`sandbox`, the key's `ceiling`), recorded when it was created and never changed. A mark only: the run acts as the key's person (`startedBy` `person`), and its tool and MCP calls use that person's grants or the agent's, not the ceiling. A child run has its parent's. Absent on a run no key with a ceiling started, and on runs from before runs recorded it.
+    """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
     Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
@@ -19181,6 +19213,12 @@ class Datum(BaseModel):
     ] = None
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
+    key_ceiling: Annotated[
+        Annotated[Literal["sandbox"] | str, _open.OPEN] | None, Field(alias="keyCeiling")
+    ] = None
+    """
+    The ceiling of the API key that started the run (`sandbox`, the key's `ceiling`), recorded when it was created and never changed. A mark only: the run acts as the key's person (`startedBy` `person`), and its tool and MCP calls use that person's grants or the agent's, not the ceiling. A child run has its parent's. Absent on a run no key with a ceiling started, and on runs from before runs recorded it.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
@@ -20041,6 +20079,10 @@ class WhoamiResult(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
     The project the caller's API key or session is limited to, when it is.
+    """
+    ceiling: Annotated[Literal["sandbox"] | str, _open.OPEN] | None = None
+    """
+    The caller's API key ceiling, when the key has one.
     """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """

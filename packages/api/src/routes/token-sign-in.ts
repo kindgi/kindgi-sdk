@@ -155,10 +155,14 @@ export function tokenSignInRouter(
         'actor',
       );
     }
-    if (c.get('tokenRole') === 'member' || c.get('tokenProjectId') !== undefined) {
+    if (
+      c.get('tokenRole') === 'member' ||
+      c.get('tokenProjectId') !== undefined ||
+      c.get('tokenCeiling') !== undefined
+    ) {
       return refuse(
         'token-sign-in-not-allowed',
-        "A narrowed key (a member role, or one project) can't open a console session: the session would carry all of your permissions. Use a full key, or sign in with your identity provider.",
+        "A narrowed key (a member role, one project, or a ceiling) can't open a console session: the session would carry all of your permissions. Use a full key, or sign in with your identity provider.",
         'scope',
       );
     }

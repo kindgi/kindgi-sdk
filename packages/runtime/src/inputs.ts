@@ -123,6 +123,18 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
   return startedBy === 'person';
 }
 
+/** Every value of `RunKeyCeiling`. */
+export const RUN_KEY_CEILINGS = ['sandbox'] as const;
+
+/**
+ * The ceiling of the API key that started a run (`sandbox`), recorded with
+ * it and never changed. It marks the run only: the run acts as the key's
+ * person (`startedBy` `person`), and its tool and MCP calls use that
+ * person's grants or the agent's, never the ceiling. A child run takes its
+ * parent's. Absent on a run no ceiling key started.
+ */
+export type RunKeyCeiling = (typeof RUN_KEY_CEILINGS)[number];
+
 /**
  * The mailbox a mail trigger's run started from: the app, and whose
  * connection the trigger reads it with, the company's or the trigger
@@ -341,6 +353,11 @@ export interface RunFlowInput {
    */
   readonly startedBy?: RunStartedBy;
   /**
+   * The ceiling of the key that started the run; see `RunKeyCeiling`. A
+   * mark only: nothing the run may do changes with it. Absent: none.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
+  /**
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
    * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
@@ -464,6 +481,8 @@ export interface StartRunParams {
   readonly trigger?: RunTriggerRef;
   /** How the run started; see `RunFlowInput.startedBy`. */
   readonly startedBy?: RunStartedBy;
+  /** The ceiling of the key that started it; see `RunFlowInput.keyCeiling`. */
+  readonly keyCeiling?: RunKeyCeiling;
   /** What it may call without a person's yes; see `RunFlowInput.toolsAllowedUnattended`. */
   readonly toolsAllowedUnattended?: readonly string[];
   /** The mailbox a mail trigger's run came from; see `RunFlowInput.mailbox`. */

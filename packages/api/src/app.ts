@@ -69,6 +69,7 @@ import {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
+import { ceilingKeyNeedsAuthorizer } from './middleware/key-ceiling.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
 import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
@@ -1667,6 +1668,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', tenantScopeMiddleware());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // With no authorizer to hold its ceiling, a key with one reaches nothing.
+  if (authorizer === undefined) v1.use('*', ceilingKeyNeedsAuthorizer());
   // Rights on an item more than one project serves (`item-rights.ts`).
   const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
   // With no authorizer, which projects serve an item still decides what

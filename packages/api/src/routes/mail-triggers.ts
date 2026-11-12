@@ -19,6 +19,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { ceilingKeyChangesNoTrigger } from '../middleware/key-ceiling.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -155,6 +156,8 @@ export function mailTriggersRouter(
     connections,
   } = options;
   const r = new Hono<AppEnv>();
+  // A key with a ceiling registers and changes none of these (`key-ceiling.ts`).
+  r.use('/*', ceilingKeyChangesNoTrigger(authorizer));
 
   /** A mail trigger as the owner rule reads it. */
   const owned = (row: MailTriggerRecord): OwnedTrigger => ({

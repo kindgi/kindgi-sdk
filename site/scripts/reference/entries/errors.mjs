@@ -269,7 +269,7 @@ export const ERROR_ENTRIES = {
   },
   'token-sign-in-not-allowed': {
     description:
-      "The key can't open a console session: it belongs to a service account, or it is narrowed to a member role or one project. Use a full key of a person, or the identity provider.",
+      "The key can't open a console session: it belongs to a service account, or it is narrowed to a member role, one project or a ceiling. Use a full key of a person, or the identity provider.",
     details: [
       {
         key: 'action',
@@ -2236,6 +2236,34 @@ export const ERROR_ENTRIES = {
   'role-exceeds-principal': {
     description:
       "An admin key was requested for a principal that isn't a tenant admin. Mint a member key instead.",
+    details: [],
+  },
+  'key-ceiling-refused': {
+    description:
+      "An API key with a `ceiling` asked for something its ceiling never allows: any keys route (`/v1/tokens`: it mints, lists and revokes no keys), or a change to a schedule, event, mail or webhook trigger, a run-now included (it reads them only). Use a key without a ceiling, or a person's session. Anything else the ceiling doesn't keep is refused `permission-denied`.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'key-ceiling-unsupported': {
+    description:
+      "This runtime runs without authorization, so it can't hold an API key to a `ceiling`: it refuses a mint asking for one, and every request from a key that has one. Mint the key without a ceiling, or run the runtime with authorization.",
+    details: [],
+  },
+  'key-ceiling-not-kept': {
+    description:
+      "`POST /v1/tokens` asked for a `ceiling` the key store didn't keep, so the new key, which would have held more than asked, was revoked at once. The key store needs an update that keeps a key's ceiling; until then, mint keys without one.",
     details: [],
   },
   'key-project-mismatch': {

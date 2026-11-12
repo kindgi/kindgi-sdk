@@ -37,6 +37,23 @@ export type ApiTokenRole = 'admin' | 'member';
 
 export const API_TOKEN_ROLES: readonly ApiTokenRole[] = ['admin', 'member'];
 
+/**
+ * A key's ceiling, when it has one: what it keeps of its principal's
+ * grants, whatever they are. Set at mint, never changed.
+ *
+ * - `sandbox`: for a key handed to code that nobody watches call by call,
+ *   such as a coding agent's sandbox. Inside its project it reads, edits,
+ *   and starts and stops runs, where a plain editor of the project could
+ *   (`KEY_CEILING_KEEPS`, `PROJECT_EDITOR_ACTIONS`); above it, it reads.
+ *   It deploys, publishes, pins, deletes and administers nothing, reads
+ *   and writes no secret, env or MCP endpoint, acts as no one, mints no
+ *   key, and registers or changes no schedule or trigger. It is a
+ *   `member` key limited to one project, with no capabilities.
+ */
+export type ApiTokenCeiling = 'sandbox';
+
+export const API_TOKEN_CEILINGS: readonly ApiTokenCeiling[] = ['sandbox'];
+
 /** Whom a key acts for: a person, or a service account. */
 export type TokenPrincipal =
   | { readonly kind: 'user'; readonly userId: string }
@@ -63,6 +80,14 @@ export interface TokenMintInput {
   readonly expiresAt?: Date;
   /** Optional project: the key is narrowed to it, refused on any other. */
   readonly projectId?: ProjectId;
+  /**
+   * Optional ceiling (`ApiTokenCeiling`). The route sets it only with a
+   * `projectId`, the `member` role and no capabilities. A store keeps it
+   * and returns it on the record, and its resolver returns it as
+   * `TokenResolution.tokenCeiling`. The route revokes and refuses a new
+   * key whose record comes back without it.
+   */
+  readonly ceiling?: ApiTokenCeiling;
   /**
    * Who minted it, as a principal reference: `user:<id>` or
    * `service_account:<tokenId>`.
@@ -105,6 +130,8 @@ export interface ApiTokenRecord {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: ProjectId;
+  /** Its ceiling, when it has one. */
+  readonly ceiling?: ApiTokenCeiling;
   readonly createdBy?: string;
   readonly createdAt: Date;
   readonly expiresAt?: Date;

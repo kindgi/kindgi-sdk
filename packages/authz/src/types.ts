@@ -132,6 +132,38 @@ export const CHECK_ONLY_ACTIONS: Partial<Record<ObjectType, readonly Action[]>> 
   project: ['call', 'execute'],
 };
 
+/**
+ * What a plain editor of a project holds, with no other role: per type,
+ * the actions the authorization model gives a project's `editor` on the
+ * project and on what's in it. Nothing above the project, and nothing on
+ * a secret, an env or an MCP endpoint, which the model leaves to their
+ * admins and readers. An API key with a ceiling keeps no more than this
+ * (`@kindgi/api`'s `ApiTokenCeiling`). Kept equal to the runtime's model
+ * by its tests.
+ */
+export const PROJECT_EDITOR_ACTIONS: Record<ObjectType, readonly Action[]> = {
+  tenant: [],
+  org: [],
+  team: [],
+  project: ['read', 'write', 'call', 'execute'],
+  user: [],
+  service_account: [],
+
+  agent: ['read', 'write', 'execute', 'publish'],
+  flow: ['read', 'write', 'execute', 'publish'],
+  tool: ['read', 'write', 'invoke'],
+  guardrail: ['read', 'write'],
+  test_set: ['read', 'write', 'execute', 'publish'],
+  trigger: ['read', 'write', 'fire'],
+  conversation: ['read', 'write'],
+
+  secret: [],
+  env: [],
+  mcp_endpoint: [],
+
+  run: ['read', 'cancel'],
+};
+
 // Tenant-global identities and structural boundaries: object types that are
 // NOT granted through project roles. A service account is one of these — its
 // `act_as` is a tenant-admin delegation, not a project capability.

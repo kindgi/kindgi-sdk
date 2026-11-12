@@ -63,11 +63,13 @@ export function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
 }
 
 /**
- * Nothing for a caller not limited to a project; else the refusal, 403
- * `permission-denied` and recorded, of a route that acts for the caller's
- * person in every project at once (their sessions, their second factor),
- * which a key or session limited to one project never reaches. `why`
- * ends the message: "its person's sessions reach beyond it".
+ * Nothing for a caller not limited to a project nor held to a ceiling;
+ * else the refusal, 403 `permission-denied` and recorded, of a route that
+ * acts for the caller's person in every project at once (their sessions,
+ * their second factor), which a key or session limited to one project
+ * never reaches, nor a key with a ceiling (it always has a project; one
+ * that came without is refused all the same). `why` ends the message:
+ * "its person's sessions reach beyond it".
  */
 export function personWideRefusal(
   c: Context<AppEnv>,
@@ -77,11 +79,15 @@ export function personWideRefusal(
   why: string,
 ): Response | undefined {
   const keyProject = c.get('tokenProjectId');
-  if (keyProject === undefined) return undefined;
+  const ceiling = c.get('tokenCeiling');
+  if (keyProject === undefined && ceiling === undefined) return undefined;
   return refused(c, authorizer, {
     action,
     resource,
-    message: `${limitedCaller(c)} is limited to project ${keyProject}: ${why}`,
+    message:
+      keyProject !== undefined
+        ? `${limitedCaller(c)} is limited to project ${keyProject}: ${why}`
+        : `${limitedCaller(c)} has the ${ceiling} ceiling: ${why}`,
     failing: 'scope',
   });
 }

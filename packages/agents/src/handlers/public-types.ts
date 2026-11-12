@@ -11,6 +11,7 @@ import type {
   ParentRunRef,
   RunBinding,
   RunIdempotencyKey,
+  RunKeyCeiling,
   RunMailbox,
   RunReplayRef,
   RunStartedBy,
@@ -113,6 +114,12 @@ export interface InvokeAgentInput {
    * event or a mail started reads its message as data (`<event>`).
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * The ceiling of the key that started the turn's run (`RunKeyCeiling`);
+   * its run records it. A mark only: the turn's tool calls are decided as
+   * without it.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
   /**
    * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
    * this turn though no person started its run: the

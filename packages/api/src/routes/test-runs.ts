@@ -6,6 +6,7 @@ import type { Context } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
+import type { RunKeyCeiling } from '@kindgi/runtime';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
@@ -408,11 +409,20 @@ function startRouter(
         correlationId: parsed.value.correlationId,
       }),
       ...(parsed.value.comparison !== undefined && { comparison: parsed.value.comparison }),
+      ...keyCeilingOf(c),
     });
     return startAnswer(c, requestId, outcome);
   });
 
   return r;
+}
+
+/**
+ * The mark of a test run the caller starts (`TestRunStartInput.keyCeiling`):
+ * the ceiling of the caller's key, never a body's word.
+ */
+function keyCeilingOf(c: Context<AppEnv>): { keyCeiling?: RunKeyCeiling } {
+  return c.get('tokenCeiling') === 'sandbox' ? { keyCeiling: 'sandbox' } : {};
 }
 
 /** A started test run's answer: 201 with its id, or why it didn't start. */
@@ -674,7 +684,12 @@ function readbackRouter(
     }
     const denied = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
     if (denied !== undefined) return denied;
-    return startAnswer(c, requestId, await binding.start(rescoreStart(run, projectId)));
+    // The rescore is the caller's: it carries their key's mark, not the run's.
+    return startAnswer(
+      c,
+      requestId,
+      await binding.start({ ...rescoreStart(run, projectId), ...keyCeilingOf(c) }),
+    );
   });
 
   // ---------- POST /:testRunId/cancel ----------
@@ -901,6 +916,7 @@ function serializeTestRun(run: TestRun): Record<string, unknown> {
       run.cancelReason !== undefined && { cancelReason: run.cancelReason }),
     ...(run.correlationId !== undefined && { correlationId: run.correlationId }),
     ...(run.comparison !== undefined && { comparison: run.comparison }),
+    ...(run.keyCeiling !== undefined && { keyCeiling: run.keyCeiling }),
   };
 }
 

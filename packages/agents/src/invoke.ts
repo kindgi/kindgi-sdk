@@ -100,6 +100,7 @@ export async function invokeAgent(
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       ...(input.trigger !== undefined && { trigger: input.trigger }),
       ...(input.startedBy !== undefined && { startedBy: input.startedBy }),
+      ...(input.keyCeiling !== undefined && { keyCeiling: input.keyCeiling }),
       ...(input.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: input.toolsAllowedUnattended,
       }),

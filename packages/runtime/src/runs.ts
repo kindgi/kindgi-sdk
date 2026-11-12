@@ -23,7 +23,14 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import type { RunActsFor, RunAgentRef, RunMailbox, RunStartedBy, RunTriggerRef } from './inputs.js';
+import type {
+  RunActsFor,
+  RunAgentRef,
+  RunKeyCeiling,
+  RunMailbox,
+  RunStartedBy,
+  RunTriggerRef,
+} from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -84,6 +91,12 @@ export interface KernelRunRecord {
    * as unattended.
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * The ceiling of the API key that started the run (`RunKeyCeiling`), a
+   * mark only. Absent on a run no ceiling key started, runs from before
+   * runs recorded it included.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
   /**
    * Whom the run acts for (`RunActsFor`). Absent on a run that acts for no
    * one (a system job, an agent on its own, a test run's replay run), runs

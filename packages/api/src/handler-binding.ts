@@ -4,7 +4,13 @@
 import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { RunIdempotencyKey, RunMailbox, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
+import type {
+  RunIdempotencyKey,
+  RunKeyCeiling,
+  RunMailbox,
+  RunStartedBy,
+  RunTriggerRef,
+} from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -129,6 +135,12 @@ export interface InvokeAgentBindingInput {
    */
   readonly startedBy?: RunStartedBy;
   /**
+   * The ceiling of the API key that started the run (`RunKeyCeiling`): set
+   * by the route from the caller's key, never from a body. The run records
+   * it; nothing the run may do changes with it.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
+  /**
    * What the run may call without a person's yes though no person started
    * it (`RunFlowInput.toolsAllowedUnattended`): set by a webhook's, a
    * schedule's or a mail trigger's fire from its trigger, never by a route
@@ -177,6 +189,8 @@ export interface InvokeFlowBindingInput {
   readonly trigger?: RunTriggerRef;
   /** How the run started, as for `InvokeAgentBindingInput.startedBy`. */
   readonly startedBy?: RunStartedBy;
+  /** The ceiling of the key that started it, as for `InvokeAgentBindingInput.keyCeiling`. */
+  readonly keyCeiling?: RunKeyCeiling;
   /** What it may call without a person's yes, as for `InvokeAgentBindingInput.toolsAllowedUnattended`. */
   readonly toolsAllowedUnattended?: readonly string[];
   /** The mailbox a mail trigger's run came from, as for `InvokeAgentBindingInput.mailbox`. */

@@ -28,6 +28,7 @@ import {
   type Decision,
   OBJECT_ACTIONS,
   type ObjectType,
+  PROJECT_EDITOR_ACTIONS,
   type Principal,
   type ResourceRef,
   denyPayload,
@@ -446,12 +447,31 @@ function limitedOne(c: Context<AppEnv>): string {
  *   an org or a team, reading included: its person's tenant membership
  *   reads the tenant's settings, which such a session must not reach.
  *   A key keeps today's rule, since its holder is its principal.
+ * - A key with a ceiling (`ApiTokenCeiling`) keeps only what the ceiling
+ *   keeps (`ceilingKeeps`), whatever its principal holds. Its project
+ *   limit holds as well: a ceiling key always has one, and one without
+ *   (a store that lost it) takes no action at all.
  */
 function keyCeilingDeny(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
+  const ceiling = c.get('tokenCeiling');
+  if (ceiling !== undefined && c.get('tokenProjectId') === undefined) {
+    return keyDecision(
+      action,
+      resource,
+      `an API key with the ${ceiling} ceiling and no project takes no action`,
+    );
+  }
+  if (ceiling !== undefined && !ceilingKeeps(action, resource.type)) {
+    return keyDecision(
+      action,
+      resource,
+      `an API key with the ${ceiling} ceiling takes no ${action} action on a ${resource.type}`,
+    );
+  }
   if (action === 'admin' && resource.type === 'tenant' && c.get('tokenRole') === 'member') {
     return keyDecision(
       action,
@@ -468,4 +488,30 @@ function keyCeilingDeny(
   return otherProject || aboveIt
     ? keyDecision(action, resource, `${limitedOne(c)} is limited to project ${keyProject}`)
     : undefined;
+}
+
+/**
+ * The actions an API key with a ceiling (`ApiTokenCeiling`: `sandbox`)
+ * keeps, and only where a plain editor of its project holds them
+ * (`PROJECT_EDITOR_ACTIONS`): reading, editing, and starting and
+ * stopping runs. Every other action is refused, whatever the key's
+ * principal holds: `admin`, `delete`, `publish`, `pin`, `act_as`,
+ * `rotate`, `fire` and `invoke`, and an action added later until it's
+ * put here. Each of those changes what serves, makes something live,
+ * starts runs on someone else's terms or uses someone else's rights.
+ */
+export const KEY_CEILING_KEEPS: readonly Action[] = ['read', 'write', 'call', 'execute', 'cancel'];
+
+/**
+ * Whether a ceiling keeps `action` on a resource of `type`: one of
+ * `KEY_CEILING_KEEPS` that a plain project editor holds on that type, but
+ * no `write` on a trigger, whose settings decide when runs start. Above
+ * the project (the tenant, an org, a team) only `read`; the principal's
+ * own grants still decide whether it reads.
+ */
+export function ceilingKeeps(action: Action, type: ObjectType): boolean {
+  if (!KEY_CEILING_KEEPS.includes(action)) return false;
+  if (type === 'trigger' && action === 'write') return false;
+  if (type !== 'project' && STRUCTURAL.has(type)) return action === 'read';
+  return PROJECT_EDITOR_ACTIONS[type].includes(action);
 }

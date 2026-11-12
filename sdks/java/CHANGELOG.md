@@ -10,6 +10,7 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-models`, `kindgi-client`: **an API key can be minted with a `ceiling`.** `MintTokenBody` takes an optional `ceiling` (`sandbox`, the one so far): the key keeps only what a plain editor of its project holds there, and reads on the workspace, its orgs and teams. `ApiToken`, `WhoamiResult` and `MyKeyLimits` gain `ceiling`, `null` on a key without one. A run the key starts runs as the key's person, with their grants or the agent's, not the ceiling; `Run` and `TestRun` gain `keyCeiling`, `sandbox` on a run or test run such a key started (a rescore is the rescoring key's) and `null` on any other.
 - `kindgi-pack`, `kindgi-pack-scala`: **the indexer refuses an agent, flow or tool version that breaks its kind's rule.** An agent's or a flow's own version is an exact semver with no build metadata (`1.2.3`, `1.2.3-rc.1`), and a tool's is `MAJOR.MINOR.PATCH` (`1.2.3`). Another is now an error of its file (`manifest-validation-failed`), and the rest of the pack still indexes: `0.1` or `v1.0.0` on an agent or a tool, `01.0.0` on any, `1.0.0+build.5` on an agent, or `2.1.0-rc.1` on a tool. Before, they went into the index as they were, and a deploy then refused every one but a leading zero. A flow's was already refused unless it had a leading zero. A tool with no version of its own still takes `pack.version`.
 
 ## 0.5.0

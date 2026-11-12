@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an API key can be minted with a `ceiling`.** `MintTokenBody`
+  takes an optional `ceiling` (`sandbox`, the one so far): the key keeps
+  only what a plain editor of its project holds there, and reads on the
+  workspace, its orgs and teams. `ApiToken`, `WhoamiResult` and
+  `MyKeyLimits` gain `ceiling`, `None` on a key without one. A run the
+  key starts runs as the key's person, with their grants or the agent's,
+  not the ceiling; `Run` and `TestRun` gain `key_ceiling` (`keyCeiling`
+  on the wire), `sandbox` on a run or test run such a key started (a
+  rescore is the rescoring key's) and `None` on any other.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or

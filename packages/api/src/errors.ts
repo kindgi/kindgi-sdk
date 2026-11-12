@@ -529,6 +529,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/tokens` by a session limited to a project or a role: a key
   // would outlive whatever ends the session.
   'limited-session-cannot-mint': 403,
+  // An API key with a ceiling (`ApiTokenCeiling`) asking what the ceiling
+  // leaves out at a route: minting a key, or registering or changing a
+  // schedule or trigger.
+  'key-ceiling-refused': 403,
+  // A key with a ceiling on a runtime with no authorizer to hold it to
+  // the ceiling: refused whatever it asks, and none is minted there.
+  'key-ceiling-unsupported': 501,
+  // A store that returned a new key's record without the ceiling it was
+  // minted with: the key is revoked, and the mint answers this.
+  'key-ceiling-not-kept': 500,
   // Sites that sign their own people in to one project (`SiteBinding`).
   'site-not-found': 404,
   'site-invalid': 400,

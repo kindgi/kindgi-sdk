@@ -56,6 +56,8 @@ export interface AppEnv {
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */
     tokenProjectId?: string;
+    /** An API key's ceiling (`ApiTokenCeiling`): what it keeps of its principal's grants. */
+    tokenCeiling?: 'sandbox';
     /** A write's body as it came, read once by `readBodyOnce`. */
     requestBody?: Uint8Array;
     /** When the API token the request came with expires, if it does. */

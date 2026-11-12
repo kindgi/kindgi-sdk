@@ -276,7 +276,9 @@ export type {
   Subscription,
 } from './event-bus-binding.js';
 export {
+  API_TOKEN_CEILINGS,
   API_TOKEN_ROLES,
+  type ApiTokenCeiling,
   type ApiTokenRecord,
   type ApiTokenRole,
   type TokenAdmin,

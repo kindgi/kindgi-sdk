@@ -4,6 +4,7 @@
 import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
+import type { RunKeyCeiling } from '@kindgi/runtime';
 import type {
   Cursor,
   FlowId,
@@ -127,6 +128,13 @@ export interface TestRun {
   readonly comparison?: TestRunComparison;
   /** The project the run belongs to. Absent from a runtime that doesn't say. */
   readonly projectId?: ProjectId;
+  /**
+   * The ceiling of the API key that started the test run
+   * (`TestRunStartInput.keyCeiling`), recorded when it started. A mark
+   * only. Absent on one no ceiling key started, and from a runtime that
+   * doesn't record it.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
 }
 
 export interface TestRunFilter {
@@ -259,6 +267,14 @@ export interface TestRunStartInput {
    * a body.
    */
   readonly judging?: TestRunJudging;
+  /**
+   * The ceiling of the API key that starts the test run (`RunKeyCeiling`):
+   * set by the route from the caller's key, a rescore's included, never
+   * from a body. The test run records it, and the runs of its cases carry
+   * it (`TestRunSubjectInvokeInput.keyCeiling`); nothing they may do
+   * changes with it.
+   */
+  readonly keyCeiling?: RunKeyCeiling;
 }
 
 /**

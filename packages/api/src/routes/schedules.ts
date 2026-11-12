@@ -14,6 +14,7 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { ceilingKeyChangesNoTrigger } from '../middleware/key-ceiling.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -134,6 +135,8 @@ export function schedulesRouter(
   ownerNotices?: TriggerOwnerNotices,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A key with a ceiling registers and changes none of these (`key-ceiling.ts`).
+  r.use('/*', ceilingKeyChangesNoTrigger(authorizer));
 
   /** A schedule as the owner rule reads it. */
   const owned = (row: CronTriggerRecord): OwnedTrigger => ({
