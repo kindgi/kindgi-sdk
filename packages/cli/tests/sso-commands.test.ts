@@ -256,6 +256,55 @@ describe('kindgi sso providers finish / update', () => {
     );
   });
 
+  test("finish SAML reads the service provider's certificates from files, beside their keys", async () => {
+    const { calls, rec } = recorder();
+    const pem = (body: string) =>
+      `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`;
+    const idp = join(cwd, 'idp.xml');
+    await writeFile(idp, '<EntityDescriptor entityID="https://idp.acme.example"/>');
+    const files = { signing: 'MIIC', next: 'MIID', decryption: 'MIIE' };
+    for (const [name, body] of Object.entries(files)) {
+      await writeFile(join(cwd, `${name}.pem`), pem(body));
+    }
+    const client = {
+      auth: { providers: { register: rec('register', { providerId: 'acme-saml' }) } },
+    };
+    const saml = [
+      'sso',
+      'providers',
+      'finish',
+      'acme-saml',
+      '--kind=saml',
+      `--idp-metadata=@${idp}`,
+    ];
+    const out = await run(
+      [
+        ...saml,
+        '--domains=acme.com',
+        '--sp-signing-key-ref=ACME_SP_KEY',
+        `--sp-signing-certificate=@${join(cwd, 'signing.pem')}`,
+        `--sp-signing-certificate=@${join(cwd, 'next.pem')}`,
+        '--sp-decryption-key-ref=ACME_SP_DECRYPTION_KEY',
+        `--sp-decryption-certificate=@${join(cwd, 'decryption.pem')}`,
+      ],
+      client,
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls[0]?.[1]).toMatchObject({
+      spSigningKeyRef: 'ACME_SP_KEY',
+      spSigningCertificates: [pem('MIIC'), pem('MIID')],
+      spDecryptionKeyRef: 'ACME_SP_DECRYPTION_KEY',
+      spDecryptionCertificates: [pem('MIIE')],
+    });
+    const inline = await run(
+      [...saml, '--domains=acme.com', '--sp-signing-certificate=-----BEGIN CERTIFICATE-----'],
+      client,
+    );
+    expect(inline.exitCode).toBe(1);
+    expect(inline.stderr).toContain('--sp-signing-certificate takes a file');
+    expect(calls).toHaveLength(1);
+  });
+
   test('update sends only the changes; --remove sends null', async () => {
     const { calls, rec } = recorder();
     const out = await run(

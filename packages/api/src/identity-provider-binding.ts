@@ -192,6 +192,20 @@ export interface SamlProviderConfig extends ProviderConfigBase {
   readonly spSigningKeyRef?: string;
   /** Opaque pointer to the key that decrypts encrypted assertions. Never a plaintext key. */
   readonly spDecryptionKeyRef?: string;
+  /**
+   * The certificates (PEM) of `spSigningKeyRef`'s key, published in the
+   * service provider's metadata, so an IdP that imports it can check signed
+   * AuthnRequests. Several during a rollover: publish the new key's beside
+   * the old one, then change `spSigningKeyRef`. Needs `spSigningKeyRef`.
+   */
+  readonly spSigningCertificates?: readonly string[];
+  /**
+   * The certificates (PEM) of `spDecryptionKeyRef`'s key, published in the
+   * service provider's metadata, so an IdP that imports it can encrypt
+   * assertions. The IdP may encrypt to any of them, so each is of that one
+   * key (a renewed certificate beside the old). Needs `spDecryptionKeyRef`.
+   */
+  readonly spDecryptionCertificates?: readonly string[];
   /** Require signed assertions. Default `true`. */
   readonly wantAssertionsSigned?: boolean;
   /** Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`. */

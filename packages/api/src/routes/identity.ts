@@ -412,6 +412,9 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       return c.json({
         user: serializeUser(outcome.user),
         keysRevoked: outcome.keysRevoked,
+        ...(outcome.mintedKeysRevoked !== undefined && {
+          mintedKeysRevoked: outcome.mintedKeysRevoked,
+        }),
         sessionsRevoked: outcome.sessionsRevoked,
         grantsRemoved: outcome.grantsRemoved,
       });

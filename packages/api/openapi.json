@@ -3241,6 +3241,11 @@
             "format": "date-time",
             "description": "When the key last authenticated a request (updated at most once a minute)."
           },
+          "mintedWith": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it."
+          },
           "token": {
             "type": "string",
             "description": "Plaintext bearer token. Returned exactly once at mint time."
@@ -4608,6 +4613,11 @@
             "type": "string",
             "format": "date-time",
             "description": "When the key last authenticated a request (updated at most once a minute)."
+          },
+          "mintedWith": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it."
           }
         }
       },
@@ -4685,6 +4695,11 @@
                   "type": "string",
                   "format": "date-time",
                   "description": "When the key last authenticated a request (updated at most once a minute)."
+                },
+                "mintedWith": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it."
                 }
               }
             }
@@ -4695,6 +4710,11 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "mintedWith": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The key a list asked for with `?mintedWith=` was narrowed to, on every page. Absent from an older runtime, which ignores the filter and lists every key the caller sees."
           }
         }
       },
@@ -5017,6 +5037,14 @@
           "revoked": {
             "type": "boolean",
             "const": true
+          },
+          "alsoRevoked": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The keys revoked with it: every key minted with it, and with those in turn, that wasn't revoked yet, oldest first. Absent where the deployment's key store doesn't record which key minted which."
           }
         }
       },
@@ -18496,6 +18524,22 @@
             "minLength": 1,
             "description": "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key."
           },
+          "spSigningCertificates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The certificates (PEM) of `spSigningKeyRef`'s key, published in the service provider's metadata, so an IdP that imports it can check signed AuthnRequests. Several during a rollover: publish the new key's beside the old one, then change `spSigningKeyRef`. Needs `spSigningKeyRef`."
+          },
+          "spDecryptionCertificates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The certificates (PEM) of `spDecryptionKeyRef`'s key, published in the service provider's metadata, so an IdP that imports it can encrypt assertions. The IdP may encrypt to any of them, so each is of that one key (a renewed certificate beside the old). Needs `spDecryptionKeyRef`."
+          },
           "wantAssertionsSigned": {
             "type": "boolean",
             "description": "Require signed assertions. Default `true`."
@@ -19025,6 +19069,34 @@
               "null"
             ],
             "minLength": 1
+          },
+          "spSigningCertificates": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spDecryptionCertificates": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "wantAssertionsSigned": {
             "type": [
@@ -19598,6 +19670,11 @@
           "keysRevoked": {
             "type": "integer",
             "minimum": 0
+          },
+          "mintedKeysRevoked": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The keys minted with theirs, and with those in turn, revoked with them, whoever they act for. Not in `keysRevoked`. Absent where the key store doesn't record which key minted which."
           },
           "sessionsRevoked": {
             "type": "integer",
@@ -32069,7 +32146,7 @@
             }
           }
         },
-        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.",
+        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. A key minted with a key (`mintedWith`: the caller's, or the one a token sign-in session was opened with) stops when that key is revoked. Only mounted when the deployment supplies a `TokenAdmin`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -32187,6 +32264,16 @@
             },
             "required": false,
             "description": "Tenant admins: only this principal's keys, `user:<id>` or `service-account:<id>`."
+          },
+          {
+            "name": "mintedWith",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the keys minted with this key, and with those in turn, to any depth, revoked ones too: what revoking it takes with it. It narrows what the caller sees, never widens it."
           }
         ],
         "security": [
@@ -32364,7 +32451,7 @@
             }
           }
         },
-        "description": "Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.",
+        "description": "Takes effect on the next request. Every key minted with it, and with those in turn, is revoked with it, whoever it acts for (`alsoRevoked`), and their sessions end. Revoking a revoked key keeps the first time, and revokes any key minted with it that isn't revoked yet. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.",
         "parameters": [
           {
             "name": "tokenId",

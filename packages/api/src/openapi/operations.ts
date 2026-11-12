@@ -2465,7 +2465,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.mint',
     summary: 'Mint an API key',
     description:
-      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.",
+      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. A key minted with a key (`mintedWith`: the caller's, or the one a token sign-in session was opened with) stops when that key is revoked. Only mounted when the deployment supplies a `TokenAdmin`.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2508,6 +2508,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
           "Tenant admins: only this principal's keys, `user:<id>` or `service-account:<id>`.",
         schema: { type: 'string' },
       },
+      {
+        name: 'mintedWith',
+        in: 'query',
+        required: false,
+        description:
+          'Only the keys minted with this key, and with those in turn, to any depth, revoked ones too: what revoking it takes with it. It narrows what the caller sees, never widens it.',
+        schema: { type: 'string', format: 'uuid' },
+      },
     ],
     responses: {
       '200': { description: 'A page of keys.', schema: ref('ApiTokenPage') },
@@ -2543,7 +2551,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.revoke',
     summary: 'Revoke an API key',
     description:
-      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.',
+      "Takes effect on the next request. Every key minted with it, and with those in turn, is revoked with it, whoever it acts for (`alsoRevoked`), and their sessions end. Revoking a revoked key keeps the first time, and revokes any key minted with it that isn't revoked yet. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam, IdempotencyKeyParam],

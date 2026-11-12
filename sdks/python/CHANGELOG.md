@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a SAML provider carries the service provider's certificates,
+  for its metadata.** `SamlIdentityProviderConfig` and
+  `UpdateIdentityProviderBody` gain `sp_signing_certificates` and
+  `sp_decryption_certificates` (`spSigningCertificates` and
+  `spDecryptionCertificates` on the wire): the certificates (PEM) of the keys
+  `sp_signing_key_ref` and `sp_decryption_key_ref` name, published in the
+  service provider's metadata. Each needs its key. Both are optional and
+  default to `None`.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
@@ -28,6 +36,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **a key carries the key it was minted with, and a revoke names
+  the keys that went with it.** `ApiToken.minted_with` is the key a key was
+  minted with, which revoking stops it with. `tokens.list(minted_with=...)`
+  lists the keys minted with a key, to any depth, and the page says
+  `minted_with`. `RevokeTokenResult.also_revoked` lists every key revoked
+  with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
+  minted with a removed person's. Each is absent from a runtime that doesn't
+  record which key minted which.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
