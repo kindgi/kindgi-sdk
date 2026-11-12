@@ -55,6 +55,41 @@ describe('loadFlow — schema conformance', () => {
   });
 });
 
+describe('loadFlow — mcp (schema 1.10.0)', () => {
+  test('kept on the flow as given; left out, the flow has none', () => {
+    const exposed = loadFlow(flow({ mcp: { expose: true, destructive: true } }));
+    expect(exposed.kind).toBe('ok');
+    if (exposed.kind === 'ok')
+      expect(exposed.value.mcp).toEqual({ expose: true, destructive: true });
+    const plain = loadFlow(flow({}));
+    if (plain.kind === 'ok') expect(plain.value).not.toHaveProperty('mcp');
+  });
+
+  test.each([{}, { expose: 'yes' }, { expose: true, title: 'x' }])(
+    'the schema refuses %j',
+    (mcp) => {
+      const r = loadFlow(flow({ mcp }));
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') expect(r.error.code).toBe('schema-validation-failed');
+    },
+  );
+
+  test("an exposed flow's id must make a tool's name; an unexposed one needn't", () => {
+    const id = 'a'.repeat(124);
+    expect(loadFlow(flow({ id, mcp: { expose: false } })).kind).toBe('ok');
+    const r = loadFlow(flow({ id, mcp: { expose: true } }));
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.code).toBe('invalid-mcp-exposure');
+      expect(r.error.message).toContain('at most 123 characters');
+    }
+  });
+
+  test("a flow's id may start kindgi.: its tool is flow.<id>", () => {
+    expect(loadFlow(flow({ id: 'kindgi.intake', mcp: { expose: true } })).kind).toBe('ok');
+  });
+});
+
 describe('loadFlow — structural checks', () => {
   test('rejects duplicate node ids', () => {
     const r = loadFlow(

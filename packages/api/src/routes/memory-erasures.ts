@@ -14,6 +14,7 @@ import type {
   MemoryErasureSelectorKind,
 } from '../memory-erasure-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import type { AppEnv } from '../types.js';
 import { callerRef } from './memory-access.js';
 import { clampLimit } from './pagination.js';
@@ -45,15 +46,12 @@ export function memoryErasuresRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  if (authorizer !== undefined) {
-    r.use('/*', async (c, next) => {
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', async () =>
-        ref('tenant', tenantId as unknown as string),
-      );
-      return mw(c, next);
-    });
-  }
+  const authorize = gate(authorizer);
+  r.use('/*', async (c, next) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const mw = authorize('admin', async () => ref('tenant', tenantId as unknown as string));
+    return mw(c, next);
+  });
 
   r.post('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;

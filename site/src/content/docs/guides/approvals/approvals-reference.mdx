@@ -125,19 +125,22 @@ first email goes at once, then a digest every five minutes at most.
   [Approvals](../../connections/use-a-connection/#approvals) in Use a
   connection in a tool describes.
 - **`connection`** is the connection a call would use, the company's or a
-  person's own. `app` is the app's entry id, and `as` says whose it is:
+  person's own. `app` is the app's entry id, `as` says whose it is, and
+  `connectionId` is the connection's id:
   - **`"company"`:** it also has the connection's `name`, and `account`,
     the account's label at the app, such as an email address or a login:
-    `{ "app": "google", "appName": "Google", "as": "company", "account": "support@acme.example", "name": "support" }`.
-  - **`"person"`:** it has no `name` and no `account`, so it doesn't say
-    which of that person's accounts the call would use. The approval
-    calls it "this person's Google account", and its `approver` is that
-    person: `{ "app": "google", "appName": "Google", "as": "person" }`.
+    `{ "app": "google", "appName": "Google", "as": "company", "account": "support@acme.example", "name": "support", "connectionId": "6f1c2b8e-4d3a-4f5e-9a7b-0c1d2e3f4a5b" }`.
+  - **`"person"`:** it has no `name` and no `account`. The approval calls
+    it "this person's Google account", and its `approver` is that person:
+    `{ "app": "google", "appName": "Google", "as": "person", "connectionId": "0d9e8f7a-1b2c-4d3e-8f4a-5b6c7d8e9f01" }`.
+    Which of the person's accounts it is, only the person and a tenant
+    admin get, with `GET /v1/connections/{connectionId}`. Anyone else gets
+    that route's `404`. A run's record never names it.
     The call's `arguments` stay as the model wrote them, so a call that
     names one of the person's accounts shows it there.
-  - **No `as`:** an older runtime's approval. The company's connection has
-    its `name`. A person's has none, and has their account's label as
-    `account`:
+  - **No `as`:** an older runtime's approval, with no `connectionId`. The
+    company's connection has its `name`. A person's has none, and has their
+    account's label as `account`:
     `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
 - **`withdrawnBecause`** is `run-cancelled` or `run-ended` on an approval its
   run withdrew, as [Withdrawn by its run](#withdrawn-by-its-run) describes.

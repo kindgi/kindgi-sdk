@@ -138,6 +138,8 @@ export type EntityRef =
       readonly id: ProjectId;
       readonly tenantId: TenantId;
       readonly orgId?: OrgId;
+      /** `true` also writes its {@link everyoneRunsTuples}. */
+      readonly everyoneCanRun?: boolean;
     }
   | {
       readonly kind: 'team';
@@ -267,6 +269,9 @@ export function tuplesForCreate(entity: EntityRef, creatorUserId?: UserId): Tupl
           relation: 'owner',
           object: projectObject(entity.id),
         });
+      }
+      if (entity.everyoneCanRun === true) {
+        tuples.push(...everyoneRunsTuples('write', entity.tenantId, entity.id));
       }
       return tuples;
     }
@@ -409,7 +414,7 @@ export function tuplesForDelete(entity: EntityRef): TupleIntent[] {
 // ============================================================
 
 export type TeamRole = 'member' | 'admin';
-export type ProjectRole = 'owner' | 'admin' | 'editor' | 'viewer';
+export type ProjectRole = 'owner' | 'admin' | 'editor' | 'runner' | 'viewer';
 
 export function teamMembershipTuple(
   op: 'write' | 'delete',
@@ -451,6 +456,30 @@ export function teamProjectGrantTuple(
     relation: role,
     object: projectObject(projectId),
   };
+}
+
+/**
+ * A project's "everyone can run" grant: `run` (not the `runner` role, and
+ * no `read`) for every person who is a member of the project's workspace,
+ * whether or not the project is in an org. Two tuples, written or deleted together as the project's
+ * `everyoneCanRun` is turned on or off: `everyone_runs` for every person,
+ * and `everyone_in`, the workspace whose members it counts. Service
+ * accounts and people who aren't members get nothing from it.
+ */
+export function everyoneRunsTuples(
+  op: 'write' | 'delete',
+  tenantId: TenantId,
+  projectId: ProjectId,
+): TupleIntent[] {
+  return [
+    { operation: op, user: 'user:*', relation: 'everyone_runs', object: projectObject(projectId) },
+    {
+      operation: op,
+      user: tenantObject(tenantId),
+      relation: 'everyone_in',
+      object: projectObject(projectId),
+    },
+  ];
 }
 
 // ============================================================

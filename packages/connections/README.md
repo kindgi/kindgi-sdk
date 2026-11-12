@@ -52,7 +52,9 @@ Ready-made tools that act with a connection, one subpath per app:
 - Calendars, from the same two subpaths: `googleCalendarCalendarsList` and
   `outlookCalendarCalendarsList` list the account's calendars,
   `googleCalendarEventsList` and `outlookCalendarEventsList` list the
-  events in a window, `googleCalendarFreeBusy` and
+  events in a window, `googleCalendarSharedEventsList` and
+  `outlookCalendarSharedEventsList` the same on calendars others share with
+  the account too, with a wider permission, `googleCalendarFreeBusy` and
   `outlookCalendarFreeBusy` say when the calendar is busy, both on the main
   calendar or on those named by `calendarIds`, and
   `googleCalendarEventCreate`,

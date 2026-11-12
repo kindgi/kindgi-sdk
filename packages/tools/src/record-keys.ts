@@ -26,3 +26,17 @@ export function toolCallRecordKey(input: {
 
 /** The `ToolContext.record` key a runtime keeps a call's resolved env values under. */
 export const TOOL_ENV_RECORD_KEY = 'env';
+
+/**
+ * The prefix of the `NodeContext.record` keys a call's connection gate
+ * journals its `ConnectionGateRecord` under. Each writer keeps its own
+ * suffix, and a reader matches the prefix:
+ *
+ *   - an agent turn's call: `connection-gate:<call id>`,
+ *     `connection-gate:<call id>:connected` for its ask after a connect,
+ *     and `connection-gate:<call id>:ran:<attempt>` once its tool got its
+ *     connections, in that attempt of its step;
+ *   - a flow's tool step: `connection-gate:<node id>:<attempt>`, in its
+ *     node's scope.
+ */
+export const CONNECTION_GATE_RECORD_PREFIX = 'connection-gate:';

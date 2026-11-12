@@ -136,6 +136,12 @@ flow that fails the checks is a file error in `kindgi dev` and
 `kindgi build`, which leave it out of the index, and a deploy refuses
 it.
 
+**In a chat app:** `mcp: { expose: true }` makes the flow a tool, named
+`flow.<id>`, in the chat apps (Claude, say) people connect to the workspace;
+each person sees it only if they can see the flow. Its id then takes letters,
+digits, `_`, `-` and `.`, at most 123. `readOnly` and `destructive` become
+the tool's hints; left out, none is sent.
+
 ## Nodes
 
 - **`kind: 'tool'`** runs the tool `ref` (its id). The tool's input is

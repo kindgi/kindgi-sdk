@@ -155,7 +155,10 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
   }
   const { root, lockfile, manager } = found;
   if (manager === 'bun') {
-    return { kind: 'err', message: `${lockfile}: bun isn't supported for pack images yet; use pnpm, npm or yarn.` };
+    return {
+      kind: 'err',
+      message: `${lockfile}: bun isn't supported for pack images yet; use pnpm, npm or yarn.`,
+    };
   }
   const rootManifest = await readManifest(join(root, 'package.json'));
   if (rootManifest === undefined) {
@@ -250,12 +253,22 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
   // Local dependencies (`file:` / `link:` / `portal:`) the install reads:
   // those the manifests name (relative to their folder), and those the
   // overrides point at (relative to the root).
-  const locals: { readonly name: string; readonly spec: string; readonly base: string; readonly where: string }[] = [];
+  const locals: {
+    readonly name: string;
+    readonly spec: string;
+    readonly base: string;
+    readonly where: string;
+  }[] = [];
   for (const [dir, manifest] of manifests) {
     for (const field of DEPENDENCY_FIELDS) {
       for (const [name, spec] of Object.entries(objectField(manifest, field))) {
         if (typeof spec === 'string') {
-          locals.push({ name, spec, base: dir, where: `${dir === '' ? '' : `${dir}/`}package.json` });
+          locals.push({
+            name,
+            spec,
+            base: dir,
+            where: `${dir === '' ? '' : `${dir}/`}package.json`,
+          });
         }
       }
     }
@@ -280,7 +293,10 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
   for (const file of files) {
     const reason = forbiddenReason(file);
     if (reason !== undefined) {
-      return { kind: 'err', message: `The install would ship ${file} (${reason}); move it out of the install's inputs.` };
+      return {
+        kind: 'err',
+        message: `The install would ship ${file} (${reason}); move it out of the install's inputs.`,
+      };
     }
   }
 
@@ -302,11 +318,17 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
         .map(([dir]) => (dir === '' ? 'package.json' : `${dir}/package.json`))
         .sort(),
       skippedScripts: manifests
-        .map(([dir, manifest]) => [dir === '' ? 'package.json' : `${dir}/package.json`, manifest] as const)
+        .map(
+          ([dir, manifest]) =>
+            [dir === '' ? 'package.json' : `${dir}/package.json`, manifest] as const,
+        )
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .flatMap(([path, manifest]) =>
           Object.entries(objectField(manifest, 'scripts'))
-            .filter(([name, command]) => INSTALL_LIFECYCLE_SCRIPTS.includes(name) && typeof command === 'string')
+            .filter(
+              ([name, command]) =>
+                INSTALL_LIFECYCLE_SCRIPTS.includes(name) && typeof command === 'string',
+            )
             .map(([name, command]) => ({ manifest: path, name, command: command as string })),
         ),
       packDependencies: packDependenciesOf(packManifest),
@@ -425,7 +447,8 @@ export function installCommands(
       if (!install.workspace) {
         return dev
           ? {
-              install: 'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild',
+              install:
+                'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild',
               prune: 'pnpm prune --prod',
             }
           : { install: 'pnpm install --frozen-lockfile --ignore-scripts --prod && pnpm rebuild' };
@@ -456,7 +479,10 @@ export function installCommands(
     case 'yarn': {
       // Berry always takes dev dependencies too (`whyDevDependencies`).
       if (install.yarnBerry) {
-        return { install: 'yarn install --immutable', prune: 'yarn workspaces focus --all --production' };
+        return {
+          install: 'yarn install --immutable',
+          prune: 'yarn workspaces focus --all --production',
+        };
       }
       const production =
         'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild';
@@ -473,10 +499,12 @@ export function installCommands(
 
 // ---------------------------------------------------------------------
 
-async function findLockfile(
-  start: string,
-): Promise<
-  | { readonly root: string; readonly lockfile: string; readonly manager: ImagePackageManager | 'bun' }
+async function findLockfile(start: string): Promise<
+  | {
+      readonly root: string;
+      readonly lockfile: string;
+      readonly manager: ImagePackageManager | 'bun';
+    }
   | undefined
 > {
   let current = start;
@@ -554,13 +582,17 @@ async function filesUnder(root: string, dir: string): Promise<string[]> {
  */
 async function matchDirectories(root: string, patterns: readonly string[]): Promise<string[]> {
   const include = patterns.filter((p) => !p.startsWith('!')).map(normalizePattern);
-  const exclude = patterns.filter((p) => p.startsWith('!')).map((p) => normalizePattern(p.slice(1)));
+  const exclude = patterns
+    .filter((p) => p.startsWith('!'))
+    .map((p) => normalizePattern(p.slice(1)));
   if (include.length === 0) return [];
   const included = createGlobMatcher(include);
   const excluded = exclude.length > 0 ? createGlobMatcher(exclude) : () => false;
   const out: string[] = include.includes('') ? [''] : [];
   const deep = include.some((p) => p.includes('**'));
-  const maxDepth = deep ? Number.POSITIVE_INFINITY : Math.max(...include.map((p) => p.split('/').length));
+  const maxDepth = deep
+    ? Number.POSITIVE_INFINITY
+    : Math.max(...include.map((p) => p.split('/').length));
   const walk = async (rel: string, depth: number): Promise<void> => {
     if (depth >= maxDepth) return;
     let entries: Dirent[];
@@ -570,7 +602,8 @@ async function matchDirectories(root: string, patterns: readonly string[]): Prom
       return;
     }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+      if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name.startsWith('.'))
+        continue;
       const child = rel === '' ? entry.name : `${rel}/${entry.name}`;
       if (included(child) && !excluded(child)) out.push(child);
       await walk(child, depth + 1);
@@ -619,7 +652,9 @@ async function isFile(path: string): Promise<boolean> {
 
 function objectField(value: unknown, key: string): Manifest {
   const field = (value as Manifest | undefined)?.[key];
-  return field !== null && typeof field === 'object' && !Array.isArray(field) ? (field as Manifest) : {};
+  return field !== null && typeof field === 'object' && !Array.isArray(field)
+    ? (field as Manifest)
+    : {};
 }
 
 function stringField(value: Manifest, key: string): string | undefined {

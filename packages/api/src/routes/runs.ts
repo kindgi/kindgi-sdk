@@ -4,11 +4,14 @@
 import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
+import type { ProjectBinding } from '@kindgi/platform';
 import type {
   JournalPage,
   KernelRunRecord,
   ListRunsInput,
+  RunActsFor,
   RunBinding,
+  RunListReach,
   RunStartedBy,
   RunStatus,
 } from '@kindgi/runtime';
@@ -27,6 +30,7 @@ import type {
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
 import { PAUSE_TOKEN_PREFIX } from '@kindgi/tools';
 
+import { actsForOf } from '../caller.js';
 import type { ConnectionBinding } from '../connection-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
@@ -58,7 +62,9 @@ import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
 import { pinScopeToWire } from './pin-scope-wire.js';
+import { projectIdsCallerMay } from './readable-projects.js';
 import { runFailuresHandler } from './run-failures.js';
+import { actionOrRunRefusal, isOwnRun, readableOrRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
@@ -150,6 +156,12 @@ export interface RunsRouterOptions {
     tenantId: TenantId,
     target: { readonly kind: 'agent' | 'flow'; readonly id: string },
   ) => Promise<string | undefined>;
+  /**
+   * The tenant's projects, for a list across projects when the authorizer
+   * can't list the ones a caller may read or run (`runListReach`). Absent
+   * there: the list filters each page after the store reads it.
+   */
+  readonly projects?: Pick<ProjectBinding, 'list'>;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -180,24 +192,31 @@ export function runsRouter(
   //
   // POST /              — execute on the agent or flow it names (an
   //                       existing one; a missing one is the handler's 404)
-  // GET /:runId         — read on the run's project
-  // POST /:runId/cancel — write on the run's project
+  // GET /:runId         — read on the run's project; on a run of the
+  //                       caller's own (`isOwnRun`), run there
+  // POST /:runId/cancel — write on the run's project; on a run of the
+  //                       caller's own, run there
   // POST /:runId/resume — write on the run's project; answering a pause,
   //                       also execute on what the run runs (the route's)
-  // GET /:runId/journal — read on the run's project
-  // GET /:runId/stream  — read on the run's project
-  // GET /               — list; rows filtered to `read` on their project
+  // GET /:runId/journal,
+  //   /stream, /progress,
+  //   /progress/stream  — as GET /:runId
+  // GET /               — list; rows filtered to `read` on their project,
+  //                       or, for the caller's own, `run` there
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404: `read` on the tenant
     // (which every reader has) lets it through without masking it. An id
     // that isn't a run id is never looked up (its uuid cast would fail
     // the query as a 500): the route's own 400 answers it.
-    const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
+    const runOf = async (c: import('hono').Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
-      const row = UUID_RE.test(runId) ? await runBinding.getRun(tenantId, runId as RunId) : null;
+      return UUID_RE.test(runId) ? runBinding.getRun(tenantId, runId as RunId) : null;
+    };
+    const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
+      const row = await runOf(c);
       return row === null
-        ? ref('tenant', tenantId as unknown as string)
+        ? ref('tenant', c.get('tenantId') as unknown as string)
         : ref('project', row.projectId as unknown as string);
     };
     // The run's read comes before the handler, so a database too busy for
@@ -215,21 +234,43 @@ export function runsRouter(
         );
         return mw(c, next);
       };
+    // Reading a run, and stopping it: `action` on its project, or `run`
+    // there for a run of the caller's own (`isOwnRun`: one they started,
+    // or their own schedule did). Anyone else gets `action`'s 403.
+    const onRunProjectOrOwn =
+      (action: 'read' | 'write') =>
+      async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
+        const row = await runOf(c);
+        if (row === null) {
+          const tenant = ref('tenant', c.get('tenantId') as unknown as string);
+          return authorizer.authorize('read', () => tenant)(c, next);
+        }
+        const project = row.projectId as unknown as string;
+        const own = isOwnRun(c, row) ? project : undefined;
+        const refused = await actionOrRunRefusal(
+          authorizer,
+          c,
+          action,
+          ref('project', project),
+          own,
+        );
+        return refused ?? next();
+      };
     r.use('/:runId', async (c, next) => {
       if (!isReadMethod(c.req.method)) return next();
-      return onRunProject('read')(c, next);
+      return onRunProjectOrOwn('read')(c, next);
     });
-    r.use('/:runId/journal', onRunProject('read'));
-    r.use('/:runId/stream', onRunProject('read'));
-    // Progress: `read` for API tokens. A public run token has no
-    // principal; the handlers check that its grant covers the run.
+    r.use('/:runId/journal', onRunProjectOrOwn('read'));
+    r.use('/:runId/stream', onRunProjectOrOwn('read'));
+    // Progress: as reading the run, for API tokens. A public run token has
+    // no principal; the handlers check that its grant covers the run.
     const progressAuth = async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
       if (c.get('tokenKind') === 'public-run') return next();
-      return onRunProject('read')(c, next);
+      return onRunProjectOrOwn('read')(c, next);
     };
     r.use('/:runId/progress', progressAuth);
     r.use('/:runId/progress/stream', progressAuth);
-    r.use('/:runId/cancel', onRunProject('write'));
+    r.use('/:runId/cancel', onRunProjectOrOwn('write'));
     // As cancel: changing a run is `write` on its project (a project has
     // no `execute`; asking for it refused everyone, T243 A).
     r.use('/:runId/resume', onRunProject('write'));
@@ -461,6 +502,19 @@ export function runsRouter(
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
     }
     const includeOutput = listFilter.value.includeOutput;
+    // `?actsFor=me`: the runs that act for the caller. A caller who acts
+    // for no one has none.
+    const me = actsForOf(c) as RunActsFor | undefined;
+    if (listFilter.value.actsForMe && me === undefined) {
+      return c.json({ data: [], hasMore: false });
+    }
+    const reach = await runListReach(c, {
+      tenantId,
+      scope: scopeParsed.scope,
+      authorizer,
+      projects: options.projects,
+      actsFor: me,
+    });
 
     const page = await runBinding.listRuns(
       listRunsInput({
@@ -469,14 +523,26 @@ export function runsRouter(
         limit,
         cursor: cursorFilter,
         filter: listFilter.value,
+        ...(listFilter.value.actsForMe && me !== undefined && { actsFor: me }),
+        ...(reach !== undefined && { reach }),
       }),
     );
-    const visible =
+    // The store applies the reach and `actsFor`. This keeps what the
+    // caller may see on a page from a store that doesn't (one from before
+    // them): `read` on a row's project, or, on a run of the caller's own,
+    // `run` there. The cursor is the store's page, so a page this leaves
+    // short or empty still moves on.
+    const visible = (
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (row) =>
-            ref('project', row.projectId as unknown as string),
-          );
+        : await readableOrRun(
+            authorizer,
+            c,
+            page.data,
+            (row) => ref('project', row.projectId as unknown as string),
+            (row) => (isOwnRun(c, row) ? (row.projectId as unknown as string) : undefined),
+          )
+    ).filter((row) => !listFilter.value.actsForMe || row.actsFor === me);
     return c.json({
       data: visible.map((row) => serializeRun(row, { output: includeOutput })),
       hasMore: page.nextCursor !== undefined,
@@ -1367,11 +1433,15 @@ function listRunsInput(input: {
   readonly limit: number;
   readonly cursor: DecodedCursor | null;
   readonly filter: RunListFilter;
+  readonly actsFor?: RunActsFor;
+  readonly reach?: RunListReach;
 }): ListRunsInput {
-  const { tenantId, scope, limit, cursor, filter } = input;
+  const { tenantId, scope, limit, cursor, filter, actsFor, reach } = input;
   return {
     tenantId,
     ...(scope !== undefined && { scope }),
+    ...(actsFor !== undefined && { actsFor }),
+    ...(reach !== undefined && { reach }),
     limit,
     ...(cursor !== null && {
       cursor: { createdAt: cursor.createdAt as never, id: cursor.id as RunId },
@@ -1391,6 +1461,49 @@ function listRunsInput(input: {
   };
 }
 
+/**
+ * Whose runs a list may hold, for the store to apply in its query
+ * (`ListRunsInput.reach`): every run in the projects the caller may
+ * `read`, and in those they may only `run`, their own (`isOwnRun`). So a
+ * page is full of what they may see.
+ *
+ * `undefined` where every run of the scope is the caller's to read (a
+ * project they read, a tenant admin's list, no authorizer), and where
+ * their projects can't be worked out (the authorizer can't list them and
+ * there's no project binding): the list's own check then keeps what they
+ * may see, a page at a time. Across projects, `listObjects` answers at
+ * most what the authorization store lists at once (OpenFGA: 1000).
+ */
+async function runListReach(
+  c: Context<AppEnv>,
+  args: {
+    readonly tenantId: TenantId;
+    readonly scope: ListScope | undefined;
+    readonly authorizer: Authorizer | undefined;
+    readonly projects: Pick<ProjectBinding, 'list'> | undefined;
+    readonly actsFor: RunActsFor | undefined;
+  },
+): Promise<RunListReach | undefined> {
+  const { tenantId, scope, authorizer, projects, actsFor } = args;
+  if (authorizer === undefined) return undefined;
+  const own = actsFor !== undefined ? { actsFor } : {};
+  if (scope?.kind === 'project') {
+    const project = ref('project', scope.projectId as unknown as string);
+    if (await authorizer.can(c, 'read', project)) return undefined;
+    const runs = await authorizer.can(c, 'run', project);
+    return { allIn: [], ownIn: runs ? [scope.projectId] : [], ...own };
+  }
+  if (await authorizer.can(c, 'admin', ref('tenant', tenantId as unknown as string))) {
+    return undefined;
+  }
+  const read = await projectIdsCallerMay(c, authorizer, projects, 'read');
+  if (read === undefined) return undefined;
+  const run = await projectIdsCallerMay(c, authorizer, projects, 'run');
+  if (run === undefined) return undefined;
+  const readable = new Set<string>(read);
+  return { allIn: read, ownIn: run.filter((id) => !readable.has(id)), ...own };
+}
+
 interface RunListFilter {
   readonly parentRunId?: RunId;
   readonly topLevelOnly: boolean;
@@ -1405,6 +1518,8 @@ interface RunListFilter {
   readonly flowId?: string;
   readonly flowVersion?: string;
   readonly includeOutput: boolean;
+  /** `?actsFor=me`. */
+  readonly actsForMe: boolean;
 }
 
 /** Every run status: a `Record` over the type, so a new status fails the build here. */
@@ -1515,7 +1630,10 @@ function parseRunListFilter(
   query: Readonly<Record<string, string>>,
   status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include, actsFor } = query;
+  if (actsFor !== undefined && actsFor !== 'me') {
+    return { kind: 'err', message: '`actsFor` must be `me`' };
+  }
   if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
     return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
   }
@@ -1564,6 +1682,7 @@ function parseRunListFilter(
       ...(testRunId !== undefined && { testRunId }),
       ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
+      actsForMe: actsFor === 'me',
     },
   };
 }

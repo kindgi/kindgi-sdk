@@ -56,7 +56,7 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-pack --template=python
 cd my-pack
 uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
@@ -71,7 +71,7 @@ and don't stop theirs.
 Each linked git worktree runs its own `kindgi dev`, side by side, with its
 own workspace, user and token. In the bundled Postgres it has its own
 database too, `kindgi_<project>__<worktree>`, and its workspace and user are
-named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+named from it; with your own (`KINDGI_DATABASE_URL`),
 it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
 git, keeps the token, workspace and user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,
@@ -94,7 +94,7 @@ to one worktree, and so does an env file git doesn't track, such as
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.2,<0.3"   # the CLI (Poetry: poetry add --group dev …)
+uv add --dev "kindgi-cli>=0.6,<0.7"   # the CLI (Poetry: poetry add --group dev …)
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
 uv run kindgi dev
@@ -276,7 +276,7 @@ month = client.cost.aggregate(
 # month.total_usd; month.groups[i].key ({"month": "2026-10"}), .total_usd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.5/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.6/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -288,7 +288,7 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.5/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.6/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -341,11 +341,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.5/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.6/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

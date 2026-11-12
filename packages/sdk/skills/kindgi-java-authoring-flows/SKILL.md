@@ -205,6 +205,10 @@ public final class TriageTicket {
   (`when`) or a `policy` is a map, `edge(Map.of(…))`.
 - **Other fields:** `set(field, value)` takes `name`, `description`,
   `output`, `maxParallelism` and `metadata`. `build()` needs a version.
+- **`set("mcp", Map.of("expose", true))`** makes the flow a tool, named `flow.<id>`, in the chat apps (Claude, say) people
+  connect to the workspace; each person sees it only if they can see the
+  flow. Its id then takes letters, digits, `_`, `-` and `.`, at most 123.
+  `readOnly` and `destructive` become the tool's hints; left out, none is sent.
 - **The maps are the wire's shape,** so their keys are camelCase
   (`inputMapping`, `loopKind`, `maxIterations`).
 - **Where it's checked:** the indexer checks every flow against

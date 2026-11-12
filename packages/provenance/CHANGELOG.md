@@ -1,5 +1,17 @@
 # @kindgi/provenance
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [6707cb9]
+- Updated dependencies [64d1461]
+- Updated dependencies [0334286]
+  - @kindgi/types@0.6.0
+  - @kindgi/flow@0.6.0
+  - @kindgi/runtime@0.6.0
+  - @kindgi/schema@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

@@ -1484,11 +1484,12 @@ class RunsResource:
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         flow_version: str | None = None,
+        acts_for: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
 
-        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.
+        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
         """
         return self._client._request(
             _OPERATIONS["runs.list"],
@@ -1511,6 +1512,7 @@ class RunsResource:
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "flowVersion": flow_version,
+                "actsFor": acts_for,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -1595,7 +1597,7 @@ class RunsResource:
     ) -> _models.Run:
         """Cancel a run. `POST /v1/runs/{runId}/cancel`
 
-        Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.
+        Takes `write` on the run's project; a `runner` there may cancel a run that acts for them (one they started, or their own schedule did). Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.
         """
         return self._client._request(
             _OPERATIONS["runs.cancel"],
@@ -1869,7 +1871,7 @@ class TokensResource:
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
 
-        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.
+        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.
         """
         return self._client._request(
             _OPERATIONS["tokens.list"],
@@ -1906,7 +1908,7 @@ class TokensResource:
     def get(self, token_id: str | UUID, /, *, timeout: float | None = None) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
-        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
+        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.
         """
         return self._client._request(
             _OPERATIONS["tokens.get"],
@@ -1927,7 +1929,7 @@ class TokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
+        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.
         """
         return self._client._request(
             _OPERATIONS["tokens.revoke"],
@@ -4517,7 +4519,7 @@ class ConversationsResource:
     ) -> _models.Conversation:
         """Close a conversation. `POST /v1/conversations/{conversationId}/close`
 
-        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).
+        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.
         """
         return self._client._request(
             _OPERATIONS["conversations.close"],
@@ -5367,7 +5369,7 @@ class ArtifactsResource:
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.
         """
         return self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -5395,7 +5397,7 @@ class ArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
         """
         return self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -5411,7 +5413,7 @@ class ArtifactsResource:
     def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
+        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.
         """
         return self._client._request(
             _OPERATIONS["artifacts.download"],
@@ -7474,7 +7476,7 @@ class AuthSitesResource:
     ) -> _models.EnrollSiteResult:
         """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
 
-        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
         """
         return self._client._request(
             _OPERATIONS["auth.sites.enroll"],
@@ -9300,7 +9302,7 @@ class ProjectsTeamGrantsResource:
     ) -> _models.TeamProjectGrant:
         """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
 
-        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `runner`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["projects.teamGrants.add"],
@@ -9546,7 +9548,7 @@ class ProjectsSitesResource:
     ) -> _models.Site:
         """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
 
-        Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.
+        Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["projects.sites.revokeKey"],
@@ -9649,7 +9651,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -9684,7 +9686,7 @@ class ProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return self._client._request(
             _OPERATIONS["projects.update"],
@@ -10382,7 +10384,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. Any other schedule the caller registers for themselves, a person with no `runAsServiceAccountId` or `runAsProject`, takes `run` on the project (a `runner` keeps their own schedules); every other one takes `write`. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["schedules.register"],
@@ -10424,7 +10426,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `run` on its project; `write` for an `improve` schedule, or to make it one) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -10446,7 +10448,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner (holding `run` on its project) or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -10467,7 +10469,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner (holding `run` on its project) or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
         """
         return self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -10488,7 +10490,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -10566,7 +10568,7 @@ class SchedulesResource:
     ) -> _models.ScheduleFire:
         """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
 
-        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner (holding `run` on its project) or a project admin fires it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.runNow"],
@@ -11812,11 +11814,12 @@ class AsyncRunsResource:
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         flow_version: str | None = None,
+        acts_for: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
 
-        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.
+        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
         """
         return await self._client._request(
             _OPERATIONS["runs.list"],
@@ -11839,6 +11842,7 @@ class AsyncRunsResource:
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "flowVersion": flow_version,
+                "actsFor": acts_for,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -11923,7 +11927,7 @@ class AsyncRunsResource:
     ) -> _models.Run:
         """Cancel a run. `POST /v1/runs/{runId}/cancel`
 
-        Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.
+        Takes `write` on the run's project; a `runner` there may cancel a run that acts for them (one they started, or their own schedule did). Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.
         """
         return await self._client._request(
             _OPERATIONS["runs.cancel"],
@@ -12197,7 +12201,7 @@ class AsyncTokensResource:
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
 
-        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.
+        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.
         """
         return await self._client._request(
             _OPERATIONS["tokens.list"],
@@ -12236,7 +12240,7 @@ class AsyncTokensResource:
     ) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
-        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
+        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.
         """
         return await self._client._request(
             _OPERATIONS["tokens.get"],
@@ -12257,7 +12261,7 @@ class AsyncTokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
+        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.
         """
         return await self._client._request(
             _OPERATIONS["tokens.revoke"],
@@ -14851,7 +14855,7 @@ class AsyncConversationsResource:
     ) -> _models.Conversation:
         """Close a conversation. `POST /v1/conversations/{conversationId}/close`
 
-        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).
+        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.
         """
         return await self._client._request(
             _OPERATIONS["conversations.close"],
@@ -15703,7 +15707,7 @@ class AsyncArtifactsResource:
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -15731,7 +15735,7 @@ class AsyncArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -15747,7 +15751,7 @@ class AsyncArtifactsResource:
     async def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
+        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.download"],
@@ -17818,7 +17822,7 @@ class AsyncAuthSitesResource:
     ) -> _models.EnrollSiteResult:
         """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
 
-        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
         """
         return await self._client._request(
             _OPERATIONS["auth.sites.enroll"],
@@ -19646,7 +19650,7 @@ class AsyncProjectsTeamGrantsResource:
     ) -> _models.TeamProjectGrant:
         """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
 
-        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `runner`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["projects.teamGrants.add"],
@@ -19892,7 +19896,7 @@ class AsyncProjectsSitesResource:
     ) -> _models.Site:
         """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
 
-        Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.
+        Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["projects.sites.revokeKey"],
@@ -19995,7 +19999,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],
@@ -20032,7 +20036,7 @@ class AsyncProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return await self._client._request(
             _OPERATIONS["projects.update"],
@@ -20730,7 +20734,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. Any other schedule the caller registers for themselves, a person with no `runAsServiceAccountId` or `runAsProject`, takes `run` on the project (a `runner` keeps their own schedules); every other one takes `write`. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["schedules.register"],
@@ -20772,7 +20776,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `run` on its project; `write` for an `improve` schedule, or to make it one) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -20794,7 +20798,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner (holding `run` on its project) or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -20815,7 +20819,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner (holding `run` on its project) or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -20836,7 +20840,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -20914,7 +20918,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleFire:
         """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
 
-        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner (holding `run` on its project) or a project admin fires it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.runNow"],
