@@ -11,10 +11,13 @@ import com.kindgi.client.internal.RequestSpec;
 import com.kindgi.client.internal.Transport;
 import com.kindgi.client.models.CreateWidgetBody;
 import com.kindgi.client.models.PatchWidgetBody;
+import com.kindgi.client.models.RefreshDone;
+import com.kindgi.client.models.RefreshQueued;
 import com.kindgi.client.models.RotateDone;
 import com.kindgi.client.models.RotateQueued;
 import com.kindgi.client.models.Widget;
 import com.kindgi.client.models.WidgetPage;
+import com.kindgi.client.models.WidgetsRefreshResponse;
 import com.kindgi.client.models.WidgetsRotateResponse;
 import java.util.Map;
 import java.util.Objects;
@@ -234,5 +237,21 @@ public final class WidgetsResource {
      */
     public WidgetsRotateResponse rotate(UUID widgetId) {
         return rotate(widgetId, null);
+    }
+
+    /**
+     * Refresh a widget.
+     *
+     * <p><code>POST /v1/widgets/&#123;widgetId&#125;/refresh</code> ({@code widgets.refresh})
+     *
+     * @param widgetId The widgetId.
+     * @return the answer
+     * @throws KindgiApiException when the API refuses the call or can't be reached
+     */
+    public WidgetsRefreshResponse refresh(UUID widgetId) {
+        Objects.requireNonNull(widgetId, "widgetId");
+        RequestSpec request = RequestSpec.of(Operations.WIDGETS_REFRESH)
+                .path("widgetId", widgetId);
+        return transport.byStatus(request, WidgetsRefreshResponse.class, Map.of(200, RefreshDone.class, 202, RefreshQueued.class));
     }
 }

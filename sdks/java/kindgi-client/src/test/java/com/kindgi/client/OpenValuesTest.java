@@ -112,7 +112,12 @@ class OpenValuesTest {
     List<String> unions = new ArrayList<>();
     for (Class<?> type : models()) {
       JsonTypeInfo info = type.getAnnotation(JsonTypeInfo.class);
-      if (info == null || !type.isInterface()) {
+      // A by-status answer has nowhere to keep one: its shapes never grow. And the interface a
+      // text-or-object union's objects share isn't a union of the API: AppJacksonTest reads it.
+      if (info == null
+          || !type.isInterface()
+          || info.defaultImpl() == JsonTypeInfo.class
+          || !java.lang.reflect.Modifier.isPublic(type.getModifiers())) {
         continue;
       }
       Class<?> unrecognized = nested(type, "Unrecognized");

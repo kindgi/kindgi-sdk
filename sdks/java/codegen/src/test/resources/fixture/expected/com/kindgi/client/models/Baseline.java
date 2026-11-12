@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.Collections;
 import java.util.List;
@@ -34,8 +35,21 @@ public sealed interface Baseline extends Model permits Baseline.WithAgentId, Bas
     /**
      * The text variant.
      */
+    @JsonCreator(
+            mode = JsonCreator.Mode.DELEGATING
+    )
     static Baseline of(String text) {
         return new Recorded(text);
+    }
+
+    /**
+     * How an app's own Jackson reads an object: by the properties it has.
+     */
+    @JsonCreator(
+            mode = JsonCreator.Mode.DELEGATING
+    )
+    private static Baseline object(BaselineObject value) {
+        return (Baseline) value;
     }
 
     /**
@@ -44,12 +58,15 @@ public sealed interface Baseline extends Model permits Baseline.WithAgentId, Bas
      * @param properties its other properties
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NONE
+    )
     @JsonAutoDetect(
             fieldVisibility = JsonAutoDetect.Visibility.NONE,
             getterVisibility = JsonAutoDetect.Visibility.NONE,
             isGetterVisibility = JsonAutoDetect.Visibility.NONE
     )
-    record Unrecognized(Map<String, Object> properties) implements Baseline {
+    record Unrecognized(Map<String, Object> properties) implements Baseline, BaselineObject {
         public Unrecognized {
             properties = Checks.extras(properties);
         }
@@ -97,8 +114,11 @@ public sealed interface Baseline extends Model permits Baseline.WithAgentId, Bas
      * @param version Required.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NONE
+    )
     record WithAgentId(@JsonProperty("agentId") String agentId,
-            @JsonProperty("version") String version) implements Baseline {
+            @JsonProperty("version") String version) implements Baseline, BaselineObject {
         public WithAgentId {
             agentId = Checks.required(agentId, "Baseline.WithAgentId.agentId");
             version = Checks.required(version, "Baseline.WithAgentId.version");
@@ -176,7 +196,10 @@ public sealed interface Baseline extends Model permits Baseline.WithAgentId, Bas
      * @param live Required.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record WithLive(@JsonProperty("live") WithLive.Live live) implements Baseline {
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NONE
+    )
+    record WithLive(@JsonProperty("live") WithLive.Live live) implements Baseline, BaselineObject {
         public WithLive {
             live = Checks.required(live, "Baseline.WithLive.live");
         }
