@@ -18,6 +18,7 @@ import type {
 import type { ReadFolder } from '../build/pack-blocks.js';
 import type { DockerReach } from './blocked.js';
 import type { DevLockProcesses } from './dev-lock.js';
+import type { DevLicenseKey, DevLicenseKeyInput } from './license-key.js';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
@@ -94,6 +95,14 @@ export interface StartApiServerOptions {
   readonly googleCredentialsPath?: string;
   /** The runtime image (`--runtime-image`). */
   readonly runtimeImage: string;
+  /**
+   * The license key the container runs with (`DevRunners.licenseKey`),
+   * handed to it by name only: its value is in the `docker run`'s
+   * environment, never in its arguments or `runtime.env`. Absent with
+   * `--runtime-url`, whose runtime reads `KINDGI_LICENSE_KEY` from the
+   * developer's own shell.
+   */
+  readonly licenseKey?: string;
   /**
    * `--runtime-url`: a runtime the developer runs themselves (from
    * source). No container: `kindgi dev` writes `runtime.env` for it and
@@ -348,6 +357,13 @@ export interface DevRunners {
    * absent): a test gives its own pids and start times.
    */
   readonly devLockProcesses?: DevLockProcesses;
+  /**
+   * The license key the runtime runs with, checked
+   * (`resolveDevLicenseKey`): or why `kindgi dev` can't start. Asked
+   * before anything starts, unless `--runtime-url` names a runtime the
+   * developer runs, which reads its key from their own shell.
+   */
+  readonly licenseKey: (input: DevLicenseKeyInput) => Promise<DevLicenseKey>;
   /** Boot the api-server. Resolves once the HTTP listener is bound. */
   readonly startApiServer: (opts: StartApiServerOptions) => Promise<RunningApiServer>;
   /**

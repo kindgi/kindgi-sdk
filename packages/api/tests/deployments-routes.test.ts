@@ -29,6 +29,7 @@ import type {
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
+import { PROMOTE_ONLY_KEY_PREFIX } from '../src/deployment-envelope.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
@@ -2289,6 +2290,89 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
+  /** An index of one tool and one flow of two of its steps, `a` then `b`, joined by `edges`. */
+  function stepsIndex(edges: readonly unknown[], extra: Record<string, unknown> = {}) {
+    return {
+      v: 1,
+      artifactVersion: '20260920.1',
+      publishedAt: '2026-09-20T14:32:07.104Z',
+      tools: [
+        {
+          id: 'acme.noop',
+          description: 'Does nothing.',
+          version: '1.0.0',
+          input: { type: 'object' },
+          output: { type: 'object' },
+          modulePath: './tools/noop.js',
+        },
+      ],
+      guardrails: [],
+      agents: [],
+      flows: [
+        {
+          id: 'acme.steps',
+          version: '1.0.0',
+          nodes: [
+            { id: 'a', kind: 'tool', ref: 'acme.noop' },
+            { id: 'b', kind: 'tool', ref: 'acme.noop' },
+          ],
+          edges,
+          kernelPayloadVersion: 1,
+          modulePath: 'flows/steps.py',
+          ...extra,
+        },
+      ],
+    };
+  }
+
+  test("a flow that fails loadFlow's graph checks → 400 with the check's code, as a Python or Java indexer writes one; nothing is deployed", async () => {
+    const cycle = [
+      { id: 'e1', from: '$start', to: 'a' },
+      { id: 'e2', from: 'a', to: 'b' },
+      { id: 'e3', from: 'b', to: 'a' },
+      { id: 'e4', from: 'b', to: '$end' },
+    ];
+    const noStart = [
+      { id: 'e1', from: 'a', to: 'b' },
+      { id: 'e2', from: 'b', to: '$end' },
+    ];
+    for (const [edges, why] of [
+      [cycle, /^cycle-detected: Flow "acme\.steps" contains a cycle: /],
+      [noStart, /^missing-start-edge: /],
+    ] as const) {
+      const fixture = buildSignedDeploy({ index: stepsIndex(edges) });
+      const { app, deploymentRegistry } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+      };
+      expect(body.error.code).toBe('deployment-validation-failed');
+      expect(body.error.details?.issues).toEqual([
+        {
+          primitive: 'flow',
+          index: 0,
+          id: 'acme.steps',
+          path: '',
+          message: expect.stringMatching(why),
+        },
+      ]);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    }
+  });
+
+  test('a flow whose graph passes deploys, with a field this version doesn’t know', async () => {
+    const linear = [
+      { id: 'e1', from: '$start', to: 'a' },
+      { id: 'e2', from: 'a', to: 'b' },
+      { id: 'e3', from: 'b', to: '$end' },
+    ];
+    const fixture = buildSignedDeploy({ index: stepsIndex(linear, { shape: 'from a newer CLI' }) });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    expect((await post(app, fixture.wire)).status).toBe(201);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
   test("an agent's output that isn't an object → 400 at /output", async () => {
     for (const output of [null, 'json', [{ type: 'object' }]]) {
       const fixture = buildSignedDeploy({ index: indexWith(output) });
@@ -2586,6 +2670,47 @@ describe('POST /v1/deployments — 500s route through the central handler', () =
     expect(JSON.parse(raw).error.code).toBe('internal-server-error');
     expect(raw).not.toContain('row rejected');
     expect(raw).not.toContain('artifact_version');
+    // Rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a project put in production while the deploy runs is 409 promote-only-build, and rolls back', async () => {
+    // A key id with the prefix makes the build promote-only. The default
+    // project isn't in production, so the route's own check passes, and the
+    // registry's step is the one that sees the project in production.
+    const keyId = `${PROMOTE_ONLY_KEY_PREFIX}acme-release` as SigningKeyId;
+    const fixture = buildSignedDeploy({ keyId });
+    const registered: DeploymentRegisterInput[] = [];
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async (input) => {
+        registered.push(input);
+        return { kind: 'project-in-production' };
+      },
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({
+      fixture,
+      deploymentRegistry,
+      extraTrust: [
+        { keyId, tenantId, publicKey: Buffer.from(fixture.publicKeyRaw).toString('base64') },
+      ],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code: 'promote-only-build',
+      details: { signerKeyId: keyId, projectId: DEFAULT_PROJECT_ID },
+    });
+    expect(registered.map((input) => input.promoteOnly)).toEqual([true]);
     // Rolled back.
     expect(
       await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
@@ -4989,6 +5114,179 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     // What the deploy brings itself is never asked about.
     expect(asked).toEqual(['acme.other-tool']);
     expect(tools.versions('acme.score')).toEqual([]);
+  });
+
+  /** A pack whose flow's agent step names `named`, a version of the pack's own agent (1.4.0). */
+  function packNamingAgentVersion(named: string): SignedDeploy {
+    const artifactVersion = '20261011.2';
+    const publishedAt = '2026-10-11T00:00:00.000Z';
+    return buildSignedDeploy({
+      artifactVersion,
+      publishedAt,
+      index: {
+        v: 1,
+        artifactVersion,
+        publishedAt,
+        tools: [
+          {
+            id: 'acme.score',
+            description: 'Scores a match.',
+            version: '1.0.0',
+            input: { type: 'object', properties: { q: { type: 'string' } } },
+            output: { type: 'object', properties: { score: { type: 'number' } } },
+            modulePath: './tools/score-1.0.0.js',
+          },
+        ],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.matcher',
+            version: '1.4.0',
+            name: 'Matcher',
+            instructions: 'Match the request.',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [{ id: 'acme.score', version: '^1.0.0' }],
+          },
+        ],
+        flows: [
+          {
+            id: 'acme.route',
+            version: '1.0.0',
+            nodes: [
+              { id: 'match', kind: 'agent', ref: 'acme.matcher', config: { version: named } },
+            ],
+            edges: [
+              { id: 'e0', from: '$start', to: 'match' },
+              { id: 'e1', from: 'match', to: '$end' },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  for (const [named, refused] of [
+    ['1.3.0', true],
+    ['1.4.0', false],
+  ] as const) {
+    test(`a flow step naming ${refused ? "another version of the pack's agent is asked of reach, and refused at the step" : "the pack's own agent version is not asked"}`, async () => {
+      const pack = packNamingAgentVersion(named);
+      const asked: unknown[] = [];
+      const agents = makeVersionedAgentRegistry();
+      const { app } = makeApp({
+        toolRegistry: makeVersionedToolRegistry(),
+        agentRegistry: agents,
+        flowRegistry: makeVersionedFlowRegistry(),
+        extra: {
+          referenceScope: {
+            reachable: async ({ ref }) => {
+              asked.push(ref);
+              return ref.version !== '1.3.0';
+            },
+          },
+        },
+        extraTrust: [trustOf(pack)],
+        extraImages: [imageOf(pack)],
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      const body = (await res.json()) as Record<string, any>;
+      if (refused) {
+        expect(res.status).toBe(400);
+        expect(body.error.code).toBe('reference-out-of-scope');
+        expect(body.error.details.issues).toEqual([
+          expect.objectContaining({
+            path: '/flows/0/nodes/match',
+            kind: 'agent',
+            id: 'acme.matcher',
+          }),
+        ]);
+        expect(asked).toEqual([{ kind: 'agent', id: 'acme.matcher', version: '1.3.0' }]);
+        expect(agents.versions()).toEqual([]);
+      } else {
+        expect(res.status).toBe(201);
+        expect(asked).toEqual([]);
+      }
+    });
+  }
+
+  test("a flow whose registry found a tool version it pins removed is refused at the tool's step, and the deploy rolls back", async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0', flowVersion: '1.0.0' });
+    const agents = makeVersionedAgentRegistry();
+    const flows = makeVersionedFlowRegistry();
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: agents,
+      flowRegistry: {
+        ...flows,
+        publish: async ({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) => ({
+          kind: 'held-version-gone',
+          flowId: flow.id,
+          version: flow.version,
+          gone: [{ kind: 'tool', id: 'acme.score', version: '1.0.0' }],
+        }),
+      },
+      extraTrust: [trustOf(pack)],
+      extraImages: [imageOf(pack)],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(pack.wire),
+    });
+    const body = (await res.json()) as Record<string, any>;
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      {
+        path: '/flows/0/nodes/score',
+        kind: 'tool',
+        id: 'acme.score',
+        message: 'tool "acme.score" 1.0.0 was removed while this flow was published',
+      },
+    ]);
+    // The agent the deploy registered before is rolled back.
+    expect(agents.versions()).toEqual([]);
+    expect(flows.versions()).toEqual([]);
+  });
+
+  test('an agent whose registry found a tool version it pins removed is refused at the tool', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0' });
+    const agents = makeVersionedAgentRegistry();
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: {
+        ...agents,
+        publish: async ({ agent }: Parameters<AgentRegistryBinding['publish']>[0]) => ({
+          kind: 'held-version-gone',
+          agentId: agent.id,
+          version: agent.version,
+          gone: [{ kind: 'tool', id: 'acme.score', version: '1.0.0' }],
+        }),
+      },
+      flowRegistry: makeVersionedFlowRegistry(),
+      extraTrust: [trustOf(pack)],
+      extraImages: [imageOf(pack)],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(pack.wire),
+    });
+    const body = (await res.json()) as Record<string, any>;
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      {
+        path: '/agents/0/tools/0',
+        kind: 'tool',
+        id: 'acme.score',
+        message: 'tool "acme.score" 1.0.0 was removed while this agent was published',
+      },
+    ]);
   });
 
   test('a deploy into a named project is checked against what that project reaches', async () => {

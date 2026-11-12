@@ -34,6 +34,9 @@ const APP_KEY = 'app-key-token';
 const ADMIN = 'admin-token';
 /** A key limited to project B, of a user who also reads project A and org A. */
 const KEY_B = 'key-b-token';
+/** A user who writes projects A and B, and their key limited to project B. */
+const WRITER = 'writer-token';
+const WRITER_KEY_B = 'writer-key-b-token';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === USER_1) return { tenantId, userId: 'user-1' as UserId };
@@ -41,6 +44,10 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === APP_KEY) return { tenantId, tokenId: 'key-1' as never };
   if (token === ADMIN) return { tenantId, userId: 'admin-1' as UserId };
   if (token === KEY_B) return { tenantId, userId: 'multi-1' as UserId, tokenProjectId: projectB };
+  if (token === WRITER) return { tenantId, userId: 'writer-1' as UserId };
+  if (token === WRITER_KEY_B) {
+    return { tenantId, userId: 'writer-1' as UserId, tokenProjectId: projectB };
+  }
   return null;
 };
 
@@ -51,6 +58,13 @@ const GRANTS: Readonly<Record<string, readonly string[]>> = {
   'key-1': [`read project:${projectA}`, `write project:${projectA}`],
   'admin-1': [`admin tenant:${tenantId}`],
   'multi-1': [`read project:${projectA}`, `read project:${projectB}`, `read org:${orgA}`],
+  'writer-1': [
+    `read project:${projectA}`,
+    `write project:${projectA}`,
+    `read project:${projectB}`,
+    `write project:${projectB}`,
+    `admin org:${orgA}`,
+  ],
 };
 
 function holder(principal: unknown): string {
@@ -295,5 +309,58 @@ describe('API — memory write checks', () => {
     const deleted = await h.call('DELETE', `/v1/memory/facts/${ids.user1}`, USER_1);
     expect(deleted.status).toBe(200);
     expect(deleted.body.invalidatedBy).toBe('user:user-1');
+  });
+  test("a key limited to a project writes only inside it: not even its own person's facts", async () => {
+    const h = harness();
+    const limited = `This API key is limited to project ${projectB}: it writes memory only in the project or one of its conversations.`;
+    for (const scope of [{ userId: 'writer-1' }, { orgId: orgA }, {}]) {
+      const res = await h.call('POST', '/v1/memory/facts', WRITER_KEY_B, write(scope));
+      expect([res.status, res.body.error.code], JSON.stringify(scope)).toEqual([
+        403,
+        'permission-denied',
+      ]);
+      expect(res.body.error.message).toBe(limited);
+    }
+    expect(h.memory.rows).toEqual([]);
+    const inside = await h.call(
+      'POST',
+      '/v1/memory/facts',
+      WRITER_KEY_B,
+      write({ projectId: projectB }),
+    );
+    expect(inside.status).toBe(201);
+    // Its person, signed in with no limit, writes their own and the org's.
+    const own = await h.call('POST', '/v1/memory/facts', WRITER, write({ userId: 'writer-1' }));
+    expect(own.status).toBe(201);
+    expect((await h.call('POST', '/v1/memory/facts', WRITER, write({ orgId: orgA }))).status).toBe(
+      201,
+    );
+  });
+
+  test("a key limited to a project reads its person's own facts, and changes none of them", async () => {
+    const h = harness();
+    await seed(h);
+    const mine = await h.memory.binding.writeFact({
+      tenantId,
+      type: 'acme.note',
+      scope: { tenantId, userId: 'writer-1' as UserId },
+      content: { name: 'mine' },
+    });
+    if (mine.kind !== 'ok') throw new Error(`seed mine: ${mine.kind}`);
+    const id = mine.fact.id as unknown as string;
+    expect(await visibleNames(h, WRITER_KEY_B)).toEqual(['mine', 'projectB', 'tenant']);
+    for (const res of [
+      await h.call('POST', `/v1/memory/facts/${id}/supersede`, WRITER_KEY_B, {
+        content: 'changed',
+      }),
+      await h.call('DELETE', `/v1/memory/facts/${id}`, WRITER_KEY_B),
+    ]) {
+      expect([res.status, res.body.error.code]).toEqual([403, 'permission-denied']);
+      expect(res.body.error.message).toContain(`limited to project ${projectB}`);
+    }
+    const byPerson = await h.call('POST', `/v1/memory/facts/${id}/supersede`, WRITER, {
+      content: 'changed',
+    });
+    expect(byPerson.status).toBe(200);
   });
 });

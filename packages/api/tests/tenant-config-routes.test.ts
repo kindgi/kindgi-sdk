@@ -28,7 +28,8 @@ import type {
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'tenant-config-token';
-const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
+const resolveToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, capabilities: ['env:write', 'secrets:write'] } : null;
 const envName = 'default' as EnvName;
 const scope = { kind: 'tenant' as const, tenantId };
 const at = '2026-09-30T00:00:00.000Z';
@@ -202,5 +203,103 @@ describe('PATCH /v1/tenant/config — a secret write the store refuses', () => {
     });
     expect(res.status).toBe(status);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(code);
+  });
+});
+
+describe('PATCH /v1/tenant/config — the capability of the binding it writes', () => {
+  /** Keys by the capabilities they carry. */
+  const KEYS: Record<string, readonly string[]> = {
+    'env-key': ['env:write'],
+    'secrets-key': ['secrets:write'],
+    'bare-key': [],
+  };
+
+  /** Bindings that note each call: an env write lands, and the store refuses a secret. */
+  function writer() {
+    const calls: string[] = [];
+    const envBinding = {
+      set: async (input: { readonly name: string }) => {
+        calls.push(`env.set ${input.name}`);
+        return { kind: 'ok', record: { value: 'v', revision: 1, updatedAt: at } };
+      },
+    } as unknown as EnvBinding;
+    const secretsBinding = {
+      get: async () => {
+        calls.push('secrets.get');
+        return null;
+      },
+      set: async () => {
+        calls.push('secrets.set');
+        return { kind: 'error', code: 'secret-store-error', message: 'the store says why' };
+      },
+    } as unknown as SecretBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) => {
+        const capabilities = KEYS[token];
+        return capabilities === undefined ? null : { tenantId, capabilities };
+      },
+      runHandler: {} as RunHandlerBinding,
+      envBinding,
+      secretsBinding,
+    });
+    const patch = (token: string, body: Record<string, unknown>) =>
+      app.request('/v1/tenant/config', {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    return { calls, patch };
+  }
+
+  test.each([
+    ['an env entry, with none', 'bare-key', { kind: 'env', key: 'ACME_URL' }, 'env:write'],
+    ['a config entry, with none', 'bare-key', { kind: 'config', key: 'ACME_MODE' }, 'env:write'],
+    ['a secret, with none', 'bare-key', { kind: 'secret', key: 'ACME_KEY' }, 'secrets:write'],
+    ['a secret, with env:write', 'env-key', { kind: 'secret', key: 'ACME_KEY' }, 'secrets:write'],
+    [
+      'a sensitive config entry, with env:write',
+      'env-key',
+      { kind: 'config', key: 'ACME_KEY', sensitive: true },
+      'secrets:write',
+    ],
+    // Before the store is read: a new name it would refuse answers as any other.
+    [
+      'a bad new secret name, with env:write',
+      'env-key',
+      { kind: 'secret', key: '.x' },
+      'secrets:write',
+    ],
+    [
+      'an env entry, with secrets:write',
+      'secrets-key',
+      { kind: 'env', key: 'ACME_URL' },
+      'env:write',
+    ],
+    [
+      'a config entry, with secrets:write',
+      'secrets-key',
+      { kind: 'config', key: 'ACME_MODE' },
+      'env:write',
+    ],
+  ])('%s: 403 for want of %s, and no binding is called', async (_, token, entry, cap) => {
+    const { calls, patch } = writer();
+    const res = await patch(token, { ...entry, value: 'v' });
+    expect(res.status).toBe(403);
+    const { error } = (await res.json()) as { error: { code: string; message: string } };
+    expect(error.code).toBe('permission-denied');
+    expect(error.message).toContain(`\`${cap}\``);
+    expect(calls).toEqual([]);
+  });
+
+  test('env:write writes an env or config entry, and secrets:write a secret', async () => {
+    const { calls, patch } = writer();
+    const env = await patch('env-key', { kind: 'env', key: 'ACME_URL', value: 'v' });
+    const config = await patch('env-key', { kind: 'config', key: 'ACME_MODE', value: 'v' });
+    expect([env.status, config.status]).toEqual([200, 200]);
+    // The store's own refusal: the check let the write through to it.
+    const secret = await patch('secrets-key', { kind: 'secret', key: 'ACME_KEY', value: 'v' });
+    expect(secret.status).toBe(500);
+    expect(calls).toEqual(['env.set ACME_URL', 'env.set ACME_MODE', 'secrets.get', 'secrets.set']);
   });
 });

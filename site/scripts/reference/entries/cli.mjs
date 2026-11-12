@@ -990,9 +990,9 @@ export const CLI_DEFAULTS = {
   'test-runs start': {
     project: 'required',
     agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'the latest version',
+    'agent-version': 'required on test cases (a `corrections` test set); else none',
     flow: 'required: one of `--agent`, `--flow`',
-    'flow-version': 'the latest version',
+    'flow-version': 'required on test cases (a `corrections` test set); else none',
     with: 'none',
     baseline: '`recorded`',
     'baseline-project': 'none',

@@ -18,7 +18,7 @@ import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
-import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
+import { type Flow, type FlowPins, flowGraphProblem, flowSchemaProblems } from '@kindgi/flow';
 import {
   DEFAULT_CHECK_POINTS,
   GUARDRAIL_SPEC_KEYS,
@@ -76,7 +76,7 @@ import {
   parseReplace,
 } from '../deploy-check.js';
 import { type PlannedTool, keepPublishedTool, planPackTools } from '../deploy-tools.js';
-import type { DeployedVersionOutcome } from '../deploy-versions.js';
+import { type DeployedVersionOutcome, refusedPublish } from '../deploy-versions.js';
 import {
   type DeployedAgent,
   type DeployedFlow,
@@ -87,7 +87,12 @@ import {
   type DeploymentSource,
   serializeDeployment,
 } from '../deployment-binding.js';
-import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
+import {
+  PROMOTE_ONLY_KEY_PREFIX,
+  type ProductionEntry,
+  canonicalizeEnvelope,
+  normaliseSha256Hex,
+} from '../deployment-envelope.js';
 import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
 import type { EnvBinding, EnvCloudSecretBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
@@ -104,10 +109,14 @@ import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
-import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
+import {
+  PROJECT_MISMATCH,
+  PublishRefused,
+  ReferencesRefused,
+  projectMismatchFix,
+} from '../publish-refused.js';
 import {
   type ItemReference,
-  type ReferenceOutOfScopeError,
   type ReferenceScopeBinding,
   agentReferences,
   flowReferences,
@@ -148,6 +157,7 @@ import {
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { promoteOnlyBuild } from './promote-only-builds.js';
 import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
@@ -855,6 +865,7 @@ export function deploymentsRouter(
       indexHash: wire.indexHash,
       tenantId: tenantId as unknown as string,
       publishedAt: wire.publishedAt,
+      ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
     });
     let signatureBytes: Buffer;
     try {
@@ -892,7 +903,7 @@ export function deploymentsRouter(
           {
             code: 'signature-invalid',
             message:
-              'Ed25519 signature does not match canonical envelope { imageDigest, artifactVersion, indexHash, tenantId, publishedAt }',
+              'Ed25519 signature does not match canonical envelope { imageDigest, artifactVersion, indexHash, tenantId, publishedAt }, and productionEntry when it has one',
           },
           requestId,
         ),
@@ -1144,9 +1155,9 @@ export function deploymentsRouter(
     // A later environment of an order takes builds by promotion only: the
     // deploy goes to the order's first environment. The project is the one
     // named, else the default's (where a deploy naming none lands).
+    const entryProjectId =
+      targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
     if (bindings.environmentOrders !== undefined) {
-      const entryProjectId =
-        targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
       const later =
         entryProjectId === undefined
           ? undefined
@@ -1162,12 +1173,32 @@ export function deploymentsRouter(
       }
     }
 
+    // A promote-only build reaches a project in production by promotion
+    // only, so a deploy into one (or into one whose production can't be
+    // read) is refused. The project is the one the order check reads. Every
+    // deploy is asked, a project in production or not: the registry asks
+    // again in its own step (`promoteOnly`), so a project put in production
+    // while this deploy runs refuses it there.
+    const promoteOnly = await promoteOnlyBuild(bindings.signingKeyRegistry, tenantId, {
+      ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+      signerKeyId: wire.signerKeyId as unknown as string,
+      publicKey: publicKeyBase64,
+    });
+    if (
+      promoteOnly &&
+      (await mayBeInProduction(bindings.projectBinding, tenantId, entryProjectId))
+    ) {
+      return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
+    }
+
     // What its agents and flows name, besides what it brings itself, must be
     // its project's to reach (`reference-scope.ts`), before any write.
     if (targetProjectId !== undefined) {
       const brought = new Set([
         ...validated.tools.map((t) => `tool:${t.id as unknown as string}`),
         ...validated.agents.map((a) => `agent:${a.id as unknown as string}`),
+        // An agent step naming a version of the pack's agent: brought only when it's the pack's version.
+        ...validated.agents.map((a) => `agent:${a.id as unknown as string}@${a.version}`),
         ...validated.flows.map((f) => `flow:${f.id as unknown as string}`),
         ...validated.guardrails.map((g) => `guardrail:${g.id as unknown as string}`),
         // Published into this project, or refused as another project's.
@@ -1180,7 +1211,14 @@ export function deploymentsRouter(
         ...validated.flows.flatMap((flow, i) =>
           flowReferences(flow).map((ref) => ({ ...ref, path: `/flows/${i}${ref.path}` })),
         ),
-      ].filter((ref) => !brought.has(`${ref.kind}:${ref.id}`));
+      ].filter(
+        (ref) =>
+          !brought.has(
+            ref.version === undefined
+              ? `${ref.kind}:${ref.id}`
+              : `${ref.kind}:${ref.id}@${ref.version}`,
+          ),
+      );
       const outOfScope = await referencesOutOfScope(
         bindings.referenceScope,
         tenantId,
@@ -1463,8 +1501,10 @@ export function deploymentsRouter(
       }
       if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
       // An unregistered agent or flow version naming what its project doesn't
-      // reach: refused as the pack's own references are, before any write.
-      if (cause instanceof RetiredVersionOutOfScope) {
+      // reach (`RetiredVersionOutOfScope`), or one whose registry removed a
+      // version it holds while it was published (`refusedPublish`): refused
+      // as the pack's own references are.
+      if (cause instanceof ReferencesRefused) {
         return outOfScopeResponse(c, requestId, cause.refusal);
       }
       // Not a mapped outcome: to the central error handler (a 500 for this
@@ -1493,6 +1533,8 @@ export function deploymentsRouter(
         signerPublicKey: publicKeyBase64,
         signature: wire.signature,
         publishedAt: wire.publishedAt,
+        ...(wire.productionEntry !== undefined && { productionEntry: wire.productionEntry }),
+        ...(promoteOnly && { promoteOnly: true }),
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
@@ -1534,6 +1576,12 @@ export function deploymentsRouter(
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
       throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
+    }
+    if (outcome.kind === 'project-in-production') {
+      // The project went into production after the check above: the
+      // registry's own step saw it, and nothing was recorded.
+      await rollback(rolled, c.get('log'));
+      return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
     }
     if (outcome.kind === 'already-registered') {
       // Digest-based idempotency: same digest already recorded. Roll back
@@ -1884,6 +1932,50 @@ type ParsedSyncEntry =
   | { readonly kind: 'value'; readonly name: string; readonly value: string };
 
 // ------------------------------------------------------------
+// Promote-only builds
+// ------------------------------------------------------------
+
+/**
+ * The refusal of a promote-only build deployed into a project in
+ * production, or one whose production can't be read: `409
+ * promote-only-build`, nothing deployed.
+ */
+function promoteOnlyDeployResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  signerKeyId: SigningKeyId,
+  projectId: ProjectId | undefined,
+) {
+  c.status(statusFor('promote-only-build') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'promote-only-build',
+        message: `This build reaches a project in production only by promotion: it's signed promote-only (\`productionEntry\`, or a key whose id starts with \`${PROMOTE_ONLY_KEY_PREFIX}\`). Deploy it into a project before this one in its environment order (a tenant admin makes one when there's none) and promote it from there; nothing was deployed.`,
+        signerKeyId: signerKeyId as unknown as string,
+        ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+      },
+      requestId,
+    ),
+  );
+}
+
+/**
+ * Whether `projectId` is in production, or its production can't be read
+ * (no project binding, no project): a promote-only build is refused at
+ * both.
+ */
+async function mayBeInProduction(
+  projects: ProjectBinding | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+): Promise<boolean> {
+  if (projects === undefined || projectId === undefined) return true;
+  const project = await projects.get(tenantId, projectId);
+  return project === undefined || project.productionSince !== undefined;
+}
+
+// ------------------------------------------------------------
 // Wire body validation
 // ------------------------------------------------------------
 
@@ -1895,6 +1987,8 @@ interface WireBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
+  /** Signed with the rest when present: how the build may reach a project in production. */
+  readonly productionEntry?: ProductionEntry;
   /** The project to deploy into; absent: the tenant's default project. */
   readonly projectId?: ProjectId;
   /** Where the pack lives in git, when the client said. */
@@ -1972,6 +2066,12 @@ function parseWireBody(body: unknown): ParseResult {
   if (publishedAt !== undefined && parseTimeInput(publishedAt) === null) {
     issues.push({ path: 'publishedAt', message: 'publishedAt must be ISO-8601' });
   }
+  // A value this runtime doesn't know is refused, never read as absent: the
+  // signature would then be checked over fewer fields than were signed.
+  const productionEntry = b.productionEntry;
+  if (productionEntry !== undefined && productionEntry !== 'promote-only') {
+    issues.push({ path: 'productionEntry', message: "productionEntry must be 'promote-only'" });
+  }
   // Checked again by the project-ref middleware, which also answers 404 for
   // a project of no tenant's; here only its shape, for a router mounted alone.
   const projectId = b.projectId;
@@ -1998,6 +2098,7 @@ function parseWireBody(body: unknown): ParseResult {
       signerPublicKey: signerPublicKey as string,
       signature: signature as string,
       publishedAt: publishedAt as string,
+      ...(productionEntry === 'promote-only' && { productionEntry }),
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
       ...(source !== undefined && { source }),
       ...(replace !== undefined && { replace }),
@@ -3028,8 +3129,14 @@ function agentOutputProblems(raw: unknown): readonly { path: string; message: st
  * Minimal shape check on an `IndexedFlow` after `modulePath` and
  * `kernelPayloadVersion` are stripped, and every inline schema a run
  * compiles (`flowSchemaProblems`): one that doesn't compile would fail
- * every run. The rest of `loadFlow` isn't run: it refuses fields it
- * doesn't know, and an index from a newer CLI may carry some.
+ * every run. Then, when those pass, `loadFlow`'s graph checks
+ * (`flowGraphProblem`): a flow with a cycle, an edge to or from a step
+ * that doesn't exist or no edge from `$start` hangs or skips steps when
+ * it runs, and a Python, Java or Scala indexer doesn't check its graph.
+ * `loadFlow` itself isn't run: it refuses fields it doesn't know, and an
+ * index from a newer CLI may carry some. `flowGraphProblem` passes them
+ * over, and a flow whose shape this version doesn't know (an unknown node
+ * kind) isn't judged.
  */
 function validateFlowIndexShape(
   spec: Record<string, unknown>,
@@ -3048,6 +3155,11 @@ function validateFlowIndexShape(
     out.push({ path: '/edges', message: 'flow.edges must be an array' });
   }
   out.push(...flowSchemaProblems(spec));
+  if (out.length > 0) return out;
+  const graph = flowGraphProblem(spec);
+  if (graph.kind === 'err') {
+    out.push({ path: '', message: `${graph.error.code}: ${graph.error.message}` });
+  }
   return out;
 }
 
@@ -3095,11 +3207,7 @@ class UnpinnableDeploy extends Error {
 }
 
 /** An agent or flow version a deploy found unregistered and may not reinstate (`reinstateRetiredVersion`). */
-class RetiredVersionOutOfScope extends Error {
-  constructor(readonly refusal: ReferenceOutOfScopeError) {
-    super(refusal.message);
-  }
-}
+class RetiredVersionOutOfScope extends ReferencesRefused {}
 
 /** A deployed agent or flow registered under its definition's version. */
 function deployedPrimitive(definition: { readonly id: string; readonly version: string }): {
@@ -3194,7 +3302,12 @@ async function registerAgents(input: {
         });
         if (reinstated) written(agentId, version);
       } else {
-        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome);
+        throw refusedPublish(
+          `/agents/${index}`,
+          { kind: 'agent', id: agent.id, version: agent.version },
+          outcome,
+          agentReferences(agent),
+        );
       }
     }
     return input.defined.map(deployedPrimitive);
@@ -3211,6 +3324,7 @@ async function registerAgents(input: {
       agent,
       pins,
       enqueueTuples,
+      path: `/agents/${i}`,
     });
     if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
       written(agent.id, outcome.version as unknown as Semver);
@@ -3283,7 +3397,12 @@ async function registerFlows(input: {
         });
         if (reinstated) written(flowId, version);
       } else {
-        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome);
+        throw refusedPublish(
+          `/flows/${index}`,
+          { kind: 'flow', id: flow.id, version: flow.version },
+          outcome,
+          flowReferences(flow),
+        );
       }
     }
     return input.defined.map(deployedPrimitive);
@@ -3306,6 +3425,7 @@ async function registerFlows(input: {
       flow,
       pins: pinsOf[i] as FlowPins,
       enqueueTuples,
+      path: `/flows/${i}`,
     });
     if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
       written(flow.id, outcome.version);

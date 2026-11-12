@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
-import { ref } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 
 import { refused } from '../routes/denied.js';
 import type { AppEnv } from '../types.js';
@@ -60,6 +60,30 @@ export function refuseOtherProjectForKey(
 /** What a refusal names as limited: the caller's session, or its API key. */
 export function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
   return c.get('sessionId') !== undefined ? 'This session' : 'This API key';
+}
+
+/**
+ * Nothing for a caller not limited to a project; else the refusal, 403
+ * `permission-denied` and recorded, of a route that acts for the caller's
+ * person in every project at once (their sessions, their second factor),
+ * which a key or session limited to one project never reaches. `why`
+ * ends the message: "its person's sessions reach beyond it".
+ */
+export function personWideRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  action: Action,
+  resource: ResourceRef,
+  why: string,
+): Response | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined) return undefined;
+  return refused(c, authorizer, {
+    action,
+    resource,
+    message: `${limitedCaller(c)} is limited to project ${keyProject}: ${why}`,
+    failing: 'scope',
+  });
 }
 
 type RequestLike = {
