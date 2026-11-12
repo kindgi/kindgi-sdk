@@ -1612,6 +1612,10 @@ class RevokeTokenResult(BaseModel):
     )
     token_id: Annotated[UUID, Field(alias="tokenId")]
     revoked: Literal[True]
+    also_revoked: Annotated[list[UUID] | None, Field(alias="alsoRevoked")] = None
+    """
+    The keys revoked with it: every key minted with it, and with those in turn, that wasn't revoked yet, oldest first. Absent where the deployment's key store doesn't record which key minted which.
+    """
 
 
 class TrustedSigningKey(BaseModel):
@@ -2526,7 +2530,7 @@ class MustNotCallItem(RootModel[str]):
 
 class CreateCorrectionBody(BaseModel):
     """
-    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -2578,7 +2582,7 @@ class RemoveCorrectionResult(BaseModel):
 
 class AddTestCaseBody(BaseModel):
     """
-    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -3024,6 +3028,29 @@ class AgentMemoryPolicy(BaseModel):
     """
 
 
+class McpExposure(BaseModel):
+    """
+    Whether an agent or a flow is a tool in a person's chat app, through the API's MCP server (`/mcp`). An agent's tool is named by its id, a flow's by `flow.` and its id. The chat app lists it only to people who can see it. Absent, or `expose: false`: it isn't one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    expose: bool
+    """
+    Offer it as a tool to the people who can see it.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Tells the chat app that a run changes nothing (the tool's `readOnlyHint`). Absent: no hint, so the chat app applies the protocol's default.
+    """
+    destructive: bool | None = None
+    """
+    Tells the chat app that a run may change or remove things in a way that can't be undone (the tool's `destructiveHint`). Absent: no hint, so the chat app applies the protocol's default.
+    """
+
+
 class ConversationPolicy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3321,6 +3348,7 @@ class PublishAgentBody(BaseModel):
     """
     Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
     """
+    mcp: McpExposure | None = None
 
 
 class Warning(BaseModel):
@@ -3465,6 +3493,7 @@ class Flow(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    mcp: McpExposure | None = None
     pins: FlowPins | None = None
     pins_digest: Annotated[
         str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
@@ -3500,6 +3529,7 @@ class PublishFlowBody(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    mcp: McpExposure | None = None
 
 
 class PublishFlowResult(BaseModel):
@@ -9023,9 +9053,9 @@ class AccessPathDirect(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["direct"]
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
-    A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).
+    A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `runner` > `viewer` (a membership stored as `member` is `viewer`).
     """
     since: AwareDatetime | None = None
     """
@@ -9041,7 +9071,7 @@ class AccessPathTeam(BaseModel):
     kind: Literal["team"]
     team_id: Annotated[str, Field(alias="teamId")]
     team_name: Annotated[str, Field(alias="teamName")]
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
     The role the team holds on the project.
     """
@@ -9075,6 +9105,31 @@ class AccessPathTenantAdmin(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["tenant-admin"]
+
+
+class AccessPathEveryone(BaseModel):
+    """
+    A person in the project's workspace, where the project lets everyone run it (`everyoneCanRun`): what `everyoneCapabilities` names, and no role. Listed on a project where the caller also holds a role; one it reaches this way alone is in `everyoneCanRunProjects` instead.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["everyone"]
+
+
+class MyEveryoneCanRunProject(BaseModel):
+    """
+    A project the caller holds no role on, and may run because it lets everyone in its workspace run it (`everyoneCanRun`): what `everyoneCapabilities` names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    name: str
 
 
 class MyOrgAccess(BaseModel):
@@ -9119,7 +9174,7 @@ class RoleActions(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    project: list[Annotated[Literal["read", "write", "admin", "delete"] | str, _open.OPEN]]
+    project: list[Annotated[Literal["read", "write", "admin", "delete", "run"] | str, _open.OPEN]]
     agent: list[
         Annotated[
             Literal["read", "write", "delete", "admin", "execute", "publish", "pin"] | str,
@@ -9151,7 +9206,7 @@ class RoleActions(BaseModel):
 
 class RoleCapabilities(BaseModel):
     """
-    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
+    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it, or, on a project in `everyoneCanRunProjects` or whose `via` lists `everyone`, `everyoneCapabilities[type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
     """
 
     model_config = ConfigDict(
@@ -9161,6 +9216,7 @@ class RoleCapabilities(BaseModel):
     owner: RoleActions
     admin: RoleActions
     editor: RoleActions
+    runner: RoleActions | None = None
     viewer: RoleActions
 
 
@@ -10580,9 +10636,9 @@ class TeamProjectGrant(BaseModel):
     )
     team_id: Annotated[str, Field(alias="teamId")]
     project_id: Annotated[str, Field(alias="projectId")]
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
     granted_at: Annotated[AwareDatetime | None, Field(alias="grantedAt")] = None
     """
@@ -10608,9 +10664,9 @@ class AddTeamProjectGrantBody(BaseModel):
         populate_by_name=True,
     )
     team_id: Annotated[str, Field(alias="teamId", min_length=1)]
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
 
 
@@ -10619,9 +10675,9 @@ class UpdateTeamProjectGrantBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
 
 
@@ -10648,7 +10704,9 @@ class ProjectAccessDirect(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["direct"]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -10667,9 +10725,9 @@ class ProjectAccessTeam(BaseModel):
     kind: Literal["team"]
     team_id: Annotated[str, Field(alias="teamId")]
     team_name: Annotated[str | None, Field(alias="teamName")] = None
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
 
 
@@ -10718,9 +10776,17 @@ class Project(BaseModel):
     """
     When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
     """
+    former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
+    """
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
+    """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
     `true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.
+    """
+    everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
+    """
+    `true`: everyone in the project's workspace can run this project's agents and flows without a role of their own; service accounts aren't included. That reads nothing more than running takes: the project, its agents and flows with their versions (an agent's owner by id alone), and each person's own runs, conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it off; existing projects and workspaces keep it `false` until a project admin turns it on. Absent from an older server.
     """
     repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")] = None
     """
@@ -10786,6 +10852,10 @@ class ProjectSpec(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     is_default: Annotated[bool | None, Field(alias="isDefault")] = None
+    everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
+    """
+    Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). `true` when left out; `false` to choose people one by one. Existing projects and workspaces keep it `false` until a project admin turns it on.
+    """
 
 
 class ProjectPatch(BaseModel):
@@ -10803,6 +10873,10 @@ class ProjectPatch(BaseModel):
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
     Whether end users' corrections are sorted like the others and count toward a schedule (the project's `sortEndUserCorrections`). Admin on the project.
+    """
+    everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
+    """
+    Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). Existing projects and workspaces keep it `false` until a project admin turns it on. Admin on the project. A runtime enforcing authorization that can't change the grant with it answers `501 authz-membership-unsupported`, and nothing changes.
     """
 
 
@@ -10823,7 +10897,9 @@ class ProjectMembership(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -10854,9 +10930,9 @@ class AddProjectMembershipBody(BaseModel):
     """
     The person's email, as the workspace has it.
     """
-    role: Literal["viewer", "editor", "owner", "admin"]
+    role: Literal["viewer", "runner", "editor", "owner", "admin"]
     """
-    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
+    A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.
     """
 
 
@@ -10865,9 +10941,9 @@ class UpdateProjectMembershipBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["viewer", "editor", "owner", "admin"]
+    role: Literal["viewer", "runner", "editor", "owner", "admin"]
     """
-    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
+    A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.
     """
 
 
@@ -10878,7 +10954,9 @@ class AddProjectMembershipResult(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -11139,6 +11217,9 @@ class SecretRotateResponseSync(BaseModel):
     old_version_revoked_at: Annotated[AwareDatetime | None, Field(alias="oldVersionRevokedAt")] = (
         None
     )
+    """
+    When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.
+    """
 
 
 class SecretRotateResponseAsync(BaseModel):
@@ -12443,7 +12524,7 @@ class CreateConnectRequestBody(BaseModel):
     """
     reconnects: UUID | None = None
     """
-    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
     """
 
 
@@ -12584,7 +12665,7 @@ class ApprovalApprover(BaseModel):
 
 class ApprovalConnection(BaseModel):
     """
-    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account".
+    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account", and, to whoever may read the connection (`GET /v1/connections/{connectionId}`), its account.
     """
 
     model_config = ConfigDict(
@@ -12609,6 +12690,10 @@ class ApprovalConnection(BaseModel):
     name: str | None = None
     """
     The company connection's name: its label, else the account's label. A person's own connection has none.
+    """
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection's id. Whoever may read the connection (its person, a tenant admin) looks its account up by it: `GET /v1/connections/{connectionId}`. Absent from older approvals.
     """
 
 
@@ -13695,6 +13780,9 @@ class SecretRotateOutcomeOk(BaseModel):
     old_version_revoked_at: Annotated[AwareDatetime | None, Field(alias="oldVersionRevokedAt")] = (
         None
     )
+    """
+    When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.
+    """
 
 
 class SecretRotateOutcomeRotationPending(BaseModel):
@@ -15257,6 +15345,10 @@ class MintTokenResult(BaseModel):
     """
     When the key last authenticated a request (updated at most once a minute).
     """
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.
+    """
     token: str
     """
     Plaintext bearer token. Returned exactly once at mint time.
@@ -15457,6 +15549,10 @@ class ApiToken(BaseModel):
     """
     When the key last authenticated a request (updated at most once a minute).
     """
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.
+    """
 
 
 class Datum4(BaseModel):
@@ -15497,6 +15593,10 @@ class Datum4(BaseModel):
     """
     When the key last authenticated a request (updated at most once a minute).
     """
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key it was minted with: the minter's key, or the key a token sign-in session was opened with. It stops when that key is revoked. Absent when none was, and for a key minted before keys recorded it.
+    """
 
 
 class ApiTokenPage(BaseModel):
@@ -15510,6 +15610,10 @@ class ApiTokenPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    minted_with: Annotated[UUID | None, Field(alias="mintedWith")] = None
+    """
+    The key a list asked for with `?mintedWith=` was narrowed to, on every page. Absent from an older runtime, which ignores the filter and lists every key the caller sees.
+    """
 
 
 class ServiceAccountGrantProject(BaseModel):
@@ -15523,7 +15627,9 @@ class ServiceAccountGrantProject(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -15540,9 +15646,9 @@ class ServiceAccountGrantProjectBody(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
-    role: Literal["viewer", "editor", "owner", "admin"]
+    role: Literal["viewer", "runner", "editor", "owner", "admin"]
     """
-    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
+    A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.
     """
 
 
@@ -16096,6 +16202,7 @@ class Agent(BaseModel):
     """
     Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
     """
+    mcp: McpExposure | None = None
     pins: AgentPins | None = None
     derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
@@ -16989,7 +17096,9 @@ class PersonProjectRole(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str, Field(alias="projectId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -17018,7 +17127,7 @@ class MyProjectAccess(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     name: str
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
     The highest role the caller holds on the project, whichever way.
     """
@@ -17028,12 +17137,13 @@ class MyProjectAccess(BaseModel):
             | AccessPathTeam
             | AccessPathOrgAdmin
             | AccessPathTenantAdmin
+            | AccessPathEveryone
             | AccessPathUnrecognized,
             _open.OpenUnion("kind", AccessPathUnrecognized),
         ]
     ]
     """
-    Every way the caller holds a role on it (for "My access").
+    Every way the caller holds a role on it (for "My access"), and `everyone` when the project also lets everyone in its workspace run it.
     """
 
 
@@ -17052,7 +17162,7 @@ class MyTeamAccess(BaseModel):
 
 class MyPermissions(BaseModel):
     """
-    What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.
+    What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read or run with its role in each and how it holds it, its orgs and teams, what each project role allows, and what everyone in the workspace may do on a project that lets everyone run it. Only what the caller may see: nothing names a project it can neither read nor run, or anyone else's role.
     """
 
     model_config = ConfigDict(
@@ -17072,7 +17182,13 @@ class MyPermissions(BaseModel):
     """
     projects: list[MyProjectAccess]
     """
-    The projects the caller may read, by name.
+    The projects the caller may read, by name. A key limited to a project lists that one alone.
+    """
+    everyone_can_run_projects: Annotated[
+        list[MyEveryoneCanRunProject] | None, Field(alias="everyoneCanRunProjects")
+    ] = None
+    """
+    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.
     """
     orgs: list[MyOrgAccess]
     """
@@ -17083,6 +17199,10 @@ class MyPermissions(BaseModel):
     The teams the caller is a member or admin of, by name.
     """
     capabilities: RoleCapabilities
+    everyone_capabilities: Annotated[RoleActions | None, Field(alias="everyoneCapabilities")] = None
+    """
+    What everyone in the workspace may do on a project that lets everyone run it, and on every object of each type in it, by object type: on each project in `everyoneCanRunProjects`, and on each in `projects` whose `via` lists `everyone`, on top of the role held there. Worked out from the authorization model as `capabilities` is. Absent from an older server.
+    """
     read_only_notice: Annotated[str | None, Field(alias="readOnlyNotice", max_length=280)] = None
     """
     The line a console shows a caller who may only view a project, as a tenant admin set it in the workspace config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.
@@ -17354,7 +17474,7 @@ class ProjectAccess(BaseModel):
     """
     A person's email: shown to the project's admins only.
     """
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
     The effective role: the highest any way in gives.
     """
@@ -17560,6 +17680,9 @@ class SecretVersionRecord(BaseModel):
     Present + non-null only on `resolve` responses.
     """
     revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    """
+    When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then.
+    """
 
 
 class SecretSetInput(BaseModel):
@@ -17816,7 +17939,12 @@ class SecretRotateRequest(BaseModel):
     Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
     """
     new_value: Annotated[str | None, Field(alias="newValue")] = None
-    revoke_old_after_ms: Annotated[int | None, Field(alias="revokeOldAfterMs", ge=0)] = None
+    revoke_old_after_ms: Annotated[
+        int | None, Field(alias="revokeOldAfterMs", ge=0, le=31536000000)
+    ] = None
+    """
+    Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid.
+    """
 
 
 class ScheduleRecord(BaseModel):
@@ -18683,6 +18811,10 @@ class ConnectionChoiceNeed(BaseModel):
     """
     Whose connection: the company's, or the run's person's.
     """
+    permissions: list[str] | None = None
+    """
+    The entry's permission keys the need asks for, from the tool's `needsSpec`: `gmail.send`. A connection that lacks one can't serve it until it's connected again for more, with `reconnects`.
+    """
     set: ConnectionChoiceNeedSet
 
 
@@ -18760,7 +18892,7 @@ class ConnectRequest(BaseModel):
     """
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
-    The connection it made.
+    The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.
     """
     connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
     """
@@ -19976,6 +20108,10 @@ class UnregisterUserResult(BaseModel):
     )
     user: UserRecord
     keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
+    minted_keys_revoked: Annotated[int | None, Field(alias="mintedKeysRevoked", ge=0)] = None
+    """
+    The keys minted with theirs, and with those in turn, revoked with them, whoever they act for. Not in `keysRevoked`. Absent where the key store doesn't record which key minted which.
+    """
     sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
     grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
 

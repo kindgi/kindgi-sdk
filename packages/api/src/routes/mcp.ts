@@ -36,6 +36,7 @@ import {
   mcpEndpointSecretRefs,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
@@ -90,34 +91,33 @@ export function mcpRouter(
   // Register gates at admin on the body's `scopeKind` + `scopeId`, parsed
   // as the handler parses them (parseBodyScope); reads on :id gate at read
   // on `mcp_endpoint:<id>`.
-  if (authorizer !== undefined) {
-    r.use('/endpoints', async (c, next) => {
-      if (c.req.method !== 'POST') return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', async () => {
-        let body: unknown = {};
-        try {
-          body = await c.req.json();
-        } catch {
-          // POST handler validates + returns 400
-        }
-        const s =
-          body !== null && typeof body === 'object'
-            ? parseBodyScope(body, tenantId)
-            : { kind: 'err' as const };
-        return scopeResourceRef(s.kind === 'ok' ? s.scope : undefined, tenantId);
-      });
-      return mw(c, next);
+  const authorize = gate(authorizer);
+  r.use('/endpoints', async (c, next) => {
+    if (c.req.method !== 'POST') return next();
+    const tenantId = c.get('tenantId') as TenantId;
+    const mw = authorize('admin', async () => {
+      let body: unknown = {};
+      try {
+        body = await c.req.json();
+      } catch {
+        // POST handler validates + returns 400
+      }
+      const s =
+        body !== null && typeof body === 'object'
+          ? parseBodyScope(body, tenantId)
+          : { kind: 'err' as const };
+      return scopeResourceRef(s.kind === 'ok' ? s.scope : undefined, tenantId);
     });
-    // '/endpoints/:endpointId/*' matches '/endpoints/:endpointId' too: this
-    // one gate decides both, once.
-    r.use('/endpoints/:endpointId/*', async (c, next) => {
-      const action = isReadMethod(c.req.method) ? 'read' : 'admin';
-      const endpointId = c.req.param('endpointId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('mcp_endpoint', endpointId));
-      return mw(c, next);
-    });
-  }
+    return mw(c, next);
+  });
+  // '/endpoints/:endpointId/*' matches '/endpoints/:endpointId' too: this
+  // one gate decides both, once.
+  r.use('/endpoints/:endpointId/*', async (c, next) => {
+    const action = isReadMethod(c.req.method) ? 'read' : 'admin';
+    const endpointId = c.req.param('endpointId') ?? '';
+    const mw = authorize(action, () => ref('mcp_endpoint', endpointId));
+    return mw(c, next);
+  });
 
   // ---------- GET /endpoints (list, cursor-paginated, optional ?transport=) ----------
   r.get('/endpoints', async (c) => {

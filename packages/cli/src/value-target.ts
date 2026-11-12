@@ -283,7 +283,7 @@ export async function valueTargetFor(
   const { name, projectRef } = target.environment;
   let projectId: string;
   try {
-    projectId = await resolveProjectRef(ctx, projectRef);
+    projectId = await resolveProjectRef(ctx, projectRef, `environments.${name}.project`);
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     return { kind: 'refused', stderr: `The pack's environment ${name}: ${err.message}\n` };

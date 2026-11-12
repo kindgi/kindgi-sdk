@@ -226,7 +226,14 @@ export function mailTriggersRouter(
         ? notAdmin(c, project, 'Changing a shared mail trigger')
         : denied(c, 'write', ref('project', project));
     }
-    if (await mayChangePersonalTrigger(c, authorizer, { projectId: project, owner: rec.owner })) {
+    if (
+      await mayChangePersonalTrigger(
+        c,
+        authorizer,
+        { projectId: project, owner: rec.owner },
+        'write',
+      )
+    ) {
       return undefined;
     }
     return ownerRuleRefused(c, authorizer, names, owned(rec), 'mail trigger');

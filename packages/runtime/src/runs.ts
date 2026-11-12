@@ -178,6 +178,30 @@ export interface ListRunsInput {
   readonly flowId?: string;
   /** With `flowId`: only runs of this version. */
   readonly flowVersion?: string;
+  /**
+   * Only the runs that act for this someone (`KernelRunRecord.actsFor`).
+   * Runs that act for no one never match.
+   */
+  readonly actsFor?: RunActsFor;
+  /**
+   * Only the runs a caller may list: every run in `allIn`'s projects, and
+   * in `ownIn`'s only those that act for `reach.actsFor`. A run in neither
+   * is left out, so an empty reach lists nothing. Absent: every run the
+   * other filters match. `GET /v1/runs` works it out from the caller's
+   * rights, so a page holds only what the caller may see and its cursor
+   * names one of those runs.
+   */
+  readonly reach?: RunListReach;
+}
+
+/** Whose runs a list may hold, project by project (`ListRunsInput.reach`). */
+export interface RunListReach {
+  /** Projects whose every run the caller may list. */
+  readonly allIn: readonly ProjectId[];
+  /** Projects where the caller may list only the runs that act for `actsFor`. */
+  readonly ownIn: readonly ProjectId[];
+  /** Whom the caller acts for. Absent: `ownIn` reaches no run. */
+  readonly actsFor?: RunActsFor;
 }
 
 export interface ListRunsPage {

@@ -148,9 +148,17 @@ company has two Google connections.
   stays as it was: the connect answers connected if the connection is
   working and already holds what was asked, and is declined with what's
   `missing` if not. To add a permission, name the connection with
-  `--reconnect`.
+  `--reconnect`, or use **Ask Google for more** on its page in the
+  console. Declined at the app, such a connect says
+  `Declined at <app> (not <permissions>): nothing from this sign-in was kept.`
+  (CLI 0.6.0 or later): a connection its owner already had of that account
+  stays as it was.
 - **`--reconnect=<connection>`** reconnects one by name or id, and needs
   the same account. It doesn't take `--label`: a reconnect keeps its name.
+  It asks for the permissions you list and those the connection holds. A
+  grant short of what it holds leaves it as it was: the connect answers
+  connected if the connection is working and already holds what was asked,
+  and is declined with what's `missing` if not.
 - **Rename one** with `kindgi connections update`. Its owner or a
   tenant admin can rename it, and only a tenant admin the company's:
 
@@ -335,11 +343,12 @@ To see what a choice can be for, list the agent's needs:
 or `connectionChoices.needs({ projectId, agentId })` in the clients. For
 each of the agent's or flow's tools' connections, at the version it
 resolves now, it lists the tool (`toolId`), its name for the connection
-(`need`), the app, whose it is (`as`, `company` or `person`), and whether
-a choice for it can be a set (`set.allowed`, else `set.reason`:
-`changes`, `sensitive-data-egress` or `accounts-input`). A tool whose
-version couldn't be read is listed in `unread`. Anyone who reads the
-project can list them.
+(`need`), the app, whose it is (`as`, `company` or `person`), the
+permissions it asks for (`permissions`, the keys from the tool's needs;
+runtime 0.6.0 or later), and whether a choice for it can be a set
+(`set.allowed`, else `set.reason`: `changes`, `sensitive-data-egress` or
+`accounts-input`). A tool whose version couldn't be read is listed in
+`unread`. Anyone who reads the project can list them.
 
 ## Read several accounts with one tool
 
@@ -607,6 +616,8 @@ The connection "mailbox" to Google changed while this call waited, so it didn't 
 ```
 
 An approval for a call that uses a connection says which one it's for: the
-company's by its account, and a person's as "this person's Google account"
+company's by its account, and a person's as "this person's Google account",
+with the connection's id, by which the person, or a tenant admin, reads which
+of their accounts it is
 ([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
 The account a call named is in the call's input, which the approval shows.

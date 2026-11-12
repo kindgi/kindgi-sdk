@@ -72,7 +72,11 @@ export interface AuthClient {
   /**
    * A site posts its Ed25519 public key with the one-time enrollment code a
    * tenant admin gave it (no other credential), and learns its id and the
-   * audience its statements carry. The site keeps its private key.
+   * audience its statements carry. The site keeps its private key. A
+   * wrong, used or expired code is `401 site-enrollment-refused`; a key
+   * the site retired, or another site in the workspace at the same
+   * address retired, is `409 site-enrollment-key-retired`, and the code
+   * isn't used up.
    * @wire POST /v1/auth/sites/enroll
    */
   enrollSite(body: EnrollSiteBody): Promise<EnrollSiteResult>;

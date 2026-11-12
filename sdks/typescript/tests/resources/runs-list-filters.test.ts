@@ -10,7 +10,7 @@ const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
 
 describe('runs.list — the narrowing filters', () => {
-  it('sends status (one or a list), the creation bounds, versions and the flow', async () => {
+  it('sends status (one or a list), the creation bounds, versions, the flow and whose runs', async () => {
     const page = { status: 200, body: JSON.stringify({ data: [], hasMore: false }) };
     const stub = recordingFetch([page, page]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
@@ -21,7 +21,12 @@ describe('runs.list — the narrowing filters', () => {
       agentId: 'acme.refunds',
       agentVersion: '2.1.0',
     });
-    await client.runs.list({ status: 'running', flowId: 'acme.digest', flowVersion: '1.0.0' });
+    await client.runs.list({
+      status: 'running',
+      flowId: 'acme.digest',
+      flowVersion: '1.0.0',
+      actsFor: 'me',
+    });
     const [first, second] = stub.calls.map((c) => new URL(c.url).searchParams);
     expect(first?.getAll('status')).toEqual(['failed', 'cancelled']);
     first?.delete('status');
@@ -35,6 +40,7 @@ describe('runs.list — the narrowing filters', () => {
       status: 'running',
       flowId: 'acme.digest',
       flowVersion: '1.0.0',
+      actsFor: 'me',
     });
   });
 });

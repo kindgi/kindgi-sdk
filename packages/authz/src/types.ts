@@ -66,6 +66,13 @@ export const ACTIONS = [
   // Running an agent in a project: asked of the project only
   // (`CHECK_ONLY_ACTIONS`).
   'call',
+  // Running in a project, held by its runners and up and, where the
+  // project lets everyone run, by everyone in its workspace (who read
+  // nothing by it), never by a machine caller. Also what a person's own
+  // work there takes where `read` doesn't hold: their own runs,
+  // conversations and schedules, and the project, its agents and flows to
+  // run. The route decides what's theirs.
+  'run',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -84,6 +91,7 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   pin: 'can_pin',
   act_as: 'can_act_as',
   call: 'can_call',
+  run: 'can_run',
 };
 
 // Which verbs are meaningful for which object types. A PEP uses this to
@@ -92,7 +100,7 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   tenant: ['read', 'admin'],
   org: ['read', 'admin'],
   team: ['read', 'admin'],
-  project: ['read', 'write', 'admin', 'delete'],
+  project: ['read', 'write', 'admin', 'delete', 'run'],
   user: [],
   // Only `act_as`: a tenant admin may name this service account as a
   // trigger's owner (so the trigger's runs act as it). No read/write/etc.
