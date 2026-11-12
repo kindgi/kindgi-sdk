@@ -34,8 +34,7 @@ import { seenPins, serializeAgentPinnedVersion } from './agent-pins.js';
 import { deniedBy } from './denied.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from './uuid-param.js';
 
 export function projectPinnedVersionsRouter(deps: {
   readonly agentPinned: AgentPinnedVersionBinding;
@@ -51,7 +50,7 @@ export function projectPinnedVersionsRouter(deps: {
   // read or refused for a caller who can't read it.
   r.use('/:projectId/pinned-versions', async (c, next) => {
     const projectId = c.req.param('projectId') as string;
-    if (!UUID.test(projectId)) {
+    if (!UUID_RE.test(projectId)) {
       return fail(c, 'bad-input', `"${projectId}" isn't a project id`);
     }
     const refused = await deniedBy(authorizer, c, 'read', ref('project', projectId));

@@ -551,7 +551,38 @@ describe('the Release workflow', () => {
     );
     const npm = job('publish');
     assert.match(npm, /\n {4}needs: \[publish-maven, maven-on-central\]\n/);
-    assert.match(npm, /\(inputs\.dry-run \|\| needs\.maven-on-central\.result == 'success'\)/);
+    assert.match(
+      npm,
+      /\(inputs\.dry-run \|\| inputs\.skip-maven \|\| needs\.maven-on-central\.result == 'success'\)/,
+    );
+  });
+
+  test('skip-maven skips the JVM SDKs and their wait, and the rest goes on; it is off unless asked', () => {
+    assert.match(
+      workflow,
+      /\n {6}skip-maven:\n {8}description: [^\n]+\n {8}type: boolean\n {8}default: false\n/,
+    );
+    assert.match(
+      job('publish-maven'),
+      /\n {4}if: github\.event_name == 'workflow_dispatch' && !inputs\.skip-maven\n/,
+    );
+    // Only the Maven job is skipped by it; npm goes on without the wait, and
+    // the GitHub release's notes say the JVM SDKs reach Maven Central later.
+    const names = [...workflow.matchAll(/\n {2}([a-z][\w-]*):\n/g)].map((m) => m[1]);
+    assert.deepEqual(
+      names.filter((name) => job(name).includes('inputs.skip-maven')),
+      ['publish-maven', 'publish', 'github-release'],
+    );
+    assert.match(job('github-release'), /\n {6}SKIP_MAVEN: \$\{\{ inputs\.skip-maven \}\}\n/);
+    // GitHub skips every job after a skipped one unless its `if:` has a status
+    // function: the jobs after npm's go on once it succeeds.
+    for (const name of ['github-release', 'publish-pypi-cli']) {
+      assert.match(
+        job(name),
+        /\n {4}if: \$\{\{ !cancelled\(\) && github\.event_name == 'workflow_dispatch' && [^\n]*needs\.publish\.result == 'success'/,
+        `${name} is skipped after a skipped Maven job`,
+      );
+    }
   });
 
   test("the wait for Central comes before npm's approval, outlasts Central's lag, and runs in a dry run", () => {
@@ -576,6 +607,30 @@ describe('the Release workflow', () => {
       wait,
       /\n {8}if: \$\{\{ !inputs\.dry-run \}\}\n {8}run: node scripts\/central-bundle\.mjs on-central /,
     );
+  });
+
+  test('every job that sets up Node sets up pnpm first, or turns the package-manager cache off', () => {
+    // setup-node turns its package-manager cache on when package.json names a package
+    // manager, and that cache looks for pnpm: a job that never sets it up fails there.
+    const names = [...workflow.matchAll(/\n {2}([a-z][\w-]*):\n/g)].map((m) => m[1]);
+    const nodeJobs = names.filter((name) => /\buses: actions\/setup-node@/.test(job(name)));
+    assert.ok(
+      nodeJobs.includes('maven-on-central') && nodeJobs.includes('github-release'),
+      `the jobs that set up Node: ${nodeJobs.join(', ')}`,
+    );
+    for (const name of nodeJobs) {
+      const steps = job(name).split(/\n {6}- /);
+      steps.forEach((step, i) => {
+        if (!/(^|\n {8})uses: actions\/setup-node@/.test(step)) return;
+        const pnpmFirst = steps
+          .slice(0, i)
+          .some((before) => /(^|\n {8})uses: pnpm\/action-setup@/.test(before));
+        assert.ok(
+          pnpmFirst || /\n {10}package-manager-cache: false(\n|$)/.test(step),
+          `${name} sets up Node with the package-manager cache, and no pnpm before it`,
+        );
+      });
+    }
   });
 
   test('Maven Central gets the checked, signature-verified bundle', () => {

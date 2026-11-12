@@ -93,5 +93,5 @@ if (!result.ok) {
 
 ## Dependencies
 
-Apache 2.0. `src/` has no imports, so tooling and the runtime can
-both consume it.
+Apache 2.0. Its one dependency is `@kindgi/types` (for the shared UUID
+check), which has none, so tooling and the runtime can both consume it.

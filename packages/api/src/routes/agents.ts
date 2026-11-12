@@ -13,7 +13,11 @@ import {
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
-import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
+import type {
+  AgentPublishOutcome,
+  AgentRegistryBinding,
+  AgentVersionRecord,
+} from '../agent-binding.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
@@ -35,12 +39,15 @@ import {
   underItem,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { beforeHandler } from '../middleware/error-mapper.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
+  heldVersionsGone,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
@@ -66,7 +73,7 @@ import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { actionOrRunRefusal, readableOrRun, wasReadItself } from './runner-reach.js';
-import { parseScopeParams } from './scope-params.js';
+import { bodyProjectResourceRef, parseScopeParams, pinScopeResourceRef } from './scope-params.js';
 
 /**
  * Agents resource routes.
@@ -159,21 +166,7 @@ export function agentsRouter(
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', async () => {
-        try {
-          const body = await c.req.json();
-          const pid =
-            body !== null && typeof body === 'object'
-              ? (body as Record<string, unknown>).projectId
-              : undefined;
-          if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
-        } catch {
-          // POST handler validates + returns 400
-        }
-        return ref('tenant', tenantId as unknown as string);
-      });
-      return mw(c, next);
+      return authorizer.authorize('admin', bodyProjectResourceRef)(c, next);
     });
     r.use('/', async (c, next) => {
       if (!isReadMethod(c.req.method)) return next();
@@ -190,16 +183,20 @@ export function agentsRouter(
     });
     // Changing what's pinned is its own permission (`pin`, granted to the
     // agent's admins), checked as a deployment's promotion that pins what
-    // it moves checks it (`agentPinChangeRefusal`).
+    // it moves checks it (`agentPinChangeRefusal`). It runs before the
+    // handler, so a store that couldn't be reached, or a database too busy
+    // to read, answers 503 on any method (`beforeHandler`).
     r.use('/:agentId/*', async (c, next) => {
       if (!isAgentPinWrite(c.req.method, c.req.path)) return next();
-      const refused = await agentPinChangeRefusal(c, {
-        authorizer,
-        rights: itemRights,
-        agentId: c.req.param('agentId') ?? '',
-        scope: await bodyScope(c),
-        setsPin: isAgentPinSet(c.req.method, c.req.path),
-      });
+      const refused = await beforeHandler(c, async () =>
+        agentPinChangeRefusal(c, {
+          authorizer,
+          rights: itemRights,
+          agentId: c.req.param('agentId') ?? '',
+          scope: await bodyScope(c),
+          setsPin: isAgentPinSet(c.req.method, c.req.path),
+        }),
+      );
       return refused ?? next();
     });
     // An agent more than one project serves is checked on those projects
@@ -236,6 +233,23 @@ export function agentsRouter(
         },
       }),
     );
+  } else {
+    // Without a store, a key or session limited to a project still
+    // registers nothing tenant-wide (`holdLimitedCaller`).
+    r.use('/', async (c, next) =>
+      c.req.method === 'POST'
+        ? holdLimitedCaller('admin', bodyProjectResourceRef)(c, next)
+        : next(),
+    );
+    // Nor pins an agent tenant- or org-wide, the scope read as the pin
+    // routes read it.
+    r.use('/:agentId/*', async (c, next) => {
+      if (!isAgentPinWrite(c.req.method, c.req.path)) return next();
+      const scope = await bodyScope(c);
+      if (scope === undefined) return next();
+      const tenantId = c.get('tenantId') as TenantId;
+      return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
+    });
   }
 
   /**
@@ -751,28 +765,8 @@ export function agentsRouter(
           creatorUserId,
         ),
     });
-    if (outcome.kind === 'already-registered') {
-      return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
-    }
-    if (outcome.kind === 'project-mismatch') {
-      return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
-    }
-    if (outcome.kind === 'project-not-found') {
-      // Caller supplied a `projectId` that does not resolve within
-      // this tenant. Distinct signal from `already-registered` so the
-      // client can prompt for a valid project rather than assume the
-      // version was already used. Answered as `400 bad-input`; the
-      // caller learns from the message which field was invalid.
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
-          },
-          requestId,
-        ),
-      );
+    if (outcome.kind !== 'ok') {
+      return publishRefusedResponse(c, { binding, tenantId, agent }, outcome);
     }
     const warnings = publishWarnings(defined.value, capabilities);
     c.status(201);
@@ -1008,6 +1002,50 @@ async function alreadyRegistered(
         agentId: agentId as unknown as string,
         version: version as unknown as string,
         ...(next !== undefined && { nextFreeVersion: next }),
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+/** The answer to a `POST /v1/agents` its registry refused. */
+async function publishRefusedResponse(
+  c: Context<AppEnv>,
+  {
+    binding,
+    tenantId,
+    agent,
+  }: { readonly binding: AgentRegistryBinding; readonly tenantId: TenantId; readonly agent: Agent },
+  outcome: Exclude<AgentPublishOutcome, { readonly kind: 'ok' }>,
+): Promise<Response> {
+  if (outcome.kind === 'already-registered') {
+    return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
+  }
+  if (outcome.kind === 'held-version-gone') {
+    // A tool version it pins, removed since it was pinned: refused as reach
+    // refuses it, at the paths that name it.
+    const item = { kind: 'agent', id: agent.id, version: agent.version } as const;
+    return outOfScopeResponse(
+      c,
+      c.get('requestId'),
+      heldVersionsGone(item, outcome.gone, agentReferences(agent)),
+    );
+  }
+  // Caller supplied a `projectId` that does not resolve within
+  // this tenant (`project-not-found`). Distinct signal from
+  // `already-registered` so the client can prompt for a valid project
+  // rather than assume the version was already used. Answered as
+  // `400 bad-input`; the caller learns from the message which field was
+  // invalid.
+  c.status(statusFor('bad-input') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'bad-input',
+        message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
       },
       c.get('requestId'),
     ),

@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Context } from 'hono';
+
 import { type ResourceRef, ref } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { ListScope, OrgId, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentPinScope, ListScope, OrgId, ProjectId, TenantId } from '@kindgi/types';
+
+import type { AppEnv } from '../types.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * The authorization resource for a request scope: the project or org it
@@ -17,6 +22,38 @@ export function scopeResourceRef(scope: Scope | undefined, tenantId: TenantId): 
   if (scope?.kind === 'project') return ref('project', scope.projectId as unknown as string);
   if (scope?.kind === 'org') return ref('org', scope.orgId as unknown as string);
   return ref('tenant', tenantId as unknown as string);
+}
+
+/**
+ * The resource a register's JSON body names: its `projectId`, else the
+ * tenant (a tenant-wide item). A body that isn't JSON checks the tenant;
+ * the handler then answers 400.
+ */
+export async function bodyProjectResourceRef(c: Context<AppEnv>): Promise<ResourceRef> {
+  try {
+    const body = await c.req.json();
+    const pid =
+      body !== null && typeof body === 'object'
+        ? (body as Record<string, unknown>).projectId
+        : undefined;
+    if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
+  } catch {
+    // The handler answers 400 for a body that isn't JSON.
+  }
+  return ref('tenant', c.get('tenantId') as unknown as string);
+}
+
+/** The resource a pin's scope is: a segment is its project's. */
+export function pinScopeResourceRef(scope: AgentPinScope, tenantId: TenantId): ResourceRef {
+  switch (scope.kind) {
+    case 'tenant':
+      return ref('tenant', tenantId as unknown as string);
+    case 'org':
+      return ref('org', scope.orgId as unknown as string);
+    case 'project':
+    case 'segment':
+      return ref('project', scope.projectId as unknown as string);
+  }
 }
 
 /** {@link scopeResourceRef} for the `?scopeKind` + `?scopeId` query parameters. */
@@ -132,8 +169,6 @@ export function parseScopeParams(
   return { kind: 'ok', scope, ...(inherit !== undefined && { inherit }) };
 }
 
-const SCOPE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * A content list's `?scopeKind` + `?scopeId` as a `ListScope`: a project
  * or an org narrows the list; no scope, or `tenant`, is the whole tenant.
@@ -151,7 +186,7 @@ export function parseListScope(
   const scope = parsed.scope;
   if (scope === undefined || scope.kind === 'tenant') return { kind: 'ok' };
   const id = (scope.kind === 'project' ? scope.projectId : scope.orgId) as unknown as string;
-  if (!SCOPE_ID_RE.test(id)) {
+  if (!UUID_RE.test(id)) {
     return {
       kind: 'err',
       message: `scope query parameters malformed: scopeId must be ${scope.kind === 'project' ? 'a project' : 'an org'} id (a UUID), got "${id}"`,

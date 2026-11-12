@@ -20,7 +20,16 @@
  * project is deleted (`slug-conflict` with `heldAs: 'old-slug'`).
  */
 
-import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
+import type {
+  Filter,
+  OrgId,
+  Page,
+  ProjectId,
+  SigningKeyId,
+  TeamId,
+  TenantId,
+  UserId,
+} from '@kindgi/types';
 
 import type {
   ProjectBinding,
@@ -77,6 +86,11 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
  *   the durable binding does under its per-workspace lock; absent, no project is
  *   in an order. Compose this to the environment-order binding's `orderOf`
  *   wherever both share a store so the guard is never silently unset.
+ * - `promoteOnlyDeployment`: a promote-only build deployed into a project
+ *   (not promoted there), or `undefined` for none, read where deployments
+ *   are kept. Read synchronously, so `setProduction` reads it and changes
+ *   in one step, as a database's lock makes it: given, a project holding
+ *   one answers `promote-only-build`; absent, no project holds one.
  */
 export interface InMemoryHierarchyOptions {
   readonly orgExists?: (tenantId: TenantId, orgId: OrgId) => boolean | Promise<boolean>;
@@ -85,6 +99,10 @@ export interface InMemoryHierarchyOptions {
     tenantId: TenantId,
     projectId: ProjectId,
   ) => string | undefined | Promise<string | undefined>;
+  readonly promoteOnlyDeployment?: (
+    tenantId: TenantId,
+    projectId: ProjectId,
+  ) => { readonly deploymentId: string; readonly signerKeyId: SigningKeyId } | undefined;
 }
 
 /**
@@ -164,6 +182,22 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         grantOrder.splice(i, 1);
       }
     }
+  }
+
+  /**
+   * Why a project can't go into production now, or `undefined`: a
+   * promote-only build deployed into it, then the tenant's limit.
+   */
+  function heldOut(tenantId: TenantId, projectId: ProjectId): ProjectProductionOutcome | undefined {
+    const held = options.promoteOnlyDeployment?.(tenantId, projectId);
+    if (held !== undefined) {
+      return {
+        kind: 'promote-only-build',
+        deploymentId: held.deploymentId,
+        signerKeyId: held.signerKeyId,
+      };
+    }
+    return limitReached(tenantId);
   }
 
   /** `limit-reached` when the tenant's projects in production are at its limit or past it. */
@@ -352,7 +386,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'ok', productionSince: row.productionSince ?? null, changed: false };
       }
       // Read, counted and changed with no await between: one step, as a database's lock makes it.
-      const refused = production ? limitReached(tenantId) : undefined;
+      const refused = production ? heldOut(tenantId, projectId) : undefined;
       if (refused !== undefined) return refused;
       const now = nowTimestamp();
       const { productionSince: _was, ...rest } = row;

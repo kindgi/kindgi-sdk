@@ -124,6 +124,12 @@ export type IdentityUnregisterUserResult =
        * is 0 once nothing is left.
        */
       readonly keysRevoked: number;
+      /**
+       * The keys revoked with theirs: every key minted with one of them,
+       * and with those in turn, whoever it acts for. Not in `keysRevoked`.
+       * Absent from stores that don't record which key minted which.
+       */
+      readonly mintedKeysRevoked?: number;
       readonly sessionsRevoked: number;
       readonly grantsRemoved: number;
     }

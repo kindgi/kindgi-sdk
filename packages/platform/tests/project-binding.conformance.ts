@@ -30,7 +30,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { OrgId, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
+import type { OrgId, ProjectId, SigningKeyId, TeamId, TenantId, UserId } from '@kindgi/types';
 
 import type { ProjectBinding, ProjectMembershipBinding } from '../src/project-binding.js';
 import type { TeamProjectGrantBinding } from '../src/team-project-grant-binding.js';
@@ -74,6 +74,16 @@ export function runProjectBindingConformance(
      */
     readonly setProductionLimit?: (tenantId: TenantId, limit: number | undefined) => Promise<void>;
     /**
+     * With `promoteOnlyBuilds`: record a promote-only build deployed into
+     * the project (not promoted there) where this binding reads it: the
+     * deployment's id, and the key that signed it.
+     */
+    readonly deployPromoteOnly?: (
+      tenantId: TenantId,
+      projectId: ProjectId,
+      deployment: { readonly deploymentId: string; readonly signerKeyId: SigningKeyId },
+    ) => Promise<void>;
+    /**
      * With `checksEnvironmentOrders`: put the project in an environment order
      * and return that order's id, or clear it from its order. The store backs
      * this however it holds orders — the in-memory adapter a map, the durable
@@ -102,6 +112,14 @@ export function runProjectBindingConformance(
      * once can't both take the last place.
      */
     readonly productionLimit?: boolean;
+    /**
+     * Its `setProduction` refuses a project a promote-only build was
+     * deployed into (recorded through `deployPromoteOnly`) with
+     * `promote-only-build`, naming the deployment, and changes nothing.
+     * Taking a project out, one already in production, and another
+     * project are never refused.
+     */
+    readonly promoteOnlyBuilds?: boolean;
     /**
      * The binding implements `setRepoConnection`: a connection set, read
      * back on the project, kept by an update, and cleared, with repeats
@@ -535,6 +553,54 @@ export function runProjectBindingConformance(
           (p) => p?.productionSince !== undefined,
         );
         expect(live).toHaveLength(1);
+      });
+    });
+  }
+
+  if (options.promoteOnlyBuilds === true) {
+    describe(`${label} — a promote-only build deployed into a project`, () => {
+      const HELD = {
+        deploymentId: '7c1e0b3a-5d2f-4a8e-9b6c-0d4f2e1a3b5c',
+        signerKeyId: 'acme-release' as SigningKeyId,
+      };
+
+      /** A fresh binding, its `setProduction`, and the recorder of a promote-only build. */
+      function holding() {
+        const made = makeBinding();
+        const set = made.projects.setProduction?.bind(made.projects);
+        if (set === undefined) throw new Error('this binding has no setProduction');
+        const deploy = made.deployPromoteOnly;
+        if (deploy === undefined) throw new Error('promoteOnlyBuilds needs deployPromoteOnly');
+        return { projects: made.projects, set, deploy };
+      }
+
+      it('keeps it out of production: promote-only-build naming it, and nothing changes', async () => {
+        const { projects, set, deploy } = holding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        await deploy(T1, id, HELD);
+        expect(await set(T1, id, true)).toEqual({ kind: 'promote-only-build', ...HELD });
+        expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+
+      it('never refuses taking it out, or a project already in production', async () => {
+        const { projects, set, deploy } = holding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        expect((await set(T1, id, true)).kind).toBe('ok');
+        await deploy(T1, id, HELD);
+        expect(await set(T1, id, true)).toMatchObject({ kind: 'ok', changed: false });
+        expect(await set(T1, id, false)).toEqual({
+          kind: 'ok',
+          productionSince: null,
+          changed: true,
+        });
+      });
+
+      it("another project's doesn't hold this one", async () => {
+        const { projects, set, deploy } = holding();
+        const dev = await createProject(projects, T1, { name: 'Dev', slug: 'dev' });
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        await deploy(T1, dev, HELD);
+        expect((await set(T1, id, true)).kind).toBe('ok');
       });
     });
   }

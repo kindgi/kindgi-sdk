@@ -35,7 +35,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -53,6 +52,7 @@ import {
   readPackBlocks,
   resolveDiscovery,
 } from '@kindgi/handler-runtime';
+import type { PackIdentity } from '@kindgi/handler-runtime/pack-service';
 import {
   LOCAL_ENV_NAME,
   type PackEnv,
@@ -165,6 +165,8 @@ import {
   writeProviderKeysRecord,
 } from '../env/provider-keys.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
+import { homeFolder } from '../home.js';
+import { licenseKeyHome } from '../license/home-key.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
@@ -568,6 +570,28 @@ async function runDevForPack(
     emitProblem(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
+  // The license key the runtime runs with: every runtime needs one, the
+  // one kindgi dev starts included, so without one it's refused now,
+  // before anything starts. A runtime the developer runs (--runtime-url)
+  // reads its own from their shell.
+  let licenseKey: string | undefined;
+  if (args.runtimeUrl === undefined) {
+    const license = await dev.licenseKey({
+      env: ctx.env,
+      home: licenseKeyHome(ctx),
+    });
+    if (license.kind === 'error') {
+      return { kind: 'error', stderr: `kindgi dev: ${license.message}\n`, exitCode: 1 };
+    }
+    licenseKey = license.key;
+    emitProgress(
+      license.what !== undefined
+        ? `✓ License key: ${license.what}, from ${license.from}`
+        : `✓ License key from ${license.from}`,
+    );
+    if (license.warning !== undefined) emitProblem(`⚠ ${license.warning}`);
+  }
+
   // The pack service runs sandboxed where this machine can: the code a
   // coding agent writes can't read your keys or reach Docker. Where it
   // can't, a warning; required (KINDGI_DEV_SANDBOX=required): refused now,
@@ -576,7 +600,7 @@ async function runDevForPack(
     config: projectEnv.config,
     env: ctx.env,
     packDir: args.packDir,
-    home: ctx.env.HOME ?? homedir(),
+    home: homeFolder(ctx.env.HOME),
     detect: () => dev.detectSandbox(ctx.env),
   });
   if (devSandbox.kind === 'error') {
@@ -836,6 +860,7 @@ async function runDevForPack(
     code: code.value,
     env: packEnv,
   });
+  const identity = packIdentityOf(projectEnv.config);
   const refresher = createPackRefresher({
     dev,
     pack,
@@ -843,6 +868,7 @@ async function runDevForPack(
     packDir: args.packDir,
     env: packEnv,
     code: code.value,
+    ...(identity !== undefined && { identity }),
     onIndexerOutput: (line) => emitOutput(showIndexerLine(line, logView)),
     // The indexer imports every primitive's module: the pack's code, so sandboxed too.
     ...(devSandbox.sandbox !== undefined && { sandbox: devSandbox.sandbox }),
@@ -896,6 +922,7 @@ async function runDevForPack(
         googleCredentialsPath: google.credentials.path,
       }),
       runtimeImage: args.runtimeImage,
+      ...(licenseKey !== undefined && { licenseKey }),
       ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
       logLevels: runtimeLogLevels(logView),
       onLog: (line, stream) => emitOutput(showLine('runtime', line, logView, stream)),
@@ -2352,6 +2379,18 @@ function renderIndexSection(
     ...(index.filePath !== undefined ? [`    at ${index.filePath}`] : []),
     '  Fix the pack source; kindgi dev keeps the server up regardless.',
   ];
+}
+
+/** The pack's id and version from its loaded config (`pack`), which the loader requires. */
+function packIdentityOf(
+  config: Readonly<Record<string, unknown>> | undefined,
+): PackIdentity | undefined {
+  const pack = config?.pack;
+  if (typeof pack !== 'object' || pack === null) return undefined;
+  const { id, version } = pack as Readonly<Record<string, unknown>>;
+  return typeof id === 'string' && typeof version === 'string'
+    ? { packId: id, packVersion: version }
+    : undefined;
 }
 
 /** The refresh found no primitive files: an empty pack, which is not an error. */

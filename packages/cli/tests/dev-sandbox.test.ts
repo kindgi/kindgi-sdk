@@ -241,6 +241,9 @@ describe('the Seatbelt profile', () => {
     expect(openRoots).toBeLessThan(openApp);
     expect(openApp).toBeLessThan(closeSecrets);
     expect(closeSecrets).toBeLessThan(devOutputs);
+    expect(profile).toContain(
+      '(regex #"/(kindgi\\.env|pack\\.env|db\\.env|openfga\\.env|\\.kindgirc\\.json|\\.npmrc|\\.pypirc|\\.netrc)$")',
+    );
     expect(profile).toContain('(subpath "/private/var/folders") (subpath "/private/tmp")');
     expect(profile).toContain(
       '(allow file-read* file-write* (subpath "/private/var/folders/xx/yy/T/kindgi-dev-abc"))',
@@ -327,12 +330,20 @@ describe('bubblewrap', () => {
     await writeFile(join(app, '.env.local'), 'x');
     await writeFile(join(app, 'apps', 'web', '.env'), 'x');
     await writeFile(join(app, '.npmrc'), 'x');
+    await writeFile(join(app, 'db.env'), 'x');
+    await writeFile(join(app, 'apps', 'web', 'openfga.env'), 'x');
     await writeFile(join(app, 'node_modules', 'x', '.env'), 'x');
     await writeFile(join(app, 'README.md'), 'x');
     await symlink(join(root, 'elsewhere'), join(app, 'linked'));
     const secrets = await appSecrets(app);
     expect([...secrets.files].sort()).toEqual(
-      [join(app, '.env.local'), join(app, '.npmrc'), join(app, 'apps', 'web', '.env')].sort(),
+      [
+        join(app, '.env.local'),
+        join(app, '.npmrc'),
+        join(app, 'db.env'),
+        join(app, 'apps', 'web', '.env'),
+        join(app, 'apps', 'web', 'openfga.env'),
+      ].sort(),
     );
     expect([...secrets.dirs].sort()).toEqual(
       [join(app, '.git'), join(app, 'apps', 'web', '.kindgi')].sort(),
