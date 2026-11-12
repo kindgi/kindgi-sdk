@@ -29,10 +29,12 @@ That includes internal systems your own employees use.
 ## Building is free
 
 `kindgi dev` runs the runtime in development mode, with `KINDGI_DEV=true`.
-Development mode runs with no license key, and the free non-production key
-from access.kindgi.com pulls the runtime image. So everything you build and
-test on your machine is free. Preview releases still stop starting after 90
-days, in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
+Development mode runs with the free non-production key from
+access.kindgi.com, the same key that pulls the runtime image.
+`kindgi auth registry` logs Docker in with it and keeps it for `kindgi dev`.
+So everything you build and test on your machine is free. Preview releases
+still stop starting after 90 days, in development mode too
+([below](#preview-releases-stop-starting-after-90-days)).
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
@@ -40,10 +42,10 @@ email address for a license key. The key is also the runtime image's
 password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
-## Running outside development mode
+## Running on a server, in staging or in CI
 
-Anywhere else, the runtime needs its key: on a server, in staging, and in CI
-that runs the runtime itself. It reads the key from the `KINDGI_LICENSE_KEY`
+As in development mode, the runtime needs its key there: on a server, in
+staging, and in CI that runs the runtime itself. It reads the key from the `KINDGI_LICENSE_KEY`
 environment variable, which you set from your secrets store. A key starts
 with `kgi_lk_`.
 
@@ -62,20 +64,52 @@ There are two kinds of key:
 
 - **A production key** comes with a commercial license, from
   contact@kindgi.com.
-- **A non-production key** is free, for staging and CI that run the runtime
-  outside development mode. Get one at
-  [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **A non-production key** is free, for development, staging and CI. Get
+  one at [access.kindgi.com](https://access.kindgi.com), or from
+  contact@kindgi.com.
 
 The runtime starts with either and prints which one it has. It also prints
 the key's name: for a key from access.kindgi.com, your company's domain,
 your GitHub login, or your email address cut short
 ([Your key's name](../../deploy/self-hosted/pull-the-runtime-image/#your-keys-name)).
 
+## What a production license covers
+
+Each production license covers one installation: one runtime and its
+database, on any number of servers. Free, Starter and Business each serve
+one tenant, your own organization, with up to the flows and agents below:
+
+| Plan | Flows | Agents | Support |
+|---|---|---|---|
+| Free | 1 | 2 | Bug reports from your coding agent, answered in the CLI, and help on GitHub |
+| Starter | 3 | 10 | As Free, and email |
+| Business | 10 | 30 | As Free, email answered within one business day, and apps you need that Kindgi can't connect to yet, added by us |
+| Enterprise | Any number | Any number | As agreed |
+
+The prices are on [kindgi.com/pricing](https://kindgi.com/pricing). More
+installations, or other organizations as tenants, such as your customers,
+take Enterprise. Cancelling a plan ends its license, even if the key hasn't
+expired yet.
+
+- **What counts:** each flow and each agent your packs define in the
+  projects you put in production
+  ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)),
+  once in an installation, however many of those projects or versions run
+  it. Projects not in production, tools and users don't count.
+- **Above your plan:** running more flows or agents than your plan covers
+  is outside its terms. In a coming release, the runtime warns when you
+  reach your plan's flows or agents, and refuses new ones once you're more
+  than 20% over, though it always lets you go one over. Flows and agents
+  that already run keep running.
+- **A Startup license** from before these plans keeps its 10 flows and 10
+  agents until it expires.
+
 ## What a key covers
 
 A key covers the installation it's set on. The runtime reads it once, when
 it starts, and every tenant and project that runtime serves runs under it:
-a key names no tenant or project, and no number of them.
+a key names no tenant or project, and no number of them. Your plan's
+limits are terms of your license: the runtime doesn't count them yet.
 
 A project in production
 ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production))
@@ -90,11 +124,11 @@ covers it.
 
 ## Without a valid key
 
-Outside development mode, a runtime with no key doesn't start. It exits with
+A runtime with no key doesn't start, in development mode too. It exits with
 code 2 and says why:
 
 ```text
-KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs a license key: a production key comes with a commercial license, and a free non-production key covers staging and CI. To get one: contact@kindgi.com. Local development needs none: `kindgi dev` runs the runtime with KINDGI_DEV=true.
+KINDGI_LICENSE_KEY is not set. Every Kindgi runtime needs a license key, in development mode too: a production key comes with a commercial license, and a free non-production key covers development, staging and CI. Get a non-production key at https://access.kindgi.com; a production key: contact@kindgi.com. With `kindgi dev`, run `kindgi auth registry` with your key: it keeps the key for `kindgi dev`.
 ```
 
 A key that was changed, or that Kindgi didn't issue, is refused the same
@@ -125,7 +159,9 @@ stops because of its key. A platform that restarts instances on its own
 To renew a production key, which goes with your contract, write to
 contact@kindgi.com. A non-production key from access.kindgi.com renews when
 you sign in there again. When access.kindgi.com has it turned on, a
-deployment can also renew its key itself, by hand or on a schedule. See
+deployment can also renew its key itself, by hand or on a schedule. While a
+deployment is renewing the key, signing in shows it but leaves its renewal to
+the deployment. See
 [Renew the license key](../../deploy/self-hosted/renew-the-license-key/).
 
 ## Preview releases stop starting after 90 days

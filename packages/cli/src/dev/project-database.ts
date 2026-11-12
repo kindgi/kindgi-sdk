@@ -8,8 +8,8 @@
  * unrelated folders that resolve to the same project name don't share a
  * database and a tenant without knowing it. Statements go through
  * `docker exec … psql` in the container: the CLI carries no Postgres
- * client, and only manages the bundled Postgres (never a database a
- * `--database-url` names).
+ * client, and only manages the bundled Postgres (never a database the
+ * developer names).
  */
 
 import { existsSync } from 'node:fs';
@@ -137,7 +137,7 @@ export function createProjectDatabases(input: {
       if (folderExists(current.root)) {
         return {
           kind: 'refused',
-          message: `the database ${project.database} belongs to ${current.root}, another folder whose project is also named "${project.name}". Give this one its own name: set \`project\` in kindgi.config.ts (or \`project\` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.`,
+          message: `the database ${project.database} belongs to ${current.root}, another folder whose project is also named "${project.name}". Give this one its own name: set \`project\` in kindgi.config.ts (or \`project\` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or use your own Postgres: KINDGI_DATABASE_URL in .kindgi/secrets.env.`,
         };
       }
       const moved = await setOwner(project.database, {

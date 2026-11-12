@@ -20,7 +20,11 @@ import { parseTimeInput } from './time-input.js';
  * same way to the next key. Never the key itself.
  */
 export interface LicenseStatus {
-  /** `development`: `KINDGI_DEV`, no key needed (the key's fields are absent). */
+  /**
+   * `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with
+   * no key (the key's fields are absent). From 0.7.0 a development runtime
+   * has a key too, and answers `licensed`.
+   */
   readonly mode: 'development' | 'licensed';
   /** Whose key: the name the banner prints. */
   readonly name?: string;

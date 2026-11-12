@@ -40,7 +40,10 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * storage sets that code when a lock or statement timeout, or the wait for
  * a pooled connection, ended the query. Any other method answers the 500:
  * a write can have committed part of its work before the timeout, and
- * clients retry a 503 as an answer that nothing ran.
+ * clients retry a 503 as an answer that nothing ran. Before the handler
+ * runs, nothing has: a read the `authorize` middleware's check needs (or
+ * its resource getter, or a route middleware's read of what it checks)
+ * answers the 503 on any method (`beforeHandlerAnswer`).
  *
  * A check the authorization store couldn't be reached for is the same: an
  * error with `code: 'authz-backend-unavailable'` on it or down its `cause`
@@ -49,7 +52,7 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * where the handler may have written before its check. The runtime's
  * binding sets that code (`AuthzCheckBinding`'s contract). A check in the
  * `authorize` middleware runs before the handler, so there it answers the
- * 503 on any method.
+ * 503 on any method (`beforeHandlerAnswer`).
  *
  * The requestId embedded in the response body matches
  * `middleware/request-id.ts`, so a caller can correlate.
@@ -119,10 +122,49 @@ export function mapThrownError(cause: Error, c: Context): Response {
  * returned it re-coded with the failure as its cause.
  */
 export function databaseBusyAnswer(err: unknown, c: Context): Response | undefined {
-  if (!READ_METHODS.has(c.req.method) || !isDatabaseBusy(err)) return undefined;
+  return READ_METHODS.has(c.req.method) ? busyAnswer(err, c) : undefined;
+}
+
+/**
+ * The answer to an error thrown before the handler ran, where sending the
+ * request again is safe on any method: `authzUnavailableAnswer`'s 503, or
+ * `503 database-busy` with `Retry-After`, whatever the method. `undefined`
+ * for any other error, for the caller to rethrow.
+ *
+ * The caller is a middleware whose reads and checks come before the
+ * handler: the `authorize` middleware (its resource getter and its check),
+ * and a route's own middleware that reads what it checks. Asked inside a
+ * handler, with `deniedBy`, the middleware's answer comes before any write.
+ */
+export function beforeHandlerAnswer(err: unknown, c: Context): Response | undefined {
+  return busyAnswer(err, c) ?? authzUnavailableAnswer(err, c);
+}
+
+/**
+ * `work`'s result, for a middleware that reads or checks before its handler
+ * runs: an error it throws answers as `beforeHandlerAnswer` says, and any
+ * other is rethrown. `work` is the middleware's own reads and checks; the
+ * handler runs after it, through `next()`.
+ */
+export async function beforeHandler<T>(c: Context, work: () => Promise<T>): Promise<T | Response> {
+  try {
+    return await work();
+  } catch (err) {
+    const answer = beforeHandlerAnswer(err, c);
+    if (answer !== undefined) return answer;
+    throw err;
+  }
+}
+
+/**
+ * `503 database-busy` for `err` when the busy mark is on it or down its
+ * `cause` chain, with the busy warning logged; whatever the method. The
+ * status and `Retry-After` are the answer's, not set on the request: a
+ * handler may go on past it, as past the authorizer's 403.
+ */
+function busyAnswer(err: unknown, c: Context): Response | undefined {
+  if (!isDatabaseBusy(err)) return undefined;
   (c.get('log') as Logger | undefined)?.warn('database busy', { err: loggable(err) });
-  c.header('Retry-After', String(DATABASE_BUSY_RETRY_AFTER_S));
-  c.status(statusFor('database-busy') as never);
   return c.json(
     toWireError(
       {
@@ -131,6 +173,8 @@ export function databaseBusyAnswer(err: unknown, c: Context): Response | undefin
       },
       (c.get('requestId') as string | undefined) ?? 'req-unknown',
     ),
+    statusFor('database-busy') as never,
+    { 'Retry-After': String(DATABASE_BUSY_RETRY_AFTER_S) },
   );
 }
 
@@ -159,7 +203,8 @@ function isDatabaseBusy(err: unknown): boolean {
  *
  * The caller has decided that sending the request again is safe: the
  * `authorize` middleware, before the handler runs (or, asked inside one,
- * before it writes), on any method, and `mapThrownError`, on a GET or HEAD.
+ * before it writes), on any method (`beforeHandlerAnswer`), and
+ * `mapThrownError`, on a GET or HEAD.
  * The status and `Retry-After` are the answer's, not set on the request, as
  * the authorizer's 403 is: a handler may go on past it.
  */

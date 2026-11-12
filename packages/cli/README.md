@@ -21,7 +21,7 @@ Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
 Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 [`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
-`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.2,<0.3"`, then
+`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.6,<0.7"`, then
 `uv run kindgi <command>`.
 
 ## The pack lifecycle
@@ -153,10 +153,11 @@ One command runs the whole loop on your machine:
   available and with plain `docker` otherwise (the `kindgi-dev` project, with
   the same container, volume and network either way, shared by every
   `kindgi dev` on the machine and left running), or the one you name with
-  `--database-url` / `KINDGI_DATABASE_URL`. The bundled one is published on
-  a random port on `127.0.0.1` only, since its password is a fixed dev one;
-  the runtime container reaches it through `host.docker.internal` (Docker
-  Desktop) or directly (Linux host networking). A `kindgi-dev_postgres`
+  `KINDGI_DATABASE_URL` (in `.kindgi/secrets.env`, say). The bundled one is
+  published on a random port on `127.0.0.1` only, since its password is a
+  fixed dev one; the runtime container reaches it through
+  `host.docker.internal` (Docker Desktop) or directly (Linux host
+  networking). A `kindgi-dev_postgres`
   started by an earlier CLI keeps its old binding (every address) until
   it's recreated: `kindgi dev --recreate-services` with compose, or, without
   compose, `docker rm -f kindgi-dev_postgres` (its data stays in the volume)
@@ -182,16 +183,16 @@ One command runs the whole loop on your machine:
 | Flag | Purpose |
 |---|---|
 | `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`, or the next free port when it's taken (another `kindgi dev`, say). A `--port` that's taken is refused. |
-| `--database-url=<url>` | The Postgres to use. Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
-| `--tenant=<id>` | Pin the workspace. Default: the project's dev workspace in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
-| `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the workspace. |
+| `--database-url=<url>` | The Postgres to use, for a URL with no password (a command line shows in `ps`). Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
+| `--tenant=<id>` | Pin the workspace. Default: the project's dev workspace in the bundled Postgres; with your own Postgres, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
+| `--dev-token=<token>` | Pin the API token. It's on the command line, where `ps` shows it; once pinned, it's kept in `.kindgirc.json`, so later runs need no flag. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the workspace. |
 | `--path=<dir>` | The pack root. Default: the current directory. It must have a `kindgi.config.ts`, or a `pyproject.toml` with a `[tool.kindgi]` table. |
 | `--no-watch` | Start, index once, and exit. For smoke tests and CI. |
-| `--reset` | Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it: runs, approvals, providers, secrets stored there), after asking, and makes a new token. Without a terminal to ask on it refuses, unless `--yes`. A database you pass with `--database-url` is never dropped: only the token is new. (To wipe every project's dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
+| `--reset` | Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it: runs, approvals, providers, secrets stored there), after asking, and makes a new token. Without a terminal to ask on it refuses, unless `--yes`. Your own database is never dropped: only the token is new. (To wipe every project's dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
 | `--yes` | With `--reset`: drop the project's database without asking (for scripts). |
 | `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. Without compose, an existing container is always reused, and `kindgi dev` says how to recreate it by hand. |
 | `--runtime-image=<ref>` | The runtime image to run. Default: the one this CLI release was tested with. |
-| `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`. |
+| `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`, and your license key as `KINDGI_LICENSE_KEY` from your own shell: that file holds none. |
 
 ### The runtime container
 
@@ -208,9 +209,19 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
+- **Your license key:** every Kindgi runtime needs one, the one `kindgi dev`
+  starts too (from 0.7.0). `kindgi dev` takes `KINDGI_LICENSE_KEY` from your
+  shell, else the copy `kindgi auth registry` keeps in
+  `~/.kindgi/license/license-key`, readable only by you. It gives the key to
+  the runtime through Docker's own environment: never in `docker run`'s
+  arguments, and never in the pack's `.kindgi/dev/runtime.env`, where a
+  coding agent reads. With no key it stops before anything starts, saying
+  where to get a free one. With `--runtime-url` it starts no runtime and
+  asks for no key: the runtime you run yourself takes its own.
 - **The image:** the runtime image is pulled on first use. It needs your
   license key: sign in at https://access.kindgi.com for it, then log Docker
-  in with it: `kindgi auth registry` (see
+  in with it: `kindgi auth registry`, which also keeps the key for
+  `kindgi dev` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
 - **Starting:** `kindgi dev` says what the start is doing as it happens,
@@ -424,11 +435,11 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
 - **The CLI:** a Python pack runs `kindgi-cli` from PyPI, the same CLI with
-  its own Node, pinned in its dev group (`kindgi-cli>=0.2,<0.3`), so it needs
+  its own Node, pinned in its dev group (`kindgi-cli>=0.6,<0.7`), so it needs
   no Node install. Run as `uv run kindgi <command>` (Poetry: `poetry run kindgi
   <command>`), which is what the startup hints and the `.mcp.json` entries
   `kindgi mcp add` writes say. The npm CLI still runs a Python pack:
-  `npx --yes @kindgi/cli@0.2 <command>`.
+  `npx --yes @kindgi/cli@0.6 <command>`.
 
 ### Stopping
 
@@ -1064,11 +1075,15 @@ kindgi auth registry --check            # only check access, no login
 or `aws:…`), so a deployment's own key logs in without passing through your
 shell. A value that isn't a license key at all is refused before anything
 logs in; whether the key pulls is the registry's to say. When your key
-renews, log in again with the new one.
+renews, log in again with the new one: that renews `kindgi dev`'s copy too.
 
 It runs `docker login` with the key or token on its stdin, never in its
-arguments, so the credential lives in Docker's own credential store: Kindgi
-stores nothing. Then it checks that Docker can pull the exact image this CLI runs
+arguments, so the credential lives in Docker's own credential store. Once
+Docker has logged in with your license key, it keeps one copy for
+`kindgi dev`: `~/.kindgi/license/license-key`, a file only you can read
+(`0600`), in a folder that holds nothing else (`0700`). A mirror's token isn't
+a license key, and isn't kept: with a mirror, `kindgi dev` reads
+`KINDGI_LICENSE_KEY` from your shell. `--check` keeps nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
 failure says whether it's access (your license key, from

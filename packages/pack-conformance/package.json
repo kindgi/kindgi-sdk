@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/pack-conformance",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "Conformance suite for pack services: a black-box HTTP and process test of pack protocol v2 and the pack index, run against any language's pack service and indexer over the same fixture pack. Kindgi's Node pack service, the Python `kindgi` package and the Java `kindgi-pack` all pass it.",
   "license": "Apache-2.0",
   "repository": {
@@ -26,6 +26,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@kindgi/flow": "workspace:*",
     "@kindgi/specs": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1"

@@ -1,5 +1,25 @@
 # @kindgi/adapter-model-openai-compat
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [6707cb9]
+  - @kindgi/types@0.6.0
+  - @kindgi/capabilities@0.6.0
+  - @kindgi/embedding@0.6.0
+
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies [6421d6f]
+- Updated dependencies [1ed72e3]
+- Updated dependencies [1365f49]
+  - @kindgi/capabilities@0.5.0
+  - @kindgi/embedding@0.5.0
+  - @kindgi/types@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

@@ -28,6 +28,26 @@ describe('releaseNotes', () => {
     assert.match(notes, /`kindgi-0\.1\.0\.zip` is the Kindgi plugin for WordPress/);
   });
 
+  test('name where the packages are: npm, PyPI and Maven Central', () => {
+    assert.match(
+      notes,
+      /on npm \(`@kindgi\/\*`\), PyPI \(`kindgi`, `kindgi-cli`\) and Maven Central, each at 0\.1\.9\. /,
+    );
+  });
+
+  test('without the JVM SDKs: npm and PyPI, and Maven Central later', () => {
+    const without = releaseNotes({ version: '0.1.9', plugin: PLUGIN, maven: false });
+    assert.match(
+      without,
+      /on npm \(`@kindgi\/\*`\) and PyPI \(`kindgi`, `kindgi-cli`\), each at 0\.1\.9\. The JVM SDKs reach Maven Central at 0\.1\.9 later: /,
+    );
+    assert.match(
+      without,
+      /a Java or Scala pack the CLI scaffolds can't resolve kindgi-pack 0\.1\.9\./,
+    );
+    assert.doesNotMatch(without, /and Maven Central, each at/);
+  });
+
   test('say how to check the download, what it needs, and where the guide is', () => {
     assert.match(notes, /`sha256sum -c kindgi-0\.1\.0\.zip\.sha256`/);
     assert.match(notes, /`shasum -a 256 -c kindgi-0\.1\.0\.zip\.sha256`/);

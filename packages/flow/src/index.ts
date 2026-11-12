@@ -57,11 +57,13 @@ export type {
   InvalidEdgePolicyError,
   InvalidFanoutNodeError,
   InvalidFlowOutputError,
+  InvalidMcpExposureError,
   InvalidMappingError,
   InvalidPredicateError,
   InvalidSubflowNodeError,
   LoopBodyCycleError,
   LoopBodyEdgeReferenceError,
+  LoopBodyFanoutError,
   LoopBodyMissingStartError,
   LoopConcurrencyError,
   LoopMaxIterationsError,
@@ -73,8 +75,8 @@ export type {
   UnknownNodeReferenceError,
 } from './errors.js';
 
-export { GRAPH_SCHEMA_URI, flowSchemaProblems, loadFlow } from './loader.js';
-export type { FlowSchemaProblem } from './loader.js';
+export { GRAPH_SCHEMA_URI, flowGraphProblem, flowSchemaProblems, loadFlow } from './loader.js';
+export type { FlowGraphCheck, FlowSchemaProblem } from './loader.js';
 export { flowPinsDigest, flowRefs, overridableRefs, withVersions } from './pins.js';
 export type { FlowPins, FlowRefs, FlowVersionOverrides } from './pins.js';
 

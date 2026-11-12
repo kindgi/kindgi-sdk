@@ -8,6 +8,7 @@ import type { Cursor, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type {
   ReviewerBinding,
@@ -67,6 +68,11 @@ export function reviewersRouter(
         failing: 'actor',
       });
     });
+  } else {
+    r.use(
+      '*',
+      holdLimitedCaller('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
+    );
   }
 
   // ---------- GET / (list, cursor-paginated) ----------

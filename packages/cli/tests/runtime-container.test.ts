@@ -96,10 +96,62 @@ describe('databaseUrlFrom', () => {
     );
   });
 
+  test('in a list of hosts with ports, each loopback host is rewritten, its port kept', () => {
+    expect(
+      databaseUrlFrom(
+        'postgres://kindgi:pw@localhost:55432,127.0.0.1:55433,db.internal:5432/kindgi',
+        'alias',
+      ),
+    ).toBe(
+      'postgres://kindgi:pw@host.docker.internal:55432,host.docker.internal:55433,db.internal:5432/kindgi',
+    );
+  });
+
+  test('in a list of hosts without ports, each host is checked on its own', () => {
+    for (const first of ['localhost', '127.0.0.1']) {
+      expect(databaseUrlFrom(`postgres://kindgi:pw@${first},db.internal/kindgi`, 'alias')).toBe(
+        'postgres://kindgi:pw@host.docker.internal,db.internal/kindgi',
+      );
+    }
+  });
+
+  test('a list with no loopback host, and the query of a rewritten one, stay byte for byte', () => {
+    const list = 'postgres://kindgi:pw@h1:5432,h2:5432/kindgi';
+    expect(databaseUrlFrom(list, 'alias')).toBe(list);
+    expect(
+      databaseUrlFrom(
+        'postgres://kindgi:pw@localhost:55432/kindgi?sslmode=verify-ca&sslrootcert=/etc/kindgi/ca.pem',
+        'alias',
+      ),
+    ).toBe(
+      'postgres://kindgi:pw@host.docker.internal:55432/kindgi?sslmode=verify-ca&sslrootcert=/etc/kindgi/ca.pem',
+    );
+  });
+
+  test("libpq's ?host= is reached the same way; a socket directory is left as it is", () => {
+    expect(databaseUrlFrom('postgres://kindgi:pw@db.internal/kindgi?host=localhost', 'alias')).toBe(
+      'postgres://kindgi:pw@db.internal/kindgi?host=host.docker.internal',
+    );
+    const socket = 'postgres://kindgi:pw@db.internal/kindgi?host=/cloudsql/p:r:i';
+    expect(databaseUrlFrom(socket, 'alias')).toBe(socket);
+  });
+
+  test("never throws: a URL it can't split goes to the runtime unchanged", () => {
+    for (const url of [
+      'postgres://kindgi:pw@/kindgi?host=/var/run/postgresql',
+      'not a database url',
+      '',
+    ]) {
+      expect(databaseUrlFrom(url, 'alias')).toBe(url);
+    }
+  });
+
   test('with host networking, unchanged', () => {
     expect(databaseUrlFrom('postgres://kindgi:pw@127.0.0.1:55432/kindgi', 'host-network')).toBe(
       'postgres://kindgi:pw@127.0.0.1:55432/kindgi',
     );
+    const list = 'postgres://kindgi:pw@localhost:55432,db.internal:5432/kindgi';
+    expect(databaseUrlFrom(list, 'host-network')).toBe(list);
   });
 });
 
