@@ -96,6 +96,7 @@ function served(d: Deployment, applied?: string): SystemPackEnvServed {
     deploymentId: d.deploymentId,
     packId: 'acme.aperture',
     ...(d.projectId !== undefined && { projectId: d.projectId }),
+    ...(d.keyScope !== undefined && { keyScope: d.keyScope }),
     imageRef: d.imageRef,
     imageDigest: d.imageDigest,
     artifactVersion: d.artifactVersion,
@@ -453,6 +454,24 @@ describe('GET /v1/system/tenants/{t}/deployments/{d}/pack-env', () => {
     );
   });
 
+  test('one made under a project-only key scope reads its own project only: a value set for the workspace is not given to it', async () => {
+    const a = makeApp();
+    const scoped: Deployment = { ...deployment('d-scoped', staging, ready), keyScope: 'project' };
+    a.deployments.set('d-scoped', scoped);
+    a.deployments.set('d-wide', deployment('d-wide', staging, ready));
+    a.setEnv({ kind: 'tenant', tenantId: live }, 'API_BASE', 'https://workspace.acme.test');
+    const wide = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd-wide'));
+    expect(wide.body.env).toEqual({ API_BASE: 'https://workspace.acme.test' });
+    const r = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd-scoped'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBe('pack-env-missing');
+    expect(r.body.env).toBeUndefined();
+    expect(r.body.names).toContainEqual(
+      expect.objectContaining({ name: 'API_BASE', problem: 'missing' }),
+    );
+    expect(r.text).not.toContain('workspace.acme.test');
+  });
+
   test("the deployments key can't read a value: 403; the full system capability can", async () => {
     const a = makeApp();
     a.deployments.set('d', deployment('d', staging, ready));
@@ -564,6 +583,25 @@ describe('GET /v1/system/pack-env', () => {
       hasMore: false,
     });
     expect(r.text).not.toContain('acme.test');
+  });
+
+  test('one made under a project-only key scope is listed only for its own project: a value set for the workspace moves the others', async () => {
+    const a = makeApp();
+    const scoped: Deployment = { ...deployment('d-scoped', staging, ready), keyScope: 'project' };
+    const wide = deployment('d-wide', staging, ready);
+    a.deployments.set('d-scoped', scoped);
+    a.deployments.set('d-wide', wide);
+    const scopedRevision = (await a.call(PACK_ENV, 'GET', valuesPath(live, 'd-scoped'))).body
+      .revision;
+    const wideRevision = (await a.call(PACK_ENV, 'GET', valuesPath(live, 'd-wide'))).body.revision;
+    a.setEnv({ kind: 'tenant', tenantId: live }, 'API_BASE', 'https://workspace.acme.test');
+    a.servedList.push(
+      served(scoped, scopedRevision as string),
+      served(wide, wideRevision as string),
+    );
+    const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
+    expect(r.status).toBe(200);
+    expect(r.body.data).toEqual([expect.objectContaining({ deploymentId: 'd-wide' })]);
   });
 
   test('one never recorded is listed; one held back at this revision is not', async () => {
@@ -743,6 +781,24 @@ describe('GET /v1/deployments/{id}/pack-env', () => {
     });
     expect(r.text).not.toContain('projects/');
     expect(r.text).not.toContain('log-level');
+  });
+
+  test('one made under a project-only key scope: a value set for the workspace is missing for it', async () => {
+    const a = makeApp();
+    const scoped: Deployment = { ...deployment('d-scoped', staging, ready), keyScope: 'project' };
+    a.deployments.set('d-scoped', scoped);
+    a.deployments.set('d-wide', deployment('d-wide', staging, ready));
+    a.setEnv({ kind: 'tenant', tenantId: live }, 'API_BASE', 'https://hidden.acme.test');
+    const r = await a.call(TENANT_KEY, 'GET', '/v1/deployments/d-scoped/pack-env');
+    expect(r.status).toBe(200);
+    expect(r.body.data).toContainEqual(
+      expect.objectContaining({ name: 'API_BASE', kind: null, scope: null, missing: true }),
+    );
+    const wide = await a.call(TENANT_KEY, 'GET', '/v1/deployments/d-wide/pack-env');
+    expect(wide.body.data).toContainEqual(
+      expect.objectContaining({ name: 'API_BASE', kind: 'env', missing: false }),
+    );
+    expect(r.text + wide.text).not.toContain('hidden.acme.test');
   });
 
   test("a server that doesn't run a pack service per deployment: 501 pack-env-not-served", async () => {

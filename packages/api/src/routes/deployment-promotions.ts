@@ -453,6 +453,17 @@ export function mountDeploymentPromotions(
   });
 
   r.post('/:deploymentId/promotions', async (c) => {
+    // The project-only key scope (`AppEnv.deployKeyScope`): set only by the
+    // server's own middleware, never by the request. A promotion records the
+    // build's tool secrets and pack env as wide as the caller reads them,
+    // which the scope keeps a deploy from, so none is made under it. The
+    // check writes nothing and stays open.
+    if (c.get('deployKeyScope') === 'project') {
+      return refusal(c, 'permission-denied', {
+        message:
+          'a promotion under a project-only key scope is refused: have a key without the scope promote it. Nothing was promoted.',
+      });
+    }
     const body = await promotionBody(c, true);
     if (body instanceof Response) return body;
     const plan = await planPromotion(c, bindings, authorizer, body.toProjectId, true);

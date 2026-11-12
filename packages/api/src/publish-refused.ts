@@ -34,14 +34,17 @@ type RefusedOutcome = Exclude<
  * version the registry holds with other content, or unregistered
  * (`deploy-blocks.ts`). Or a pack's tool whose version the registry holds
  * with another definition (`deploy-tools.ts`), with the fields that
- * differ.
+ * differ. Or, under a project-only key scope, a pack's tool whose held
+ * version reads its secrets wider than the deploy's project
+ * (`permission-denied`).
  */
 interface DeployRefusal {
   readonly code:
     | 'guardrail-project-mismatch'
     | 'guardrail-already-registered'
     | 'block-already-registered'
-    | 'tool-already-registered';
+    | 'tool-already-registered'
+    | 'permission-denied';
   readonly reason: string;
   /** With `tool-already-registered`: the fields of the tool's definition that differ. */
   readonly fields?: readonly string[];

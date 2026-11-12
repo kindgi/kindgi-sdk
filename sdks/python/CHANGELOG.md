@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a deployment says when it was deployed under a project-only
+  key scope.** `DeploymentRecord` gains `key_scope` (`keyScope` on the
+  wire), `project` for such a deploy: its tools' secrets were recorded at
+  its project only, and its pack's env is read there only. `None` on any
+  other deploy.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or

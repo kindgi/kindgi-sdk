@@ -24,6 +24,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 
+import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
@@ -68,6 +69,7 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
+import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
@@ -491,6 +493,8 @@ function harness(
     readonly cards?: { readonly pinned: string };
     /** What runs, for a promotion's check against it (`pinsAndRuns`). */
     readonly runs?: Runs;
+    /** The server's own middleware sets the project-only key scope (`deployKeyScope`). */
+    readonly keyScope?: 'project';
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -624,8 +628,17 @@ function harness(
       },
     }),
   });
+  const server = new Hono<AppEnv>();
+  if (opts.keyScope !== undefined) {
+    const keyScope = opts.keyScope;
+    server.use('/v1/deployments/*', async (c, next) => {
+      c.set('deployKeyScope', keyScope);
+      await next();
+    });
+  }
+  server.route('/', app);
   const call = async (path: string, body: unknown, token = TOKEN) => {
-    const res = await app.request(path, {
+    const res = await server.request(path, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -968,6 +981,35 @@ describe('rights on the projects themselves', () => {
       expect(h.deployments.rows).toHaveLength(1);
       expect(h.appended).toEqual([]);
     }
+  });
+
+  test('under a project-only key scope no promotion is made, with an authorizer or without: 403 permission-denied, nothing written; the check answers', async () => {
+    const grants = [`read project:${S1}`, `admin project:${S2}`];
+    const secrets = [`project:${S2}:ACME_TOKEN`];
+    const setups = [
+      harness({ keyScope: 'project', secrets }),
+      harness({ keyScope: 'project', grants, secrets }),
+    ];
+    for (const h of setups) {
+      for (const res of [
+        await h.promote('dep-s1', S2),
+        await h.promoteAndPin('dep-s1', S2),
+        // A deployment that isn't there gets the same answer: the scope is asked first.
+        await h.promote('dep-none', S2),
+      ]) {
+        expect(res.status).toBe(403);
+        expect(res.body.error.code).toBe('permission-denied');
+        expect(res.body.error.message).toContain('project-only key scope');
+      }
+      expect(h.deployments.rows).toHaveLength(1);
+      expect(h.appended).toEqual([]);
+      const check = await h.check('dep-s1', S2);
+      expect(check.status).toBe(200);
+      expect(h.deployments.rows).toHaveLength(1);
+    }
+    // The same promotion without the scope is made.
+    const open = await harness({ grants, secrets }).promote('dep-s1', S2);
+    expect(open.status).toBe(201);
   });
 
   test("read on the source's environment and admin on the target is enough: no tenant right", async () => {

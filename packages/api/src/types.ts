@@ -56,6 +56,14 @@ export interface AppEnv {
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */
     tokenProjectId?: string;
+    /**
+     * Set only by a server's own middleware, mounted before the
+     * deployments routes; nothing in a request sets it. `project`: a deploy
+     * records where its secrets are read at its target project only, never
+     * wider, keeps no tool version recorded wider than that project, and
+     * its pack's own env reads that project only.
+     */
+    deployKeyScope?: 'project';
     /** A write's body as it came, read once by `readBodyOnce`. */
     requestBody?: Uint8Array;
     /** When the API token the request came with expires, if it does. */

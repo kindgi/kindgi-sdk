@@ -164,6 +164,11 @@ export interface PackEnvRecordInput extends DeploymentRef {
 /** A deployment with a `ready` pack service, whose pack declares an environment. */
 export interface SystemPackEnvServed extends SystemDeploymentEntry {
   readonly packEnv: PackEnvDeclaration;
+  /**
+   * The deployment's key scope, as its record keeps it
+   * (`Deployment.keyScope`): `project` reads its env at its project only.
+   */
+  readonly keyScope?: 'project';
   /** The revision its service runs: given with its endpoint, or recorded since. */
   readonly appliedRevision?: string;
   /**
@@ -838,6 +843,7 @@ async function changedPackEnv(
     const { revision } = await packEnvCheck(packEnv.stores, {
       tenantId: entry.tenantId,
       ...(entry.projectId !== undefined && { projectId: entry.projectId as ProjectId }),
+      ...(entry.keyScope !== undefined && { keyScope: entry.keyScope }),
       envName: packEnv.envName,
       declaration: entry.packEnv,
     });
@@ -911,6 +917,7 @@ async function packEnvAnswer(
   const read = await packEnvValues(packEnv.stores, {
     tenantId: ref.tenantId,
     ...(deployment.projectId !== undefined && { projectId: deployment.projectId }),
+    ...(deployment.keyScope !== undefined && { keyScope: deployment.keyScope }),
     envName: packEnv.envName,
     declaration: deployment.packEnv ?? { required: [], optional: [] },
     deploymentId: deployment.deploymentId,
