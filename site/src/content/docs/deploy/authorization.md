@@ -322,6 +322,12 @@ checks every call.
 - **A project admin** may also "pin versions, register agents and tools,
   rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
+- **Where the console opens:** on the workspace's default project, or the
+  first project you can see. An editor or an admin starts on its
+  **Dashboard**. A viewer, or someone who runs it only because
+  [everyone can run it](#everyone-can-run-a-project), starts on its
+  **Results**, what each run gave back
+  ([Results](../../guides/runs/list-runs/#results)).
 - **The workspace's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
     the like, to tenant admins;
