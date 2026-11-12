@@ -15,7 +15,7 @@ failure.
 
 - **The answer-length guardrail** from
   [Write a guardrail](../write-a-guardrail/), in the pack `my-pack`, with
-  `kindgi dev` running and Kindgi 0.4's CLI.
+  `kindgi dev` running and Kindgi 0.6's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, to count a
   guardrail's outcomes: your runtime's URL and its API token.
 
@@ -628,7 +628,9 @@ behind its run's page.
 Outcomes go with their run's retention. `recordedSince` is the earliest one
 kept for the guardrail in the project, so a window that starts before it
 holds fewer than you asked for. A guardrail that's no longer registered keeps
-its outcomes.
+its outcomes. A step's checks are recorded in a write of their own, not with
+the step's end, so a run cancelled mid-step keeps the checks the step made,
+and the counts can include turns that ended `cancelled`.
 
 ### In the console
 

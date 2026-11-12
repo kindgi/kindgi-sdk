@@ -902,6 +902,10 @@ importers:
         version: 2.1.9(@types/node@22.20.3)(jsdom@25.0.1(supports-color@7.2.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.3)(typescript@5.9.3))(supports-color@7.2.0)
 
   packages/env-schema:
+    dependencies:
+      '@kindgi/types':
+        specifier: workspace:*
+        version: link:../types
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
@@ -1079,6 +1083,9 @@ importers:
 
   packages/pack-conformance:
     dependencies:
+      '@kindgi/flow':
+        specifier: workspace:*
+        version: link:../flow
       '@kindgi/specs':
         specifier: workspace:*
         version: link:../specs

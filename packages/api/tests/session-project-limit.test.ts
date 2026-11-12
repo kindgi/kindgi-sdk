@@ -12,6 +12,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, encodeSessionToken } from '../src/index.js';
 import type {
+  IdentityDirectoryBinding,
   IdentityProviderBinding,
   RunHandlerBinding,
   Session,
@@ -127,6 +128,18 @@ function makeApp() {
         }
       : null;
 
+  // Jane's own sessions and second factor: none yet, and none required.
+  const identityDirectory: IdentityDirectoryBinding = {
+    getUser: async () => null,
+    listUsers: async () => ({ data: [] }),
+    listSessions: async () => ({ data: [] }),
+    revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
+  };
+  const secondFactor = {
+    status: async () => ({ setUp: false, started: false }),
+    required: async () => false,
+  } as never;
+
   const stubs = createStubAppBindings();
   const run = (runId: string) => ({
     runId,
@@ -161,6 +174,8 @@ function makeApp() {
     sessionStore,
     identityProvider: noProviders,
     tokenAdmin,
+    identityDirectory,
+    secondFactor,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
   });
 
@@ -270,6 +285,42 @@ describe('a session limited to a project', () => {
 
     // A session without limits mints its person's own key, as before.
     expect((await h.call(await h.session(), 'POST', '/v1/tokens', {})).status).toBe(201);
+  });
+
+  test.each([
+    [
+      'its sessions',
+      'GET',
+      '/v1/identity/users/jane/sessions',
+      "its person's sessions reach beyond it",
+    ],
+    [
+      'its sessions',
+      'POST',
+      '/v1/identity/users/jane/revoke-sessions',
+      "its person's sessions reach beyond it",
+    ],
+    [
+      'its second factor',
+      'GET',
+      '/v1/identity/me/second-factor',
+      "its person's second factor reaches beyond it",
+    ],
+    [
+      'its second factor',
+      'POST',
+      '/v1/identity/me/second-factor',
+      "its person's second factor reaches beyond it",
+    ],
+  ] as const)("reaches not even its own person's %s: %s %s", async (_what, method, path, why) => {
+    const h = makeApp();
+    const refused = await h.call(await h.session(limited), method, path);
+    expect(refused.status).toBe(403);
+    expect((refused.body as ErrorBody).error).toMatchObject({
+      code: 'permission-denied',
+      message: `This session is limited to project ${P1}: ${why}`,
+    });
+    expect((await h.call(await h.session(), method, path)).status).not.toBe(403);
   });
 
   test('whoami says what it is limited to', async () => {

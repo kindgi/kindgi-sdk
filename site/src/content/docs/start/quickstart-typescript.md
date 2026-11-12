@@ -17,12 +17,12 @@ address for a license key, then log in once with `kindgi auth registry`.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.4 init my-pack --template=sample
+npx --yes @kindgi/cli@0.6 init my-pack --template=sample
 cd my-pack
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.4` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.6` runs the Kindgi CLI these docs describe,
   without installing it
   ([Check this machine](../install/#check-this-machine) says how). The
   version is optional: `npx --yes @kindgi/cli init my-pack --template=sample`

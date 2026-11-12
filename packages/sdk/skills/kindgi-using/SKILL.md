@@ -276,13 +276,13 @@ say there were none.
 
 ## More
 
-- Runs: https://docs.kindgi.com/v0.4/guides/runs/list-runs/ and
-  https://docs.kindgi.com/v0.4/guides/runs/read-the-journal/
-- Approvals: https://docs.kindgi.com/v0.4/guides/approvals/decide-an-approval/
-- Connections: https://docs.kindgi.com/v0.4/guides/connections/use-a-connection/
-- Memory: https://docs.kindgi.com/v0.4/guides/agents/give-an-agent-memory/
-- Schedules: https://docs.kindgi.com/v0.4/guides/runs/run-on-a-schedule/
-- Mail triggers: https://docs.kindgi.com/v0.4/guides/runs/start-runs-from-new-mail/
-- People and keys: https://docs.kindgi.com/v0.4/deploy/people-and-keys/
-- Cost: https://docs.kindgi.com/v0.4/guides/observability/cost-per-run/
-- Rating answers: https://docs.kindgi.com/v0.4/guides/improve/correct-a-runs-output/
+- Runs: https://docs.kindgi.com/v0.6/guides/runs/list-runs/ and
+  https://docs.kindgi.com/v0.6/guides/runs/read-the-journal/
+- Approvals: https://docs.kindgi.com/v0.6/guides/approvals/decide-an-approval/
+- Connections: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
+- Memory: https://docs.kindgi.com/v0.6/guides/agents/give-an-agent-memory/
+- Schedules: https://docs.kindgi.com/v0.6/guides/runs/run-on-a-schedule/
+- Mail triggers: https://docs.kindgi.com/v0.6/guides/runs/start-runs-from-new-mail/
+- People and keys: https://docs.kindgi.com/v0.6/deploy/people-and-keys/
+- Cost: https://docs.kindgi.com/v0.6/guides/observability/cost-per-run/
+- Rating answers: https://docs.kindgi.com/v0.6/guides/improve/correct-a-runs-output/

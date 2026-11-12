@@ -23,7 +23,7 @@ import type { ProjectBinding } from '@kindgi/platform';
 import type { OrgId, ProjectId, UserId } from '@kindgi/types';
 
 import type { Authorizer } from '../middleware/authorize.js';
-import { limitedCallerRefusal } from '../middleware/key-project.js';
+import { limitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
 import type { AppEnv } from '../types.js';
 import { type ProjectRow, allProjects } from './readable-projects.js';
 
@@ -126,6 +126,8 @@ export async function memoryReadersFor(
  *     `write` on the project;
  *   - a conversation's fact outside a project, `write` on the conversation;
  *   - a user's fact, being that user (or a tenant admin).
+ * A key or session limited to a project writes only inside it
+ * (`keyProjectProblem`).
  */
 export async function memoryWriteProblem(
   c: Context<AppEnv>,
@@ -134,6 +136,34 @@ export async function memoryWriteProblem(
 ): Promise<string | undefined> {
   const { authorizer } = deps;
   if (authorizer === undefined || (await isTenantAdmin(c, authorizer))) return undefined;
+  return keyProjectProblem(c, scope) ?? (await grantProblem(c, authorizer, scope));
+}
+
+/**
+ * Why a caller limited to a project may not write a fact in `scope`: it
+ * writes only in its project or a conversation in it (the authorizer holds
+ * the conversation to its project). A fact that names its person and no
+ * project is refused with the rest, as its person's runs read it in every
+ * project.
+ */
+function keyProjectProblem(c: Context<AppEnv>, scope: MemoryScope): string | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined) return undefined;
+  const inside =
+    scope.projectId !== undefined
+      ? (scope.projectId as unknown as string) === keyProject
+      : scope.threadId !== undefined;
+  return inside
+    ? undefined
+    : `${limitedCaller(c)} is limited to project ${keyProject}: it writes memory only in the project or one of its conversations.`;
+}
+
+/** Why the caller's grants don't let it write a fact in `scope`. */
+async function grantProblem(
+  c: Context<AppEnv>,
+  authorizer: Authorizer,
+  scope: MemoryScope,
+): Promise<string | undefined> {
   if (scope.userId !== undefined && scope.userId !== callerUserId(c)) {
     return "Only that user (or a tenant admin) can write a user's memory.";
   }
@@ -164,8 +194,9 @@ export async function memoryWriteProblem(
  * Without a store, the 403 for a key or session limited to a project
  * that writes a fact above it, workspace- or org-wide, or in another
  * project (`limitedCallerRefusal`, on what `memoryWriteProblem` asks with
- * a store). A user's or a conversation's fact isn't held: a store doesn't
- * hold those by the caller's project either.
+ * a store), whoever the fact is about. A user-wide fact, or a
+ * conversation's outside a project, isn't held: a store doesn't hold
+ * those by the caller's project either.
  */
 export function memoryLimitRefusal(
   c: Context<AppEnv>,
@@ -173,7 +204,6 @@ export function memoryLimitRefusal(
   scope: MemoryScope,
 ): Response | undefined {
   if (deps.authorizer !== undefined) return undefined;
-  if (scope.userId !== undefined && scope.userId !== callerUserId(c)) return undefined;
   if (scope.projectId !== undefined) {
     return limitedCallerRefusal(c, 'write', ref('project', scope.projectId as unknown as string));
   }

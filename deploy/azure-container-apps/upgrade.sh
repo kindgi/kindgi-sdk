@@ -77,7 +77,7 @@
 # Usage:
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
-#                [--to 0.5.0] [--from <version>] \
+#                [--to 0.6.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -100,12 +100,12 @@
 #                      release's tag, then copied into the module's registry
 #                      by its whole index.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.5.0). An rc such as 0.5.0-rc.0 works too, and so does
+#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
-#                      script knows the steps up to 0.5.0; for a later
+#                      script knows the steps up to 0.6.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -150,7 +150,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -1105,13 +1105,7 @@ EOT
 EOT
       ;;
     0.5.0)
-      # STEPS-PENDING marks a release whose runtime steps here aren't final
-      # yet: they come from its release notes' Upgrade steps before its rc,
-      # and the rc's cut stops while either script has the marker.
       cat <<'EOT'
-   - STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet.
-     Don't upgrade a deployment you keep with it: read the 0.5.0 release
-     notes' Upgrade steps.
    - Two new migrations: three new tables (connection_choices,
      connection_choice_uses and connection_choice_members), and new columns
      on connections and connection_requests that are empty, with nothing
@@ -1142,11 +1136,53 @@ EOT
      account is connected. A call that isn't an agent's or a flow's can't
      have a choice, so it needs a project with one company connection of
      the app.
+   - A person's account label is no longer recorded: when a call runs on a
+     person's own connection, the run's journal keeps the account's id
+     without its label. Runs and approvals recorded before 0.5.0 keep the
+     label they were recorded with.
    - To list Google calendars, add this scope to your Google Cloud
      project's consent screen:
        https://www.googleapis.com/auth/calendar.calendarlist.readonly
      A connection made before grants it once, when it's reconnected; the
      permissions it had stay.
+   - On a server serving many tenants, run this once after the upgrade,
+     with the new runtime's kindgi-runtime:
+       kindgi-runtime tenants repair --all
+     It sets right the authorization parents that earlier moves of
+     projects and teams, and deletes of orgs, left behind. A server
+     serving one tenant does it when it starts.
+EOT
+      ;;
+    0.6.0)
+      cat <<'EOT'
+   - Three new migrations: a table of renamed projects' old slugs
+     (project_slug_renames), a new everyone_can_run column that is empty,
+     and the tables chat apps' sign-in keeps (the auth_oauth_* tables and
+     auth_jwks), with nothing rewritten. The first start runs them, and
+     builds one new index on the runs table (kernel_runs) without locking
+     it: with many runs, that start takes longer.
+   - The migrations fill nothing in: each project keeps everyone-can-run
+     off until a project admin turns it on, and a project renamed before
+     the upgrade doesn't hold its old slugs. Change an old slug to the new
+     one wherever you named it, or name the project by its id.
+   - If a migration stops because another database session holds a lock
+     on a table it changes, start the new revision again once that
+     session has ended (the error names it). The migrations before the
+     stop stay applied, and the one it stopped on leaves nothing behind.
+   - The authorization model gains the runner role and everyone-can-run.
+     A server serving one tenant brings its store to the new model when
+     it starts. On a server serving many tenants, run this once right
+     after the upgrade, before people use it, with the new runtime's
+     kindgi-runtime:
+       kindgi-runtime tenants repair --all
+     Until it has run, lists of runs and new personal schedules fail for
+     anyone who isn't a workspace admin.
+     Give runner roles after it has run: a person's or a team's given
+     before can take up to an hour, and a service account's is refused
+     until then, so give it again.
+   - A remote MCP endpoint that redirects to another origin no longer
+     connects: it fails with mcp-connect-failed, naming the redirect
+     target. Register the URL it redirects to.
 EOT
       ;;
   esac
@@ -1182,6 +1218,11 @@ EOT
     0.5.0)
       cat <<'EOT'
    - 0.5.0 doesn't change the module.
+EOT
+      ;;
+    0.6.0)
+      cat <<'EOT'
+   - 0.6.0 doesn't change the module.
 EOT
       ;;
   esac

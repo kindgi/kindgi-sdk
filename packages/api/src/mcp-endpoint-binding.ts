@@ -80,7 +80,11 @@ export interface MCPHttpSseConfig {
   readonly url: string;
   /** Optional distinct SSE endpoint if the server splits them. */
   readonly sseUrl?: string;
-  /** Optional header overrides. `secretRef` is applied separately by the runtime. */
+  /**
+   * Plain headers sent with every request: never a credential
+   * (`credential-in-headers`) or one of MCP's own (`transport-header-in-config`).
+   * `secretRef` and `auth` are applied separately by the runtime.
+   */
   readonly headers?: Readonly<Record<string, string>>;
 }
 
@@ -88,7 +92,11 @@ export interface MCPHttpSseConfig {
 export interface MCPStreamableHttpConfig {
   readonly transport: 'streamable-http';
   readonly url: string;
-  /** Optional header overrides. `secretRef` is applied separately by the runtime. */
+  /**
+   * Plain headers sent with every request: never a credential
+   * (`credential-in-headers`) or one of MCP's own (`transport-header-in-config`).
+   * `secretRef` and `auth` are applied separately by the runtime.
+   */
   readonly headers?: Readonly<Record<string, string>>;
 }
 

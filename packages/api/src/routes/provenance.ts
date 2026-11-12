@@ -16,7 +16,7 @@ import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 
 import type { Authorizer } from '../middleware/authorize.js';
-import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -37,6 +37,7 @@ import {
   signingNotConfigured,
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { actionOrRunRefusal, isOwnRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
@@ -97,24 +98,24 @@ export function provenanceRouter(
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404 (`read` on the tenant).
     // An id that isn't a run id is never looked up (its uuid cast would
-    // fail the query as a 500).
-    const onRunProject = async (c: Context<AppEnv>, next: Next) => {
+    // fail the query as a 500). The run is read, and the caller's right on
+    // it checked, before the handler (`beforeHandler`), so a database too
+    // busy for it answers 503 on any method, as nothing ran.
+    const runRefusal = async (c: Context<AppEnv>): Promise<Response | undefined> => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
       const run = UUID_RE.test(runId)
         ? await options.runBinding?.getRun(tenantId, runId as RunId)
         : undefined;
       if (run === undefined || run === null) {
-        return authorizer.authorize('read', () => ref('tenant', tenantId as unknown as string))(
-          c,
-          next,
-        );
+        return deniedBy(authorizer, c, 'read', ref('tenant', tenantId as unknown as string));
       }
       const project = run.projectId as unknown as string;
       const own = isOwnRun(c, run) ? project : undefined;
-      const refused = await actionOrRunRefusal(authorizer, c, 'read', ref('project', project), own);
-      return refused ?? next();
+      return actionOrRunRefusal(authorizer, c, 'read', ref('project', project), own);
     };
+    const onRunProject = async (c: Context<AppEnv>, next: Next) =>
+      (await beforeHandler(c, () => runRefusal(c))) ?? next();
     r.use('/:runId', async (c, next) =>
       isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
     );
