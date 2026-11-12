@@ -69,6 +69,8 @@ export interface ValidationError {
 /**
  * A Zod schema was passed at an authoring boundary and either
  *   - the `zod` peer dependency is not installed, or
+ *   - the installed `zod` is older than zod 4 (no `toJSONSchema`), or
+ *   - the schema itself is from zod 3, which Kindgi doesn't convert, or
  *   - `z.toJSONSchema(schema)` threw (unrepresentable Zod construct —
  *     e.g. `.transform()` targeting a runtime side-effect, function
  *     schemas, uncontained cycles).

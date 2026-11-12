@@ -563,8 +563,9 @@ const DEPENDENCY_SECTIONS = [
 
 /**
  * The app's own Zod is kept; one whose range excludes zod 4 is reported,
- * since Kindgi's schemas, examples and skills are zod 4. A spec that isn't
- * a semver range (`catalog:`, `workspace:*`, a tag) is taken on trust.
+ * since Kindgi takes zod 4 schemas, with both ways on: move the app to
+ * zod 4, or write Kindgi's schemas as JSON Schema objects. A spec that
+ * isn't a semver range (`catalog:`, `workspace:*`, a tag) is taken on trust.
  */
 export function zodWarnings(pkg: Readonly<Record<string, unknown>>): readonly string[] {
   for (const section of DEPENDENCY_SECTIONS) {
@@ -576,7 +577,7 @@ export function zodWarnings(pkg: Readonly<Record<string, unknown>>): readonly st
       return [];
     }
     return [
-      `zod: the app has zod ${spec} (${section}), left as is. Kindgi's tools, examples and skills use zod 4 — upgrade to zod ${specAt(TESTED_ZOD_VERSION, false)} before writing Kindgi primitives.`,
+      `zod: the app has zod ${spec} (${section}), left as is. Kindgi takes zod 4 schemas: upgrade to zod ${specAt(TESTED_ZOD_VERSION, false)} if the app's own code can move, or write Kindgi's schemas as JSON Schema objects, e.g. input: { type: 'object', additionalProperties: false, required: ['orderId'], properties: { orderId: { type: 'string' } } }.`,
     ];
   }
   return [];

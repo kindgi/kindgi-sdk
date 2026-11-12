@@ -12,12 +12,13 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.7"
+version: "0.5.8"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
   - packages/tools/src/types.ts
   - packages/tools/src/define.ts
+  - packages/schema/src/zod.ts
 ---
 
 # Authoring Kindgi tools
@@ -59,6 +60,16 @@ logic lives:
 
 `handler` and `spec` are MUTUALLY EXCLUSIVE. Setting both (or neither)
 makes `defineTool` return an `invalid-tool-definition` error.
+
+## Schemas: zod 4 or a JSON Schema object
+
+`input` and `output` take a zod 4 schema (`import { z } from 'zod'`) or a
+JSON Schema object (Draft 2020-12): `{ type: 'object', properties:
+{ orderId: { type: 'string' } }, required: ['orderId'] }`. With JSON
+Schema, type the handler with `defineTool<Input, Output>`. An app on
+zod 3: write JSON Schema objects, and don't move its zod unless the
+person asks. A zod 3 schema fails, from zod 3 or `zod/v3`, and so
+does `zod/v4` from zod 3.
 
 ## Your case: read this file
 

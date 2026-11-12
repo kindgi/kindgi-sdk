@@ -861,20 +861,17 @@ function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
     };
   }
   const issues = outputFieldIssues(output);
-  let schema: Readonly<Record<string, unknown>>;
-  if (isZodSchema(output.schema)) {
-    // The output side: downstream steps read every field, defaulted ones included.
-    const converted = toJSONSchemaSync(output.schema, loadZodConverterSync(), 'output');
-    if (converted.kind === 'err') {
-      return {
-        kind: 'err',
-        issues: [...issues, { path: '/output/schema', message: converted.error.message }],
-      };
-    }
-    schema = converted.value;
-  } else {
-    schema = output.schema as Readonly<Record<string, unknown>>;
+  // The output side: downstream steps read every field, defaulted ones included.
+  // A JSON Schema object comes back as is; a zod 3 schema is refused by name.
+  const converter = isZodSchema(output.schema) ? loadZodConverterSync() : undefined;
+  const converted = toJSONSchemaSync(output.schema, converter, 'output');
+  if (converted.kind === 'err') {
+    return {
+      kind: 'err',
+      issues: [...issues, { path: '/output/schema', message: converted.error.message }],
+    };
   }
+  const schema = converted.value;
   const compiled = compileInlineSchema(schema);
   if (compiled.kind === 'err') {
     issues.push({ path: '/output/schema', message: compiled.error.message });

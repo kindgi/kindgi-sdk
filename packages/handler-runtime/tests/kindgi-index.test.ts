@@ -18,6 +18,7 @@ import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
+import { z as z3 } from 'zod/v3';
 
 import {
   BUILT_IN_CHECK_IDS,
@@ -1230,6 +1231,32 @@ describe('runIndexer — Zod schemas', () => {
     if (outcome.kind !== 'ok') return;
     expect(outcome.value.fileErrors[0]?.code).toBe('zod-conversion-failed');
     expect(outcome.value.fileErrors[0]?.filePath).toBe('tools/broken.mjs');
+  });
+
+  test('a zod 3 `input`, not run through defineTool, is a file error naming zod 3', async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/older.mjs': toolModule({ input: z3.object({ message: z3.string() }) }),
+      },
+    });
+
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    expect(outcome.value.fileErrors).toHaveLength(1);
+    expect(outcome.value.fileErrors[0]).toMatchObject({
+      code: 'zod-conversion-failed',
+      filePath: 'tools/older.mjs',
+      field: 'input',
+    });
+    expect(outcome.value.fileErrors[0]?.message).toMatch(
+      /^tools\/older\.mjs: Zod conversion for 'input' failed: The schema is from zod 3 /,
+    );
   });
 });
 

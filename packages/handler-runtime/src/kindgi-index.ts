@@ -2189,24 +2189,6 @@ function resolveSchema(
     return { kind: 'ok', value: converted.value };
   }
   const wireValue = rec[wireField];
-  // `wireValue` may itself be a Zod schema (author-time authored with Zod
-  // but not yet run through defineTool). Convert lazily in that case.
-  if (isZodSchema(wireValue)) {
-    const converted = toJSONSchemaSync(wireValue as AnySchema, converter, side);
-    if (converted.kind === 'err') {
-      return {
-        kind: 'err',
-        error: {
-          code: 'zod-conversion-failed',
-          message: `${relPath}: Zod conversion for '${wireField}' failed: ${converted.error.message}`,
-          filePath: relPath,
-          field: wireField,
-          cause: converted.error.cause,
-        },
-      };
-    }
-    return { kind: 'ok', value: converted.value };
-  }
   if (!isObject(wireValue)) {
     return {
       kind: 'err',
@@ -2218,7 +2200,23 @@ function resolveSchema(
       },
     };
   }
-  return { kind: 'ok', value: wireValue as Readonly<Record<string, unknown>> };
+  // `wireValue` may itself be a Zod schema (author-time authored with Zod
+  // but not yet run through defineTool). Convert lazily in that case. A JSON
+  // Schema object comes back as is, and a zod 3 schema is refused by name.
+  const converted = toJSONSchemaSync(wireValue as AnySchema, converter, side);
+  if (converted.kind === 'err') {
+    return {
+      kind: 'err',
+      error: {
+        code: 'zod-conversion-failed',
+        message: `${relPath}: Zod conversion for '${wireField}' failed: ${converted.error.message}`,
+        filePath: relPath,
+        field: wireField,
+        cause: converted.error.cause,
+      },
+    };
+  }
+  return { kind: 'ok', value: converted.value };
 }
 
 // -----------------------------------------------------------------------

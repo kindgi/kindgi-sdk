@@ -200,6 +200,30 @@ describe('defineTool — Zod-optional authoring surface', () => {
     if (r.kind === 'err') expect(r.error.code).toBe('invalid-schema');
   });
 
+  test('a schema from zod 3 is named as one, with the JSON Schema way', () => {
+    // zod 3's shape: `_def` and `safeParse`, no `_zod` (zod 3.24 on has `~standard` too).
+    const zod3 = {
+      _def: { typeName: 'ZodObject' },
+      safeParse: () => ({ success: true }),
+      '~standard': { version: 1, vendor: 'zod', validate: (value: unknown) => ({ value }) },
+    };
+    const r = defineTool({
+      id: 'test.zod-3' as ToolId,
+      description: "Authored with the app's zod 3.",
+      version: '1.0.0',
+      input: zod3,
+      output: { type: 'object' },
+      handler: async () => ({}),
+    });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.code).toBe('invalid-schema');
+      expect(r.error.message).toMatch(
+        /^Tool input Zod schema conversion failed: The schema is from zod 3 .* as a JSON Schema object/,
+      );
+    }
+  });
+
   test('TS: z.infer<typeof tool.inputZod> produces the expected type', () => {
     const inputSchema = z.object({ msg: z.string(), age: z.number().int() });
     const r = defineTool({
