@@ -164,6 +164,8 @@ describe('a project filter needs read on that project', () => {
           return next();
         },
       filterByCan: async (_c: unknown, _a: string, rows: readonly unknown[]) => rows,
+      // `run` nowhere: the filter is read's alone here.
+      can: async () => false,
     } as unknown as Authorizer;
     const binding = {
       ...registry,

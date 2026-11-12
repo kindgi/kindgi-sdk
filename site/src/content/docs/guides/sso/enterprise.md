@@ -75,7 +75,7 @@ and the agent acts for them, and only for them.
 - **Kindgi needs no personal data** to do this: your app identifies each
   person with its own opaque id.
 
-## `kindgi login` with your company sign-in
+## `kindgi auth login` with your company sign-in
 
 *Available for enterprise plans, built with you.*
 
@@ -84,7 +84,7 @@ your identity provider, instead of handling API keys.
 
 **How we build it:**
 
-- **`kindgi login` opens the browser** and goes through your identity
+- **`kindgi auth login` opens the browser** and goes through your identity
   provider. On a machine without a browser, it shows a short code to enter
   on another device: the standard OAuth device flow.
 - **The CLI gets a short-lived token for that person,** renewed while they

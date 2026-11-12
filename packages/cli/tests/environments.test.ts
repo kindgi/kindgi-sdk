@@ -166,6 +166,31 @@ describe('kindgi environments set', () => {
     expect(out.stderr).toContain('p-b');
   });
 
+  test("a renamed project's old slug is refused with its new one, naming where it was given", async () => {
+    const renamed = [
+      { id: 'p-staging', name: 'Staging', slug: 'staging', formerSlugs: ['stage'] },
+      { id: 'p-default', name: 'Default', slug: 'default', isDefault: true, formerSlugs: [] },
+    ];
+    const flag = await run(['environments', 'set', '--projects=stage,default'], {
+      projects: renamed,
+    });
+    expect(flag.out.exitCode).toBe(2);
+    expect(flag.out.stderr).toContain(
+      '"stage" was the slug of project p-staging (Staging) until it was renamed to "staging". Change --projects to "staging" or to the project\'s id.',
+    );
+    expect(flag.calls.some((c) => c[0] === 'setTenantOrder')).toBe(false);
+
+    const pack = await run(['environments', 'set', 'staging', 'prod'], {
+      projects: renamed,
+      config: { environments: { staging: { project: 'stage' }, prod: { project: 'default' } } },
+    });
+    expect(pack.out.exitCode).toBe(2);
+    expect(pack.out.stderr).toContain(
+      'Change environments.staging.project to "staging" or to the project\'s id.',
+    );
+    expect(pack.calls.some((c) => c[0] === 'setTenantOrder')).toBe(false);
+  });
+
   test('--org sets an org order', async () => {
     const { out, calls } = await run([
       'environments',

@@ -40,9 +40,9 @@ the slash at the end of a page's URL with `.md`.
   change them, and ask before you change anything else. That includes an
   app's `package.json` name (pass `--pack-id` instead), its `zod` version,
   and its package manager's settings, such as pnpm's `minimumReleaseAge`.
-- **The commands run the CLI as `npx --yes @kindgi/cli@0.2` until step 2
+- **The commands run the CLI as `npx --yes @kindgi/cli@0.6` until step 2
   makes a project,** if `node --version` works. For someone using Python
-  without Node, use `uvx --from "kindgi-cli>=0.2,<0.3" kindgi` in its place
+  without Node, use `uvx --from "kindgi-cli>=0.6,<0.7" kindgi` in its place
   (the CLI from PyPI; it needs no Node). From step 2 on, they write
   `pnpm exec kindgi`, run from the project's folder. Use the project's form
   in its place:
@@ -79,7 +79,7 @@ always use the fallback.
 Then run doctor, as a command of its own:
 
 ```sh
-npx --yes @kindgi/cli@0.2 doctor --json
+npx --yes @kindgi/cli@0.6 doctor --json
 ```
 
 Run it like that here and in every later step: nothing before or after it,
@@ -94,7 +94,7 @@ object, whose `ok` is `false` when a check fails; it also exits `1` then
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.8",
+  "cliVersion": "0.6.0",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -143,7 +143,10 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   a key), ask them, then run doctor again. `api-key` fails when the key
   stored for the CLI is for another address than the one it points at:
   every command that needs the key refuses until that's fixed, and the
-  checks that would send it skip.
+  checks that would send it skip. `license` fails when there's no license
+  key here and none kept for `kindgi dev`: every runtime needs one, and the
+  fix says where to get a free one. Ask the person to sign in for it; never
+  ask them to paste the key into the chat.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
   In this release seven checks warn. `dev-sandbox`: when `kindgi dev` can't
@@ -166,8 +169,7 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   can build none, `provider` fails instead.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running;
-  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `license` skips when
-  there's no license key here: `kindgi dev` needs none. `erasures` skips
+  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `erasures` skips
   with a note when the runtime has no erasure ledger key, as under
   `kindgi dev`: fine for development.
 
@@ -176,8 +178,8 @@ step 1.
 
 ## Step 1: access to the runtime image
 
-If doctor's `registry` check passes, this machine can already pull the
-runtime: skip this step.
+If doctor's `registry` and `license` checks both pass, this machine can
+already pull the runtime, and `kindgi dev` has its key: skip this step.
 
 1. Ask the person: "Sign in at https://access.kindgi.com with GitHub or your
    email address. Under **1. Your license key**, copy the key (it starts with
@@ -186,7 +188,7 @@ runtime: skip this step.
 2. When they say they're done, pipe the clipboard into the login:
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@0.2 auth registry --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.6 auth registry --password-stdin
    ```
 
    It ends with:
@@ -223,28 +225,28 @@ that uses it, as that page shows. Otherwise:
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@0.2 init my-agents
+   npx --yes @kindgi/cli@0.6 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
 
    ```sh
    # Python (no Node needed)
-   uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-agents --template=python
+   uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-agents --template=python
    cd my-agents
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
    ```sh
    # Java (preview)
-   npx --yes @kindgi/cli@0.2 init my-agents --template=java   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.6 init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```
 
    ```sh
    # Scala (preview)
-   npx --yes @kindgi/cli@0.2 init my-agents --template=scala   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.6 init my-agents --template=scala   # from now on: ./kindgiw …
    cd my-agents
    sbt -batch test
    ```

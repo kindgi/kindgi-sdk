@@ -33,20 +33,23 @@ import {
   type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { refuses } from './denied.js';
+import { deniedBy, refuses } from './denied.js';
 import { parseImproveScheduleInput } from './improve-runs.js';
 import { clampLimit } from './pagination.js';
+import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
 import {
   type OwnedTrigger,
   type OwnerFacts,
   type TriggerOwnerNames,
   type TriggerOwnerNotices,
+  callerOwns,
   isTriggerAdmin,
   namesAnOwner,
   noteChangeForOwner,
   ownerCannotRunRefusal,
   ownerJson,
   ownerNamesOf,
+  ownerOf,
   ownerRequestOf,
   ownerRuleRefused,
   personalTriggerRefusal,
@@ -85,13 +88,14 @@ import { UUID_RE } from './uuid-param.js';
  * owner; only a take-over does. With an authorizer: reads need `read` on
  * the schedule's project, changes `write`, taking ownership `admin`, and
  * registering or retargeting also needs `execute` on what it runs, as
- * starting that run does. The `triggerId` is aliased as `scheduleId` in
+ * starting that run does. A person's own schedule takes `run` in place of
+ * `write`: a project's runners register and keep their own schedules. The `triggerId` is aliased as `scheduleId` in
  * bodies. `toolsAllowedUnattended` (`trigger-tools.ts`) takes `admin` on
  * its project to set or change, at register too, and a new target while
  * it lists any must name it again.
  *
  * Personal or shared (`trigger-owners.ts`): a schedule a person owns is
- * personal, and only they (holding `write`) or a project admin may change,
+ * personal, and only they (holding `run`) or a project admin may change,
  * pause, resume, fire or delete it. One a service account owns is shared:
  * its target or version, its input and its tool list take a project admin
  * to change, and the rest is the project's writers'. Without an
@@ -106,7 +110,7 @@ import { UUID_RE } from './uuid-param.js';
  * An Improve schedule (`improve: { agentId, projectId }`) is in the project
  * it improves, and an agent and project have one at most: a second is
  * `409 schedule-exists`. Registering or changing one takes `write` on the
- * project, as any schedule does, and `publish` on the agent, as starting an
+ * project, even for its owner (never `run`), and `publish` on the agent, as starting an
  * Improve run does; so do resuming and firing it, and the owner rule above
  * holds. Pausing or deleting one takes the same, or its project's admin
  * without `publish`, as its runs count toward the project's month cap.
@@ -144,6 +148,14 @@ export function schedulesRouter(
     owner: row.owner,
   });
 
+  /**
+   * What a personal schedule's owner holds on its project to change it:
+   * `run`, as a project's runners keep their own schedules; `write` for an
+   * Improve schedule.
+   */
+  const ownerKeeps = (row: CronTriggerRecord): 'run' | 'write' =>
+    row.target.kind === 'improve' ? 'write' : 'run';
+
   const ownerNames = (tenantId: TenantId, rows: readonly CronTriggerRecord[]) =>
     ownerNamesOf(
       names,
@@ -158,17 +170,12 @@ export function schedulesRouter(
   }
 
   /** Nothing, when allowed; else the authorizer's own answer, as `deniedBy`'s. */
-  async function denied(
+  function denied(
     c: Context<AppEnv>,
     action: Action,
     resource: ResourceRef,
   ): Promise<Response | undefined> {
-    if (authorizer === undefined) return undefined;
-    let allowed = false;
-    const answer = await authorizer.authorize(action, async () => resource)(c, async () => {
-      allowed = true;
-    });
-    return allowed ? undefined : (answer as Response);
+    return deniedBy(authorizer, c, action, resource);
   }
 
   /**
@@ -201,11 +208,15 @@ export function schedulesRouter(
   /**
    * The schedule, if it is one (another kind's id is not found here), and the
    * caller may `action` it. `stop` is pausing or unregistering it: `write`,
-   * and for an Improve schedule, its project's admin as well.
+   * and for an Improve schedule, its project's admin as well. A personal
+   * schedule's owner may `write` or `stop` it with `run` on its project
+   * ({@link ownerAlsoAllows}), and, where the route says so (`ownerReads`:
+   * the schedule itself, not its fires or versions), `read` it.
    */
   async function scheduleFor(
     c: Context<AppEnv>,
     action: Action | 'stop',
+    ownerReads = false,
   ): Promise<{ kind: 'ok'; value: CronTriggerRecord } | { kind: 'err'; response: Response }> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -224,7 +235,28 @@ export function schedulesRouter(
         ? await targetRefused(c, improve, projectId)
         : undefined);
     const answer = await improveRefusal(c, action, improve, projectId, refused);
-    return answer === undefined ? { kind: 'ok', value: rec } : { kind: 'err', response: answer };
+    if (answer !== undefined && !(await ownerAlsoAllows(c, action, rec, ownerReads))) {
+      return { kind: 'err', response: answer };
+    }
+    return { kind: 'ok', value: rec };
+  }
+
+  /**
+   * What else lets the caller `write` or `stop` a schedule {@link scheduleFor}
+   * refused, or `read` it with `ownerReads`: being its owner, a person
+   * (`ownsPersonal`), with `run` on its project, as a project's runners
+   * keep their own schedules. Never an Improve schedule's, which keeps
+   * `write`.
+   */
+  async function ownerAlsoAllows(
+    c: Context<AppEnv>,
+    action: Action | 'stop',
+    rec: CronTriggerRecord,
+    ownerReads: boolean,
+  ): Promise<boolean> {
+    const owners = action === 'write' || action === 'stop' || (action === 'read' && ownerReads);
+    if (authorizer === undefined || !owners || !ownsPersonal(c, rec)) return false;
+    return authorizer.can(c, 'run', ref('project', rec.projectId as unknown as string));
   }
 
   /**
@@ -260,21 +292,26 @@ export function schedulesRouter(
   }
 
   /**
-   * What registering `target` in `project` takes: `write` on the project
-   * (a tenant admin when there's none), and what firing the target takes
-   * ({@link targetRefused}), for an Improve schedule `publish` on its agent.
-   * A retarget asks the same of its new target.
+   * What registering `target` in `project` takes: on the project, `run` for
+   * a schedule that's the caller's own (`personal`: a person registering it
+   * for themselves), else `write`, and `write` for an Improve schedule
+   * either way (a tenant admin when there's no project); then what firing
+   * the target takes ({@link targetRefused}), for an Improve schedule
+   * `publish` on its agent. A retarget asks the same of its new target
+   * (its project's part was asked when the schedule was loaded).
    */
   async function registerRefusal(
     c: Context<AppEnv>,
     target: TriggerTarget,
     project: string | undefined,
+    personal: boolean,
   ): Promise<Response | undefined> {
     const tenantId = c.get('tenantId') as TenantId;
+    const asked: Action = personal && target.kind !== 'improve' ? 'run' : 'write';
     const projectRefused =
       project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
-        : await denied(c, 'write', ref('project', project));
+        : await denied(c, asked, ref('project', project));
     return projectRefused ?? (await targetRefused(c, target, project));
   }
 
@@ -381,9 +418,16 @@ export function schedulesRouter(
       (projectId as string | undefined) ??
       (improves as string | undefined) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
-    // `write` on the project, then what firing it takes: for an Improve
-    // schedule, `publish` on the agent, as starting an Improve run does.
-    const refused = await registerRefusal(c, target.value, project);
+    // Who its runs act as: the caller, the service account named with
+    // `runAsServiceAccountId` (gated by `act_as`), or the project's own
+    // account with `runAsProject` (a project admin's; see `resolveTriggerOwner`).
+    const ownerRequest = ownerRequestOf(body, project);
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
+    // `run` on the project for a person's own schedule, else `write`; then
+    // what firing it takes: for an Improve schedule, `publish` on the agent,
+    // as starting an Improve run does.
+    const personal = ownerOf(c).kind === 'user' && !namesAnOwner(ownerRequest);
+    const refused = await registerRefusal(c, target.value, project, personal);
     if (refused !== undefined) return refused;
     const exists = await improveScheduleExists(c, target.value);
     if (exists !== undefined) return exists;
@@ -411,11 +455,6 @@ export function schedulesRouter(
       if (problem !== undefined) return bad(c, requestId, problem);
     }
 
-    // Who its runs act as: the caller, the service account named with
-    // `runAsServiceAccountId` (gated by `act_as`), or the project's own
-    // account with `runAsProject` (a project admin's; see `resolveTriggerOwner`).
-    const ownerRequest = ownerRequestOf(body, project);
-    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
@@ -488,8 +527,10 @@ export function schedulesRouter(
   // ---------- GET / (list) ----------
   // The tenant's schedules, then only those whose project the caller may
   // read (`read` on it, as reading one schedule needs): a schedule's input
-  // and target are its project's. The page and its cursor are the
-  // tenant's, so a page can hold fewer than `limit` rows and still have more.
+  // and target are its project's. A person's own personal schedule shows
+  // with `run` there instead, as reading it does. The page and its cursor
+  // are the tenant's, so a page can hold fewer than `limit` rows (none at
+  // all) and still have more.
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
@@ -501,10 +542,17 @@ export function schedulesRouter(
     }
     const projectId = projectRaw as ProjectId | undefined;
     // A project filter needs read on that project, as the agents' and tools'
-    // lists do: else an empty page (with `hasMore` and a cursor into that
-    // project's rows) would say whether it has schedules.
+    // lists do, or `run` there (where the caller's own may be): else an
+    // empty page (with `hasMore` and a cursor into that project's rows)
+    // would say whether it has schedules.
     if (projectId !== undefined) {
-      const refused = await denied(c, 'read', ref('project', projectId as unknown as string));
+      const refused = await actionOrRunRefusal(
+        authorizer,
+        c,
+        'read',
+        ref('project', projectId as unknown as string),
+        projectId as unknown as string,
+      );
       if (refused !== undefined) return refused;
     }
 
@@ -526,8 +574,12 @@ export function schedulesRouter(
     const visible =
       authorizer === undefined
         ? rows
-        : await authorizer.filterByCan(c, 'read', rows, (rec) =>
-            ref('project', rec.projectId as unknown as string),
+        : await readableOrRun(
+            authorizer,
+            c,
+            rows,
+            (rec) => ref('project', rec.projectId as unknown as string),
+            (rec) => (ownsPersonal(c, rec) ? (rec.projectId as unknown as string) : undefined),
           );
     const named = await ownerNames(tenantId, visible);
     return c.json({
@@ -545,7 +597,7 @@ export function schedulesRouter(
     if (upcoming !== undefined && (!Number.isInteger(upcoming) || upcoming < 1 || upcoming > 20)) {
       return bad(c, requestId, '`upcoming` must be a whole number from 1 to 20');
     }
-    const found = await scheduleFor(c, 'read');
+    const found = await scheduleFor(c, 'read', true);
     if (found.kind === 'err') return found.response;
     if (upcoming === undefined) return scheduleJson(c, found.value);
     const rec = await binding.get({
@@ -586,6 +638,7 @@ export function schedulesRouter(
       names,
       owned(found.value),
       'schedule',
+      ownerKeeps(found.value),
     );
     if (notOwners !== undefined) return notOwners;
     if (target !== undefined) {
@@ -593,9 +646,13 @@ export function schedulesRouter(
         return bad(c, requestId, IN_ITS_PROJECT);
       }
       // A new target takes what registering it takes. Loading the schedule
-      // asked `write` on the project.
+      // asked `write` on the project, or `run` for its owner's own
+      // ({@link ownerAlsoAllows}); an Improve target takes `write` either way.
       const project = found.value.projectId as unknown as string;
-      const refused = await targetRefused(c, target.value, project);
+      const refused =
+        (target.value.kind === 'improve' && found.value.target.kind !== 'improve'
+          ? await denied(c, 'write', ref('project', project))
+          : undefined) ?? (await targetRefused(c, target.value, project));
       if (refused !== undefined) return refused;
       const exists = await improveScheduleExists(c, target.value, found.value.triggerId);
       if (exists !== undefined) return exists;
@@ -747,6 +804,7 @@ export function schedulesRouter(
         names,
         owned(found.value),
         'schedule',
+        ownerKeeps(found.value),
       );
       if (notOwners !== undefined) return notOwners;
       const { tenantId, triggerId } = found.value;
@@ -773,6 +831,7 @@ export function schedulesRouter(
       names,
       owned(found.value),
       'schedule',
+      ownerKeeps(found.value),
     );
     if (notOwners !== undefined) return notOwners;
     const { tenantId, triggerId } = found.value;
@@ -850,6 +909,7 @@ export function schedulesRouter(
       names,
       owned(found.value),
       'schedule',
+      ownerKeeps(found.value),
     );
     if (notOwners !== undefined) return notOwners;
     if (binding.fireNow === undefined) return unsupported(c, requestId, 'run-now');
@@ -1005,6 +1065,14 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
         },
       };
   }
+}
+
+/**
+ * Whether the schedule is the caller's own personal one: owned by them, a
+ * person, and not an Improve schedule (which is its project's).
+ */
+function ownsPersonal(c: Context<AppEnv>, rec: CronTriggerRecord): boolean {
+  return rec.target.kind !== 'improve' && rec.owner.kind === 'user' && callerOwns(c, rec.owner);
 }
 
 function serializeSchedule(

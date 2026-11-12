@@ -992,6 +992,7 @@ function approvalConnection(connection: ApprovalConnection): Record<string, unkn
     ...(connection.as !== undefined && { as: connection.as }),
     ...(connection.account !== undefined && { account: connection.account }),
     ...(connection.name !== undefined && { name: connection.name }),
+    ...(connection.connectionId !== undefined && { connectionId: connection.connectionId }),
   };
 }
 

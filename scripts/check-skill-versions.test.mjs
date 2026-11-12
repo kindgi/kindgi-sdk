@@ -122,6 +122,25 @@ describe('unbumped', () => {
     assert.deepEqual(unbumped([ENTRY, TOPIC], tree(base, head)), []);
   });
 
+  test("moving the CLI's line, to a release or a pre-release, is no change", () => {
+    const lines = (npm, uv, line) =>
+      `Run \`npx --yes @kindgi/cli@${npm} init\` or \`uvx --from "kindgi-cli>=${uv}" kindgi\`, with Kindgi ${line}'s CLI and Kindgi ${line}'s client.`;
+    const base = { [ENTRY]: entry('1.0.0', lines('0.4', '0.4,<0.5', '0.4')) };
+    for (const head of [
+      { [ENTRY]: entry('1.0.0', lines('0.6', '0.6,<0.7', '0.6')) },
+      { [ENTRY]: entry('1.0.0', lines('0.6.0-rc.1', '0.6.0rc1,<0.7', '0.6')) },
+      { [ENTRY]: entry('1.0.0', lines('1.0', '1.0,<2', '1.0')) },
+    ]) {
+      assert.deepEqual(unbumped([ENTRY], tree(base, head)), []);
+    }
+  });
+
+  test("a change beside the CLI's line still counts", () => {
+    const base = { [ENTRY]: entry('1.0.0', 'Run `npx --yes @kindgi/cli@0.4 init`.') };
+    const head = { [ENTRY]: entry('1.0.0', 'Run `npx --yes @kindgi/cli@0.6 init my-pack`.') };
+    assert.deepEqual(unbumped([ENTRY], tree(base, head)), ['kindgi-x']);
+  });
+
   test("files outside a skill's folder aren't read", () => {
     assert.deepEqual(unbumped(['packages/sdk/src/index.ts', 'README.md'], tree({}, {})), []);
   });

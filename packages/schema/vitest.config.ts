@@ -15,7 +15,7 @@ export default defineConfig({
     // `vitest --changed` runs this suite when any of them changes.
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
-      '**/packages/*/src/**',
+      '**/packages/**/src/**',
       '**/packages/specs/schemas/**',
       '**/packages/specs/test-vectors/strict-schemas/**',
     ],

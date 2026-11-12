@@ -109,15 +109,21 @@ sealed under it. With `secrets_backend = "none"`:
   endpoint's, are kept in the store. So `/v1/webhooks`, `/v1/hooks` and
   `/v1/webhook-endpoints` aren't served either: no webhook starts a run,
   and none is sent.
+- **No connections to other apps, and no mail triggers.** A connection's
+  tokens are kept in the store too. So `/v1/connections`,
+  `/v1/connection-apps`, `/v1/connection-entries`,
+  `/v1/connection-choices` and `/v1/connection-notices` aren't served. A
+  mail trigger reads its mailbox through a connection, so
+  `/v1/mail-triggers` isn't served either: no new mail starts a run.
 - **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed
   link work. A workspace's own identity provider needs `"postgres"`: its
   client secret and keys are references into the store, so adding or
   changing one answers `409 identity-providers-need-secrets-store`.
 - **Who it fits:** a deployment whose packs need plain env values and cloud secrets only,
   whose model uses the service's own identity
-  ([Gemini on Vertex AI](../cloud-run/#use-gemini)), and that takes and sends
-  no webhooks. A provider whose API key would be stored in Kindgi doesn't
-  fit it.
+  ([Gemini on Vertex AI](../cloud-run/#use-gemini)), that takes and sends
+  no webhooks, and that connects to no other app. A provider whose API key
+  would be stored in Kindgi doesn't fit it.
 - **An existing deployment from `"postgres"`:** the secrets stored under the
   key would become unreadable to the runtime. Move them out first. The key
   itself stays, since the pack services' tokens are sealed under it.

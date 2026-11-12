@@ -20,13 +20,18 @@ import type {
 } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
 import {
+  type ItemCheck,
   type ItemRights,
   type ItemServing,
   itemMiddleware,
   itemPathCheck,
+  readCheck,
+  readsDefinition,
   shownLatest,
+  underItem,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { isReadMethod } from '../read-method.js';
@@ -51,7 +56,8 @@ import {
   versionPinnedResponse,
 } from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
-import { parseScopeParams } from './scope-params.js';
+import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
+import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
 
 /**
  * Flows resource routes.
@@ -130,21 +136,7 @@ export function flowsRouter(
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', async () => {
-        try {
-          const body = await c.req.json();
-          const pid =
-            body !== null && typeof body === 'object'
-              ? (body as Record<string, unknown>).projectId
-              : undefined;
-          if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
-        } catch {
-          // POST handler validates + returns 400
-        }
-        return ref('tenant', tenantId as unknown as string);
-      });
-      return mw(c, next);
+      return authorizer.authorize('admin', bodyProjectResourceRef)(c, next);
     });
     r.use('/', async (c, next) => {
       if (!isReadMethod(c.req.method)) return next();
@@ -154,9 +146,10 @@ export function flowsRouter(
         tenantId: c.get('tenantId') as TenantId,
       });
       if (s.kind !== 'ok' || s.scope?.kind !== 'project') return next();
+      // Or `run` there: the list shows the flows the caller may run.
       const scopeProjectId = s.scope.projectId as unknown as string;
-      const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
-      return mw(c, next);
+      const project = ref('project', scopeProjectId);
+      return (await actionOrRunRefusal(authorizer, c, 'read', project, scopeProjectId)) ?? next();
     });
     // Pinning a version is its own permission (`pin`, granted to the
     // flow's admins; `pinChangeRefusal`).
@@ -166,6 +159,8 @@ export function flowsRouter(
     // An item more than one project serves is checked on those projects
     // instead (`item-rights.ts`). A pin write is checked above.
     // '/:flowId/*' matches '/:flowId' too: this one gate decides both, once.
+    // Its definition (the flow, its versions, one of them; `GET` or `HEAD`)
+    // reads on `run` on its project too: no runs or people in it.
     r.use(
       '/:flowId/*',
       itemMiddleware({
@@ -174,10 +169,36 @@ export function flowsRouter(
         kind: 'flow',
         id: (c) => c.req.param('flowId') ?? '',
         today: (c) => (isReadMethod(c.req.method) ? 'read' : pinWrite(c) ? undefined : 'admin'),
-        check: itemPathCheck,
+        check: (c): ItemCheck =>
+          readsDefinition(c) ? readCheck(underItem(c), true) : itemPathCheck(c),
         versionNotFound: flowVersionNotFound,
+        runIn: async (c) => {
+          if (!readsDefinition(c)) return undefined;
+          const tenantId = c.get('tenantId') as TenantId;
+          const flowId = (c.req.param('flowId') ?? '') as FlowId;
+          // Every version reads the same project, a retired flow's too.
+          const page = await binding.listVersions({
+            tenantId,
+            flowId,
+            limit: 1,
+            includeTombstoned: true,
+          });
+          return page.data[0]?.projectId as unknown as string | undefined;
+        },
       }),
     );
+  } else {
+    // Without a store, a key or session limited to a project still
+    // registers nothing tenant-wide, and pins nothing tenant- or org-wide
+    // (`holdLimitedCaller`).
+    r.use('/', async (c, next) =>
+      c.req.method === 'POST'
+        ? holdLimitedCaller('admin', bodyProjectResourceRef)(c, next)
+        : next(),
+    );
+    if (pinnedVersions !== undefined) {
+      r.use('/:flowId/*', pinRightsMiddleware('flow', 'flowId', pinDeps));
+    }
   }
 
   /** A version of the flow that isn't there, or that the caller can't see: one 404 for both. */
@@ -223,13 +244,19 @@ export function flowsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...includeRetiredOf(c),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    // Only what the caller may read, as `GET …/:id` asks, or
+    // run: `run` on a flow's project.
+    const projectOf = (a: FlowVersionRecord) => a.projectId as unknown as string | undefined;
     const visible =
       authorizer === undefined
         ? page.data
         : itemRights === undefined
-          ? await authorizer.filterByCan(c, 'read', page.data, (a) =>
-              ref('flow', a.id as unknown as string),
+          ? await readableOrRun(
+              authorizer,
+              c,
+              page.data,
+              (a) => ref('flow', a.id as unknown as string),
+              projectOf,
             )
           : await itemRights.filterItems(c, 'flow', page.data, {
               idOf: (a) => a.id as unknown as string,
@@ -240,6 +267,7 @@ export function flowsRouter(
                   binding.getVersion({ tenantId, flowId: id as FlowId, version }),
               },
               retired: (a) => a.unregisteredAt !== undefined,
+              alsoRun: { projectOf },
             });
     return c.json({
       data: visible.map(serializeGraph),
@@ -296,6 +324,7 @@ export function flowsRouter(
         versionOf: (f) => f.version as unknown as string,
         projectOf: (f) => f.projectId as unknown as string | undefined,
         getVersion: (version) => binding.getVersion({ tenantId, flowId, version }),
+        alsoRun: true,
       },
     );
     if (shown.kind === 'bad-input') {
@@ -371,6 +400,7 @@ export function flowsRouter(
             projects,
             page.data,
             (f) => f.version as unknown as string,
+            true,
           );
     return c.json({
       data: data.map(serializeGraph),
@@ -730,6 +760,7 @@ function serializeGraph(g: FlowVersionRecord): Record<string, unknown> {
     edges: g.edges,
     ...(g.maxParallelism !== undefined && { maxParallelism: g.maxParallelism }),
     ...(g.metadata !== undefined && { metadata: g.metadata }),
+    ...(g.mcp !== undefined && { mcp: g.mcp }),
     ...(g.pins !== undefined && { pins: g.pins }),
     ...(g.pinsDigest !== undefined && { pinsDigest: g.pinsDigest }),
     ...(g.derivedFrom !== undefined && { derivedFrom: g.derivedFrom }),

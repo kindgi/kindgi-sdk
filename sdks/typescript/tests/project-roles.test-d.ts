@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A project role to give is `owner`, `admin`, `editor` or `viewer`:
+ * A project role to give is `owner`, `admin`, `editor`, `runner` or `viewer`:
  * `member`, retired, doesn't compile there (the API refuses it). A role
  * read back may still be `member`, on one given before.
  */
@@ -18,7 +18,7 @@ import type {
   ServiceAccountGrantInput,
 } from '../src/index.js';
 
-type Assignable = 'viewer' | 'editor' | 'owner' | 'admin';
+type Assignable = 'viewer' | 'runner' | 'editor' | 'owner' | 'admin';
 type ProjectGrantRole = Extract<ServiceAccountGrantInput, { kind: 'project' }>['role'];
 
 describe('a project role to give is never `member`', () => {

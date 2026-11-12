@@ -91,6 +91,7 @@ import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
 import { type ProgressLines, progressLines } from '../progress-lines.js';
+import { ambiguousRefusal, renamedRefusal, resolveAgainst } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
@@ -1276,8 +1277,8 @@ function keyProjectOf(config: ResolvedConfig): ResolvedDeployArgs['keyProject'] 
 /**
  * `--project`: an id goes as it is (the server answers 404 for one of no
  * project of the tenant); a slug is looked up, and refused when it names
- * no project, or several (a slug is unique within an org, so two orgs may
- * share one). Absent: tenant-wide.
+ * no project, a renamed project's old slug, or several (a slug is unique
+ * within an org, so two orgs may share one). Absent: tenant-wide.
  */
 async function resolveProject(
   ref: string | undefined,
@@ -1307,23 +1308,35 @@ async function resolveProject(
       message: `${where} ${ref}: couldn't list the workspace's projects: ${found.message}\n`,
     };
   }
-  const [only, ...more] = found.projects;
-  if (only === undefined) {
+  const resolved = resolveAgainst(found.projects, ref);
+  if (resolved.kind === 'none') {
     return {
       kind: 'error',
       message: `${where} ${ref}: no project of this workspace has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
     };
   }
-  if (more.length > 0) {
-    const ids = found.projects.map(
-      (p) => `${p.id} (${p.name}${p.orgId === undefined ? '' : `, org ${p.orgId}`})`,
+  if (resolved.kind === 'renamed') {
+    return {
+      kind: 'error',
+      message: `${where} ${ref}: ${renamedRefusal(ref, resolved.project, where)}\n`,
+    };
+  }
+  if (resolved.kind === 'ambiguous' && resolved.renamed.length > 0) {
+    return {
+      kind: 'error',
+      message: `${where} ${ref}: ${ambiguousRefusal(ref, resolved.matches, resolved.renamed)}\n`,
+    };
+  }
+  if (resolved.kind === 'ambiguous') {
+    const ids = resolved.matches.map(
+      (p) => `${p.id} (${p.name ?? '?'}${p.orgId === undefined ? '' : `, org ${p.orgId}`})`,
     );
     return {
       kind: 'error',
-      message: `${where} ${ref}: ${found.projects.length} projects of this workspace have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
+      message: `${where} ${ref}: ${resolved.matches.length} projects of this workspace have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
     };
   }
-  return { kind: 'ok', id: only.id };
+  return { kind: 'ok', id: resolved.id };
 }
 
 // ---------------------------------------------------------------------

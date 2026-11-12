@@ -350,13 +350,17 @@ async function connectedWithLess(
   };
 }
 
-/** A declined connect that stored nothing; a reconnect leaves its connection as it was. */
+/**
+ * A declined connect that stored nothing: a reconnect leaves its connection
+ * as it was. Without one, the sign-in may have been to an account the owner
+ * has a connection of, which stays as it was too.
+ */
 function declinedWords(r: ConnectRequest): string {
   const not =
     r.missing !== undefined && r.missing.length > 0 ? ` (not ${r.missing.join(', ')})` : '';
   return r.reconnects !== undefined
     ? `Declined at ${r.app}${not}: connection ${r.reconnects} stays as it was.\n`
-    : `Declined at ${r.app}${not}: nothing connected.\n`;
+    : `Declined at ${r.app}${not}: nothing from this sign-in was kept.\n`;
 }
 
 const ENDED: Record<'declined' | 'expired' | 'failed', (r: ConnectRequest) => string> = {

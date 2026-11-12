@@ -13,7 +13,9 @@
  * A skill the pull request adds or removes needs nothing. Moving the docs
  * links to a new release line (`scripts/sync-docs-line.mjs`, which a Version
  * Packages pull request runs) is no change to a skill either: the files are
- * compared with each link's release line taken out.
+ * compared with each link's release line taken out. So is moving the CLI's
+ * line (`scripts/sync-cli-line.mjs`, which it runs too): each install
+ * line's and each "Kindgi 0.4's CLI" or "client"'s version is taken out.
  *
  * In GitHub Actions it reads the `pull_request` event (`GITHUB_EVENT_PATH`):
  * the pull request's head against where it left its base. Any other event
@@ -28,6 +30,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { range } from './changed-paths.mjs';
+import { withoutCliLine } from './lib/cli-line.mjs';
 import { LINE_LINK } from './lib/docs-line.mjs';
 
 const NAME = 'check-skill-versions';
@@ -80,6 +83,12 @@ export function withoutDocsLine(text) {
 }
 
 /**
+ * @param {string} text a skill's file
+ * @returns {string} the text with its docs links' and its CLI forms' lines taken out
+ */
+const withoutLines = (text) => withoutCliLine(withoutDocsLine(text));
+
+/**
  * The skills `changed` touches whose version didn't go up though a file of
  * theirs changed, by name.
  *
@@ -101,7 +110,7 @@ export function unbumped(changed, tree) {
       const before = tree.read('base', path);
       const after = tree.read('head', path);
       if (before === undefined || after === undefined) return before !== after;
-      return withoutDocsLine(before) !== withoutDocsLine(after);
+      return withoutLines(before) !== withoutLines(after);
     });
   });
 }
