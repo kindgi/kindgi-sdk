@@ -18,6 +18,7 @@ import type {
 } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
@@ -72,20 +73,19 @@ export function envRouter(
   // these routes. Every route takes its
   // scope from `?scopeKind` + `?scopeId`, the same parameters the handlers
   // act on.
-  if (authorizer !== undefined) {
-    const scopeFromQuery = (c: import('hono').Context<AppEnv>) =>
-      queryScopeResourceRef((n) => c.req.query(n), { tenantId: c.get('tenantId') as TenantId });
-    r.use('/', async (c, next) => {
-      if (!isReadMethod(c.req.method)) return next();
-      const mw = authorizer.authorize('admin', scopeFromQuery);
-      return mw(c, next);
-    });
-    // `/:name/*` also matches `/:name`: one check per request.
-    r.use('/:name/*', async (c, next) => {
-      const mw = authorizer.authorize('admin', scopeFromQuery);
-      return mw(c, next);
-    });
-  }
+  const authorize = gate(authorizer);
+  const scopeFromQuery = (c: import('hono').Context<AppEnv>) =>
+    queryScopeResourceRef((n) => c.req.query(n), { tenantId: c.get('tenantId') as TenantId });
+  r.use('/', async (c, next) => {
+    if (!isReadMethod(c.req.method)) return next();
+    const mw = authorize('admin', scopeFromQuery);
+    return mw(c, next);
+  });
+  // `/:name/*` also matches `/:name`: one check per request.
+  r.use('/:name/*', async (c, next) => {
+    const mw = authorize('admin', scopeFromQuery);
+    return mw(c, next);
+  });
 
   // ------------------------------ GET / ------------------------------
   r.get('/', async (c) => {

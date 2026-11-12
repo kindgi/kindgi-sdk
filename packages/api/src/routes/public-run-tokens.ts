@@ -12,6 +12,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import { MAX_PUBLIC_RUN_TOKEN_RUNS, type MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
+import { isOwnRun } from './runner-reach.js';
 
 export interface PublicRunTokenIssuer {
   readonly mint: (
@@ -83,9 +84,13 @@ export function publicRunTokensRouter(
       if (row === null) {
         return error('run-not-found', `No run with id ${runId}`, { runId });
       }
+      // `read` on the run's project, or, on a run of the caller's own
+      // (`isOwnRun`), `run` there.
+      const project = ref('project', row.projectId as unknown as string);
       if (
         authorizer !== undefined &&
-        !(await authorizer.can(c, 'read', ref('project', row.projectId as unknown as string)))
+        !(await authorizer.can(c, 'read', project)) &&
+        !(isOwnRun(c, row) && (await authorizer.can(c, 'run', project)))
       ) {
         return error('permission-denied', `Not allowed to read run ${runId}`, { runId });
       }

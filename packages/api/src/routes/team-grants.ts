@@ -48,7 +48,7 @@ export interface TeamGrantsDeps {
   readonly authorizer?: Authorizer;
 }
 
-const TEAM_PROJECT_ROLES: readonly TeamProjectRole[] = ['viewer', 'editor', 'admin'];
+const TEAM_PROJECT_ROLES: readonly TeamProjectRole[] = ['viewer', 'runner', 'editor', 'admin'];
 
 /** `role` as a team's role on a project, or why it isn't one. */
 export function parseTeamProjectRole(role: unknown): TeamProjectRole | string {

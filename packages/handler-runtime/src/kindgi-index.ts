@@ -59,7 +59,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { type FlowOutputSpec, loadFlow } from '@kindgi/flow';
 import { isZodSchema, loadZodConverterSync, toJSONSchemaSync } from '@kindgi/schema';
 import type { AnySchema, ZodConverter, ZodLikeSchema } from '@kindgi/schema';
-import type { Result } from '@kindgi/types';
+import type { McpExposure, Result } from '@kindgi/types';
 import { parse as parseToml } from 'smol-toml';
 
 import { TEST_FILE_REGEX, globStaticPrefix, globToRegex } from './discovery.js';
@@ -436,6 +436,8 @@ export interface IndexedAgent {
    * to a tool that pauses or declares connections, which may wait.
    */
   readonly parallelToolCalls?: boolean;
+  /** Whether the agent is a tool in a person's chat app (`{ expose, readOnly?, destructive? }`). */
+  readonly mcp?: McpExposure;
   /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
   readonly memory?: Readonly<Record<string, unknown>>;
   readonly modulePath: string;
@@ -459,6 +461,8 @@ export interface IndexedFlow {
   readonly edges: readonly unknown[];
   readonly maxParallelism?: number;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Whether the flow is a tool in a person's chat app (schema-version 1.10.0+). */
+  readonly mcp?: McpExposure;
   /** The flow's declared output (schema-version 1.8.0+). */
   readonly output?: FlowOutputSpec;
   readonly kernelPayloadVersion: number;
@@ -2063,6 +2067,7 @@ function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent
     'toolErrors',
     'modelSettings',
     'memory',
+    'mcp',
   ] as const) {
     if (isObject(rec[key])) out[key] = rec[key];
   }
@@ -2091,6 +2096,7 @@ function buildGraph(raw: unknown, relPath: string): Result<IndexedFlow, IndexerE
     edges: f.edges,
     ...(f.maxParallelism !== undefined && { maxParallelism: f.maxParallelism }),
     ...(f.metadata !== undefined && { metadata: f.metadata }),
+    ...(f.mcp !== undefined && { mcp: f.mcp }),
     ...(f.output !== undefined && { output: f.output }),
     kernelPayloadVersion: KERNEL_PAYLOAD_VERSION,
     modulePath: normalizeModulePath(relPath),

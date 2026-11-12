@@ -12,6 +12,7 @@ import {
   outlookCalendarEventUpdate,
   outlookCalendarEventsList,
   outlookCalendarFreeBusy,
+  outlookCalendarSharedEventsList,
 } from '../src/microsoft-tools.js';
 
 const TOKEN = 'eyJ0eXAi.not-a-real-token';
@@ -496,6 +497,107 @@ describe('outlook calendar events list, several calendars', () => {
       );
       expect(message).not.toContain(TOKEN);
     }
+  });
+});
+
+describe('outlook calendar shared events list', () => {
+  const shared = outlookCalendarSharedEventsList({ id: 'acme.calendar.shared-list' });
+
+  it('asks for Calendars.Read.Shared, and is the events list otherwise', () => {
+    expect(shared).toMatchObject({
+      version: '1.1.0',
+      mutating: false,
+      resultIsOutsideData: true,
+      network: { kind: 'allowlist', hosts: ['graph.microsoft.com'] },
+      needsSpec: {
+        connections: {
+          calendar: { app: 'microsoft', permissions: ['calendars.read.shared'], as: 'person' },
+        },
+      },
+    });
+    expect(shared.input).toEqual(list.input);
+    expect(shared.output).toEqual(list.output);
+    expect(shared.effects).toEqual(list.effects);
+    expect(shared.description).toContain(
+      "the person's Outlook calendars (the Microsoft account they connected), those others share with them included",
+    );
+    // The events list still asks only for Calendars.ReadBasic.
+    expect(list.needsSpec?.connections?.calendar?.permissions).toEqual(['calendars.readbasic']);
+    const company = outlookCalendarSharedEventsList({
+      id: 'acme.store-calendar.shared-list',
+      as: 'company',
+    });
+    expect(company.needsSpec?.connections?.calendar).toEqual({
+      app: 'microsoft',
+      permissions: ['calendars.read.shared'],
+      as: 'company',
+    });
+    expect(company.description).toContain(
+      "the company's Outlook calendars (the account a tenant admin connected), those others share with it included",
+    );
+  });
+
+  it('reads the main calendar, or each named, one shared with the account too, merged by start', async () => {
+    const sent = graphAnswering(
+      () => Response.json({ value: [raw('own', '2026-11-03T10:00:00', '2026-11-03T10:30:00')] }),
+      () => Response.json({ value: [raw('own', '2026-11-03T10:00:00', '2026-11-03T10:30:00')] }),
+      () => Response.json({ value: [raw('ben', '2026-11-03T09:00:00', '2026-11-03T09:30:00')] }),
+    );
+    const context = { connections: { calendar: calendar() } };
+    expect(await invokeToolForTest(shared, WINDOW, context)).toEqual({
+      kind: 'ok',
+      value: {
+        events: [
+          {
+            id: 'own',
+            title: 'own',
+            start: '2026-11-03T10:00:00Z',
+            end: '2026-11-03T10:30:00Z',
+            allDay: false,
+            attendees: [],
+            busy: true,
+          },
+        ],
+      },
+    });
+    expect(
+      await invokeToolForTest(shared, { ...WINDOW, calendarIds: ['AAMkMain', 'AAMkBen'] }, context),
+    ).toEqual({
+      kind: 'ok',
+      value: {
+        events: [
+          listed('ben', '2026-11-03T09:00:00Z', '2026-11-03T09:30:00Z', 'AAMkBen'),
+          listed('own', '2026-11-03T10:00:00Z', '2026-11-03T10:30:00Z', 'AAMkMain'),
+        ],
+      },
+    });
+    expect(sent.map((s) => s.url.split('?')[0])).toEqual([
+      `${GRAPH}/me/calendarView`,
+      `${GRAPH}/me/calendars/AAMkMain/calendarView`,
+      `${GRAPH}/me/calendars/AAMkBen/calendarView`,
+    ]);
+    for (const s of sent) expect(s.headers).toMatchObject({ authorization: `Bearer ${TOKEN}` });
+  });
+
+  it('a calendar Microsoft refuses fails the call, naming it', async () => {
+    graphAnswering(
+      () => Response.json({ value: [] }),
+      () =>
+        Response.json(
+          { error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } },
+          { status: 403 },
+        ),
+    );
+    const r = await invokeToolForTest(
+      shared,
+      { ...WINDOW, calendarIds: ['AAMkMain', 'AAMkBen'] },
+      { connections: { calendar: calendar() } },
+    );
+    const message = r.kind === 'err' ? r.error.message : '';
+    expect(message).toContain(
+      'Outlook refused the call for calendar "AAMkBen" (HTTP 403): ErrorAccessDenied: Access is denied.',
+    );
+    expect(message).not.toContain(TOKEN);
   });
 });
 

@@ -59,11 +59,21 @@ const TOKENS: Record<string, Awaited<ReturnType<TokenResolver>>> = {
 };
 const resolveToken: TokenResolver = async (token) => TOKENS[token] ?? null;
 
-/** Every right, but `admin` only for Ada, and for Pia below the tenant. */
-function decision(principal: unknown, action: Action, resource: ResourceRef): Decision {
+/**
+ * Every right, but `admin` only for Ada, and for Pia below the tenant; a
+ * project's `runners` hold only what a runner does.
+ */
+function decision(
+  principal: unknown,
+  action: Action,
+  resource: ResourceRef,
+  runners: ReadonlySet<string> = new Set(),
+): Decision {
   const actor = (principal as { actor?: { id?: string } }).actor?.id;
+  const runs = ['read', 'run', 'execute', 'call'].includes(action);
   const allowed =
-    action !== 'admin' || actor === ADA || (actor === PIA && resource.type !== 'tenant');
+    (action !== 'admin' || actor === ADA || (actor === PIA && resource.type !== 'tenant')) &&
+    (actor === undefined || !runners.has(actor) || runs);
   return {
     allowed,
     reason: allowed ? 'test: granted' : 'test: not an admin',
@@ -177,6 +187,7 @@ function harness(opts: { store?: boolean; connections?: readonly FakeConnection[
   };
   const triggerRegistry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
   const told: TriggerOwnerNotice[] = [];
+  const runners = new Set<string>();
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -195,9 +206,9 @@ function harness(opts: { store?: boolean; connections?: readonly FakeConnection[
       authz: {
         fgaApiUrl: 'http://fga.invalid',
         authzCheckBinding: {
-          check: async (p, action, resource) => decision(p, action, resource),
+          check: async (p, action, resource) => decision(p, action, resource, runners),
           checkBatch: async (p, action, resources) =>
-            resources.map((resource) => decision(p, action, resource)),
+            resources.map((resource) => decision(p, action, resource, runners)),
         } satisfies AuthzCheckBinding,
       },
     }),
@@ -215,7 +226,7 @@ function harness(opts: { store?: boolean; connections?: readonly FakeConnection[
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
   const events = (kind: string): AuditEvent[] => written.filter((e) => e.kind === kind);
-  return { call, events, written, told, triggerRegistry };
+  return { call, events, written, told, triggerRegistry, runners };
 }
 
 const docOf = (e: AuditEvent | undefined) =>
@@ -342,6 +353,16 @@ describe('who may change a personal trigger', () => {
     expect((await h.call('POST', `${BASE}/${id}/resume`)).status).toBe(200);
     const gone = await h.call('POST', `${BASE}/${id}/unregister`);
     expect(gone).toMatchObject({ status: 200, body: { triggerId: id, unregistered: true } });
+  });
+
+  test('its owner needs `write`: as a runner of the project, they change none of it', async () => {
+    const h = harness();
+    const id = await wrensTrigger(h);
+    h.runners.add(WREN);
+    expect((await h.call('PATCH', `${BASE}/${id}`, { label: 'Mine' }, 'wren')).status).toBe(403);
+    for (const verb of ['pause', 'resume', 'unregister']) {
+      expect((await h.call('POST', `${BASE}/${id}/${verb}`, undefined, 'wren')).status).toBe(403);
+    }
   });
 
   test("no edit moves the owner: an admin's retarget keeps it, audited as trigger-changed-for-owner", async () => {

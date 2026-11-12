@@ -38,7 +38,9 @@ import { programPath } from '../program-path.js';
 import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
+import { judgeFlowGraphs, writeIndexFile } from './flow-graphs.js';
 import { createJavaPackBuilder } from './java-builder.js';
+import { DEV_LICENSE_KEY_VAR, resolveDevLicenseKey } from './license-key.js';
 import { lineReader } from './lines.js';
 import {
   type JvmPackCode,
@@ -59,6 +61,7 @@ import {
   postgresSpecFromCompose,
   startPostgresContainer,
 } from './postgres-container.js';
+import { hostAndPort, joinPostgresUrl, postgresUrlParts } from './postgres-url.js';
 import { bundledSqlRunner, createProjectDatabases } from './project-database.js';
 import { createPythonPackBuilder } from './python-builder.js';
 import type {
@@ -582,6 +585,7 @@ export async function startApiServerContainerReal(
     image: opts.runtimeImage,
     packDir: opts.packDir,
     envFile,
+    ...(opts.licenseKey !== undefined && { licenseKey: opts.licenseKey }),
     network,
     hostPort: opts.port,
     ...(googleCredentials !== undefined && { googleCredentials }),
@@ -670,6 +674,10 @@ export async function attachToRuntimeReal(
   );
   progress(`Waiting for the Kindgi runtime at ${baseUrl}.`);
   progress(`  Start it with the settings in ${envFile} as its environment.`);
+  // Every runtime needs a key, and runtime.env holds none: it's in the project.
+  progress(
+    `  Give it your license key as ${DEV_LICENSE_KEY_VAR} from your own shell: ${envFile} holds none.`,
+  );
   opts.startPhases?.begin('serve');
   const deadline = Date.now() + 10 * 60_000;
   let project: Response | undefined;
@@ -721,17 +729,45 @@ export function startApiServerReal(opts: StartApiServerOptions): Promise<Running
 /**
  * Postgres as the container reaches it. Through the alias the container
  * can't see the host's loopback, and a database connection isn't HTTP
- * (the runtime's alias covers HTTP only), so a loopback host becomes
- * `host.docker.internal` here.
+ * (the runtime's alias covers HTTP only), so each loopback host of the
+ * address, and of libpq's `?host=`, becomes `host.docker.internal` here,
+ * its port kept. Each host of a list is checked on its own, and the rest
+ * of the URL stays byte for byte. A URL that isn't a postgres:// one
+ * comes back unchanged, for the runtime to refuse in its own words.
  */
 export function databaseUrlFrom(url: string, network: RuntimeNetwork): string {
   if (network === 'host-network') return url;
-  const parsed = new URL(url);
-  const host = parsed.hostname.replace(/^\[(.*)\]$/, '$1');
-  if (host === 'localhost' || host === '::1' || host.startsWith('127.')) {
-    parsed.hostname = 'host.docker.internal';
-  }
-  return parsed.toString();
+  const parts = postgresUrlParts(url);
+  if (parts === undefined) return url;
+  return joinPostgresUrl({
+    ...parts,
+    hosts: parts.hosts.map(reachedFromContainer),
+    query: parts.query === undefined ? undefined : hostParameterFromContainer(parts.query),
+  });
+}
+
+/** An address entry as the container reaches it: a loopback host reads `host.docker.internal`. */
+function reachedFromContainer(entry: string): string {
+  const { host, port } = hostAndPort(entry);
+  const name = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  if (name !== 'localhost' && name !== '::1' && !name.startsWith('127.')) return entry;
+  return port === undefined ? 'host.docker.internal' : `host.docker.internal:${port}`;
+}
+
+/**
+ * libpq's `?host=` with each loopback entry rewritten. A socket directory
+ * (`/…`) and every other parameter stay as written.
+ */
+function hostParameterFromContainer(query: string): string {
+  return query
+    .split('&')
+    .map((pair) => {
+      if (!pair.startsWith('host=')) return pair;
+      const value = pair.slice('host='.length);
+      if (value.startsWith('/')) return pair;
+      return `host=${value.split(',').map(reachedFromContainer).join(',')}`;
+    })
+    .join('&');
 }
 
 /**
@@ -831,23 +867,47 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
       message: `Indexer succeeded but reading ${report.outputPath} failed: ${(readErr as Error).message}`,
     };
   }
+  // Python and JVM indexers check a flow's schema only. A flow that fails
+  // the graph checks leaves the file too: `kindgi dev`'s runtime serves
+  // flows from it, and in dev this is the staged file, before it's published.
+  const graphs = judgeFlowGraphs(index);
+  if (graphs.dropped > 0) {
+    try {
+      await writeIndexFile(report.outputPath, graphs.index);
+    } catch (writeErr) {
+      return {
+        kind: 'err',
+        code: 'index-write-failed',
+        message: `Dropping the flows that failed their checks from ${report.outputPath} failed: ${(writeErr as Error).message}`,
+      };
+    }
+  }
   return {
     kind: 'ok',
     packId: report.packId,
     packVersion: report.packVersion,
-    counts: report.counts,
-    fileErrors: report.fileErrors.map((e) => ({
-      code: e.code,
-      message: e.message,
-      ...(e.filePath !== undefined && { filePath: e.filePath }),
-    })),
+    counts:
+      graphs.dropped > 0
+        ? { ...report.counts, flows: report.counts.flows - graphs.dropped }
+        : report.counts,
+    fileErrors: [
+      ...report.fileErrors.map((e) => ({
+        code: e.code,
+        message: e.message,
+        ...(e.filePath !== undefined && { filePath: e.filePath }),
+      })),
+      ...graphs.fileErrors,
+    ],
     // A Python or JVM indexer from an older SDK sends no `warnings`.
-    warnings: (report.warnings ?? []).map((w) => ({
-      code: w.code,
-      message: w.message,
-      ...(w.filePath !== undefined && { filePath: w.filePath }),
-    })),
-    index,
+    warnings: [
+      ...(report.warnings ?? []).map((w) => ({
+        code: w.code,
+        message: w.message,
+        ...(w.filePath !== undefined && { filePath: w.filePath }),
+      })),
+      ...graphs.warnings,
+    ],
+    index: graphs.index,
   };
 }
 
@@ -1390,6 +1450,7 @@ async function startPostgresWithDocker(
 
 /** Default wiring used by the `kindgi dev` command in production. */
 export const REAL_DEV_RUNNERS: DevRunners = {
+  licenseKey: resolveDevLicenseKey,
   startApiServer: startApiServerReal,
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,

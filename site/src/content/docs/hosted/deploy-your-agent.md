@@ -22,7 +22,7 @@ providers on `prod`, before and after you go live. So everything here uses
 - **A pack with an agent,** with its tests passing, and the Kindgi skills
   that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
   with the agent `acme-desk.reply-drafter`.
-- **Kindgi 0.2's CLI,** with Node 22.12 or later. You don't need Docker:
+- **Kindgi 0.6's CLI,** with Node 22.12 or later. You don't need Docker:
   Kindgi Cloud builds the pack's image.
 - **An API key from your AI provider,** with a spending limit.
 
@@ -323,7 +323,7 @@ version and every version that's waiting read the same values:
 - [Kindgi Cloud's limits](../limits/): the limits every workspace has, and
   how to ask for more.
 - [A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project):
-  give each client an org and a project, and deploy a pack of its own into
-  it, made with `kindgi init`.
+  give each client a project, and deploy a pack of its own into it, made
+  with `kindgi init`.
 - [Ask before a tool runs](../../guides/approvals/ask-before-a-tool-runs/):
   a person approves before an agent changes something.

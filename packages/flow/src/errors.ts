@@ -21,6 +21,7 @@ export type FlowError =
   | LoopBodyMissingStartError
   | LoopBodyCycleError
   | LoopBodyEdgeReferenceError
+  | LoopBodyFanoutError
   | LoopMaxIterationsError
   | LoopOutputSchemaError
   | LoopVariantMismatchError
@@ -28,7 +29,8 @@ export type FlowError =
   | InvalidFanoutNodeError
   | InvalidSubflowNodeError
   | InvalidMappingError
-  | InvalidFlowOutputError;
+  | InvalidFlowOutputError
+  | InvalidMcpExposureError;
 
 export interface SchemaValidationError {
   readonly code: 'schema-validation-failed';
@@ -147,6 +149,21 @@ export interface LoopBodyEdgeReferenceError {
   readonly edgeId: EdgeId;
   readonly endpoint: 'from' | 'to';
   readonly referencedId: string;
+}
+
+/**
+ * A loop node's body holds a fan-out node. A loop body runs steps, nested
+ * loops and subgraph nodes, but not a fan-out, so the flow is refused. A
+ * subgraph node in the body can run a flow that has one.
+ */
+export interface LoopBodyFanoutError {
+  readonly code: 'loop-body-fanout';
+  readonly message: string;
+  readonly flowId: FlowId;
+  /** The loop whose body holds the fan-out: the innermost, in a nested loop's body. */
+  readonly loopNodeId: NodeId;
+  /** The fan-out node. */
+  readonly nodeId: NodeId;
 }
 
 /**
@@ -302,5 +319,17 @@ export interface InvalidFlowOutputError {
   readonly message: string;
   readonly flowId: FlowId;
   /** Meta-schema validation issues (Ajv-style path + message). */
+  readonly issues: readonly { readonly path: string; readonly message: string }[];
+}
+
+/**
+ * A flow with `mcp.expose: true` whose id can't be a tool's name: the tool
+ * is `flow.<id>`, so the id takes letters, digits, `_`, `-` and `.`, at
+ * most 123 characters.
+ */
+export interface InvalidMcpExposureError {
+  readonly code: 'invalid-mcp-exposure';
+  readonly message: string;
+  readonly flowId: FlowId;
   readonly issues: readonly { readonly path: string; readonly message: string }[];
 }

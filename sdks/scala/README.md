@@ -224,12 +224,16 @@ cd ../scala && sbt +test
 ```
 
 The conformance fixture pack in Scala is
-[`packages/pack-conformance/fixtures/scala-pack`](../../packages/pack-conformance/fixtures/scala-pack).
-It builds against this layer from source:
+[`packages/pack-conformance/fixtures/scala-pack`](../../packages/pack-conformance/fixtures/scala-pack),
+beside its invalid-flow pack
+([`fixtures/scala-invalid-flow-pack`](../../packages/pack-conformance/fixtures/scala-invalid-flow-pack)).
+Both build against this layer from source:
 
 ```sh
 cd packages/pack-conformance/fixtures/scala-pack
 sbt writeClasspath                 # Scala 3; sbt "++2.13.18!" writeClasspath for 2.13
+cd ../scala-invalid-flow-pack
+sbt writeClasspath                 # the same Scala version as the fixture pack
 cd ../.. && pnpm exec vitest run tests/scala.test.ts
 ```
 

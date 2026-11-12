@@ -18,7 +18,7 @@
 
 import type { MiddlewareHandler } from 'hono';
 
-import { principalFromToken } from '@kindgi/authz';
+import { downscope, principalFromToken } from '@kindgi/authz';
 
 import type { AppEnv } from '../types.js';
 
@@ -58,7 +58,12 @@ export function principalMiddleware(): MiddlewareHandler<AppEnv> {
           ? { tokenId: serviceAccountId }
           : {}),
       });
-      c.set('principal', principal);
+      // A `/mcp` tool's request: only what its chat token's scopes allow.
+      const allowedActions = c.get('allowedActions');
+      c.set(
+        'principal',
+        allowedActions === undefined ? principal : downscope(principal, { allowedActions }),
+      );
     } catch {
       // Defensive: principalFromToken throws when its guardrail is
       // violated; downstream authorize() handles the missing principal.

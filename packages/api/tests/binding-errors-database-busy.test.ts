@@ -67,11 +67,12 @@ const record = {
  * the supervisor's outcome made of it), and the provenance record found
  * when `recordFound`. With `allowAll`, an authorizer that allows every
  * check: the messages route then reads the conversation first, and the
- * sign-in history needs a tenant admin.
+ * sign-in history needs a tenant admin. With `runReadBusy`, reading a run
+ * throws the storage failure, as the run binding does.
  */
 function appFailingWith(
   error: { code: string; message: string; cause?: unknown },
-  opts: { recordFound?: boolean; allowAll?: boolean; logger?: Logger } = {},
+  opts: { recordFound?: boolean; allowAll?: boolean; runReadBusy?: boolean; logger?: Logger } = {},
 ) {
   const err = async () => ({ kind: 'err', error });
   const stubs = createStubAppBindings();
@@ -94,7 +95,17 @@ function appFailingWith(
     } as never,
     kernelBinding: {
       ...stubs.kernelBinding,
-      run: { ...stubs.kernelBinding.run, readJournal: err },
+      run: {
+        ...stubs.kernelBinding.run,
+        readJournal: err,
+        ...(opts.runReadBusy === true && {
+          getRun: async () => {
+            throw Object.assign(new Error(storageBusy.message, { cause: storageBusy.cause }), {
+              code: 'database-busy',
+            });
+          },
+        }),
+      },
     } as never,
     auditEvents: { query: err } as never,
     enableObservations: true,
@@ -258,5 +269,22 @@ describe("a binding's Result error the database was too busy for", () => {
     const logged = lines.join('\n');
     expect(logged).not.toContain('the storage failure itself');
     expect(logged).not.toContain('owner@example.test');
+  });
+});
+
+describe('a read a route middleware makes to find what it checks, when the database is too busy for it', () => {
+  // Cancel, resume and a provenance export read the run for the project
+  // they check, before the handler: nothing ran, so a POST answers the 503.
+  test.each([
+    `/v1/runs/${runId}/cancel`,
+    `/v1/runs/${runId}/resume`,
+    `/v1/provenance/${runId}/export`,
+  ])('POST %s: 503 database-busy with Retry-After', async (path) => {
+    const app = appFailingWith(recoded('persistence-error'), { allowAll: true, runReadBusy: true });
+    const answer = await call(app, path, 'POST', {});
+    expect(answer.status, answer.text).toBe(503);
+    expect(answer.retryAfter).toBe('5');
+    expect(JSON.parse(answer.text).error.code).toBe('database-busy');
+    expect(answer.text).not.toContain('lock timeout');
   });
 });

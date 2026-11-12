@@ -95,6 +95,7 @@ export {
   googleCalendarEventUpdate,
   googleCalendarEventsList,
   googleCalendarFreeBusy,
+  googleCalendarSharedEventsList,
 } from './google-calendar-tools.js';
 
 const SEND_URL = `${GMAIL}/messages/send`;

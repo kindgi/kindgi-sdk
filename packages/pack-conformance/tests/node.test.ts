@@ -10,6 +10,7 @@ import { runIndexer } from '@kindgi/handler-runtime';
 import { describePackServiceConformance, fixturePackDir } from '../src/index.js';
 
 const packDir = fixturePackDir('node-pack');
+const invalidFlowPackDir = fixturePackDir('node-invalid-flow-pack');
 // The built `@kindgi/handler-runtime/pack-service-main` (the package's exports are import-only).
 const entrypoint = fileURLToPath(
   new URL('../node_modules/@kindgi/handler-runtime/dist/pack-service/main.js', import.meta.url),
@@ -25,5 +26,10 @@ describePackServiceConformance({
     if (outcome.value.fileErrors.length > 0) {
       throw new Error(outcome.value.fileErrors.map((e) => e.message).join('\n'));
     }
+  },
+  async indexInvalidFlowPack(outputPath, pins) {
+    const outcome = await runIndexer({ packDir: invalidFlowPackDir, outputPath, ...pins });
+    if (outcome.kind === 'err') throw new Error(`${outcome.error.code}: ${outcome.error.message}`);
+    return outcome.value.fileErrors;
   },
 });

@@ -306,7 +306,7 @@ export async function projectIdFlag(ctx: CommandContext): Promise<string> {
  */
 async function storedProjectId(ctx: CommandContext, ref: string): Promise<string> {
   try {
-    return await resolveProjectRef(ctx, ref);
+    return await resolveProjectRef(ctx, ref, 'it');
   } catch (thrown) {
     if (!(thrown instanceof UsageError)) throw thrown;
     const file = ctx.config.files?.token?.path ?? 'your config file';

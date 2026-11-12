@@ -246,7 +246,7 @@ describe('runIndexer — happy path', () => {
 });
 
 describe('runIndexer — flows (schema-version 1.8.0)', () => {
-  test('a flow keeps every field it declares: description, maxParallelism, metadata, output, node inputMapping', async () => {
+  test('a flow keeps every field it declares: description, maxParallelism, metadata, mcp, output, node inputMapping', async () => {
     const output = { mapping: { result: { path: 'nodeOutputs.step-1' } } };
     const inputMapping = { id: { path: 'runInput.id' } };
     const fixture = await makeFixture({
@@ -256,6 +256,7 @@ describe('runIndexer — flows (schema-version 1.8.0)', () => {
           description: 'A one-step flow.',
           maxParallelism: 2,
           metadata: { owner: 'acme' },
+          mcp: { expose: true, destructive: false },
           nodes: [{ id: 'step-1', kind: 'tool', ref: 'acme.echo', inputMapping }],
           output,
         }),
@@ -274,6 +275,7 @@ describe('runIndexer — flows (schema-version 1.8.0)', () => {
       description: 'A one-step flow.',
       maxParallelism: 2,
       metadata: { owner: 'acme' },
+      mcp: { expose: true, destructive: false },
       output,
       nodes: [{ id: 'step-1', inputMapping }],
     });
@@ -1962,7 +1964,7 @@ describe('runIndexer — artifactVersion behavior', () => {
 });
 
 describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
-  test('an agent keeps every field it declares: output, toolErrors, parallelToolCalls, memory, preferred provider/model, policy, description, tags', async () => {
+  test('an agent keeps every field it declares: output, toolErrors, parallelToolCalls, memory, mcp, preferred provider/model, policy, description, tags', async () => {
     const output = {
       name: 'axes',
       schema: { type: 'object', properties: { remedy: { type: 'array' } }, required: ['remedy'] },
@@ -1978,6 +1980,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
           toolErrors,
           parallelToolCalls: false,
           memory: { instructionTypes: ['acme.policy'] },
+          mcp: { expose: true, readOnly: true },
           conversationPolicy,
           preferredProvider: 'anthropic',
           preferredModel: 'claude-x',
@@ -1999,6 +2002,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
       toolErrors,
       parallelToolCalls: false,
       memory: { instructionTypes: ['acme.policy'] },
+      mcp: { expose: true, readOnly: true },
       conversationPolicy,
       preferredProvider: 'anthropic',
       preferredModel: 'claude-x',

@@ -395,7 +395,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_LICENSE_KEY',
     description:
-      'The commercial license key (`kgi_lk_...`) Kindgi issues: signed, checked offline at startup, with no call to Kindgi. Required outside development mode: without a valid key the server refuses to start, naming this variable. `KINDGI_DEV=true` needs none. A production key comes with a commercial license; a free non-production key covers staging and CI. A secret: give it from your secrets store.',
+      'The commercial license key (`kgi_lk_...`) Kindgi issues: signed, checked offline at startup, with no call to Kindgi. Required, in development mode (`KINDGI_DEV=true`) too from 0.7.0: without a valid key the server refuses to start, naming this variable. A production key comes with a commercial license; a free non-production key covers development, staging and CI. A secret: give it from your secrets store.',
     example: '',
     required: false,
     appliesTo: appliesToServer,
@@ -631,6 +631,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "`true` lets sites sign their own people in to one project each: a tenant admin registers a site (a store's WordPress admin, say), the site enrolls its own Ed25519 key, and each person it vouches for gets a 15-minute session limited to that project, as themselves, never matched by email. Needs authorization enforced (`KINDGI_OPENFGA_API_URL`) and `KINDGI_PUBLIC_URL` (what a site's statements carry as their audience); turned on without either, the runtime refuses to start. Off by default.",
     example: 'true',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MCP_SERVER',
+    description:
+      "`on` serves Kindgi to people's chat apps (Claude's custom connectors and other MCP clients) at `/mcp`: a person adds the deployment's `/mcp` URL to their chat app, signs in to Kindgi as they do for the console, allows the chat app, and it acts as them, within the scopes they allowed. Needs sign-in (`KINDGI_AUTH_SECRET_PATH` or `KINDGI_AUTH_SECRET`) and `KINDGI_PUBLIC_URL` with no path, since a chat app finds the sign-in at the URL's root; turned on without either, the runtime refuses to start. Off by default.",
+    example: 'on',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

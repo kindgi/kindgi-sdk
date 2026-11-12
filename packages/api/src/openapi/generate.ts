@@ -383,29 +383,31 @@ const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
 
 /**
  * `IDEMPOTENCY_STORE_UNAVAILABLE` for a write that can also answer `503
- * authz-backend-unavailable` — see `answersAuthzUnavailable`.
+ * authz-backend-unavailable`, or `503 database-busy` for the check's read —
+ * see `answersAuthzUnavailable`.
  */
 const IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE: ResponseSpec = {
   description:
-    "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+    "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
   schema: ref('WireError'),
 };
 
 /**
  * What any other operation that declares a 401 answers when the
- * authorization store can't be reached, unless it declares a 503 of its own
- * — see `answersAuthzUnavailable`.
+ * authorization store can't be reached, or the database is too busy for its
+ * check's read, unless it declares a 503 of its own — see
+ * `answersAuthzUnavailable`.
  */
 const AUTHZ_UNAVAILABLE: ResponseSpec = {
   description:
-    "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+    "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
   schema: ref('WireError'),
 };
 
 /** The same on a `HEAD`: the status and `Retry-After`, with no body. */
 const AUTHZ_UNAVAILABLE_HEAD: ResponseSpec = {
   description:
-    "The authorization store couldn't be reached (`authz-backend-unavailable`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.",
+    "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.",
 };
 
 /**
