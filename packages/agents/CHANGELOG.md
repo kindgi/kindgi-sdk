@@ -1,5 +1,31 @@
 # @kindgi/agents
 
+## 0.6.1
+
+### Patch Changes
+
+- 95494bb: An agent that lists a guardrail more than once now runs its check once a step, so an llm-judge check is called, and billed, once. An unknown id listed twice is named once in `unresolved-guardrail`. A retried step whose guardrail checks came to none now records that, so the outcome counts hold only the last attempt's checks; a first attempt with none still writes nothing. A `GuardrailOutcomeSink` of your own gets that record with empty `checks`, and should leave the step with no outcomes, as recording a step again replaces what it recorded. Each step of a turn now removes the listener it adds to its run's abort signal when it settles, so a turn of more than ten steps no longer logs `MaxListenersExceededWarning`.
+- af5b037: When a turn merges the `tenantPolicy` bound to it with the policy its `policyRegistry` yields, it now keeps the larger `maxTokensPerCall`. That field is the smallest context window a picked model must have, so keeping the smaller value let the weaker policy win. Now a model whose context window is below either policy's isn't picked. The `TenantPolicy` docs now say what both fields check. `maxCostPerCallUsd` is the highest prompt price per 1K tokens a picked model may have, not what a call costs. `maxTokensPerCall` is the smallest context window it must have, not the tokens a call uses. When no model routes, a `capability-unsatisfiable` error's `requirement` names them the same way, for example `tenant.maxCostPerCallUsd: promptUsdPer1kTokens<=0.5` and `tenant.maxTokensPerCall: contextWindow>=100000`. The context window's message now reads "workspace minimum".
+- Updated dependencies [95494bb]
+- Updated dependencies [e975c6f]
+- Updated dependencies [af5b037]
+- Updated dependencies [25d902a]
+  - @kindgi/guardrails@0.6.1
+  - @kindgi/flow@0.6.1
+  - @kindgi/capabilities@0.6.1
+  - @kindgi/policy-contract@0.6.1
+  - @kindgi/types@0.6.1
+  - @kindgi/provenance@0.6.1
+  - @kindgi/runtime@0.6.1
+  - @kindgi/compliance@0.6.1
+  - @kindgi/tools@0.6.1
+  - @kindgi/authz@0.6.1
+  - @kindgi/embedding@0.6.1
+  - @kindgi/handler@0.6.1
+  - @kindgi/memory@0.6.1
+  - @kindgi/schema@0.6.1
+  - @kindgi/bounds@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

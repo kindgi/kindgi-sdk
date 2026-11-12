@@ -1,5 +1,83 @@
 # @kindgi/api
 
+## 0.6.1
+
+### Patch Changes
+
+- b095fe4: When the authorization store can't be reached, a request answers `503 authz-backend-unavailable` with `Retry-After: 5`, not `500 internal-server-error`, where sending it again is safe: a check in the `authorize` middleware, which runs before the handler, on any method, and a check inside a handler on a `GET` or `HEAD`. A check inside a handler on any other method still answers 500, since the handler may have written before it. A route that reads a check as yes or no answers the 503 too, never a 403 or 404 of its own: removing a connection choice, naming a service account as a trigger's owner, closing or unregistering a conversation, and pausing or unregistering an Improve schedule. A check refused before another one allowed the request no longer leaves its `403` on the answer: a project's admin who pauses or unregisters an Improve schedule, and a caller with `read` on its agent alone who reads one, get a `200`. The runtime's authorization binding marks such a failure `code: 'authz-backend-unavailable'`, on the error or down its `cause` chain; a binding that doesn't mark it answers 500, as before. `GET /v1/identity/me/permissions`, which already answered `503 authz-backend-unavailable` when the store couldn't be read, now sends `Retry-After` with it.
+  
+  The OpenAPI document declares a 503 naming `authz-backend-unavailable` on every operation that declares a 401: the shared `database-busy` and `idempotency-store-unavailable` 503s name it too, the authenticated writes that declared no 503 get one, and the operations with their own 503 add it to theirs.
+- 5461b4e: `GET /v1/blocks/:blockId/runs-in` now reads the agents that pin the block a few at a time, at most four at once, instead of one after another, so a block that many agents pin answers sooner. The rows, and their order, don't change. A failure answers as before: once one fails no more agents start, the ones running end, and the answer is the failure of the earliest agent in the order they pin the block. With reads running together, a busy database can answer `503 database-busy` in its place.
+- cde9433: Without an authorization store, a refusal on `/v1/connection-apps` says who a tenant admin is there, as the webhook endpoints and compliance routes do: "Only a tenant admin reads or changes this workspace-wide setting. This runtime has no authorization store, so a tenant admin is the deployment's API token, an admin key, or a console signed in with either." The API reference's 403 for these routes says so too. The answer stays `403 permission-denied`.
+  
+  The API reference says which of a suspended run's waits are `unattributed` in `waitingFor.other`: a wait that isn't an approval's, a connect's or one of `tokens`, or whose approval, connect or token can't be read. It said a wait no approval is linked to, but a connect's wait and one listed in `tokens` aren't `unattributed` either. The field and its values don't change.
+- 9b65483: When the database is too busy for a read that comes before the handler runs, a request answers `503 database-busy` with `Retry-After: 5` on any method, not `500 internal-server-error`: nothing ran, so sending it again is safe. That covers the read an authorization check makes (the tenant's store id, read before the store is asked), the `authorize` middleware's resource getter, the run a cancel, a resume or a provenance export reads to find its project, and the projects an agent, flow, guardrail, test set or tool is served in, read before its own checks and before a pin write's. Those checks of an item also answer `503 authz-backend-unavailable` on any method when the authorization store can't be reached, as the middleware's do. A busy database inside a handler still answers the 503 on a `GET` or `HEAD` and the 500 on any other method. A handler that goes on past a check's busy answer, as an Improve schedule's project admin who pauses it does, answers with its own status. The OpenAPI document's 503 on every operation that declares a 401 names `database-busy`.
+- c88d9dd: `kindgi dev` runs the runtime with a license key, as every Kindgi runtime does from 0.7.0. The free non-production key from https://access.kindgi.com covers development.
+  
+  - `kindgi auth registry` keeps the license key it logged Docker in with for `kindgi dev`, in `~/.kindgi/license/license-key`: a file only you can read (`0600`), in a folder that holds nothing else (`0700`). A mirror's token isn't a license key, and isn't kept; `--check` keeps nothing. When your key renews, log in again with the new one.
+  - `kindgi dev` takes `KINDGI_LICENSE_KEY` from your shell, else that file. It gives the key to the runtime through Docker's own environment: never in `docker run`'s arguments, and never in the pack's `.kindgi/dev/runtime.env`, where a coding agent reads. With no key, it stops before anything starts and says where to get a free one, and a value that isn't a Kindgi license key is refused there too. A key that expires soon, or has expired, starts with a warning and the way to renew it. With `--runtime-url` it starts no runtime and asks for no key.
+  - `kindgi doctor`'s `license` check reads the key `kindgi auth registry` kept, too. With no key anywhere it fails, where it skipped before, and a kept key's renewal advice is a laptop's: sign in at access.kindgi.com, then `kindgi auth registry` again.
+  - `@kindgi/env-schema`: `KINDGI_LICENSE_KEY`'s description says the server requires it in development mode too, from 0.7.0.
+  - `@kindgi/api`: `GET /v1/license`'s `mode` describes `development` as a runtime before 0.7.0, which ran with no key. From 0.7.0 a development runtime has a key, and answers `licensed`. The field and its values don't change.
+- e975c6f: A Python, Java or Scala pack's flow is now checked as a TypeScript one is. Their indexers check a flow against `flow.schema.json` only, so a flow with a cycle, an edge to or from a step that doesn't exist, no edge from `$start`, or a node id used twice indexed and deployed cleanly, then hung until "Run stuck", completed with nothing run, or skipped a step.
+  
+  - `@kindgi/flow` exports `flowGraphProblem(flow)`, with its answer type `FlowGraphCheck`: `loadFlow`'s graph checks, run after the schema with every object left open, so a field from a newer SDK is passed over. It answers `ok`, `err` (the error `loadFlow` gives) or `not-judged` (a shape this version doesn't know). `loadFlow` is unchanged.
+  - `kindgi dev` and `kindgi build` run it on every indexer's result. A flow that fails is a `manifest-validation-failed` file error (`<module>: flow '<id>' is invalid: <code>: <message>`) and is left out of the index file, so `kindgi dev` never serves it, and `kindgi build` stops. A flow whose shape the CLI doesn't know stays, with a `flow-not-checked` warning.
+  - `POST /v1/deployments` refuses a flow that fails them with `deployment-validation-failed`, and the flow's issue message starts with the check's code (`cycle-detected: …`). A flow already deployed keeps running as before; deploying it again is refused until it's fixed. A field or a shape the API doesn't know is passed over, not refused.
+  - `@kindgi/pack-conformance` ships an invalid-flow pack per language (`fixtures/<name>-invalid-flow-pack`, whose one flow is `FIXTURE_CYCLE_FLOW_ID`), and a case that its cycle is refused, by the indexer or by `flowGraphProblem` on the index it wrote. A target feeds it through the optional `indexInvalidFlowPack`; a target without it has the case skipped, and the skip says so. Every flow in the fixture pack's index must pass `flowGraphProblem` too. The suite depends on `@kindgi/flow`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say where a flow is checked: `kindgi dev` and `kindgi build` run the graph checks on every language's flows, and a deploy refuses a flow that fails them.
+  
+  To upgrade a Python, Java or Scala pack: run `kindgi build` (or `kindgi dev`) once on this CLI before you deploy, so a flow the deploy would refuse shows up as a file error first.
+- 3b5216b: A flow's agent step that names its version (`config.version`) now has that version checked when the flow is published, reinstated or deployed, by the rule a run of the step follows. A version that doesn't exist, or that the flow's project doesn't run, is refused with `400 reference-out-of-scope` at the step's path, where before the flow was published and its first run failed at that step. A deploy asks the same of a step naming a version of the pack's own agent other than the one the pack brings. An unregistered version is still accepted, as a run takes it.
+  
+  An agent or flow registry's `publish` can answer a new outcome, `held-version-gone`: a version the new agent or flow version holds was removed while it was published, and nothing was written. `POST /v1/agents`, `POST /v1/flows` and a deploy answer it as `400 reference-out-of-scope`, with an issue at each path that names a removed version. Publishing again gets the answer for a missing version: a version a step names is refused, and a pinned one is pinned afresh.
+- c430e06: The API reference says an identity provider's `join: domain` lets no one in on its own. Its description said `domain` also let in anyone from the provider's `domains`, but sign-in doesn't use it: with either value, only people a tenant admin added get in. The field, its values and what a registration stores don't change.
+- 054e09f: **An MCP endpoint never sets MCP's own headers.** `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and any `Mcp-Param-…` header, whatever its case, are set by the MCP client itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments, and a server checks them against the request.
+  
+  - **In `config.headers`,** a registration that names one is refused: `400 invalid-mcp-endpoint`, reason `transport-header-in-config`, naming the header. Nothing is registered.
+  - **In `auth.headers`,** `Mcp-Method`, `Mcp-Name` and any `Mcp-Param-…` join the headers the transport sets itself (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Host`, `traceparent`, …): `400 invalid-mcp-endpoint`, reason `invalid-auth`, in the same words.
+  - The `MCPEndpoint` schema, the `@kindgi/client` types and the MCP servers guide say so.
+- ea5b156: **Breaking, for keys and sessions limited to a project.** Such a caller now acts only inside its project. Before, some routes let it act for its person in every project:
+  
+  - It neither lists nor revokes its person's sessions (`GET /v1/identity/users/{userId}/sessions`, `POST /v1/identity/users/{userId}/revoke-sessions`), even its own person's. A session limited to a project doesn't read, set up or take off its person's second factor (`/v1/identity/me/second-factor` and the routes under it). Each answers `403 permission-denied`, naming the project.
+  - `GET /v1/identity/users/{userId}/grants` shows its person's role in that project only, as `GET /v1/identity/me/permissions` lists it.
+  - On `/v1/connections` it lists and reads only the connections its runs in that project may use: those whose registration lets the project use them. Another reads as missing, `404 connection-not-found`, and a connection's choices show only that project's. It connects, finishes a connect, renames, changes and disconnects nothing: `403 permission-denied`.
+  - On `/v1/memory` it writes only in that project or one of its conversations. A fact in any other scope, its person's own included, is refused with `403 permission-denied`, whether made, changed, verified or deleted. What it reads doesn't change.
+  
+  A key or a session that isn't limited to a project keeps today's rules. The API reference, the TypeScript client's docs and the docs pages on keys, connections and memory say so.
+- 363dd24: A build can be promote-only: it reaches a project in production only by promotion, never by a deploy. It is promote-only when its signed envelope says `productionEntry: 'promote-only'`, or when the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted, revoked or not. `POST /v1/deployments` takes the field, the signature covers it, and the deployment keeps it. A deploy of a promote-only build into a project in production, or into one whose production the runtime can't read, is `409 promote-only-build`, and nothing is deployed; a promotion keeps the mark and checks the signature over it again. `PUT /v1/projects/{projectId}/production` refuses to put a project in production with the same `409 promote-only-build`, naming the deployment, while a promote-only build was deployed into it (not promoted there), so such a project never goes into production. An envelope without the field signs the same bytes as before, and another value of it is `400`. A build carrying the field deploys only on a runtime that knows it, since an earlier runtime checks the signature without it. From this version, a key trusted under an id starting with `kindgi-promote-only:` signs only promote-only builds.
+- 6279526: A promote-only build deployed at the same moment as its project goes into production is refused on one side, whichever lands second, with no change on the wire. `POST /v1/deployments` asks whether a build is promote-only on every deploy, not only on one into a project in production, and registers such a build with `promoteOnly: true`. `DeploymentBinding.register` takes that field and may answer `project-in-production`: a binding that keeps projects in the same store reads the project in the registration's own step, and records nothing when it's in production or isn't there. `ProjectBinding.setProduction` may answer `promote-only-build`, with the deployment's id and the id of the key that signed it: a binding that keeps deployments in the same store reads them in its own step. Both routes answer these as their own checks do, `409 promote-only-build` with the same words and details. `makeInMemoryProjectBinding` takes `promoteOnlyDeployment`, read in `setProduction`'s step. A binding that never answers either works as before. Asking on every deploy reads the trust list once for a build whose own fields don't mark it.
+- fda6124: `GET /v1/tenant/config` needs admin on the workspace, like `/v1/env` and `/v1/secrets` reads. A caller without it gets `403 permission-denied`, as on those routes. So does a `member` API key, or a key limited to a project, even when its holder is an admin.
+- f3d8f7d: `PATCH /v1/tenant/config` asks the capability of what it writes, as `/v1/secrets` and `/v1/env` do: `secrets:write` for a secret (or an entry sent with `sensitive: true`), and `env:write` for an `env` or `config` entry. It asks it with an authorization store or without one. A key or a sign-in without it gets `403 permission-denied`. A sign-in carries the capabilities its person holds: with a store, only the workspace's first admin holds them, and without one, a sign-in carries none. On a runtime without a store, renaming the workspace (`PATCH /v1/tenant`) is the tenant admin's, as its other settings are, and anyone else gets `403 permission-denied`.
+- Updated dependencies [95494bb]
+- Updated dependencies [c8395f7]
+- Updated dependencies [e975c6f]
+- Updated dependencies [f3515c2]
+- Updated dependencies [af5b037]
+- Updated dependencies [6279526]
+- Updated dependencies [25d902a]
+  - @kindgi/agents@0.6.1
+  - @kindgi/guardrails@0.6.1
+  - @kindgi/handler-runtime@0.6.1
+  - @kindgi/flow@0.6.1
+  - @kindgi/log@0.6.1
+  - @kindgi/capabilities@0.6.1
+  - @kindgi/policy-contract@0.6.1
+  - @kindgi/platform@0.6.1
+  - @kindgi/types@0.6.1
+  - @kindgi/provenance@0.6.1
+  - @kindgi/runtime@0.6.1
+  - @kindgi/compliance@0.6.1
+  - @kindgi/tools@0.6.1
+  - @kindgi/connections@0.6.1
+  - @kindgi/blob-binding@0.6.1
+  - @kindgi/audit-events@0.6.1
+  - @kindgi/authz@0.6.1
+  - @kindgi/crypto@0.6.1
+  - @kindgi/memory@0.6.1
+  - @kindgi/schema@0.6.1
+  - @kindgi/bounds@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

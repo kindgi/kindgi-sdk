@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.6.1
+
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or

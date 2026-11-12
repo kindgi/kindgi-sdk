@@ -1,5 +1,12 @@
 # @kindgi/sandbox
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

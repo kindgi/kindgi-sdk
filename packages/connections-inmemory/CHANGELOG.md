@@ -1,5 +1,33 @@
 # @kindgi/connections-inmemory
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [95494bb]
+- Updated dependencies [b095fe4]
+- Updated dependencies [5461b4e]
+- Updated dependencies [cde9433]
+- Updated dependencies [9b65483]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [e975c6f]
+- Updated dependencies [3b5216b]
+- Updated dependencies [c430e06]
+- Updated dependencies [054e09f]
+- Updated dependencies [af5b037]
+- Updated dependencies [ea5b156]
+- Updated dependencies [363dd24]
+- Updated dependencies [6279526]
+- Updated dependencies [fda6124]
+- Updated dependencies [f3d8f7d]
+- Updated dependencies [25d902a]
+  - @kindgi/agents@0.6.1
+  - @kindgi/api@0.6.1
+  - @kindgi/types@0.6.1
+  - @kindgi/tools@0.6.1
+  - @kindgi/connections@0.6.1
+  - @kindgi/authz@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

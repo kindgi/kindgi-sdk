@@ -1,5 +1,11 @@
 # @kindgi/log
 
+## 0.6.1
+
+### Patch Changes
+
+- f3515c2: Masking a URL's password and its secret parameters takes time in step with the text's length; long text no longer stalls.
+
 ## 0.6.0
 
 No changes in this release.
