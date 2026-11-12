@@ -30,8 +30,15 @@ import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
+import { readableOrRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
-import { conversationNotFound, hiddenOr, unreadable } from './turn-access.js';
+import {
+  conversationNotFound,
+  hiddenOr,
+  othersCloseRefusal,
+  ownConversationIn,
+  unreadable,
+} from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 /**
@@ -61,9 +68,12 @@ export function conversationsRouter(
   projectBinding?: ProjectBinding,
   /**
    * With one: reading a conversation or its messages needs `read` on its
-   * project (its agent, for one from before projects); opening or closing
-   * one needs `execute` on its agent, as starting a run does; unregistering
-   * one needs `write` on its project (or agent). A caller refused on a
+   * project (its agent, for one from before projects), or, for one the
+   * caller opened in a project, `run` there; opening or closing
+   * one needs `execute` on its agent, as starting a run does, and closing
+   * one someone else opened, for a caller who may `run` its project, needs
+   * `write` there as well (`othersCloseRefusal`); unregistering one needs
+   * `write` on its project (or agent). A caller refused on a
    * conversation they can't read gets the answer for one that doesn't
    * exist (`hiddenOr`); one who can read it keeps the 403.
    */
@@ -193,10 +203,17 @@ export function conversationsRouter(
         : undefined;
     // The binding narrows; this keeps a page right from one that doesn't.
     const theirs = openedBy === undefined ? data : data.filter((row) => row.openedBy === openedBy);
+    // `read` on a row's project (its agent, from before projects), or, on
+    // one the caller opened, `run` there. The cursor is the store's page.
     const visible =
       authorizer === undefined
         ? theirs
-        : await authorizer.filterByCan(c, 'read', theirs, conversationRef);
+        : await readableOrRun(authorizer, c, theirs, conversationRef, (row) =>
+            ownConversationIn(c, {
+              ...(row.projectId !== undefined && { projectId: row.projectId as unknown as string }),
+              ...(row.openedBy !== undefined && { openedBy: row.openedBy }),
+            }),
+          );
     return c.json({
       data: visible.map(serializeConversation),
       hasMore,
@@ -379,6 +396,23 @@ export function conversationsRouter(
     if (refused !== undefined) {
       return hiddenOr(c, authorizer, conversationId, existing.value, refused);
     }
+    // One someone else opened: `write` as well, for a caller who may `run`
+    // its project, as stopping another person's run takes.
+    const notTheirs = await othersCloseRefusal(
+      c,
+      authorizer,
+      conversationId,
+      existing.value,
+      async () =>
+        (
+          await agentRegistry?.getVersion({
+            tenantId,
+            agentId: existing.value.agentId,
+            version: existing.value.agentVersion,
+          })
+        )?.projectId as unknown as string | undefined,
+    );
+    if (notTheirs !== undefined) return notTheirs;
     // Close is idempotent — closing an already-closed conversation
     // returns 200 with the current row, no error and no timestamp bump.
     if (existing.value.closedAt !== undefined) {

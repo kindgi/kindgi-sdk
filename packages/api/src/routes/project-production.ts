@@ -11,6 +11,7 @@ import type { Deployment, DeploymentBinding } from '../deployment-binding.js';
 import { PROMOTE_ONLY_KEY_PREFIX } from '../deployment-envelope.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { AppEnv } from '../types.js';
 import { promoteOnlyDeploymentIn } from './promote-only-builds.js';
@@ -91,6 +92,13 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     r.use(
       '/:projectId/production',
       authorizer.authorize('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
+    );
+  } else {
+    // Without a store, a key or session limited to a project still
+    // doesn't put it in production or take it out (`holdLimitedCaller`).
+    r.use(
+      '/:projectId/production',
+      holdLimitedCaller('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
     );
   }
 

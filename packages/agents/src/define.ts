@@ -10,7 +10,7 @@ import {
   toJSONSchemaSync,
 } from '@kindgi/schema';
 import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
-import type { Result, Semver } from '@kindgi/types';
+import { type McpExposure, type Result, type Semver, mcpExposureIssues } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
 import { templateProblem } from './liquid.js';
@@ -66,6 +66,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
     ...validateToolErrors(spec.toolErrors),
     ...validateParallelToolCalls(spec.parallelToolCalls),
+    ...mcpExposureIssues(spec.mcp, String(spec.id), 'agent'),
   ];
   const output = resolveOutput(spec.output);
   if (output.kind === 'err') issues.push(...output.issues);
@@ -250,6 +251,14 @@ export interface DefineAgentSpec {
    * model may ask for.
    */
   readonly parallelToolCalls?: boolean;
+  /**
+   * Whether the agent is a tool in a person's chat app, through the API's
+   * MCP server, named by its id. Absent, or `expose: false`: it isn't one.
+   * With `expose: true`, the id must be a tool's name (letters, digits,
+   * `_`, `-` and `.`, at most 128) and can't start with `kindgi.` or
+   * `flow.`, the prefixes Kindgi keeps.
+   */
+  readonly mcp?: McpExposure;
   /**
    * Per-conversation behavior — how much history to load, when to
    * gate on HITL, when to auto-close. Every field optional; defaults
@@ -923,5 +932,6 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
       },
     }),
     ...(spec.parallelToolCalls !== undefined && { parallelToolCalls: spec.parallelToolCalls }),
+    ...(spec.mcp !== undefined && { mcp: { ...spec.mcp } }),
   };
 }

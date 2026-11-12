@@ -17,7 +17,7 @@ the vendors' published prices. Your provider's invoice is what you pay.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's client: Node 22.12
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.6's client: Node 22.12
   or later, Python 3.11 or later, or Java 17 or later.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
   `kindgi dev`, which the client finds.
@@ -265,8 +265,7 @@ share their `#folded` node's entry.
 
 ## One customer's month
 
-Give each of your customers an org, and run their work in a project of that
-org, as
+Give each of your customers a project, and run their work there, as
 [Organize work by org and project](../../projects/organize-by-org-and-project/)
 shows. One call then sums a customer's spend, here by month and model. Ask
 your coding agent: "I want to see what one customer spent this month, by
@@ -282,9 +281,8 @@ import type { Timestamp } from '@kindgi/sdk/types';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-// Once per customer: an org, and a project in it.
-const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
-const project = await kindgi.projects.create({ orgId: org.id, slug: 'support', name: 'Support' });
+// Once per customer: a project.
+const project = await kindgi.projects.create({ slug: 'acme-customer-one', name: 'Customer one' });
 
 // Each run for that customer names the project.
 await kindgi.runs.start({
@@ -297,7 +295,7 @@ await kindgi.runs.start({
 const now = new Date();
 const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 const month = await kindgi.cost.usage.summary({
-  scope: { kind: 'org', orgId: org.id },
+  scope: { kind: 'project', projectId: project.id },
   from: monthStart.toISOString() as Timestamp,
   to: now.toISOString() as Timestamp,
   groupBy: ['month', 'model'],
@@ -317,9 +315,8 @@ from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-# Once per customer: an org, and a project in it.
-org = kindgi.orgs.create(slug="acme-customer-one", name="Customer one")
-project = kindgi.projects.create(org_id=str(org.id), slug="support", name="Support")
+# Once per customer: a project.
+project = kindgi.projects.create(slug="acme-customer-one", name="Customer one")
 
 # Each run for that customer names the project.
 kindgi.runs.start(
@@ -332,8 +329,8 @@ kindgi.runs.start(
 now = datetime.now(timezone.utc)
 month = kindgi.cost.aggregate(
     group_by="month,model",
-    scope_kind="org",
-    scope_id=str(org.id),
+    scope_kind="project",
+    scope_id=str(project.id),
     from_=now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(),
     to=now.isoformat(),
 )
@@ -351,7 +348,6 @@ import com.kindgi.client.Kindgi;
 import com.kindgi.client.KindgiJson;
 import com.kindgi.client.models.CostAggregateResult;
 import com.kindgi.client.models.CreateResourceResult;
-import com.kindgi.client.models.OrgSpec;
 import com.kindgi.client.models.ProjectSpec;
 import com.kindgi.client.models.ScopeKind;
 import com.kindgi.client.models.StartRunBody;
@@ -365,11 +361,9 @@ public final class CustomerCost {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-    // Once per customer: an org, and a project in it.
-    CreateResourceResult org = kindgi.orgs().create(
-        OrgSpec.builder().slug("acme-customer-one").name("Customer one").build());
+    // Once per customer: a project.
     CreateResourceResult project = kindgi.projects().create(
-        ProjectSpec.builder().orgId(org.id()).slug("support").name("Support").build());
+        ProjectSpec.builder().slug("acme-customer-one").name("Customer one").build());
 
     // Each run for that customer names the project.
     kindgi.runs().start(StartRunBody.WithAgent.builder()
@@ -381,8 +375,8 @@ public final class CustomerCost {
     // The customer's month so far, by model.
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     CostAggregateResult month = kindgi.cost().aggregate(CostAggregateParams.builder()
-        .scopeKind(ScopeKind.ORG)
-        .scopeId(org.id())
+        .scopeKind(ScopeKind.PROJECT)
+        .scopeId(project.id())
         .from(now.withDayOfMonth(1).toLocalDate().atStartOfDay().atOffset(ZoneOffset.UTC))
         .to(now)
         .groupBy("month,model")
@@ -404,7 +398,7 @@ is indented to read.
 package acme.app
 
 import com.kindgi.client.{Kindgi, KindgiJson}
-import com.kindgi.client.models.{OrgSpec, ProjectSpec, ScopeKind, StartRunBody}
+import com.kindgi.client.models.{ProjectSpec, ScopeKind, StartRunBody}
 import com.kindgi.client.resources.CostAggregateParams
 import java.time.{OffsetDateTime, ZoneOffset}
 import java.util.UUID
@@ -414,10 +408,9 @@ object CustomerCost {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-    // Once per customer: an org, and a project in it.
-    val org = kindgi.orgs().create(OrgSpec.builder().slug("acme-customer-one").name("Customer one").build())
+    // Once per customer: a project.
     val project = kindgi.projects().create(
-      ProjectSpec.builder().orgId(org.id).slug("support").name("Support").build())
+      ProjectSpec.builder().slug("acme-customer-one").name("Customer one").build())
 
     // Each run for that customer names the project.
     kindgi.runs().start(StartRunBody.WithAgent.builder()
@@ -429,8 +422,8 @@ object CustomerCost {
     // The customer's month so far, by model.
     val now = OffsetDateTime.now(ZoneOffset.UTC)
     val month = kindgi.cost().aggregate(CostAggregateParams.builder()
-      .scopeKind(ScopeKind.ORG)
-      .scopeId(org.id)
+      .scopeKind(ScopeKind.PROJECT)
+      .scopeId(project.id)
       .from(now.withDayOfMonth(1).toLocalDate.atStartOfDay.atOffset(ZoneOffset.UTC))
       .to(now)
       .groupBy("month,model")
@@ -469,9 +462,9 @@ The sum covers only that customer's runs:
 }
 ```
 
-- **`scope`** narrows the sum to an org, `{ kind: 'org', orgId }`, or a
-  project, `{ kind: 'project', projectId }`. In Python, it's `scope_kind`
-  and `scope_id`.
+- **`scope`** narrows the sum to a project, `{ kind: 'project', projectId }`,
+  or an org, `{ kind: 'org', orgId }`: a customer's several projects, where an
+  org groups them. In Python, it's `scope_kind` and `scope_id`.
 - **Who sees what:** the sum needs `read` on its scope. Across projects,
   with no scope or an org, it counts only the projects the caller may read,
   and records with no project. A tenant admin's sum counts every project.
@@ -493,8 +486,10 @@ The sum covers only that customer's runs:
   the flow's spend by day. In Python, it's `flow_id`. It needs runtime
   0.1.9 or later: an earlier one ignores it and sums every flow.
 
-A tool can check that a run belongs to the right customer, as
-[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
+A tool can check that a run belongs to the right customer: by
+`ctx.projectId`, with a project per customer.
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows
+the same check by org.
 
 ## When a run finishes
 

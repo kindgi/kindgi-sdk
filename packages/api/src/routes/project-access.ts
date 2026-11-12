@@ -19,8 +19,14 @@ import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
 /** A project role's rank: owner first. */
-const RANK: Readonly<Record<string, number>> = { owner: 0, admin: 1, editor: 2, viewer: 3 };
-const ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
+const RANK: Readonly<Record<string, number>> = {
+  owner: 0,
+  admin: 1,
+  editor: 2,
+  runner: 3,
+  viewer: 4,
+};
+const ROLES = ['owner', 'admin', 'editor', 'runner', 'viewer'] as const;
 type AccessRole = (typeof ROLES)[number];
 
 const rank = (role: AccessRole) => RANK[role] ?? ROLES.length;

@@ -10,6 +10,6 @@ export default defineConfig({
     // tests/liquid-guard.test.ts reads every package's source, and
     // tests/render-worker.test.ts the CLI's pack templates, by path, not by
     // import, so `vitest --changed` runs this suite when any of it changes.
-    forceRerunTriggers: [...configDefaults.forceRerunTriggers, '**/packages/*/src/**'],
+    forceRerunTriggers: [...configDefaults.forceRerunTriggers, '**/packages/**/src/**'],
   },
 });

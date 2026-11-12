@@ -28,16 +28,29 @@ const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
 const P2 = '00000000-0000-4000-8000-0000000000b2';
 const RUN_IN_P2 = '00000000-0000-4000-8000-0000000000c2';
+/** Everyone in the workspace may run P3: `run` there, and no `read`. */
+const P3 = '00000000-0000-4000-8000-0000000000b3';
+/** Runs in P3 that act for Carol, for Dave, and for a service account. */
+const CAROLS_RUN = '00000000-0000-4000-8000-0000000000c3';
+const DAVES_RUN = '00000000-0000-4000-8000-0000000000c4';
+const ACCOUNTS_RUN = '00000000-0000-4000-8000-0000000000c5';
+const RUNS: Readonly<Record<string, { readonly projectId: string; readonly actsFor?: string }>> = {
+  [RUN_IN_P2]: { projectId: P2 },
+  [CAROLS_RUN]: { projectId: P3, actsFor: 'user:carol' },
+  [DAVES_RUN]: { projectId: P3, actsFor: 'user:dave' },
+  [ACCOUNTS_RUN]: { projectId: P3, actsFor: 'service_account:sa-1' },
+};
 
-/** Alice reads and writes P1 and reads P2; Bob has nothing. */
+/** Alice reads and writes P1 and reads P2; Bob has nothing; Carol may only run P3. */
 const GRANTS: Readonly<Record<string, readonly string[]>> = {
   alice: [`read:project:${P1}`, `write:project:${P1}`, `read:project:${P2}`],
   bob: [],
+  carol: [`run:project:${P3}`],
 };
 
 /** `alice-key-p1` is alice with an API key limited to project P1. */
 const resolveToken: TokenResolver = async (token) =>
-  token === 'alice' || token === 'bob'
+  token === 'alice' || token === 'bob' || token === 'carol'
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
     : token === 'alice-key-p1'
       ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
@@ -127,8 +140,10 @@ function harness(
   const blobs = memoryBlobs({ s3Address: options.s3Address === true });
   const run = {
     ...stubs.kernelBinding.run,
-    getRun: async (_t: TenantId, id: RunId) =>
-      id === RUN_IN_P2 ? { runId: id, projectId: P2 as ProjectId } : null,
+    getRun: async (_t: TenantId, id: RunId) => {
+      const found = RUNS[id];
+      return found === undefined ? null : { runId: id, ...found };
+    },
   } as unknown as RunBinding;
   const app = createApp({
     ...stubs,
@@ -332,6 +347,87 @@ describe('reading and deleting', () => {
     expect(bob.json().data).toEqual([]);
     const narrowed = await h.call('alice', 'GET', `/v1/artifacts?projectId=${P2}`);
     expect(narrowed.json().data.map((m: BlobMeta) => m.projectId)).toEqual([P2]);
+  });
+});
+
+describe('someone who may only run the project reaches their own files', () => {
+  /** Carol may only run P3. Files there: her run's, Dave's run's, an account's run's, and uploads. */
+  async function seeded() {
+    const h = harness();
+    const put = async (fields: {
+      readonly ownerRunId?: string;
+      readonly createdBy?: string;
+    }) => {
+      const stored = await h.blobs.put(tenantId, {
+        name: 'note.txt',
+        contentType: 'text/plain',
+        bytes: new TextEncoder().encode('hello'),
+        projectId: P3 as ProjectId,
+        ...(fields.ownerRunId !== undefined && { ownerRunId: fields.ownerRunId as RunId }),
+        ...(fields.createdBy !== undefined && { createdBy: fields.createdBy }),
+      });
+      if (stored.kind === 'err') throw new Error(stored.error.message);
+      return stored.value.blobId as string;
+    };
+    return {
+      h,
+      carolsRunFile: await put({ ownerRunId: CAROLS_RUN }),
+      carolsUpload: await put({ createdBy: 'user:carol' }),
+      davesRunFile: await put({ ownerRunId: DAVES_RUN }),
+      davesUpload: await put({ createdBy: 'user:dave' }),
+      accountsRunFile: await put({ ownerRunId: ACCOUNTS_RUN }),
+    };
+  }
+
+  test('she downloads a file her own run stored, and one she uploaded (HEAD too)', async () => {
+    const { h, carolsRunFile, carolsUpload } = await seeded();
+    for (const id of [carolsRunFile, carolsUpload]) {
+      const got = await h.call('carol', 'GET', `/v1/artifacts/${id}`);
+      expect([got.status, got.text]).toEqual([200, 'hello']);
+      expect((await h.call('carol', 'HEAD', `/v1/artifacts/${id}`)).status).toBe(200);
+    }
+  });
+
+  test("another person's files, and an account's run's, are 404 as if absent", async () => {
+    const { h, davesRunFile, davesUpload, accountsRunFile } = await seeded();
+    for (const id of [davesRunFile, davesUpload, accountsRunFile]) {
+      const got = await h.call('carol', 'GET', `/v1/artifacts/${id}`);
+      expect([got.status, got.json().error.code]).toEqual([404, 'blob-not-found']);
+      expect((await h.call('carol', 'HEAD', `/v1/artifacts/${id}`)).status).toBe(404);
+    }
+  });
+
+  test("she lists her own run's files in full, and none of another person's run", async () => {
+    const { h, carolsRunFile } = await seeded();
+    const own = await h.call('carol', 'GET', `/v1/artifacts?ownerRunId=${CAROLS_RUN}`);
+    expect(own.json().data.map((m: BlobMeta) => m.blobId)).toEqual([carolsRunFile]);
+    const daves = await h.call('carol', 'GET', `/v1/artifacts?ownerRunId=${DAVES_RUN}`);
+    expect(daves.json().data).toEqual([]);
+    // Without `ownerRunId`, the list stays `read`'s.
+    expect((await h.call('carol', 'GET', '/v1/artifacts')).json().data).toEqual([]);
+  });
+
+  test('she uploads an input that names no run, made by her, and downloads it; one naming a run is refused', async () => {
+    const h = harness();
+    const input = await h.upload('carol', { projectId: P3 });
+    expect(input.status, JSON.stringify(input.body)).toBe(201);
+    expect(input.body).toMatchObject({ projectId: P3, createdBy: 'user:carol' });
+    expect((await h.call('carol', 'GET', `/v1/artifacts/${input.body.blobId}`)).status).toBe(200);
+    const intoRun = await h.upload('carol', { ownerRunId: CAROLS_RUN });
+    expect([intoRun.status, intoRun.body.error.code]).toEqual([403, 'permission-denied']);
+    // A project she may not run: the default project, here.
+    const elsewhere = await h.upload('carol');
+    expect([elsewhere.status, elsewhere.body.error.code]).toEqual([403, 'permission-denied']);
+    expect(h.blobs.rows.size).toBe(1);
+  });
+
+  test('she deletes nothing, not even her own: 403', async () => {
+    const { h, carolsUpload, carolsRunFile } = await seeded();
+    for (const id of [carolsUpload, carolsRunFile]) {
+      const del = await h.call('carol', 'DELETE', `/v1/artifacts/${id}`);
+      expect([del.status, del.json().error.code]).toEqual([403, 'permission-denied']);
+    }
+    expect(h.blobs.rows.size).toBe(5);
   });
 });
 

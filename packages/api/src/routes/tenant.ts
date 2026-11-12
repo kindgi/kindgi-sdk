@@ -13,6 +13,7 @@ import { makeEnvName } from '@kindgi/types';
 import type { EnvBinding, EnvRecord } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
@@ -216,21 +217,21 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
   // caller's tenant. Anyone with tenant admin/member cascades through
   // via can_read. Non-members (rare — usually implies a mis-issued
   // token) get 403 rather than the tenant metadata.
-  if (authorizer !== undefined) {
-    r.use(
-      '*',
-      authorizer.authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
-    );
-    // The config holds the tenant's env values and secret names, and
-    // changing it writes them: `admin` on the tenant to read or change it,
-    // as `/v1/env` and `/v1/secrets` ask for the same values.
-    const admin = authorizer.authorize('admin', (c) =>
-      ref('tenant', c.get('tenantId') as unknown as string),
-    );
-    r.use('/config', admin);
-  }
+  const authorize = gate(authorizer);
+  r.use(
+    '*',
+    authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
+  );
+  // The config holds the tenant's env values and secret names, and
+  // changing it writes them: `admin` on the tenant to read or change it,
+  // as `/v1/env` and `/v1/secrets` ask for the same values.
+  const admin = authorize('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string));
+  r.use('/config', admin);
   // Renaming the tenant is a tenant-wide write too: `admin` on the tenant
   // with a store, a tenant admin without one.
+  if (authorizer === undefined) {
+    r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
+  }
   const renameAccess = tenantResourceAccess(authorizer);
   r.use('/', async (c, next) => (c.req.method === 'PATCH' ? renameAccess(c, next) : next()));
 

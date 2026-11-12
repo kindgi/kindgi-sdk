@@ -248,6 +248,23 @@ describe('one approval, and its audit bundle: its approver and the tenant admin'
     });
   });
 
+  test("one with the connection's id gives it, for whoever may read the connection", async () => {
+    const connectionId = '6f1c2b8e-4d3a-4f5e-9a7b-0c1d2e3f4a5b';
+    const theirs = {
+      ...approval('appr-person', OWNER),
+      connection: { app: 'acme', appName: 'Acme', as: 'person', connectionId },
+    } as Approval;
+    const h = harness({ pages: [[theirs]] });
+    const listed = await h.call(OWNER, 'GET', '/v1/approvals');
+    expect(listed.status).toBe(200);
+    expect((listed.json.data as { connection?: unknown }[])[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+      connectionId,
+    });
+  });
+
   test('its audit bundle: not found for another reviewer; past that check for its approver', async () => {
     const h = harness();
     const other = await h.call(OTHER, 'POST', '/v1/approvals/appr-owner/audit-bundle', {});

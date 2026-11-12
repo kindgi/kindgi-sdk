@@ -12,6 +12,7 @@ import {
   googleCalendarEventUpdate,
   googleCalendarEventsList,
   googleCalendarFreeBusy,
+  googleCalendarSharedEventsList,
 } from '../src/google-tools.js';
 
 const TOKEN = 'ya29.not-a-real-token';
@@ -627,6 +628,118 @@ describe('google calendar events list, several calendars', () => {
       );
       expect(message).not.toContain(TOKEN);
     }
+  });
+});
+
+describe('google calendar shared events list', () => {
+  const shared = googleCalendarSharedEventsList({ id: 'acme.calendar.shared-list' });
+
+  it('asks for the events on all the calendars, and is the events list otherwise', () => {
+    expect(shared).toMatchObject({
+      version: '1.0.0',
+      mutating: false,
+      resultIsOutsideData: true,
+      network: { kind: 'allowlist', hosts: ['www.googleapis.com'] },
+      needsSpec: {
+        connections: {
+          calendar: { app: 'google', permissions: ['calendar.events.readonly'], as: 'person' },
+        },
+      },
+    });
+    expect(shared.input).toEqual(list.input);
+    expect(shared.output).toEqual(list.output);
+    expect(shared.effects).toEqual(list.effects);
+    expect(shared.description).toContain(
+      "the person's Google calendars (the account they connected), those others share with them included",
+    );
+    expect(shared.description).not.toContain('others are refused');
+    // The events list still asks only for the calendars the account owns.
+    expect(list.needsSpec?.connections?.calendar?.permissions).toEqual([
+      'calendar.events.owned.readonly',
+    ]);
+    const company = googleCalendarSharedEventsList({
+      id: 'acme.store-calendar.shared-list',
+      as: 'company',
+    });
+    expect(company.needsSpec?.connections?.calendar).toEqual({
+      app: 'google',
+      permissions: ['calendar.events.readonly'],
+      as: 'company',
+    });
+    expect(company.description).toContain(
+      "the company's Google calendars (the account a tenant admin connected), those others share with it included",
+    );
+  });
+
+  it('reads the main calendar, or each named, one another owns too, merged by start', async () => {
+    const colleague = 'ben@acme.test';
+    const sent = googleAnswering(
+      () =>
+        Response.json({ items: [timed('own', '2026-11-03T10:00:00Z', '2026-11-03T10:30:00Z')] }),
+      () =>
+        Response.json({ items: [timed('own', '2026-11-03T10:00:00Z', '2026-11-03T10:30:00Z')] }),
+      () =>
+        Response.json({ items: [timed('ben', '2026-11-03T09:00:00Z', '2026-11-03T09:30:00Z')] }),
+    );
+    const context = { connections: { calendar: calendar() } };
+    expect(await invokeToolForTest(shared, WINDOW, context)).toEqual({
+      kind: 'ok',
+      value: {
+        events: [
+          {
+            id: 'own',
+            title: 'own',
+            start: '2026-11-03T10:00:00Z',
+            end: '2026-11-03T10:30:00Z',
+            allDay: false,
+            attendees: [],
+            busy: true,
+          },
+        ],
+      },
+    });
+    expect(
+      await invokeToolForTest(
+        shared,
+        { ...WINDOW, calendarIds: ['ana@acme.test', colleague] },
+        context,
+      ),
+    ).toEqual({
+      kind: 'ok',
+      value: {
+        events: [
+          listed('ben', '2026-11-03T09:00:00Z', '2026-11-03T09:30:00Z', colleague),
+          listed('own', '2026-11-03T10:00:00Z', '2026-11-03T10:30:00Z', 'ana@acme.test'),
+        ],
+      },
+    });
+    expect(sent.map((s) => s.url.split('?')[0])).toEqual([
+      EVENTS,
+      `${CALENDAR}/calendars/ana%40acme.test/events`,
+      `${CALENDAR}/calendars/ben%40acme.test/events`,
+    ]);
+    for (const s of sent) expect(s.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('a calendar Google refuses fails the call, naming it', async () => {
+    googleAnswering(
+      () => Response.json({ items: [] }),
+      () =>
+        Response.json(
+          { error: { code: 403, status: 'PERMISSION_DENIED', message: 'Insufficient Permission' } },
+          { status: 403 },
+        ),
+    );
+    const r = await invokeToolForTest(
+      shared,
+      { ...WINDOW, calendarIds: ['ana@acme.test', 'ben@acme.test'] },
+      { connections: { calendar: calendar() } },
+    );
+    const message = r.kind === 'err' ? r.error.message : '';
+    expect(message).toContain(
+      'Google Calendar refused the call for calendar "ben@acme.test" (HTTP 403): PERMISSION_DENIED: Insufficient Permission',
+    );
+    expect(message).not.toContain(TOKEN);
   });
 });
 

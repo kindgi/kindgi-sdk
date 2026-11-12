@@ -13,7 +13,9 @@
  *
  * Usage: `node scripts/github-release.mjs <plugin zip>`, with `gh` on the
  * path and GH_TOKEN set; `--notes <plugin zip>` prints the notes only (the
- * release job's summary shows them, a dry run's too).
+ * release job's summary shows them, a dry run's too). SKIP_MAVEN=true (the
+ * workflow's skip-maven input) is a release without the JVM SDKs: the notes
+ * say they reach Maven Central later.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -39,12 +41,18 @@ export function docsBase(version) {
 
 /**
  * The release's notes. `plugin` is the WordPress plugin's version and what
- * it needs (its header's `Requires at least:` and `Requires PHP:`).
+ * it needs (its header's `Requires at least:` and `Requires PHP:`). `maven`
+ * is false for a release without the JVM SDKs: they reach Maven Central
+ * later, and until then the Java and Scala packs the CLI scaffolds don't
+ * resolve.
  */
-export function releaseNotes({ version, plugin }) {
+export function releaseNotes({ version, plugin, maven = true }) {
   const zip = `kindgi-${plugin.version}.zip`;
+  const where = maven
+    ? `npm (\`@kindgi/*\`), PyPI (\`kindgi\`, \`kindgi-cli\`) and Maven Central, each at ${version}.`
+    : `npm (\`@kindgi/*\`) and PyPI (\`kindgi\`, \`kindgi-cli\`), each at ${version}. The JVM SDKs reach Maven Central at ${version} later: until then, a Java or Scala pack the CLI scaffolds can't resolve kindgi-pack ${version}.`;
   return [
-    `The Kindgi SDK ${version}. Its packages are on npm (\`@kindgi/*\`), PyPI (\`kindgi\`, \`kindgi-cli\`) and Maven Central, each at ${version}. Each package's \`CHANGELOG.md\` says what changed.`,
+    `The Kindgi SDK ${version}. Its packages are on ${where} Each package's \`CHANGELOG.md\` says what changed.`,
     '',
     `## The WordPress plugin ${plugin.version}`,
     '',
@@ -115,7 +123,7 @@ function main(args) {
   if (basename(zip) !== `kindgi-${plugin.version}.zip`) {
     throw new Error(`${zip} isn't the plugin's zip at ${plugin.version}`);
   }
-  const notes = releaseNotes({ version, plugin });
+  const notes = releaseNotes({ version, plugin, maven: process.env.SKIP_MAVEN !== 'true' });
   if (notesOnly) {
     process.stdout.write(notes);
     return;
