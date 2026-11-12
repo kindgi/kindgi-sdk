@@ -7999,6 +7999,14 @@ class IdpCertificate(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
+class SpSigningCertificate(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class SpDecryptionCertificate(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
 class AttributeMapping(BaseModel):
     """
     Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`.
@@ -8062,6 +8070,18 @@ class SamlIdentityProviderConfig(BaseModel):
     ] = None
     """
     Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key.
+    """
+    sp_signing_certificates: Annotated[
+        list[SpSigningCertificate] | None, Field(alias="spSigningCertificates")
+    ] = None
+    """
+    The certificates (PEM) of `spSigningKeyRef`'s key, published in the service provider's metadata, so an IdP that imports it can check signed AuthnRequests. Several during a rollover: publish the new key's beside the old one, then change `spSigningKeyRef`. Needs `spSigningKeyRef`.
+    """
+    sp_decryption_certificates: Annotated[
+        list[SpDecryptionCertificate] | None, Field(alias="spDecryptionCertificates")
+    ] = None
+    """
+    The certificates (PEM) of `spDecryptionKeyRef`'s key, published in the service provider's metadata, so an IdP that imports it can encrypt assertions. The IdP may encrypt to any of them, so each is of that one key (a renewed certificate beside the old). Needs `spDecryptionKeyRef`.
     """
     want_assertions_signed: Annotated[bool | None, Field(alias="wantAssertionsSigned")] = None
     """
@@ -8342,6 +8362,12 @@ class UpdateIdentityProviderBody(BaseModel):
     sp_signing_key_ref: Annotated[str | None, Field(alias="spSigningKeyRef", min_length=1)] = None
     sp_decryption_key_ref: Annotated[
         str | None, Field(alias="spDecryptionKeyRef", min_length=1)
+    ] = None
+    sp_signing_certificates: Annotated[
+        list[SpSigningCertificate] | None, Field(alias="spSigningCertificates")
+    ] = None
+    sp_decryption_certificates: Annotated[
+        list[SpDecryptionCertificate] | None, Field(alias="spDecryptionCertificates")
     ] = None
     want_assertions_signed: Annotated[bool | None, Field(alias="wantAssertionsSigned")] = None
     attribute_mapping: Annotated[AttributeMapping1 | None, Field(alias="attributeMapping")] = None

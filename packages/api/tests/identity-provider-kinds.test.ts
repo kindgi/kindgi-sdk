@@ -115,6 +115,9 @@ const SAML_METADATA = {
   spSigningKeyRef: 'ACME_SP_KEY',
 };
 
+const SP_CERT = '-----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----';
+const SP_CERT_NEXT = '-----BEGIN CERTIFICATE-----\nMIID\n-----END CERTIFICATE-----';
+
 describe('registering each kind', () => {
   test('oidc: issuer + client, domains lowercased, returned as stored', async () => {
     const { app, stored } = makeApp();
@@ -149,6 +152,22 @@ describe('registering each kind', () => {
       attributeMapping: { email: 'mail' },
     });
     expect(byParts.status).toBe(201);
+  });
+
+  test("saml: the service provider's certificates, beside their keys, kept and listed", async () => {
+    const { app, stored } = makeApp();
+    const certificates = {
+      spSigningCertificates: [SP_CERT, SP_CERT_NEXT],
+      spDecryptionKeyRef: 'ACME_SP_DECRYPTION_KEY',
+      spDecryptionCertificates: [SP_CERT],
+    };
+    expect((await register(app, { ...SAML_METADATA, ...certificates })).status).toBe(201);
+    expect(stored.get('acme-entra')).toMatchObject(certificates);
+    const list = await app.request('/v1/auth/providers', {
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    const body = (await list.json()) as { data: Array<Record<string, unknown>> };
+    expect(body.data[0]).toMatchObject({ spSigningKeyRef: 'ACME_SP_KEY', ...certificates });
   });
 
   test('the stored provider comes back with signIn when the deployment returns it', async () => {
@@ -188,6 +207,31 @@ describe('refusals', () => {
     ['oidc without issuer', { ...OIDC, issuer: undefined }, '`issuer`'],
     ['oidc with an issuer that is no URL', { ...OIDC, issuer: 'acme' }, 'absolute URL'],
     ['saml with no IdP details', { providerId: 'x', kind: 'saml' }, 'needs `idpMetadataXml`'],
+    [
+      'SP signing certificates without their key',
+      { ...SAML_METADATA, spSigningKeyRef: undefined, spSigningCertificates: [SP_CERT] },
+      '`spSigningCertificates` needs `spSigningKeyRef`',
+    ],
+    [
+      'SP decryption certificates without their key',
+      { ...SAML_METADATA, spDecryptionCertificates: [SP_CERT] },
+      '`spDecryptionCertificates` needs `spDecryptionKeyRef`',
+    ],
+    [
+      'a private key in an SP certificate',
+      {
+        ...SAML_METADATA,
+        spSigningCertificates: [
+          `${SP_CERT}\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----`,
+        ],
+      },
+      '`spSigningCertificates` holds a private key',
+    ],
+    [
+      'an SP certificate that is no string',
+      { ...SAML_METADATA, spSigningCertificates: [42] },
+      '`spSigningCertificates` must be an array of non-empty strings',
+    ],
     ['an unknown kind', { ...OIDC, kind: 'ldap' }, '`kind` must be'],
     [
       'join: domain without domains',
