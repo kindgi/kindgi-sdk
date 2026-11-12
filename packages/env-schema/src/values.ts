@@ -8,6 +8,8 @@
  * with the same message.
  */
 
+import { UUID_RE } from '@kindgi/types';
+
 /** The Ed25519 private key file that signs public run tokens. */
 export const PUBLIC_TOKEN_KEY_PATH_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH';
 
@@ -141,8 +143,6 @@ export function parsePackServiceToken(raw: string | undefined): string | undefin
 /** The workspace a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
 export const PACK_TENANT_ID_VAR = 'KINDGI_PACK_TENANT_ID';
 
-const TENANT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * The id no tenant has: a request the operator makes in no tenant carries
  * it (`SYSTEM_TENANT_ID` in `@kindgi/api`). No pack call does, so a pack
@@ -160,7 +160,7 @@ const NO_TENANT_ID = '00000000-0000-4000-8000-000000000000';
 export function parsePackTenantId(raw: string | undefined): string | undefined {
   const id = raw?.trim();
   if (id === undefined || id === '') return undefined;
-  if (!TENANT_UUID.test(id)) {
+  if (!UUID_RE.test(id)) {
     throw new Error(
       `${PACK_TENANT_ID_VAR} must be the workspace's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
     );

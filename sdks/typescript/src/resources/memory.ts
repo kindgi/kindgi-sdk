@@ -121,7 +121,8 @@ export interface FactsClient {
   /**
    * Write a fact. Server assigns the numeric `version`; retention
    * defaults to workspace policy when omitted. Returns the created
-   * `Fact`.
+   * `Fact`. A key or session limited to a project writes only in that
+   * project or one of its conversations, and changes no fact outside them.
    *
    * @wire `POST /v1/memory/facts` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1memory~1facts/post`.

@@ -66,6 +66,30 @@ export function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
 }
 
 /**
+ * Nothing for a caller not limited to a project; else the refusal, 403
+ * `permission-denied` and recorded, of a route that acts for the caller's
+ * person in every project at once (their sessions, their second factor),
+ * which a key or session limited to one project never reaches. `why`
+ * ends the message: "its person's sessions reach beyond it".
+ */
+export function personWideRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  action: Action,
+  resource: ResourceRef,
+  why: string,
+): Response | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined) return undefined;
+  return refused(c, authorizer, {
+    action,
+    resource,
+    message: `${limitedCaller(c)} is limited to project ${keyProject}: ${why}`,
+    failing: 'scope',
+  });
+}
+
+/**
  * A route's gate on `action` at the resource its getter names: the
  * authorizer's (`authorize`) with a store, else `holdLimitedCaller`. One
  * getter serves both, so both read the scope the same way.

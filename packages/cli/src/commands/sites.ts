@@ -23,7 +23,8 @@ type Settings = Parameters<SitesClient['update']>[2];
 const PROJECT_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
-    description: "The site's project, by id (default: the workspace's default project).",
+    description:
+      "The site's project, by id (default: the project stored with your key, else the workspace's default project).",
   },
 };
 

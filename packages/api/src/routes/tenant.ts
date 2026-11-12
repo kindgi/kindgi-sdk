@@ -17,7 +17,9 @@ import { gate } from '../middleware/key-project.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
+import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 import { readTenantPatch, renameAnswer } from './tenant-rename.js';
 
 /**
@@ -52,14 +54,20 @@ import { readTenantPatch, renameAnswer } from './tenant-rename.js';
  *                         binding; `env` and `config` both surface the
  *                         env binding. Secret
  *                         `value` is ALWAYS redacted here (the admin
- *                         surface never returns raw plaintext).
+ *                         surface never returns raw plaintext). A
+ *                         tenant admin's, as `/v1/env` and
+ *                         `/v1/secrets` reads are.
  *   - `PATCH /config`   — upsert one config entry. Body: `{ kind, key,
  *                         value, sensitive?, ifRevision? }`. Routes to
  *                         `SecretBinding.set` when `kind === 'secret'`
  *                         OR `sensitive === true`; else to
  *                         `EnvBinding.set`. Returns 200 with `{ entry }`
  *                         on ok, 409 `tenant-config-revision-conflict`
- *                         when `ifRevision` mismatches.
+ *                         when `ifRevision` mismatches. Asks the
+ *                         capability of the binding it writes, as
+ *                         `/v1/secrets` and `/v1/env` do: `secrets:write`
+ *                         for a secret, `env:write` for an env or config
+ *                         entry.
  *
  * Env dimension. The wire shape doesn't carry `envName`, but both
  * bindings require it. `env` and `secret` entries live under the env the
@@ -214,12 +222,18 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     '*',
     authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
   );
-  // Changing the config writes the tenant's secrets and env: `admin`
-  // on the tenant, as every tenant-wide write.
+  // The config holds the tenant's env values and secret names, and
+  // changing it writes them: `admin` on the tenant to read or change it,
+  // as `/v1/env` and `/v1/secrets` ask for the same values.
   const admin = authorize('admin', (c) => ref('tenant', c.get('tenantId') as unknown as string));
-  r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
-  // Renaming the tenant is a tenant-wide write too.
-  r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
+  r.use('/config', admin);
+  // Renaming the tenant is a tenant-wide write too: `admin` on the tenant
+  // with a store, a tenant admin without one.
+  if (authorizer === undefined) {
+    r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
+  }
+  const renameAccess = tenantResourceAccess(authorizer);
+  r.use('/', async (c, next) => (c.req.method === 'PATCH' ? renameAccess(c, next) : next()));
 
   // ---------- GET / ----------
   r.get('/', async (c) => {
@@ -478,6 +492,14 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     // secrets binding regardless of `kind`. `kind: 'secret'` always
     // routes to secrets.
     const wantsSecrets = kind === 'secret' || explicitSensitive === true;
+
+    // The capability of the binding written, with a store or without one,
+    // as `/v1/secrets` and `/v1/env` ask it. A secret key that exists
+    // takes a new version, which `/v1/secrets` also does under
+    // `secrets:write`. Asked before the binding is read, so a caller
+    // without it gets the same 403 whichever names exist.
+    const missing = capabilityRefusal(c, authorizer, wantsSecrets ? 'secrets:write' : 'env:write');
+    if (missing !== undefined) return missing;
 
     if (wantsSecrets) {
       if (secretsBinding === undefined) {

@@ -1052,7 +1052,7 @@ run "the_orchestrator_runs_once_a_minute_with_its_key" {
   assert {
     condition = (
       google_cloud_scheduler_job.orchestrator[0].schedule == "* * * * *" &&
-      google_cloud_scheduler_job.orchestrator[0].retry_config[0].retry_count == 0 &&
+      length(google_cloud_scheduler_job.orchestrator[0].retry_config) == 0 &&
       google_cloud_scheduler_job.orchestrator[0].http_target[0].http_method == "POST" &&
       google_cloud_scheduler_job.orchestrator[0].http_target[0].uri == "https://run.googleapis.com/v2/projects/acme-app-dev/locations/northamerica-northeast2/jobs/kindgi-dev-pack-orchestrator:run"
     )

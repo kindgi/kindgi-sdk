@@ -8,6 +8,7 @@ import type { TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { refused } from '../routes/denied.js';
+import { UUID_RE } from '../routes/uuid-param.js';
 import {
   FULL_SYSTEM_CAPABILITY,
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
@@ -494,8 +495,6 @@ export interface SystemTenantOptions {
   /** Records a refusal of the caller, as every refusal the API decides itself is. */
   readonly authorizer?: Authorizer;
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The one way a system route acts in a tenant the path names. It checks the

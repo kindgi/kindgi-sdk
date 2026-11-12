@@ -13,7 +13,11 @@ import { type UnpinnableRef, toolPinLookup } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
+import type {
+  FlowPublishOutcome,
+  FlowRegistryBinding,
+  FlowVersionRecord,
+} from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
 import {
   type ItemCheck,
@@ -34,6 +38,7 @@ import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   flowReferences,
+  heldVersionsGone,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
@@ -514,40 +519,7 @@ export function flowsRouter(
       enqueueTuples: (flowId) =>
         tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId }, creatorUserId),
     });
-    if (outcome.kind === 'already-registered') {
-      c.status(statusFor('flow-already-registered') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'flow-already-registered',
-            message: `Flow "${outcome.flowId as unknown as string}" version "${outcome.version}" is already registered`,
-            flowId: outcome.flowId as unknown as string,
-            version: outcome.version,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'project-mismatch') {
-      return projectMismatch(c, 'flow', outcome.flowId as unknown as string, outcome.projectId);
-    }
-    if (outcome.kind === 'project-not-found') {
-      // Caller supplied a `projectId` that does not resolve within
-      // this tenant. Distinct signal from `already-registered` so the
-      // client can prompt for a valid project rather than assume the
-      // version was already used. Answered as `400 bad-input`; the
-      // caller learns from the message which field was invalid.
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
-          },
-          requestId,
-        ),
-      );
-    }
+    if (outcome.kind !== 'ok') return publishRefusedResponse(c, requestId, flow, outcome);
     c.status(201);
     return c.json({
       flowId: outcome.flowId as unknown as string,
@@ -641,6 +613,58 @@ export function flowsRouter(
   }
 
   return r;
+}
+
+/** The answer to a `POST /v1/flows` its registry refused. */
+function publishRefusedResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  flow: Flow,
+  outcome: Exclude<FlowPublishOutcome, { readonly kind: 'ok' }>,
+): Response {
+  if (outcome.kind === 'already-registered') {
+    c.status(statusFor('flow-already-registered') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'flow-already-registered',
+          message: `Flow "${outcome.flowId as unknown as string}" version "${outcome.version}" is already registered`,
+          flowId: outcome.flowId as unknown as string,
+          version: outcome.version,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return projectMismatch(c, 'flow', outcome.flowId as unknown as string, outcome.projectId);
+  }
+  if (outcome.kind === 'held-version-gone') {
+    // A version it names or pins, removed since reach was asked: refused as
+    // reach refuses it, at the paths that name it.
+    const item = { kind: 'flow', id: flow.id, version: flow.version } as const;
+    return outOfScopeResponse(
+      c,
+      requestId,
+      heldVersionsGone(item, outcome.gone, flowReferences(flow)),
+    );
+  }
+  // Caller supplied a `projectId` that does not resolve within
+  // this tenant (`project-not-found`). Distinct signal from
+  // `already-registered` so the client can prompt for a valid project
+  // rather than assume the version was already used. Answered as
+  // `400 bad-input`; the caller learns from the message which field was
+  // invalid.
+  c.status(statusFor('bad-input') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'bad-input',
+        message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
+      },
+      requestId,
+    ),
+  );
 }
 
 /** What the pin routes ask of the flow registry (`pinned-versions.ts`). */

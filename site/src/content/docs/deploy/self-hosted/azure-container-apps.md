@@ -81,8 +81,8 @@ Who calls whom:
   write-only. Also the **Azure CLI**, **Docker** with `buildx`, **jq**, and
   your pack's `kindgi` CLI, 0.1.6 or later. The module needs the `azurerm`
   provider 5.9 or later, and its lock file pins it.
-- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
@@ -467,7 +467,7 @@ pack's key, then deploy:
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
-npx --yes @kindgi/cli@0.4 key trust acme-dev --label dev --url "$URL"
+npx --yes @kindgi/cli@0.6 key trust acme-dev --label dev --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -534,8 +534,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.4 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.4 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
+npx --yes @kindgi/cli@0.6 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.6 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.

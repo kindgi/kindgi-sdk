@@ -4,18 +4,14 @@
 import { basename, isAbsolute, resolve } from 'node:path';
 
 import { findKindgiConfig } from '@kindgi/handler-runtime';
+import { UUID_RE } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { envNamesByProject, envProjectRefs } from '../env-projects.js';
 import { UsageError } from '../errors.js';
 import { type Column, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
-import {
-  PROJECT_ID_RE,
-  type ProjectRef,
-  listAllProjects,
-  resolveProjectRefs,
-} from '../project-ref.js';
+import { type ProjectRef, listAllProjects, resolveProjectRefs } from '../project-ref.js';
 import { environmentsOf } from '../value-target.js';
 import { projectOfEnv } from './build.js';
 import { commandResultFromThrown, runSdk, stringFlag } from './helpers.js';
@@ -92,7 +88,7 @@ async function envNameLabels(ctx: CommandContext): Promise<Map<string, string>> 
     if (loaded.kind !== 'ok') return new Map();
     const named = envProjectRefs(environmentsOf(loaded.config));
     if (named.length === 0) return new Map();
-    const needsList = named.some((n) => !PROJECT_ID_RE.test(n.ref));
+    const needsList = named.some((n) => !UUID_RE.test(n.ref));
     return envNamesByProject(named, needsList ? await listAllProjects(ctx) : []);
   } catch {
     // Labels are a convenience; the order still prints without them.

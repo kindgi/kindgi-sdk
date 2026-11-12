@@ -6,6 +6,7 @@ import type { Flow } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, FlowId, PinScope, ProjectId, TenantId } from '@kindgi/types';
 
+import type { GoneVersion } from './agent-binding.js';
 import type { RegistryReadOnly } from './registry-read-only.js';
 
 /**
@@ -264,6 +265,20 @@ export type FlowPublishOutcome =
       readonly version: string;
       /** The project the flow belongs to. */
       readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * A version the new one holds (an agent version a step names, or a
+       * pinned agent or tool version) was removed while it was
+       * published: a registry that removes unregistered versions locks,
+       * in the publish's transaction, every version the new one holds,
+       * and found these gone. Nothing is written (the route answers
+       * `400 reference-out-of-scope`, at the paths that name each).
+       */
+      readonly kind: 'held-version-gone';
+      readonly flowId: FlowId;
+      readonly version: string;
+      readonly gone: readonly GoneVersion[];
     };
 
 export type FlowUnregisterOutcome = {

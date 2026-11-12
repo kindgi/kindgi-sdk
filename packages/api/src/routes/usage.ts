@@ -13,8 +13,7 @@ import { TENANT_USAGE_GROUP_KEYS, type UsageBinding } from '../usage.js';
 import { refused } from './denied.js';
 import { projectIdsCallerMay } from './readable-projects.js';
 import { CURSOR_UNREADABLE, parseUsageQuery, usageBadInput } from './usage-query.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * `GET /v1/usage`: the caller's tenant's usage, aggregated, over the

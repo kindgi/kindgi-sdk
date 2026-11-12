@@ -114,7 +114,10 @@ its environment, never its database URLs, keys or tokens.
 
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
-holder's grants and no more. A revoked key is refused from its next request.
+holder's grants and no more. A revoked key is refused from its next request,
+and so is every key made with it, and with those in turn: a key can't
+outlive the key that makes it. A key an older runtime made, which records
+none, stands alone ([API keys](../../deploy/people-and-keys/#api-keys)).
 [People, API keys and service accounts](../../deploy/people-and-keys/) shows
 how keys are made and revoked.
 
@@ -306,8 +309,8 @@ Amazon RDS and AlloyDB work. Create the `vector` extension once, as
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on
   settings meant for one machine (secrets from `.env` files, a console
-  login that hands out the API token) and needs no license key. Never set it
-  on a server others can reach.
+  login that hands out the API token). Never set it on a server others can
+  reach.
 - **Keep keys in your secrets store:** the API token, the license key
   (see [Licensing](../licensing/)), the public-token signing key, and the
   key that protects stored secrets.

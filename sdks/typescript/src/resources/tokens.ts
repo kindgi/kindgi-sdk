@@ -8,6 +8,7 @@ import type {
   MintPublicRunTokenBody,
   MintPublicRunTokenResult,
   MintTokenResult,
+  RevokeTokenResult,
 } from '../generated/api.js';
 
 import { type ListPage, listPage } from '../list-page.js';
@@ -49,12 +50,13 @@ export interface TokensClient {
    * list has every key (`filter.principal` for one principal's), anyone
    * else's their own. A key or session with limits lists only those within
    * them: limited to a project, the keys limited to that project; with the
-   * `member` role, the `member` keys. Never returns secrets.
+   * `member` role, the `member` keys. `filter.mintedWith` narrows it to what
+   * revoking that key would take with it. Never returns secrets.
    *
    * @wire `GET /v1/tokens` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens/get`.
    */
-  list(filter?: TokenFilter): Promise<ListPage<ApiToken>>;
+  list(filter?: TokenFilter): Promise<TokenPage>;
 
   /**
    * Read one API key. Never returns the secret. A key or session with
@@ -67,13 +69,15 @@ export interface TokensClient {
 
   /**
    * Revoke an API key: from the next request on, it gets
-   * `auth/unauthenticated`. A key or session with limits revokes only keys
-   * within them, as for `list`.
+   * `auth/unauthenticated`. Every key minted with it, and with those in
+   * turn, is revoked with it, whoever it acts for: `alsoRevoked` lists them.
+   * A key or session with limits revokes only keys within them, as for
+   * `list`.
    *
    * @wire `POST /v1/tokens/{tokenId}/revoke` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens~1{tokenId}~1revoke/post`.
    */
-  revoke(id: ApiTokenId, options?: { readonly idempotencyKey?: string }): Promise<void>;
+  revoke(id: ApiTokenId, options?: { readonly idempotencyKey?: string }): Promise<TokenRevoked>;
 
   /**
    * Mint a public run token: short-lived and read-only, for a browser to
@@ -99,6 +103,34 @@ export interface TokenFilter {
   readonly cursor?: Cursor;
   /** Tenant admins: only this principal's keys. */
   readonly principal?: ApiKeyPrincipal;
+  /**
+   * Only the keys minted with this key, and with those in turn, to any
+   * depth, revoked ones too. It narrows what the caller sees, never widens
+   * it. An older runtime ignores it and lists every key; its page has no
+   * `mintedWith`.
+   */
+  readonly mintedWith?: ApiTokenId;
+}
+
+/** A page of API keys, and the key it was narrowed to. */
+export interface TokenPage extends ListPage<ApiToken> {
+  /**
+   * On every page of a list asked for with `mintedWith`: it holds only the
+   * keys minted with that key. Absent from an older runtime, which ignores
+   * the filter.
+   */
+  readonly mintedWith?: ApiTokenId;
+}
+
+/** A revoked API key, and the keys revoked with it. */
+export interface TokenRevoked {
+  readonly id: ApiTokenId;
+  /**
+   * Every key minted with it, and with those in turn, that wasn't revoked
+   * yet, oldest first. Absent from a runtime whose key store doesn't record
+   * which key minted which.
+   */
+  readonly alsoRevoked?: readonly ApiTokenId[];
 }
 
 function fromWire(wire: ApiTokenWire): ApiToken {
@@ -116,6 +148,7 @@ function fromWire(wire: ApiTokenWire): ApiToken {
     ...(wire.lastUsedAt !== undefined && { lastUsedAt: wire.lastUsedAt as unknown as Timestamp }),
     ...(wire.expiresAt !== undefined && { expiresAt: wire.expiresAt as unknown as Timestamp }),
     ...(wire.revokedAt !== undefined && { revokedAt: wire.revokedAt as unknown as Timestamp }),
+    ...(wire.mintedWith !== undefined && { mintedWith: wire.mintedWith as unknown as ApiTokenId }),
   };
 }
 
@@ -151,9 +184,17 @@ export function makeTokensClient(transport: Transport): TokensClient {
           ...(filter?.principal !== undefined && {
             principal: `${filter.principal.kind}:${filter.principal.id}`,
           }),
+          ...(filter?.mintedWith !== undefined && {
+            mintedWith: filter.mintedWith as unknown as string,
+          }),
         },
       });
-      return listPage({ ...page, data: page.data.map(fromWire) });
+      return {
+        ...listPage({ ...page, data: page.data.map(fromWire) }),
+        ...(page.mintedWith !== undefined && {
+          mintedWith: page.mintedWith as unknown as ApiTokenId,
+        }),
+      };
     },
 
     async get(id) {
@@ -176,15 +217,20 @@ export function makeTokensClient(transport: Transport): TokensClient {
     },
 
     async revoke(id, options) {
-      await transport.request<{ readonly tokenId: string; readonly revoked: true }>({
+      const wire = await transport.request<RevokeTokenResult>({
         method: 'POST',
         path: `/v1/tokens/${encodeURIComponent(id as unknown as string)}/revoke`,
         body: {},
-        discardResponse: true,
         ...(options?.idempotencyKey !== undefined && {
           idempotencyKey: options.idempotencyKey,
         }),
       });
+      return {
+        id: wire.tokenId as unknown as ApiTokenId,
+        ...(wire.alsoRevoked !== undefined && {
+          alsoRevoked: wire.alsoRevoked.map((also) => also as unknown as ApiTokenId),
+        }),
+      };
     },
   };
 }

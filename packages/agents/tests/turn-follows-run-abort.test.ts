@@ -5,12 +5,20 @@
  * A turn stops when its run is stopped. The runtime aborts a node's
  * `abortSignal` when the run ends from outside (a cancel, a shutdown), and
  * the turn's own work listens to the turn's abort: each handler links the
- * two as it starts, so a model call in flight stops at once.
+ * two as it starts, so a model call in flight stops at once, and unlinks
+ * them as it settles, so a long turn leaves no listener behind.
  */
+
+import { getEventListeners } from 'node:events';
 
 import { describe, expect, test } from 'vitest';
 
-import type { ModelInfo, ModelProvider, ProviderMetadata } from '@kindgi/capabilities';
+import type {
+  ModelCallResult,
+  ModelInfo,
+  ModelProvider,
+  ProviderMetadata,
+} from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import type { NodeId, ProjectId, RunId, TenantId } from '@kindgi/types';
 
@@ -125,6 +133,53 @@ describe("a turn follows its run's abort", () => {
     run.abort();
     await Promise.resolve(modelCall(ctx)({ nextMessages: [] }, kctx)).catch((e) => e);
     expect(ctx.abortReason).toBe('timeout');
+  });
+
+  test('each step unlinks as it settles: 12 steps on one run leave no listener and no warning', async () => {
+    const answer: ModelCallResult = {
+      message: { role: 'assistant', content: 'done' },
+      finishReason: 'stop',
+      usage: { promptTokens: 10, completionTokens: 2 },
+      costUsd: 0,
+      durationMs: 5,
+      provider: { id: 'acme-model', model: 'acme-1' },
+    };
+    const warnings: string[] = [];
+    const onWarning = (warning: Error): void => {
+      warnings.push(warning.name);
+    };
+    process.on('warning', onWarning);
+    try {
+      const run = new AbortController();
+      const kctx = testNodeContext({
+        runId: 'run-1' as RunId,
+        dryRun: false,
+        abortSignal: run.signal,
+      } as Partial<NodeContext> & { runId: RunId });
+      const { ctx: slow } = turnWithSlowModel();
+      const answers = { ...slow, provider: { ...slow.provider, invoke: async () => answer } };
+      const fails = {
+        ...slow,
+        provider: { ...slow.provider, invoke: () => Promise.reject(new Error('529 overloaded')) },
+      };
+      for (const ctx of [answers, fails] as TurnContext[]) {
+        const handler = modelCall(ctx);
+        for (let i = 0; i < 12; i += 1) {
+          await Promise.resolve(handler({ nextMessages: [] }, kctx)).catch((e: unknown) => e);
+          expect(getEventListeners(run.signal, 'abort')).toHaveLength(0);
+        }
+      }
+      // The steps answered and failed as their models did, the turn unstopped.
+      await expect(
+        modelCall(answers as TurnContext)({ nextMessages: [] }, kctx),
+      ).resolves.toBeDefined();
+      await expect(modelCall(fails as TurnContext)({ nextMessages: [] }, kctx)).rejects.toThrow();
+      expect(slow.turnAbort.signal.aborted).toBe(false);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(warnings).not.toContain('MaxListenersExceededWarning');
+    } finally {
+      process.off('warning', onWarning);
+    }
   });
 });
 

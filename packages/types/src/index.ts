@@ -16,10 +16,11 @@ export type * from './temporal.js';
 export type * from './version.js';
 export type * from './webhook.js';
 
-// Runtime factories on branded IDs (validated construction). Kept as a
-// separate value re-export so the `export type *` barrels above stay
-// pure-type — value exports live only where explicitly listed.
-export { makeEnvName } from './ids.js';
+// Runtime factories on branded IDs (validated construction), and the one
+// check of a UUID id's shape. Kept as a separate value re-export so the
+// `export type *` barrels above stay pure-type — value exports live only
+// where explicitly listed.
+export { makeEnvName, UUID_RE } from './ids.js';
 
 // Whether fetch can send a value in a header: a secret is checked by its
 // header's name before fetch, whose own error would quote it.

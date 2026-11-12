@@ -195,21 +195,31 @@ Which to use depends on how OpenFGA reaches the server, as for the runtime:
   `x509: cannot validate certificate for … because it doesn't contain any IP
   SANs`.
 
-By an IP address, mount the CA file into OpenFGA's container and name it in
-the URI, for `migrate` and for `run`:
+By an IP address, mount the CA file into OpenFGA's container, and name it in
+the URI. If you have no `openfga.env` yet, write it first as
+[An OpenFGA you already run](../../authorization/#an-openfga-you-already-run)
+says. In `openfga.env`, change `OPENFGA_DATASTORE_URI` to the line below,
+and leave the file's other lines as they are: if you made OpenFGA require a
+key, they carry it.
 
 ```sh
-docker run --rm --network kindgi \
+OPENFGA_DATASTORE_URI=postgres://kindgi:<DB_PASSWORD>@10.20.0.3:5432/openfga?sslmode=verify-ca&sslrootcert=/etc/openfga/database-ca.pem
+```
+
+Then, for `migrate` and for `run`:
+
+```sh
+docker run --rm --network kindgi --env-file openfga.env \
   -v "$PWD/database-ca.pem:/etc/openfga/database-ca.pem:ro" \
   openfga/openfga:v1.22.0 migrate \
-  --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@10.20.0.3:5432/openfga?sslmode=verify-ca&sslrootcert=/etc/openfga/database-ca.pem"
+  --datastore-engine postgres
 
+docker stop kindgi-openfga && docker rm kindgi-openfga
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  --env-file openfga.env \
   -v "$PWD/database-ca.pem:/etc/openfga/database-ca.pem:ro" \
   openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@10.20.0.3:5432/openfga?sslmode=verify-ca&sslrootcert=/etc/openfga/database-ca.pem" \
   --playground-enabled=false
 ```
 

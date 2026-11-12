@@ -8,6 +8,7 @@ export type { PackServiceConfig, RunningPackService } from './main.js';
 export { createPackServiceSupervisor } from './supervisor.js';
 export type {
   BootFailure,
+  PackIdentity,
   PackRelay,
   PackRelayCall,
   PackRelayOutcome,
