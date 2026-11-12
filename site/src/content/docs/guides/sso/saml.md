@@ -101,7 +101,7 @@ name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=prod --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
 - `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
@@ -110,8 +110,11 @@ npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=production --s
 - `-keyout` and `-out` name the key's file and the certificate's file.
 - `-days 730` makes the certificate last two years.
 - `-subj` sets the certificate's name. Use your own domain in it.
-- `--env` is the runtime's environment, its `KINDGI_ENV`, and
-  `--scope=tenant` stores the key for the whole workspace.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
+- `--scope=tenant` stores the key for the whole workspace.
 - `--from-stdin` makes `set` read the key from its input, instead of asking
   for it. `< acme-sp-key.pem` gives it the key file as that input.
 
@@ -127,11 +130,11 @@ it stored:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_SAML_SIGNING_KEY at tenant in production.
+  Set ACME_SAML_SIGNING_KEY at tenant in prod.
 ```
 
 Then run `finish` again with the key's name and its certificate:

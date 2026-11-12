@@ -1358,7 +1358,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: 'Scaffold it for a cloud secret manager, writing to a chosen file.',
-      line: 'kindgi env init --secrets-backend=secret-manager --secrets-manager=gcp --out=.env.production.example',
+      line: 'kindgi env init --secrets-backend=secret-manager --secrets-manager=gcp --out=.env.prod.example',
     },
   ],
   'environments list': [
@@ -1413,37 +1413,37 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: 'Page through the secrets whose names start with ACME_.',
-      line: 'kindgi secrets list --env=production --scope=tenant --name-prefix=ACME_ --limit=10',
+      line: 'kindgi secrets list --env=prod --scope=tenant --name-prefix=ACME_ --limit=10',
     },
     {
       purpose: 'List revoked secrets too, with when and why each was revoked.',
-      line: 'kindgi secrets list --env=production --scope=tenant --include-revoked',
+      line: 'kindgi secrets list --env=prod --scope=tenant --include-revoked',
     },
   ],
   'secrets rotate': [
     {
       purpose: 'Rotate a secret, entering the new value at a prompt.',
-      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=production --scope=tenant --new-value',
+      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=prod --scope=tenant --new-value',
     },
     {
       purpose: 'Rotate from stdin and revoke the old version after an hour.',
-      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=production --scope=tenant --from-stdin --revoke-old-after=3600000',
+      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=prod --scope=tenant --from-stdin --revoke-old-after=3600000',
     },
   ],
   'secrets revoke': [
     {
       purpose: 'Revoke a secret, keeping an audit tombstone.',
-      line: 'kindgi secrets revoke ACME_WEBHOOK_SECRET --env=production --scope=tenant --reason="rotated after a leak"',
+      line: 'kindgi secrets revoke ACME_WEBHOOK_SECRET --env=prod --scope=tenant --reason="rotated after a leak"',
     },
     {
       purpose: "Erase a secret's value for good.",
-      line: 'kindgi secrets revoke ACME_OLD_KEY --env=production --scope=tenant --hard',
+      line: 'kindgi secrets revoke ACME_OLD_KEY --env=prod --scope=tenant --hard',
     },
   ],
   'secrets pull': [
     {
-      purpose: "Write the workspace's secret metadata to .secrets/production/manifest.json.",
-      line: 'kindgi secrets pull --env=production --scope=tenant',
+      purpose: "Write the workspace's secret metadata to .secrets/prod/manifest.json.",
+      line: 'kindgi secrets pull --env=prod --scope=tenant',
     },
     {
       purpose: 'Write the manifest under another pack directory.',
@@ -2549,20 +2549,20 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
-      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET',
+      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=prod/ACME_GOOGLE_CONNECT_SECRET',
     },
     {
       purpose:
         "Register the company's Microsoft Entra app, a single-tenant one, at its own directory.",
-      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
+      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=prod/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
     },
     {
       purpose: "Register the company's GitHub App.",
-      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
+      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=prod/ACME_GITHUB_CLIENT_SECRET --private-key-ref=prod/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=prod/ACME_GITHUB_WEBHOOK_SECRET',
     },
     {
       purpose: "Register the company's LinkedIn app.",
-      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
+      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=prod/ACME_LINKEDIN_CONNECT_SECRET',
     },
   ],
   'connection-apps remove': [
@@ -2798,8 +2798,11 @@ export const CLI_GROUP_SEE_ALSO = {
   'connection-choices': ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
-  environments: ['guides/projects/organize-by-org-and-project'],
-  promote: ['guides/projects/organize-by-org-and-project'],
+  environments: [
+    'guides/projects/organize-by-org-and-project',
+    'concepts/local-staging-production',
+  ],
+  promote: ['guides/projects/organize-by-org-and-project', 'concepts/local-staging-production'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],

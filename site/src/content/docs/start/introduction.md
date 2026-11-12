@@ -88,3 +88,5 @@ Source License 1.1.
   [Python](../quickstart-python/), [Java](../quickstart-java/) or
   [Scala](../quickstart-scala/) one: a first pack, running in ten minutes.
 - [Add Kindgi to an existing app](../existing-app/).
+- [Local, staging and production](../../concepts/local-staging-production/):
+  which to use when, and how a project moves from your machine to production.

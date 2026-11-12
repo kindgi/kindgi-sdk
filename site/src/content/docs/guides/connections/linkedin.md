@@ -74,12 +74,15 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.6 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_LINKEDIN_CONNECT_SECRET` is the secret's name. The registration
   keeps only this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
@@ -91,7 +94,7 @@ In the console, open your workspace's **App registrations** page, choose
 
 - **Client id:** the Client ID.
 - **Client secret: its name in Kindgi's secrets:** the environment and name
-  you stored it under, `production/ACME_LINKEDIN_CONNECT_SECRET`.
+  you stored it under, `prod/ACME_LINKEDIN_CONNECT_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows the **Redirect URI** you entered in
@@ -100,7 +103,7 @@ step 1.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET
+npx --yes @kindgi/cli@0.6 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=prod/ACME_LINKEDIN_CONNECT_SECRET
 ```
 
 The command prints the registration as JSON: its `redirectUrl` is the
@@ -167,7 +170,7 @@ To change the client secret, for example when someone who knew it leaves:
 2. **Store the new one as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.6 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.6 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=prod --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next

@@ -14,6 +14,8 @@ Your agents run in one of two places:
   data, and operate it there.
 
 Either way, you build and test the pack on your machine with `kindgi dev`.
+[Local, staging and production](../concepts/local-staging-production/) says
+which to use when, and what moves when a project goes from one to the next.
 
 ## Kindgi Cloud
 
@@ -28,8 +30,9 @@ We run it for you. In private preview.
 ## Self-hosted
 
 Kindgi is self-host first: the runtime you run on your machine with
-`kindgi dev` is the same image you deploy. Your pack's code runs beside it,
-in a pack service built from your app.
+`kindgi dev` is the same image you deploy, run in development mode: with no
+authorization or schedules. Your pack's code runs beside it, in a pack
+service built from your app.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your

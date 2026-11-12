@@ -149,6 +149,9 @@ terraform apply -var-file=dev.tfvars \
 
 - `dev.tfvars` holds this deployment's variables. `example.tfvars` lists
   them.
+- `kindgi_env` is the env the runtime serves: set it to `staging`, as
+  here. The secrets your tools declare resolve under it
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `-backend-config` tells `init` where the state goes: the storage account
   and container you made, and `<this deployment>.tfstate`, its own key.
   `use_azuread_auth=true` reads it as you, with no storage key.
@@ -223,13 +226,13 @@ most of an hour.
 Then build and push your pack's image, signed:
 
 ```sh
-pnpm exec kindgi build --local --push --env dev
+pnpm exec kindgi build --local --push --env staging
 ```
 
 - `--local` builds the image on your machine.
-- `--push` pushes it to the `registry` of your pack's `dev` environment
+- `--push` pushes it to the `registry` of your pack's `staging` environment
   block, here the module's.
-- `--env dev` names that environment block.
+- `--env staging` names that environment block.
 
 It prints the build as JSON, then each step. The last steps:
 
@@ -245,7 +248,7 @@ It prints the build as JSON, then each step. The last steps:
       key: acme-dev
 
   Deploy envelope written to …/.kindgi/build/deploy-envelope.json
-  Run `kindgi deploy --env=dev` to POST it.
+  Run `kindgi deploy --env=staging` to POST it.
 ```
 
 Set `server_image` and `pack_image` in `dev.tfvars` to the two images by
@@ -340,12 +343,12 @@ See [Export signed evidence](../../../guides/observability/export-signed-evidenc
 **The database login** is the server's admin, a member of `azure_pg_admin`
 with `CREATEROLE`, which is what the runtime needs.
 
-**Your pack's own secrets:** `kindgi env plan --env dev` lists what your pack
+**Your pack's own secrets:** `kindgi env plan --env staging` lists what your pack
 needs. Create each one in the same vault with `put`. The module passes them
 to the pack's service, which gets read access to exactly those:
 
 ```sh
-pnpm exec kindgi env plan --env dev > pack-env.json
+pnpm exec kindgi env plan --env staging > pack-env.json
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
@@ -401,7 +404,7 @@ Then the lines name the license and the pack's service it reached:
 
 ```text
   License: … · non-production · until 2026-11-20
-  Env: dev (tool secrets resolve in it)
+  Env: staging (tool secrets resolve in it)
   …
   Pack service: https://acme-pack.internal.… — acme (artifact 20261008.211554), protocol 2, 3 tools, 1 check
 ```
@@ -491,10 +494,10 @@ It prints the key the runtime now trusts, then says so:
 - `--url` is the runtime's address. The commands send the API token from
   the vault, exported as `KINDGI_API_TOKEN`, which keeps it off the command
   line. `kindgi deploy` takes the address as `--endpoint`.
-- `--env dev` deploys the pack's `dev` environment block.
+- `--env staging` deploys the pack's `staging` environment block.
 
 ```sh
-pnpm exec kindgi deploy --env dev --endpoint "$URL"
+pnpm exec kindgi deploy --env staging --endpoint "$URL"
 ```
 
 It prints the deployment as JSON, then each step. The last steps:

@@ -81,12 +81,15 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_GOOGLE_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.6 secrets set ACME_GOOGLE_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_GOOGLE_CONNECT_SECRET` is the secret's name. The registration keeps
   only this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
@@ -98,7 +101,7 @@ In the console, open your workspace's **App registrations** page, choose
 
 - **Client id:** the one Google gave you.
 - **Client secret: its name in Kindgi's secrets:** the environment and name
-  you stored it under, `production/ACME_GOOGLE_CONNECT_SECRET`.
+  you stored it under, `prod/ACME_GOOGLE_CONNECT_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows what to give Google: the
@@ -108,7 +111,7 @@ Then choose **Register**. Kindgi shows what to give Google: the
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET
+npx --yes @kindgi/cli@0.6 connection-apps add google --client-id=<client-id> --client-secret-ref=prod/ACME_GOOGLE_CONNECT_SECRET
 ```
 
 The command prints the registration as JSON: its `redirectUrl` is the

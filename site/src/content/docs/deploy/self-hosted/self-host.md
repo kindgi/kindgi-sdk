@@ -136,24 +136,24 @@ one way only: with the API token as the bearer of your CLI or API calls, or
 through the console and API keys, not both. A runtime that already runs with
 an upper-case id keeps it as it is.
 
-Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
-also prints the lines to add to the `selfhost` environment:
+Create a signing key. `acme-selfhost` is the key's id, and `--env prod`
+also prints the lines to add to the `prod` environment:
 
 ```sh
-npx --yes @kindgi/cli@0.6 key create acme-selfhost --env selfhost
+npx --yes @kindgi/cli@0.6 key create acme-selfhost --env prod
 ```
 
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
 [Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
-output in full for a second key, with the key lines the `selfhost` block has
+output in full for a second key, with the key lines the `prod` block has
 by then.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 
 ```ts excerpt
 environments: {
-  selfhost: {
+  prod: {
     endpoint: 'http://localhost:4000',
     registry: 'registry.localhost:5050',
     tenantId: '<your tenant id>',
@@ -172,7 +172,7 @@ environments: {
 In a Python pack, the same keys go in `pyproject.toml`:
 
 ```toml excerpt
-[tool.kindgi.environments.selfhost]
+[tool.kindgi.environments.prod]
 endpoint = "http://localhost:4000"
 registry = "registry.localhost:5050"
 tenantId = "<your tenant id>"
@@ -182,10 +182,10 @@ signerKeyId = "acme-selfhost"
 
 Build the image with your own Docker, push it, and sign it. `--local` builds
 with your Docker, `--push` pushes to the environment's registry, and
-`--env selfhost` picks the environment:
+`--env prod` picks the environment:
 
 ```sh
-pnpm exec kindgi build --local --push --env selfhost
+pnpm exec kindgi build --local --push --env prod
 ```
 
 ```text
@@ -260,7 +260,7 @@ Put the runtime's settings in `kindgi.env`:
 KINDGI_DATABASE_URL=postgres://kindgi:<DB_PASSWORD>@kindgi-db:5432/kindgi
 KINDGI_TENANT_ID=<your tenant id>
 KINDGI_API_TOKEN=<the token>
-KINDGI_ENV=production
+KINDGI_ENV=prod
 KINDGI_PACK_SERVICE_URL=http://kindgi-pack:8080
 KINDGI_PACK_SERVICE_TOKEN=<the same token as in pack.env>
 KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS=registry.localhost:5050
@@ -288,7 +288,12 @@ Every setting is in the [environment variable reference](../../../reference/env-
 - **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes. `sslmode=require` in it encrypts the connection but takes any certificate: [Check the database's certificate](../database-tls/) shows how the runtime checks that the server it reached is your database.
   - **Through PgBouncer:** on runtime 0.1.9 or later, the runtime sends its [database timeouts](../../../reference/env-vars/#kindgi_db_statement_timeout_ms) as startup parameters. A PgBouncer on its default settings refuses them, so the runtime can't connect (`unsupported startup parameter: statement_timeout`). On PgBouncer 1.26.0 or later, have it pass them on with `track_extra_parameters = statement_timeout, lock_timeout, idle_in_transaction_session_timeout` ([PgBouncer's settings](https://www.pgbouncer.org/config.html#track_extra_parameters)). Earlier versions mishandle a tracked parameter that Postgres doesn't report, as it doesn't these three, when a client sends it at startup (fixed in 1.26.0, [PgBouncer's changelog](https://www.pgbouncer.org/changelog.html)). `ignore_startup_parameters` with the same names lets the runtime connect, but PgBouncer drops them, and your role's, database's or server's settings hold instead. The runtime's admin commands (`kindgi-runtime tenants …` and `kindgi-runtime check …`) send theirs the same way, with no statement timeout, and don't read back what's in effect. So behind a PgBouncer that drops them, a long purge or check runs under those settings, and can be ended by them.
   - **The runtime checks at boot:** its startup line shows the timeouts Postgres has in effect, and it logs a warning for each one that differs from what it sent.
-- **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
+- **`KINDGI_ENV`** names the env your tools' secrets and env values resolve
+  in. The runtime reads it only as a name, so any lowercase name works (a
+  lowercase letter, then lowercase letters, digits or hyphens, at most 63),
+  as long as you set your values under the same name. Any other name stops
+  the runtime at start. These pages use `prod`, the env Kindgi Cloud serves
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT`, then 4000. Cloud Run, Render, Heroku and Fly set `PORT`. [`KINDGI_API_PORT`](../../../reference/env-vars/#kindgi_api_port) has the whole order.
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
 - **`KINDGI_LOG_FORMAT=pretty`** makes `docker logs` readable by eye. Without it, a container logs JSON, one record per line, for a log platform to index, as [Logs](../logs/) describes.
@@ -347,7 +352,7 @@ Kindgi API server listening on http://localhost:4000 (local to this host or cont
   …
   License: …
   …
-  Env: production (tool secrets resolve in it)
+  Env: prod (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; tenant-chosen hosts can't reach the metadata server or this host; KINDGI_TENANT_HOST_ACCESS)
   Pack service: http://…:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
@@ -361,8 +366,8 @@ KINDGI_LICENSE_KEY is not set. Every Kindgi runtime needs a license key, in deve
 A key within 30 days of expiry adds a warning under the license line:
 
 ```text
-  License: Docs example · non-production · until 2026-11-02
-  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+  License: Docs example · non-production · until <date>
+  ⚠ The license key expires in 29 days (<date>). Renew it: contact@kindgi.com.
 ```
 
 **Behind a proxy or a load balancer,** or on a published port other than the one it binds, set `KINDGI_PUBLIC_URL` in `kindgi.env` to the address clients use. The first line then names both. The banner's links use the public address: `Docs`, and `Console` when it serves the console:
@@ -441,10 +446,10 @@ It prints the trusted key as JSON, then confirms it:
 The fingerprint is the one `kindgi key create` printed. The runtime now
 accepts deploys this key signs.
 
-Then deploy. `--env selfhost` picks the environment:
+Then deploy. `--env prod` picks the environment:
 
 ```sh
-pnpm exec kindgi deploy --env selfhost
+pnpm exec kindgi deploy --env prod
 ```
 
 ```text
@@ -529,3 +534,6 @@ it runs.
 - [Turn on sign-in](../sign-in/), for the console in a real deployment.
 - [Let people use Kindgi from Claude](../chat-apps/): turn on the chat
   endpoint, and open only what Claude's servers call.
+- [Local, staging and production](../../../concepts/local-staging-production/):
+  one runtime or two for staging, and what moves when a project goes to
+  production.
