@@ -331,9 +331,9 @@ shows the error that caused it and the wait before the next attempt:
 
 When the last attempt fails, the step fails and so does the run, with the last
 error. A step [left for the run's next resume](#a-step-whose-read-failed)
-uses one of its attempts too. A step whose tool failed the call on purpose
-(`tool-failed`) fails at once, with no retry: the same call gives the same
-answer ([Fail a call on purpose](../../tools/write-a-tool/#fail-a-call-on-purpose)).
+uses one of its attempts too. A tool step whose tool failed the call on
+purpose (`tool-failed`) fails at once, with no retry: the same call gives the
+same answer ([Fail a call on purpose](../../tools/write-a-tool/#fail-a-call-on-purpose)).
 
 `policy.timeoutMs` limits each attempt. An attempt that takes longer is
 stopped and counts as a failed attempt. Without retries, the step fails with

@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.6"
+version: "0.5.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -107,7 +107,7 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc — every field on `DefineToolSpec` / `ToolManifest`
   documents purpose, when to set it, and gotchas.
-- API reference: https://docs.kindgi.com/v0.4/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.5/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: check the `sample` template (`kindgi init
   --template=sample`) for working examples of both authoring modes.
 

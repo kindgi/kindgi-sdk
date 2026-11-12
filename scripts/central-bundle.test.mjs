@@ -316,6 +316,30 @@ describe('the Release workflow', () => {
     );
   });
 
+  test('every job that sets up Node sets up pnpm first, or turns the package-manager cache off', () => {
+    // setup-node turns its package-manager cache on when package.json names a package
+    // manager, and that cache looks for pnpm: a job that never sets it up fails there.
+    const names = [...workflow.matchAll(/\n {2}([a-z][\w-]*):\n/g)].map((m) => m[1]);
+    const nodeJobs = names.filter((name) => /\buses: actions\/setup-node@/.test(job(name)));
+    assert.ok(
+      nodeJobs.includes('maven-on-central') && nodeJobs.includes('github-release'),
+      `the jobs that set up Node: ${nodeJobs.join(', ')}`,
+    );
+    for (const name of nodeJobs) {
+      const steps = job(name).split(/\n {6}- /);
+      steps.forEach((step, i) => {
+        if (!/(^|\n {8})uses: actions\/setup-node@/.test(step)) return;
+        const pnpmFirst = steps
+          .slice(0, i)
+          .some((before) => /(^|\n {8})uses: pnpm\/action-setup@/.test(before));
+        assert.ok(
+          pnpmFirst || /\n {10}package-manager-cache: false(\n|$)/.test(step),
+          `${name} sets up Node with the package-manager cache, and no pnpm before it`,
+        );
+      });
+    }
+  });
+
   test('Maven Central gets the checked, signature-verified bundle', () => {
     const maven = job('publish-maven');
     const order = [

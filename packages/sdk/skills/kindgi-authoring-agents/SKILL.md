@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.14"
+version: "0.4.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -234,7 +234,7 @@ export default defined.value;
   reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
   retrieved, verified fact of those types into an instruction
   ("Policies (verified)"). "Give an agent memory" has the rest:
-  https://docs.kindgi.com/v0.4/guides/agents/give-an-agent-memory/
+  https://docs.kindgi.com/v0.5/guides/agents/give-an-agent-memory/
 
 ## What a turn receives
 
@@ -331,7 +331,7 @@ fix: a setting or wording as a suggested change, a rule in code.
 
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc.
-- API reference: https://docs.kindgi.com/v0.4/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.5/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: the `sample` template's `agents/echo-agent`
   demonstrates the smallest tool-calling shape.
 

@@ -8,6 +8,20 @@
  * holds.
  */
 
+/**
+ * How a build may reach a project in production. `'promote-only'`: only by
+ * promotion from a project before it in its environment order, never by a
+ * deploy. Absent: either way.
+ */
+export type ProductionEntry = 'promote-only';
+
+/**
+ * A signing key whose id starts with this signs only `'promote-only'`
+ * builds, whatever its envelopes say: a deploy into a project in
+ * production refuses them, as it refuses a key with the same public key.
+ */
+export const PROMOTE_ONLY_KEY_PREFIX = 'kindgi-promote-only:';
+
 /** A `sha256` digest as the envelope holds it: lower case, with its `sha256:` prefix. */
 export function normaliseSha256Hex(raw: string): string {
   const lower = raw.toLowerCase();
@@ -20,6 +34,8 @@ export interface EnvelopeFields {
   readonly indexHash: string;
   readonly tenantId: string;
   readonly publishedAt: string;
+  /** Signed only when present, so an envelope without it signs as before. */
+  readonly productionEntry?: ProductionEntry;
 }
 
 /**
@@ -32,6 +48,7 @@ export function canonicalizeEnvelope(fields: EnvelopeFields): Uint8Array {
     artifactVersion: fields.artifactVersion,
     imageDigest: normaliseSha256Hex(fields.imageDigest),
     indexHash: normaliseSha256Hex(fields.indexHash),
+    ...(fields.productionEntry !== undefined && { productionEntry: fields.productionEntry }),
     publishedAt: fields.publishedAt,
     tenantId: fields.tenantId,
   };

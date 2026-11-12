@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.13"
+version: "0.1.14"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -212,7 +212,7 @@ brief_writer = Agent(
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
   instruction. "Give an agent memory" has the rest:
-  https://docs.kindgi.com/v0.4/guides/agents/give-an-agent-memory/
+  https://docs.kindgi.com/v0.5/guides/agents/give-an-agent-memory/
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not

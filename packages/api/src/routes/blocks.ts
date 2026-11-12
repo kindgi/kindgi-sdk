@@ -19,6 +19,7 @@ import type { Logger } from '@kindgi/log';
 import { highestVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import { aFewAtOnce } from '../a-few-at-once.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
 import type {
   BlockPublishOutcome,
@@ -282,7 +283,9 @@ export function blocksRouter(
   // a project, or a segment pin inside one, whose running version pins the
   // block, with the block version it pins. An agent version the caller
   // can't see is left out (`seenVersions`). Each row says whether the
-  // pack's files have that version (`withInYourFiles`).
+  // pack's files have that version (`withInYourFiles`). The agents are
+  // read a few at a time (`RUNS_IN_AGENTS_AT_ONCE`), their rows in the
+  // order they pin the block.
   /** The projects an agent runs in that the caller reads, as `GET /v1/agents/:agentId/projects` lists them. */
   async function agentProjectsRead(
     c: Context<AppEnv>,
@@ -323,20 +326,22 @@ export function blocksRouter(
       );
     }
     const pinning = pinningVersions(await blockUse.pinningBlock({ tenantId, blockId }));
-    const data: BlockRunsInRow[] = [];
-    for (const [id, versions] of pinning) {
-      const named = await agentProjectsRead(c, runsIn, id);
-      if (named.length === 0) continue;
-      const [rows, visible] = await Promise.all([
-        whatRunsByProject(runsIn.agentPins, { tenantId, agentId: id as AgentId }, named),
-        seenVersions(itemRights, c, id, [...versions.keys()]),
-      ]);
-      data.push(
-        ...agentRunsInRows(id, rows, (version) =>
+    const agents = await aFewAtOnce(
+      [...pinning],
+      RUNS_IN_AGENTS_AT_ONCE,
+      async ([id, versions]): Promise<BlockRunsInRow[]> => {
+        const named = await agentProjectsRead(c, runsIn, id);
+        if (named.length === 0) return [];
+        const [rows, visible] = await Promise.all([
+          whatRunsByProject(runsIn.agentPins, { tenantId, agentId: id as AgentId }, named),
+          seenVersions(itemRights, c, id, [...versions.keys()]),
+        ]);
+        return agentRunsInRows(id, rows, (version) =>
           visible.has(version) ? versions.get(version) : undefined,
-        ),
-      );
-    }
+        );
+      },
+    );
+    const data = agents.flat();
     return c.json({ data: await withInYourFiles(runsIn, tenantId, blockId, data, c.get('log')) });
   });
 
@@ -619,6 +624,13 @@ interface BlockRunsInRow {
     readonly pr?: BlockVersionPullRequest;
   };
 }
+
+/**
+ * How many of a block's pinning agents runs-in reads at once. An agent's
+ * read has up to three reads in flight at its widest (its pins, its Latest
+ * and its versions' projects), so this is about a dozen at most.
+ */
+const RUNS_IN_AGENTS_AT_ONCE = 4;
 
 /** Each agent's versions that pin the block, and the block version each pins. */
 function pinningVersions(

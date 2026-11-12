@@ -18,6 +18,7 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, pinChangeRefusal, pinWidthRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { beforeHandler } from '../middleware/error-mapper.js';
 import type {
   PinnedVersion,
   PinnedVersionBinding,
@@ -91,14 +92,19 @@ export function pinRightsMiddleware(
   deps: PinnedRouteDeps,
 ): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (deps.authorizer === undefined || !isPinWrite(c.req.method, c.req.path)) return next();
-    const refused = await pinChangeRefusal(c, {
-      authorizer: deps.authorizer,
-      rights: deps.itemRights,
-      kind,
-      itemId: c.req.param(param) ?? '',
-      scope: await bodyPinScope(c),
-    });
+    const authorizer = deps.authorizer;
+    if (authorizer === undefined || !isPinWrite(c.req.method, c.req.path)) return next();
+    // Before the handler, so a store that couldn't be reached, or a database
+    // too busy to read, answers 503 on any method (`beforeHandler`).
+    const refused = await beforeHandler(c, async () =>
+      pinChangeRefusal(c, {
+        authorizer,
+        rights: deps.itemRights,
+        kind,
+        itemId: c.req.param(param) ?? '',
+        scope: await bodyPinScope(c),
+      }),
+    );
     return refused ?? next();
   };
 }

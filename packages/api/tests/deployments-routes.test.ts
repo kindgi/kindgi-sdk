@@ -29,6 +29,7 @@ import type {
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
+import { PROMOTE_ONLY_KEY_PREFIX } from '../src/deployment-envelope.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
@@ -2289,6 +2290,89 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
+  /** An index of one tool and one flow of two of its steps, `a` then `b`, joined by `edges`. */
+  function stepsIndex(edges: readonly unknown[], extra: Record<string, unknown> = {}) {
+    return {
+      v: 1,
+      artifactVersion: '20260920.1',
+      publishedAt: '2026-09-20T14:32:07.104Z',
+      tools: [
+        {
+          id: 'acme.noop',
+          description: 'Does nothing.',
+          version: '1.0.0',
+          input: { type: 'object' },
+          output: { type: 'object' },
+          modulePath: './tools/noop.js',
+        },
+      ],
+      guardrails: [],
+      agents: [],
+      flows: [
+        {
+          id: 'acme.steps',
+          version: '1.0.0',
+          nodes: [
+            { id: 'a', kind: 'tool', ref: 'acme.noop' },
+            { id: 'b', kind: 'tool', ref: 'acme.noop' },
+          ],
+          edges,
+          kernelPayloadVersion: 1,
+          modulePath: 'flows/steps.py',
+          ...extra,
+        },
+      ],
+    };
+  }
+
+  test("a flow that fails loadFlow's graph checks → 400 with the check's code, as a Python or Java indexer writes one; nothing is deployed", async () => {
+    const cycle = [
+      { id: 'e1', from: '$start', to: 'a' },
+      { id: 'e2', from: 'a', to: 'b' },
+      { id: 'e3', from: 'b', to: 'a' },
+      { id: 'e4', from: 'b', to: '$end' },
+    ];
+    const noStart = [
+      { id: 'e1', from: 'a', to: 'b' },
+      { id: 'e2', from: 'b', to: '$end' },
+    ];
+    for (const [edges, why] of [
+      [cycle, /^cycle-detected: Flow "acme\.steps" contains a cycle: /],
+      [noStart, /^missing-start-edge: /],
+    ] as const) {
+      const fixture = buildSignedDeploy({ index: stepsIndex(edges) });
+      const { app, deploymentRegistry } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+      };
+      expect(body.error.code).toBe('deployment-validation-failed');
+      expect(body.error.details?.issues).toEqual([
+        {
+          primitive: 'flow',
+          index: 0,
+          id: 'acme.steps',
+          path: '',
+          message: expect.stringMatching(why),
+        },
+      ]);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    }
+  });
+
+  test('a flow whose graph passes deploys, with a field this version doesn’t know', async () => {
+    const linear = [
+      { id: 'e1', from: '$start', to: 'a' },
+      { id: 'e2', from: 'a', to: 'b' },
+      { id: 'e3', from: 'b', to: '$end' },
+    ];
+    const fixture = buildSignedDeploy({ index: stepsIndex(linear, { shape: 'from a newer CLI' }) });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    expect((await post(app, fixture.wire)).status).toBe(201);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
   test("an agent's output that isn't an object → 400 at /output", async () => {
     for (const output of [null, 'json', [{ type: 'object' }]]) {
       const fixture = buildSignedDeploy({ index: indexWith(output) });
@@ -2586,6 +2670,47 @@ describe('POST /v1/deployments — 500s route through the central handler', () =
     expect(JSON.parse(raw).error.code).toBe('internal-server-error');
     expect(raw).not.toContain('row rejected');
     expect(raw).not.toContain('artifact_version');
+    // Rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a project put in production while the deploy runs is 409 promote-only-build, and rolls back', async () => {
+    // A key id with the prefix makes the build promote-only. The default
+    // project isn't in production, so the route's own check passes, and the
+    // registry's step is the one that sees the project in production.
+    const keyId = `${PROMOTE_ONLY_KEY_PREFIX}acme-release` as SigningKeyId;
+    const fixture = buildSignedDeploy({ keyId });
+    const registered: DeploymentRegisterInput[] = [];
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async (input) => {
+        registered.push(input);
+        return { kind: 'project-in-production' };
+      },
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({
+      fixture,
+      deploymentRegistry,
+      extraTrust: [
+        { keyId, tenantId, publicKey: Buffer.from(fixture.publicKeyRaw).toString('base64') },
+      ],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code: 'promote-only-build',
+      details: { signerKeyId: keyId, projectId: DEFAULT_PROJECT_ID },
+    });
+    expect(registered.map((input) => input.promoteOnly)).toEqual([true]);
     // Rolled back.
     expect(
       await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),

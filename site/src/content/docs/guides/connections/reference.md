@@ -50,6 +50,13 @@ it can use, so they can tell them apart
 ([Who sees what](../choose-a-connection/#who-sees-what)). Registering an app
 is for tenant admins only.
 
+A key or session limited to a project sees only the connections its runs in
+that project may use: those whose registration lets that project use them.
+Another reads as missing, `404 connection-not-found`. Of a connection's
+choices, it sees only that project's. It connects, renames, changes and
+disconnects none, because a connection reaches every project: it's refused
+with `403 permission-denied`.
+
 ## Where the token is kept
 
 - **The long-lived token** (a refresh token) is one secret in your

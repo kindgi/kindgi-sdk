@@ -13,7 +13,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -129,9 +129,12 @@ export default defined.value;
 ```
 
 `defineFlow` checks the shape where it is written: ids, the version,
-edges between nodes that exist, `$start` / `$end`, no cycles, paths
+edges between nodes that exist, an edge from `$start`, no cycles, paths
 rooted where they may be. It doesn't check that `acme.parse-ticket`
-exists. That is checked when a run starts (see "Running a flow").
+exists. That is checked when a run starts (see "Running a flow"). A
+flow that fails the checks is a file error in `kindgi dev` and
+`kindgi build`, which leave it out of the index, and a deploy refuses
+it.
 
 ## Nodes
 

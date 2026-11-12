@@ -31,6 +31,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
+import { flowGraphProblem } from '@kindgi/flow';
 import type { ValidateFunction } from 'ajv';
 import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -64,6 +65,22 @@ export interface PackServiceTarget {
    * are skipped (and say so) until the target drops the entry.
    */
   readonly unsupported?: readonly ConformanceFeature[];
+  /**
+   * Index the target's invalid-flow pack (`fixtures/<name>-invalid-flow-pack`,
+   * whose one flow, `FIXTURE_CYCLE_FLOW_ID`, has a cycle) into `outputPath`
+   * with the given pins, and return the indexer's file errors instead of
+   * throwing on them. Without it, the invalid-flow case is skipped (and says
+   * so).
+   */
+  indexInvalidFlowPack?(outputPath: string, pins: IndexPins): Promise<readonly IndexFileError[]>;
+}
+
+/** A file error an indexer reports: one file it couldn't index, and why. */
+export interface IndexFileError {
+  readonly code: string;
+  readonly message: string;
+  /** The file, relative to the pack's root. */
+  readonly filePath?: string;
 }
 
 /**
@@ -112,6 +129,8 @@ export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
 export const FIXTURE_FILES_TOOL_ID = 'conformance.store';
 /** The fixture pack's tool that reads files, for a target that supports `files`. */
 export const FIXTURE_READ_TOOL_ID = 'conformance.read';
+/** The one flow in every invalid-flow pack: its steps form a cycle. */
+export const FIXTURE_CYCLE_FLOW_ID = 'conformance.cycle-flow';
 export const FIXTURE_CHECK_IDS = [
   'conformance.checks.judged',
   'conformance.checks.min-length',
@@ -706,6 +725,46 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(rejects?.needsSpec).toEqual({
           connections: { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } },
         });
+      });
+
+      test('every flow passes the graph checks every index goes through', () => {
+        // `kindgi dev`, `kindgi build` and a deployment run `flowGraphProblem` on each flow an
+        // indexer writes. A flow it doesn't judge (a shape it doesn't know) would pass unchecked.
+        for (const flow of index.flows) expect(flowGraphProblem(flow)).toEqual({ kind: 'ok' });
+      });
+    });
+
+    describe.skipIf(target.indexInvalidFlowPack === undefined)('a flow with a cycle', () => {
+      test('is refused, by the indexer or by the graph checks every index goes through', async () => {
+        const outputPath = join(workDir, 'invalid-flow-index.json');
+        const fileErrors = await target.indexInvalidFlowPack?.(outputPath, PINS);
+        if (fileErrors === undefined) throw new Error('indexInvalidFlowPack returned nothing');
+        const written = JSON.parse(await readFile(outputPath, 'utf8')) as { flows: unknown[] };
+        expectValid(spec.index, written);
+        // The loader's message, which every form carries; the path after it follows the edges.
+        const cycle = `Flow "${FIXTURE_CYCLE_FLOW_ID}" contains a cycle: `;
+        const flow = written.flows.find(
+          (f) => (f as { id?: unknown }).id === FIXTURE_CYCLE_FLOW_ID,
+        );
+        if (flow === undefined) {
+          // The indexer refused it (the TypeScript indexer runs the loader's checks itself).
+          expect(fileErrors).toHaveLength(1);
+          const [refused] = fileErrors;
+          expect(refused?.code).toBe('manifest-validation-failed');
+          expect(refused?.filePath).toEqual(expect.any(String));
+          expect(refused?.message.startsWith(`${refused?.filePath}: `)).toBe(true);
+          expect(refused?.message).toContain(cycle);
+        } else {
+          // The indexer wrote it, as one that checks a flow's schema only does.
+          expect(fileErrors).toEqual([]);
+          expect(flowGraphProblem(flow)).toEqual({
+            kind: 'err',
+            error: expect.objectContaining({
+              code: 'cycle-detected',
+              message: expect.stringContaining(cycle),
+            }),
+          });
+        }
       });
     });
 

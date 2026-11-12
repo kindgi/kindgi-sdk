@@ -1062,6 +1062,9 @@ importers:
 
   packages/pack-conformance:
     dependencies:
+      '@kindgi/flow':
+        specifier: workspace:*
+        version: link:../flow
       '@kindgi/specs':
         specifier: workspace:*
         version: link:../specs

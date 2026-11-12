@@ -97,9 +97,9 @@ export const ERROR_ENTRIES = {
   },
   'schema-validation-failed': {
     description:
-      "The API doesn't send this code. A flow definition with this problem is answered `validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition with this problem is answered `validation-failed`, with the problem in `details.issues`. A deployment checks less of a flow's shape: its id and version, that its nodes and edges are lists, and that its inline schemas compile. A problem there is answered `deployment-validation-failed`, with the problem in `details.issues`; a field or a shape it doesn't know is passed over.",
     details: [],
-    seeAlso: ['#validation-failed', 'guides/flows/write-a-flow'],
+    seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },
   'scope-invalid': {
     description:
@@ -489,15 +489,15 @@ export const ERROR_ENTRIES = {
   },
   'duplicate-node-id': {
     description:
-      "The API doesn't send this code. A flow definition that uses a node id twice is answered `validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition that uses a node id twice is answered `validation-failed`, with the problem in `details.issues`. A deployment whose pack carries such a flow is answered `deployment-validation-failed`, and the flow's issue in `details.issues` starts `duplicate-node-id: `.",
     details: [],
-    seeAlso: ['#validation-failed', 'guides/flows/write-a-flow'],
+    seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },
   'duplicate-edge-id': {
     description:
-      "The API doesn't send this code. A flow definition that uses an edge id twice is answered `validation-failed`, with the problem in `details.issues`.",
+      "The API doesn't send this code. A flow definition that uses an edge id twice is answered `validation-failed`, with the problem in `details.issues`. A deployment whose pack carries such a flow is answered `deployment-validation-failed`, and the flow's issue in `details.issues` starts `duplicate-edge-id: `.",
     details: [],
-    seeAlso: ['#validation-failed', 'guides/flows/write-a-flow'],
+    seeAlso: ['#validation-failed', '#deployment-validation-failed', 'guides/flows/write-a-flow'],
   },
   'agent-version-mismatch': {
     description:
@@ -734,6 +734,25 @@ export const ERROR_ENTRIES = {
       {
         key: 'position',
         meaning: "the project's place in the order, from 0 (the first)",
+      },
+    ],
+  },
+  'promote-only-build': {
+    description:
+      "The build is promote-only, so it reaches a project in production only by promotion, never by a deploy. Its envelope says `productionEntry: 'promote-only'`, or the key that signed it has an id starting with `kindgi-promote-only:`, or the same public key as such a key the workspace has trusted. At a deploy: the project you named (or the default project, when you named none) is in production, or this runtime can't read whether it is. Deploy the build into a project that isn't in production and comes before this one in its environment order (a tenant admin makes one when there's none), then promote it from there. Nothing is deployed. At `PUT /v1/projects/{projectId}/production`: such a build was deployed into the project (not promoted there), whether it still serves or not, so the project never goes into production. Put another project after it in its environment order, turn production on there, and promote into it. Nothing changes.",
+    details: [
+      {
+        key: 'signerKeyId',
+        meaning: 'id of the key that signed the build',
+      },
+      {
+        key: 'projectId',
+        meaning:
+          'the project the deploy was aimed at, or the one put in production; absent when no project could be read',
+      },
+      {
+        key: 'deploymentId',
+        meaning: 'at the production switch: the promote-only deployment the project holds',
       },
     ],
   },
@@ -3196,7 +3215,7 @@ export const ERROR_ENTRIES = {
   },
   'deployment-validation-failed': {
     description:
-      "The deployment's manifest has invalid definitions, or a tool names a model provider's key. Each problem is listed in `details.issues`; fix them and deploy again.",
+      "The deployment's manifest has invalid definitions, or a tool names a model provider's key. Each problem is listed in `details.issues`; fix them and deploy again. A flow that fails the graph checks (a cycle, an edge to or from a step that doesn't exist, no edge from `$start`) is listed with a message that starts with the check's code, such as `cycle-detected: `.",
     details: [
       {
         key: 'issues',
@@ -3688,7 +3707,7 @@ export const ERROR_ENTRIES = {
   },
   'authz-backend-unavailable': {
     description:
-      "The store that holds permissions couldn't be read, so the runtime can't tell what the caller may do. Try the request again shortly.",
+      "The store that holds permissions couldn't be read, so the runtime can't tell what the caller may do. Try the request again shortly. When the answer carries `Retry-After`, the request didn't run, so sending it again is safe.",
     details: [],
   },
   'tenant-policy-unavailable': {

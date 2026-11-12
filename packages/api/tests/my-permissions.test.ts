@@ -210,11 +210,15 @@ function harness(
   });
   const read = async (
     token?: string,
-  ): Promise<{ status: number; body: Record<string, unknown> }> => {
+  ): Promise<{ status: number; body: Record<string, unknown>; retryAfter: string | null }> => {
     const res = await app.request('/v1/identity/me/permissions', {
       headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
     });
-    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    return {
+      status: res.status,
+      body: (await res.json()) as Record<string, unknown>,
+      retryAfter: res.headers.get('retry-after'),
+    };
   };
   return Object.assign(read, { recorded });
 }
@@ -405,13 +409,14 @@ describe('GET /v1/identity/me/permissions', () => {
     });
   });
 
-  test("a store that can't be read: 503 authz-backend-unavailable", async () => {
+  test("a store that can't be read: 503 authz-backend-unavailable, with Retry-After", async () => {
     const r = await harness({
       read: async () => {
         throw new Error('fga down');
       },
     })(BOB);
     expect(r.status).toBe(503);
+    expect(r.retryAfter).toBe('5');
     expect(r.body.error).toMatchObject({ code: 'authz-backend-unavailable' });
     expect(JSON.stringify(r.body)).not.toContain('fga down');
   });

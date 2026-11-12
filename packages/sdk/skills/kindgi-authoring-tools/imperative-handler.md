@@ -76,4 +76,4 @@ When the tool ran and knows why the call can't give an answer, throw `ToolFailur
 ctx.log?.info('refund issued', { orderId, amountCents });
 ```
 
-Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#log-from-a-tool
+Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.5/guides/tools/write-a-tool/#log-from-a-tool
