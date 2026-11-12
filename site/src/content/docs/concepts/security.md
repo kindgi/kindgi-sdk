@@ -309,8 +309,8 @@ Amazon RDS and AlloyDB work. Create the `vector` extension once, as
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on
   settings meant for one machine (secrets from `.env` files, a console
-  login that hands out the API token) and needs no license key. Never set it
-  on a server others can reach.
+  login that hands out the API token). Never set it on a server others can
+  reach.
 - **Keep keys in your secrets store:** the API token, the license key
   (see [Licensing](../licensing/)), the public-token signing key, and the
   key that protects stored secrets.

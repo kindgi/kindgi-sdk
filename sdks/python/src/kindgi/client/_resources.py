@@ -4631,7 +4631,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`).
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`). A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -4675,7 +4675,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Delete a fact. `DELETE /v1/memory/facts/{factId}`
 
-        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.
+        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return self._client._request(
             _OPERATIONS["memory.deleteFact"],
@@ -4714,7 +4714,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Change a fact's content. `POST /v1/memory/facts/{factId}/supersede`
 
-        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.
+        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return self._client._request(
             _OPERATIONS["memory.supersedeFact"],
@@ -4738,7 +4738,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Mark a fact verified. `POST /v1/memory/facts/{factId}/verify`
 
-        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.
+        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return self._client._request(
             _OPERATIONS["memory.verifyFact"],
@@ -7667,7 +7667,7 @@ class IdentityUsersResource:
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
-        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
+        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user"). A key or session limited to a project is refused, `403 permission-denied`, even for its own person: their sessions reach every project.
         """
         return self._client._request(
             _OPERATIONS["identity.users.listSessions"],
@@ -7767,7 +7767,7 @@ class IdentityUsersResource:
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
-        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
+        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out. A key or session limited to a project is refused, `403 permission-denied`, even for its own person: their sessions reach every project.
         """
         return self._client._request(
             _OPERATIONS["identity.users.revokeSessions"],
@@ -7783,7 +7783,7 @@ class IdentityUsersResource:
     ) -> _models.PersonGrants:
         """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
 
-        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
+        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own. A key or session limited to a project sees only the person's role in that project, in `projects`.
         """
         return self._client._request(
             _OPERATIONS["identity.users.grants"],
@@ -7852,7 +7852,7 @@ class IdentityMeResource:
     def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
         """My second factor. `GET /v1/identity/me/second-factor`
 
-        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return self._client._request(
             _OPERATIONS["identity.me.secondFactor"],
@@ -7874,7 +7874,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorKey:
         """Start setting up a second factor. `POST /v1/identity/me/second-factor`
 
-        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return self._client._request(
             _OPERATIONS["identity.me.startSecondFactor"],
@@ -7897,7 +7897,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
 
-        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return self._client._request(
             _OPERATIONS["identity.me.confirmSecondFactor"],
@@ -7920,7 +7920,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
 
-        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return self._client._request(
             _OPERATIONS["identity.me.newRecoveryCodes"],
@@ -7943,7 +7943,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRemoved:
         """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
 
-        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return self._client._request(
             _OPERATIONS["identity.me.removeSecondFactor"],
@@ -9201,7 +9201,7 @@ class ProjectsProductionResource:
     ) -> _models.ProjectProduction:
         """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
 
-        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. Putting a project in production is refused with 409 `promote-only-build` while a promote-only build was deployed into it (not promoted there), whether it serves or not: such a build reaches a project in production only by promotion, so that project never goes into production. 501 `production-unsupported` from a runtime whose projects can't be put in production.
         """
         return self._client._request(
             _OPERATIONS["projects.production.set"],
@@ -11426,7 +11426,7 @@ class ConnectionsRequestsResource:
     ) -> _models.ConnectStart:
         """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
 
-        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.requests.start"],
@@ -11462,7 +11462,7 @@ class ConnectionsResource:
     ) -> _models.ConnectionPage:
         """List connections. `GET /v1/connections`
 
-        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`. A key or session limited to a project lists the connections its runs there may use, as `projectId` does; another `projectId` is `403 key-project-mismatch`.
         """
         return self._client._request(
             _OPERATIONS["connections.list"],
@@ -11493,7 +11493,7 @@ class ConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.connect"],
@@ -11516,7 +11516,7 @@ class ConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.finish"],
@@ -11533,7 +11533,7 @@ class ConnectionsResource:
     ) -> _models.Connection:
         """Fetch a connection. `GET /v1/connections/{connectionId}`
 
-        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.
+        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project.
         """
         return self._client._request(
             _OPERATIONS["connections.get"],
@@ -11556,7 +11556,7 @@ class ConnectionsResource:
     ) -> _models.Connection:
         """Rename a connection, or make it your main. `PATCH /v1/connections/{connectionId}`
 
-        One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.
+        One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.update"],
@@ -11578,7 +11578,7 @@ class ConnectionsResource:
     ) -> _models.Connection:
         """Disconnect. `DELETE /v1/connections/{connectionId}`
 
-        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.disconnect"],
@@ -11600,7 +11600,7 @@ class ConnectionsResource:
     ) -> _models.ConnectionChoicePage:
         """List a connection's choices. `GET /v1/connections/{connectionId}/choices`
 
-        The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project, and sees only the choices in that project: its page can hold fewer than `limit`, or none, with `hasMore` still true.
         """
         return self._client._request(
             _OPERATIONS["connections.choices"],
@@ -14971,7 +14971,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`).
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`). A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return await self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -15015,7 +15015,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Delete a fact. `DELETE /v1/memory/facts/{factId}`
 
-        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.
+        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return await self._client._request(
             _OPERATIONS["memory.deleteFact"],
@@ -15054,7 +15054,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Change a fact's content. `POST /v1/memory/facts/{factId}/supersede`
 
-        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.
+        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return await self._client._request(
             _OPERATIONS["memory.supersedeFact"],
@@ -15078,7 +15078,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Mark a fact verified. `POST /v1/memory/facts/{factId}/verify`
 
-        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.
+        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content. A key or session limited to a project writes only in that project or one of its conversations: any other scope is `403 permission-denied`, facts about its own person included.
         """
         return await self._client._request(
             _OPERATIONS["memory.verifyFact"],
@@ -18019,7 +18019,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
-        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
+        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user"). A key or session limited to a project is refused, `403 permission-denied`, even for its own person: their sessions reach every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.listSessions"],
@@ -18119,7 +18119,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
-        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
+        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out. A key or session limited to a project is refused, `403 permission-denied`, even for its own person: their sessions reach every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.revokeSessions"],
@@ -18135,7 +18135,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.PersonGrants:
         """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
 
-        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
+        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own. A key or session limited to a project sees only the person's role in that project, in `projects`.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.grants"],
@@ -18204,7 +18204,7 @@ class AsyncIdentityMeResource:
     async def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
         """My second factor. `GET /v1/identity/me/second-factor`
 
-        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.secondFactor"],
@@ -18226,7 +18226,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorKey:
         """Start setting up a second factor. `POST /v1/identity/me/second-factor`
 
-        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.startSecondFactor"],
@@ -18249,7 +18249,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
 
-        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.confirmSecondFactor"],
@@ -18272,7 +18272,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
 
-        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.newRecoveryCodes"],
@@ -18295,7 +18295,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRemoved:
         """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
 
-        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9). A session limited to a project is refused, `403 permission-denied`: your second factor reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.removeSecondFactor"],
@@ -19553,7 +19553,7 @@ class AsyncProjectsProductionResource:
     ) -> _models.ProjectProduction:
         """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
 
-        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. Putting a project in production is refused with 409 `promote-only-build` while a promote-only build was deployed into it (not promoted there), whether it serves or not: such a build reaches a project in production only by promotion, so that project never goes into production. 501 `production-unsupported` from a runtime whose projects can't be put in production.
         """
         return await self._client._request(
             _OPERATIONS["projects.production.set"],
@@ -21784,7 +21784,7 @@ class AsyncConnectionsRequestsResource:
     ) -> _models.ConnectStart:
         """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
 
-        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.requests.start"],
@@ -21820,7 +21820,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectionPage:
         """List connections. `GET /v1/connections`
 
-        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`. A key or session limited to a project lists the connections its runs there may use, as `projectId` does; another `projectId` is `403 key-project-mismatch`.
         """
         return await self._client._request(
             _OPERATIONS["connections.list"],
@@ -21851,7 +21851,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.connect"],
@@ -21874,7 +21874,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.finish"],
@@ -21891,7 +21891,7 @@ class AsyncConnectionsResource:
     ) -> _models.Connection:
         """Fetch a connection. `GET /v1/connections/{connectionId}`
 
-        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.
+        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project.
         """
         return await self._client._request(
             _OPERATIONS["connections.get"],
@@ -21914,7 +21914,7 @@ class AsyncConnectionsResource:
     ) -> _models.Connection:
         """Rename a connection, or make it your main. `PATCH /v1/connections/{connectionId}`
 
-        One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.
+        One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.update"],
@@ -21936,7 +21936,7 @@ class AsyncConnectionsResource:
     ) -> _models.Connection:
         """Disconnect. `DELETE /v1/connections/{connectionId}`
 
-        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.disconnect"],
@@ -21958,7 +21958,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectionChoicePage:
         """List a connection's choices. `GET /v1/connections/{connectionId}/choices`
 
-        The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist. A key or session limited to a project gets the same 404 for a connection whose registration keeps it from that project, and sees only the choices in that project: its page can hold fewer than `limit`, or none, with `hasMore` still true.
         """
         return await self._client._request(
             _OPERATIONS["connections.choices"],

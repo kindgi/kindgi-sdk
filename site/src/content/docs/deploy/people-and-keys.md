@@ -474,6 +474,20 @@ console signed in through SSO, a social sign-in or an emailed link.
   it. The key uses them only as far as its role goes: trusting signing keys
   takes `--role=admin`.
 
+A key limited to a project, and a session limited to one, act only inside
+that project, even for their own person:
+
+- They don't list or revoke their person's sessions, and a session doesn't
+  read, set up or take off its person's second factor. Those reach every
+  project, so they're refused with `403 permission-denied`.
+- `GET /v1/identity/users/<user-id>/grants` shows their person's role in
+  that project only.
+- They see only the connections their runs in that project may use, and
+  connect, change and disconnect none
+  ([Who can see and change a connection](../../guides/connections/reference/#a-connections-states)).
+- They write memory only in that project
+  ([Who sees what](../../guides/agents/memory-reference/#who-sees-what)).
+
 A tenant admin made Sam's first key:
 
 ```sh

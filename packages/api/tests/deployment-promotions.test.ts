@@ -11,6 +11,8 @@
  *     environment, admin on the target;
  *   - a superseded or suspended source or target copy, a signer no longer
  *     trusted, a signature that doesn't verify: refused, nothing written;
+ *   - a promote-only build moves into production, its signed mark kept and
+ *     verified again;
  *   - a value the build needs that isn't ready in the target: refused, each
  *     value named; the check lists the same ones and writes nothing;
  *   - a repeat answers the target's own deployment, and records only the
@@ -42,7 +44,7 @@ import type {
   VersionDerivation,
 } from '@kindgi/types';
 
-import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
+import { type ProductionEntry, canonicalizeEnvelope } from '../src/deployment-envelope.js';
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentPinBindings,
@@ -119,6 +121,8 @@ function built(opts: {
   readonly seed?: string;
   readonly contents?: DeploymentContents;
   readonly endpoint?: DeploymentEndpoint;
+  /** Signed into the envelope and kept, as a deploy that sent it keeps it. */
+  readonly productionEntry?: ProductionEntry;
 }): Deployment {
   minute += 1;
   const imageDigest = sha(opts.seed ?? 'build-1');
@@ -128,6 +132,7 @@ function built(opts: {
     indexHash: sha(`index:${opts.seed ?? 'build-1'}`),
     tenantId: tenantId as unknown as string,
     publishedAt: '2026-10-01T09:00:00.000Z',
+    ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
   };
   const signed = signEd25519(keys.privateKey, canonicalizeEnvelope(fields));
   if (signed.kind === 'err') throw new Error(signed.error.message);
@@ -142,6 +147,7 @@ function built(opts: {
     signerPublicKey: PUBLIC_KEY,
     signature: Buffer.from(signed.value).toString('base64'),
     publishedAt: fields.publishedAt,
+    ...(opts.productionEntry !== undefined && { productionEntry: opts.productionEntry }),
     activatedAt: new Date(Date.UTC(2026, 9, 1, 10, minute)).toISOString(),
     ...(opts.projectId !== undefined && { projectId: opts.projectId }),
     packId: 'acme.pack',
@@ -455,6 +461,8 @@ function harness(
     readonly promotes?: boolean;
     /** `<action> <type>:<id>`; absent: no authorization. */
     readonly grants?: readonly string[];
+    /** Checks (`<action> <type>:<id>`) the authorization store can't be reached for. */
+    readonly unreachable?: readonly string[];
     readonly orders?: readonly (readonly ProjectId[])[];
     /** The agent's versions, which the carried versions are read from. */
     readonly versions?: Row[];
@@ -539,6 +547,14 @@ function harness(
     },
   };
   const grants = opts.grants;
+  const decide = (granted: readonly string[], action: Action, resource: ResourceRef): Decision => {
+    if (opts.unreachable?.includes(`${action} ${resource.type}:${resource.id}`)) {
+      throw Object.assign(new Error("the authorization store couldn't be reached"), {
+        code: 'authz-backend-unavailable',
+      });
+    }
+    return decision(granted, action, resource);
+  };
   const agentPins =
     opts.agentPins === true || opts.cards !== undefined
       ? agentPinBinding({
@@ -601,9 +617,9 @@ function harness(
       authz: {
         fgaApiUrl: 'http://fga.invalid',
         authzCheckBinding: {
-          check: async (_p, action, resource) => decision(grants, action, resource),
+          check: async (_p, action, resource) => decide(grants, action, resource),
           checkBatch: async (_p, action, resources) =>
-            resources.map((resource) => decision(grants, action, resource)),
+            resources.map((resource) => decide(grants, action, resource)),
         } satisfies AuthzCheckBinding,
       },
     }),
@@ -1161,6 +1177,36 @@ describe('a build moves only while it serves and its signature holds', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('signature-invalid');
   });
+
+  test('a promote-only build moves into production, its mark kept and verified again', async () => {
+    const h = harness({
+      rows: [built({ id: 'dep-s2', projectId: S2, productionEntry: 'promote-only' })],
+    });
+    const res = await h.promote('dep-s2', PROD);
+    expect(res.status).toBe(201);
+    expect(res.body.deployment.productionEntry).toBe('promote-only');
+    expect(res.body.deployment.promotedFromDeploymentId).toBe('dep-s2');
+  });
+
+  test('a promote-only mark the deployment no longer keeps, or one it gained: 400 signature-invalid', async () => {
+    const { productionEntry: _mark, ...unmarked } = built({
+      id: 'dep-s1',
+      projectId: S1,
+      productionEntry: 'promote-only',
+    });
+    const lost = harness({ rows: [unmarked] });
+    const lostRes = await lost.promote('dep-s1', S2);
+    expect(lostRes.status).toBe(400);
+    expect(lostRes.body.error.code).toBe('signature-invalid');
+
+    const gained = harness({
+      rows: [{ ...built({ id: 'dep-s1', projectId: S1 }), productionEntry: 'promote-only' }],
+    });
+    const gainedRes = await gained.promote('dep-s1', S2);
+    expect(gainedRes.status).toBe(400);
+    expect(gainedRes.body.error.code).toBe('signature-invalid');
+    expect(gained.deployments.rows).toHaveLength(1);
+  });
 });
 
 describe('the record, and what a promotion takes', () => {
@@ -1269,6 +1315,21 @@ describe('pinning the carried agents in the target (pin)', () => {
     const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
     expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `agent:${AGENT}` });
+    // The promotion committed (the move isn't undone); nothing was pinned.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
+  });
+
+  test("a pin check the authorization store can't be reached for: 500, not the 503 that says nothing ran, as the build has already moved", async () => {
+    const h = harness({
+      agentPins: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`],
+      unreachable: [`pin agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('internal-server-error');
     // The promotion committed (the move isn't undone); nothing was pinned.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);

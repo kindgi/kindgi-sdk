@@ -17,47 +17,65 @@ import { promisify } from 'node:util';
 
 import { describe, test } from 'vitest';
 
-import { describePackServiceConformance, fixturePackDir } from '../src/index.js';
+import {
+  type IndexFileError,
+  type IndexPins,
+  describePackServiceConformance,
+  fixturePackDir,
+} from '../src/index.js';
 
 const run = promisify(execFile);
 const venvPython = fileURLToPath(new URL('../../../sdks/python/.venv/bin/python', import.meta.url));
 const python =
   process.env.KINDGI_CONFORMANCE_PYTHON ?? (existsSync(venvPython) ? venvPython : undefined);
 const packDir = fixturePackDir('python-pack');
+const invalidFlowPackDir = fixturePackDir('python-invalid-flow-pack');
 
 if (python === undefined) {
   describe('pack service conformance — python', () => {
     test.skip(`no interpreter: set KINDGI_CONFORMANCE_PYTHON or run \`uv sync\` in sdks/python (${join('sdks', 'python')})`, () => {});
   });
 } else {
+  /** Index a pack, and return the indexer's file errors. */
+  const index = async (
+    dir: string,
+    outputPath: string,
+    pins: IndexPins,
+  ): Promise<readonly IndexFileError[]> => {
+    const { stdout } = await run(python, [
+      '-m',
+      'kindgi.pack',
+      'index',
+      '--pack-dir',
+      dir,
+      '--output',
+      outputPath,
+      '--artifact-version',
+      pins.artifactVersion,
+      '--published-at',
+      pins.publishedAt,
+      '--json',
+    ]).catch((cause: { stdout?: string; stderr?: string }) => {
+      throw new Error(`indexer failed: ${cause.stdout ?? ''}${cause.stderr ?? ''}`);
+    });
+    const outcome = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
+      kind: string;
+      value?: { fileErrors: IndexFileError[] };
+    };
+    if (outcome.kind !== 'ok' || outcome.value === undefined) throw new Error(`indexer: ${stdout}`);
+    return outcome.value.fileErrors;
+  };
+
   describePackServiceConformance({
     name: 'python',
     packDir,
     command: [python, '-m', 'kindgi.pack', 'serve'],
     async buildIndex(outputPath, pins) {
-      const { stdout } = await run(python, [
-        '-m',
-        'kindgi.pack',
-        'index',
-        '--pack-dir',
-        packDir,
-        '--output',
-        outputPath,
-        '--artifact-version',
-        pins.artifactVersion,
-        '--published-at',
-        pins.publishedAt,
-        '--json',
-      ]).catch((cause: { stdout?: string; stderr?: string }) => {
-        throw new Error(`indexer failed: ${cause.stdout ?? ''}${cause.stderr ?? ''}`);
-      });
-      const outcome = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
-        kind: string;
-        value?: { fileErrors: { message: string }[] };
-      };
-      if (outcome.kind !== 'ok' || (outcome.value?.fileErrors.length ?? 0) > 0) {
-        throw new Error(`indexer: ${stdout}`);
-      }
+      const fileErrors = await index(packDir, outputPath, pins);
+      if (fileErrors.length > 0) throw new Error(fileErrors.map((e) => e.message).join('\n'));
+    },
+    indexInvalidFlowPack(outputPath, pins) {
+      return index(invalidFlowPackDir, outputPath, pins);
     },
   });
 }

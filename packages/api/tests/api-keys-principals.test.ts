@@ -949,6 +949,22 @@ describe('revoking sessions', () => {
       200,
     );
   });
+
+  test('a key limited to a project neither lists nor revokes its own: they reach every project', async () => {
+    const h = harness();
+    const key = await h.mint(BOB, { projectId: P1 });
+    for (const [method, path] of [
+      ['GET', '/v1/identity/users/bob/sessions'],
+      ['POST', '/v1/identity/users/bob/revoke-sessions'],
+    ] as const) {
+      const r = await h.call(key.token, method, path);
+      expect([r.status, h.code(r)], path).toEqual([403, 'permission-denied']);
+      expect((r.body.error as { message?: string }).message).toBe(
+        `This API key is limited to project ${P1}: its person's sessions reach beyond it`,
+      );
+    }
+    expect((await h.call(BOB, 'GET', '/v1/identity/users/bob/sessions')).status).toBe(200);
+  });
 });
 
 describe('filterByCan holds a key to its limits too', () => {
@@ -1095,6 +1111,16 @@ describe("a person's grants", () => {
     expect(alice.body).toMatchObject({ tenantAdmin: true, reviewer: { role: 'admin' } });
     const nobody = await h.call(ALICE, 'GET', '/v1/identity/users/nobody/grants');
     expect([nobody.status, h.code(nobody)]).toEqual([404, 'identity-user-not-found']);
+  });
+
+  test("a key limited to a project reads only its person's role in that project", async () => {
+    const h = harness();
+    const inP1 = await h.mint(BOB, { projectId: P1 });
+    const own = await h.call(inP1.token, 'GET', '/v1/identity/users/bob/grants');
+    expect([own.status, own.body.projects]).toEqual([200, [{ projectId: P1, role: 'editor' }]]);
+    const inP2 = await h.mint(BOB, { projectId: P2 });
+    const there = await h.call(inP2.token, 'GET', '/v1/identity/users/bob/grants');
+    expect([there.status, there.body.projects]).toEqual([200, []]);
   });
 
   test('a tenant admin makes a person tenant admin: it holds on their next request', async () => {
