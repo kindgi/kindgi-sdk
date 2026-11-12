@@ -196,8 +196,8 @@ digest, with every platform it was built for:
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
   | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
-docker buildx imagetools create --tag "$ACR/runtime:0.3.0" \
-  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
+docker buildx imagetools create --tag "$ACR/runtime:0.6.0" \
+  registry.kindgi.com/kindgi/runtime:0.6.0@sha256:5c2817be229130df77c0822d583849edadc0527065d1b20e14574645b30958e9
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
