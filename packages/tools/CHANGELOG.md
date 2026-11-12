@@ -1,5 +1,15 @@
 # @kindgi/tools
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [f3515c2]
+- Updated dependencies [25d902a]
+  - @kindgi/log@0.6.1
+  - @kindgi/types@0.6.1
+  - @kindgi/schema@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

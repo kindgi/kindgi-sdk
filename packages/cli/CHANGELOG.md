@@ -1,5 +1,63 @@
 # @kindgi/cli
 
+## 0.6.1
+
+### Patch Changes
+
+- 13e8d75: A coding agent and `kindgi dev`'s sandbox now stay out of a self-hosted deployment's `db.env` (its database's password) and `openfga.env` (OpenFGA's database address and key), as they already did `kindgi.env` and `pack.env`. `kindgi init` writes both into the deny rules for Claude Code and the other agents' ignore files, and the getting-started skills name them. A project set up before keeps its rules: add the two lines as the coding agents page shows.
+- ce7888b: With `HOME` set but empty, the CLI's home folder resolved under the current folder, often a pack's repository. Now:
+  
+  - `kindgi key create`, `export`, `list` and `trust` refuse rather than use `.kindgi/keys/` there, where `create` wrote the private key. They say to set `HOME` or pass `--home <dir>`.
+  - `kindgi feedback submit`, `status` and `withdraw`, and `kindgi auth login`, refuse rather than keep their files under `.kindgi/` there, and say to set `HOME`.
+  - No command reads a home config file then.
+  - `kindgi dev` refuses where its sandbox would run, since the sandbox keeps the home folder closed.
+  - `kindgi init` writes nothing into a repository root it can't tell apart from the home folder, and says so.
+- 84478e9: **A project can be stored with the key.** A `project` field (an id or a slug) in the config file that holds the key, `~/.kindgi/config.json` or a folder's `.kindgirc.json`, is where a command that names no project goes: `kindgi deploy` (after `--project` and the env block's `project`), and the commands that would otherwise take the workspace's default project (`agents publish`, `flows publish`, `guardrails register`, `tools publish`, `sites`, `connection-choices`, `expert-queue` and `queue-rules`). `--project` comes first. The project goes with that key only: a key given with `--token` or `KINDGI_API_TOKEN` has none, and `kindgi auth login` with another key or address removes it, with a warning. `kindgi deploy` names the project it took and the file it came from. Without the field, nothing changes.
+- c8395f7: `kindgi dev` on a pack with no primitives yet no longer leaves the runtime warning that the pack service isn't answering. No pack service starts until the first primitive, so the runtime's check at startup found nothing to answer it. Now the local pack service answers that check for the pack: its id and version from the config, no tools and no checks. So the runtime's startup line names the pack with 0 tools and 0 checks. The first primitive starts the pack service as before. In `@kindgi/handler-runtime`, the pack service supervisor has `serveEmpty(pack)`. While no child serves, `GET /v1/info` answers 200 with that pack, no tools and no checks, and `artifactVersion` `none`. `/readyz` and calls still answer 503, and the next `start` or `stop` ends it. Its argument's type, `PackIdentity`, is exported from `@kindgi/handler-runtime/pack-service`.
+- c88d9dd: `kindgi dev` runs the runtime with a license key, as every Kindgi runtime does from 0.7.0. The free non-production key from https://access.kindgi.com covers development.
+  
+  - `kindgi auth registry` keeps the license key it logged Docker in with for `kindgi dev`, in `~/.kindgi/license/license-key`: a file only you can read (`0600`), in a folder that holds nothing else (`0700`). A mirror's token isn't a license key, and isn't kept; `--check` keeps nothing. When your key renews, log in again with the new one.
+  - `kindgi dev` takes `KINDGI_LICENSE_KEY` from your shell, else that file. It gives the key to the runtime through Docker's own environment: never in `docker run`'s arguments, and never in the pack's `.kindgi/dev/runtime.env`, where a coding agent reads. With no key, it stops before anything starts and says where to get a free one, and a value that isn't a Kindgi license key is refused there too. A key that expires soon, or has expired, starts with a warning and the way to renew it. With `--runtime-url` it starts no runtime and asks for no key.
+  - `kindgi doctor`'s `license` check reads the key `kindgi auth registry` kept, too. With no key anywhere it fails, where it skipped before, and a kept key's renewal advice is a laptop's: sign in at access.kindgi.com, then `kindgi auth registry` again.
+  - `@kindgi/env-schema`: `KINDGI_LICENSE_KEY`'s description says the server requires it in development mode too, from 0.7.0.
+  - `@kindgi/api`: `GET /v1/license`'s `mode` describes `development` as a runtime before 0.7.0, which ran with no key. From 0.7.0 a development runtime has a key, and answers `licensed`. The field and its values don't change.
+- e975c6f: A Python, Java or Scala pack's flow is now checked as a TypeScript one is. Their indexers check a flow against `flow.schema.json` only, so a flow with a cycle, an edge to or from a step that doesn't exist, no edge from `$start`, or a node id used twice indexed and deployed cleanly, then hung until "Run stuck", completed with nothing run, or skipped a step.
+  
+  - `@kindgi/flow` exports `flowGraphProblem(flow)`, with its answer type `FlowGraphCheck`: `loadFlow`'s graph checks, run after the schema with every object left open, so a field from a newer SDK is passed over. It answers `ok`, `err` (the error `loadFlow` gives) or `not-judged` (a shape this version doesn't know). `loadFlow` is unchanged.
+  - `kindgi dev` and `kindgi build` run it on every indexer's result. A flow that fails is a `manifest-validation-failed` file error (`<module>: flow '<id>' is invalid: <code>: <message>`) and is left out of the index file, so `kindgi dev` never serves it, and `kindgi build` stops. A flow whose shape the CLI doesn't know stays, with a `flow-not-checked` warning.
+  - `POST /v1/deployments` refuses a flow that fails them with `deployment-validation-failed`, and the flow's issue message starts with the check's code (`cycle-detected: …`). A flow already deployed keeps running as before; deploying it again is refused until it's fixed. A field or a shape the API doesn't know is passed over, not refused.
+  - `@kindgi/pack-conformance` ships an invalid-flow pack per language (`fixtures/<name>-invalid-flow-pack`, whose one flow is `FIXTURE_CYCLE_FLOW_ID`), and a case that its cycle is refused, by the indexer or by `flowGraphProblem` on the index it wrote. A target feeds it through the optional `indexInvalidFlowPack`; a target without it has the case skipped, and the skip says so. Every flow in the fixture pack's index must pass `flowGraphProblem` too. The suite depends on `@kindgi/flow`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say where a flow is checked: `kindgi dev` and `kindgi build` run the graph checks on every language's flows, and a deploy refuses a flow that fails them.
+  
+  To upgrade a Python, Java or Scala pack: run `kindgi build` (or `kindgi dev`) once on this CLI before you deploy, so a flow the deploy would refuse shows up as a file error first.
+- b9f0857: `kindgi test-runs start --help` no longer says `--agent-version` and `--flow-version` default to the latest version. A run on test cases (a `corrections` test set) tries one version, and one started without it is refused, so the help now says the flag is required there. The CLI reference says the same.
+- Updated dependencies [95494bb]
+- Updated dependencies [13e8d75]
+- Updated dependencies [c8395f7]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [e975c6f]
+- Updated dependencies [717d950]
+- Updated dependencies [f3515c2]
+- Updated dependencies [054e09f]
+- Updated dependencies [af5b037]
+- Updated dependencies [ea5b156]
+- Updated dependencies [6279526]
+- Updated dependencies [71c4e12]
+- Updated dependencies [25d902a]
+- Updated dependencies [7078517]
+  - @kindgi/agents@0.6.1
+  - @kindgi/sdk@0.6.1
+  - @kindgi/handler-runtime@0.6.1
+  - @kindgi/env-schema@0.6.1
+  - @kindgi/flow@0.6.1
+  - @kindgi/client@0.6.1
+  - @kindgi/log@0.6.1
+  - @kindgi/platform@0.6.1
+  - @kindgi/types@0.6.1
+  - @kindgi/secrets-dotenv@0.6.1
+  - @kindgi/crypto@0.6.1
+  - @kindgi/dotenv-file@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

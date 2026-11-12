@@ -1,5 +1,35 @@
 # @kindgi/client
 
+## 0.6.1
+
+### Patch Changes
+
+- 717d950: **`client.capabilities.providers` is deprecated: use `client.providers`.** Its methods now call `client.providers`'s and answer as they do.
+  
+  - **`list` and `get`** are typed as the provider the API sends, `Provider`, with its models under `models[]`. Before, they were typed with `model`, `contextWindow`, `features` and `cost` on the provider itself, which no API has sent, so those fields read `undefined`. `LegacyCapabilitiesProvider` stays, as a deprecated name for `Provider`.
+  - **`configure`** takes the API's register body, `RegisterProviderInput` (`{ metadata, adapter_id, … }`), as `client.providers.register` does. Before, it sent the flat `ProviderSpec`, which the API refuses with `400 bad-input`, so no call could succeed. `ProviderSpec` stays exported, deprecated.
+  - **`delete`** is `client.providers.unregister`. An unknown or already-unregistered id answers `not-found` with the resource kind `provider`. Its docs used to say an already-unregistered id answered `unregistered: true`.
+  - **`capabilitiesFor`, `enable` and `disable`** answer as before. `enable` and `disable` still throw `not-yet-wired`, since a provider has no enabled state.
+  - **To move:** `list` → `providers.list`, `get` → `providers.get`, `configure` → `providers.register`, `capabilitiesFor(id)` → `(await providers.capabilities(id)).data`, `delete` → `providers.unregister`.
+- 054e09f: **An MCP endpoint never sets MCP's own headers.** `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and any `Mcp-Param-…` header, whatever its case, are set by the MCP client itself where the protocol calls for them, the `Mcp-Param-` ones from a tool's arguments, and a server checks them against the request.
+  
+  - **In `config.headers`,** a registration that names one is refused: `400 invalid-mcp-endpoint`, reason `transport-header-in-config`, naming the header. Nothing is registered.
+  - **In `auth.headers`,** `Mcp-Method`, `Mcp-Name` and any `Mcp-Param-…` join the headers the transport sets itself (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Host`, `traceparent`, …): `400 invalid-mcp-endpoint`, reason `invalid-auth`, in the same words.
+  - The `MCPEndpoint` schema, the `@kindgi/client` types and the MCP servers guide say so.
+- ea5b156: **Breaking, for keys and sessions limited to a project.** Such a caller now acts only inside its project. Before, some routes let it act for its person in every project:
+  
+  - It neither lists nor revokes its person's sessions (`GET /v1/identity/users/{userId}/sessions`, `POST /v1/identity/users/{userId}/revoke-sessions`), even its own person's. A session limited to a project doesn't read, set up or take off its person's second factor (`/v1/identity/me/second-factor` and the routes under it). Each answers `403 permission-denied`, naming the project.
+  - `GET /v1/identity/users/{userId}/grants` shows its person's role in that project only, as `GET /v1/identity/me/permissions` lists it.
+  - On `/v1/connections` it lists and reads only the connections its runs in that project may use: those whose registration lets the project use them. Another reads as missing, `404 connection-not-found`, and a connection's choices show only that project's. It connects, finishes a connect, renames, changes and disconnects nothing: `403 permission-denied`.
+  - On `/v1/memory` it writes only in that project or one of its conversations. A fact in any other scope, its person's own included, is refused with `403 permission-denied`, whether made, changed, verified or deleted. What it reads doesn't change.
+  
+  A key or a session that isn't limited to a project keeps today's rules. The API reference, the TypeScript client's docs and the docs pages on keys, connections and memory say so.
+- 7078517: **The old version calls' deprecations no longer say they are removed in 0.2.** The calls stay, deprecated, and send the same requests as before. A later minor release removes them, announced in advance.
+  
+  - **The calls:** `agents.reinstateVersion`, `tools.listVersions`, `tools.getVersion`, `tools.reinstateVersion`, `tools.unregisterVersion`, `flows.getVersion`, `flows.delete`, `flows.reinstateVersion`, calling `flows.versions(id)` directly, and `policies.author`. Each one's docs name the call to use instead: the resource's `versions.list`, `versions.get`, `versions.reinstate` or `versions.unregister`, or `policies.publish`.
+  - **`flows.delete`'s docs** also say that it answers nothing, where `flows.versions.unregister` answers `{ flowId, version, unregistered }`.
+  - **Three docs that named the old calls** now name the new ones: `ToolVersionRow`'s, the policies client's and the retention client's.
+
 ## 0.6.0
 
 ### Patch Changes
