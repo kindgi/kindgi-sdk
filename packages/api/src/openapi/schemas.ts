@@ -18409,14 +18409,13 @@ export const ConnectionEntrySchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['kind'],
-      description:
-        "How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.",
+      description: 'How a person signs in at the app.',
       properties: {
         kind: {
           type: 'string',
           enum: ['oauth2', 'github-app', 'kindgi-app', 'token'],
           description:
-            "`oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`). `token`: with an account's credential the registration keeps (`texts`).",
+            "`oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`). `token`: no one signs in. The registration keeps an account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.",
         },
         providers: {
           type: 'array',

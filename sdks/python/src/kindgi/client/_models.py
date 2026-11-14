@@ -20292,7 +20292,7 @@ class WebhookEndpointCollectionPage(BaseModel):
 
 class SignIn(BaseModel):
     """
-    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
+    How a person signs in at the app.
     """
 
     model_config = ConfigDict(
@@ -20301,7 +20301,7 @@ class SignIn(BaseModel):
     )
     kind: Annotated[Literal["oauth2", "github-app", "kindgi-app", "token"] | str, _open.OPEN]
     """
-    `oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`). `token`: with an account's credential the registration keeps (`texts`).
+    `oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`). `token`: no one signs in. The registration keeps an account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
     providers: Annotated[
         list[Annotated[Literal["telnyx"] | str, _open.OPEN]] | None, Field(min_length=1)
@@ -20338,7 +20338,7 @@ class ConnectionEntry(BaseModel):
     """
     sign_in: Annotated[SignIn, Field(alias="signIn")]
     """
-    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
+    How a person signs in at the app.
     """
     permissions: dict[str, ConnectionEntryPermission]
     """
