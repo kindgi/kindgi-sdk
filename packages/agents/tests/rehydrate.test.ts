@@ -8,10 +8,11 @@ import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
 import { createCheckRegistry } from '@kindgi/guardrails';
 import type { Guardrail } from '@kindgi/guardrails';
+import type { HandlerRegistry } from '@kindgi/handler';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
-import type { RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
+import type { NodeId, RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
 import type { AgentVersionMismatchError } from '../src/errors.js';
@@ -173,7 +174,7 @@ const parkedJournal: readonly JournalEntry[] = [
     providerModel: 'second-model',
     toolCount: 0,
   }),
-  completed('render-prompt', {}),
+  completed('render-prompt', { rendered: 'Help.' }),
   completed('persist-user-message', { sequence: 3 }),
   completed('run-retrievals', { count: 1, retrieved: [retrievedFact] }),
   completed('build-initial-messages', {
@@ -223,6 +224,8 @@ describe('rehydrateTurnContext', () => {
     expect(ctx.appended.map((m) => m.sequence)).toEqual([3, 4, 5, 6, 7]);
     expect(ctx.storedBeforePark?.map((m) => m.sequence)).toEqual([6, 7]);
     expect(ctx.userMessage?.sequence).toBe(3);
+    // The instructions as render-prompt rendered them.
+    expect(ctx.renderedPrompt).toBe('Help.');
     expect(ctx.retrieved).toEqual([retrievedFact]);
     // Where the loop's own messages start, from what build-initial-messages journaled.
     expect(ctx.initialMessageCount).toBe(3);
@@ -463,6 +466,58 @@ describe('rehydrateTurnContext', () => {
     }
     expect(journalReads).toBe(0);
     expect(resumes.count).toBe(0);
+  });
+
+  test("a turn whose worker was lost after render-prompt builds its first messages on render-prompt's journaled instructions", async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    // The worker was lost in persist-user-message: setup and render-prompt
+    // completed, and the kernel doesn't run render-prompt again. What it
+    // rendered is only in the journal (the agent's instructions render "Help.").
+    const lost: readonly JournalEntry[] = [
+      completed('setup', {
+        turnNumber: 2,
+        providerId: 'second',
+        providerModel: 'second-model',
+        toolCount: 0,
+      }),
+      completed('render-prompt', { rendered: 'Help, as rendered when the turn started.' }),
+    ];
+    const ran: string[] = [];
+    let built: unknown;
+    const bindings = {
+      ...(resumeBindings(turn, resumed.version, async () => undefined, { count: 0 }) as object),
+      conversationBinding: {
+        ...turn.bindings.conversationBinding,
+        appendMessage: async () => ({ kind: 'ok', value: stored[2] }),
+      },
+      runBinding: {
+        readJournal: async () => ({ kind: 'ok', value: lost }),
+        // As the kernel resumes the run: the steps the journal doesn't hold
+        // run in order, each given the output of the one before.
+        resumeRun: async ({ handlers }: { readonly handlers: HandlerRegistry }) => {
+          const kctx = testNodeContext({ runId: 'run-1' as RunId, dryRun: false });
+          let output: unknown;
+          for (const node of ['persist-user-message', 'run-retrievals', 'build-initial-messages']) {
+            const handler = handlers.get(node as NodeId);
+            if (handler === undefined) throw new Error(`no ${node} handler`);
+            ran.push(node);
+            output = await handler(output, kctx);
+          }
+          built = output;
+          throw new Error('stopped after build-initial-messages');
+        },
+      },
+    };
+    await expect(
+      resumeAgentTurn({ tenantId, runId: 'run-1' as RunId, agent: resumed }, bindings as never),
+    ).rejects.toThrow('stopped after build-initial-messages');
+    expect(ran).toEqual(['persist-user-message', 'run-retrievals', 'build-initial-messages']);
+    const { nextMessages } = built as { readonly nextMessages: readonly ModelMessage[] };
+    expect(nextMessages[0]).toEqual({
+      role: 'system',
+      content: 'Help, as rendered when the turn started.',
+    });
   });
 });
 

@@ -13,6 +13,9 @@
  *     `setup` journaled, with the tool versions it journaled (a range
  *     isn't resolved again: a version published meanwhile doesn't run
  *     mid-turn);
+ *   - the instructions, as `render-prompt` journaled them rendered: a turn
+ *     resumed before `build-initial-messages` completed (its worker was
+ *     lost between the two) builds its messages on them;
  *   - the messages the turn stored come back from the conversation, from
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
@@ -180,6 +183,9 @@ export async function rehydrateTurnContext(
     setup.guardrails,
   );
   await offerAccounts(ctx, runId);
+
+  const prompt = outputOf<{ readonly rendered?: string }>(steps, 'render-prompt');
+  if (prompt?.rendered !== undefined) ctx.renderedPrompt = prompt.rendered;
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
   if (userMessage !== undefined) {
