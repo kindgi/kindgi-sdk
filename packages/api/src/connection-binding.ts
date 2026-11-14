@@ -42,7 +42,8 @@ export type ConnectionRemovedReason =
   | 'revoked-at-app'
   | 'uninstalled'
   | 'registration-removed'
-  | 'replaced';
+  | 'replaced'
+  | 'owner-removed';
 
 /**
  * What a removal did at the app:

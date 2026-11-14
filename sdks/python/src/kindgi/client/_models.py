@@ -12351,7 +12351,12 @@ class Connection(BaseModel):
     removed_reason: Annotated[
         Annotated[
             Literal[
-                "disconnected", "revoked-at-app", "uninstalled", "registration-removed", "replaced"
+                "disconnected",
+                "revoked-at-app",
+                "uninstalled",
+                "registration-removed",
+                "replaced",
+                "owner-removed",
             ]
             | str,
             _open.OPEN,
@@ -12359,6 +12364,9 @@ class Connection(BaseModel):
         | None,
         Field(alias="removedReason"),
     ] = None
+    """
+    Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).
+    """
     withdrawn: (
         Annotated[
             Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
@@ -20132,7 +20140,7 @@ class InviteRenewed(BaseModel):
 
 class UnregisterUserResult(BaseModel):
     """
-    A removed person, and what removing them took away (each 0 when they were already removed).
+    A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).
     """
 
     model_config = ConfigDict(
