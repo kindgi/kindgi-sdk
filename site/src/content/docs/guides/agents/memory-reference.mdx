@@ -151,6 +151,10 @@ On `/v1/memory`, a tenant admin reads every fact. Anyone else reads:
 - the facts of every end user and conversation in the projects they may
   write: an app's own key, acting for its users.
 
+Every member of the workspace may read a workspace-wide fact, and so may
+every key, a [key limited to a project](../../../deploy/people-and-keys/#api-keys)
+too, so give a fact meant for one project that project's `projectId`.
+
 A write is checked against the scope it names, and answers
 `403 permission-denied` otherwise.
 
