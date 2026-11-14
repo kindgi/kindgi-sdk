@@ -50,6 +50,8 @@ export const ENV_DEFAULTS = {
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_ACCOUNT_KEY:
     'none: the connections that sign in through Kindgi\'s own Meta app show "Needs a Kindgi account"',
+  KINDGI_LICENSE_REPORT_URL:
+    "`https://access.kindgi.com/v1/report`, also when it's empty: no setting here turns reports off, only a key that doesn't report",
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
   KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
