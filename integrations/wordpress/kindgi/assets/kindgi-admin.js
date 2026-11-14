@@ -36,6 +36,8 @@
     askUrl,
     approvalUrl,
     runUrl,
+    runLink,
+    runAt,
     approvalCard,
     runState,
     waitsFor,
@@ -463,7 +465,8 @@
         { className: 'kindgi-run-body' },
         el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), runState(run)),
         run.summary ? el('p', { className: 'kindgi-run-summary' }, run.summary) : null,
-        waitsFor(run),
+        // Linked to the Inbox for a reviewer only: no one else can open an approval there.
+        waitsFor(run, state.me.reviewerRole !== null),
         run.status === 'failed' ? failedWhy(run) : null,
         run.private === 'orders'
           ? muted(__('What it found shows to people who can edit orders.', 'kindgi'))
@@ -771,7 +774,7 @@
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
-      logItems(messages.messages),
+      logItems(messages.messages, messages.runs ?? []),
       approval === null ? null : awaits(approval),
     );
     // Mail that started it: its thread's subject heads the page.
@@ -1132,16 +1135,17 @@
    * The conversation's messages as the page lists them: words, mail, and
    * the tools the agent used, each tool's answer folded under its step.
    */
-  function logItems(messages) {
+  function logItems(messages, runs) {
     const items = [];
     // The steps still without their answer, by the call each makes.
     const open = new Map();
+    const linked = replyRuns(messages, runs);
     for (const m of messages) {
       if (m.role === 'tool') {
         placeAnswer(m, open, items);
         continue;
       }
-      const item = message(m);
+      const item = message(m, linked.get(m));
       if (item === null) continue;
       items.push(item);
       for (const step of item.querySelectorAll('[data-call]')) open.set(step.dataset.call, step);
@@ -1207,8 +1211,26 @@
           calls.map((call) => stepOf(call.name, call.id)),
         );
 
-  /** One message: the person's words or the mail that started the turn, the agent's words, and its steps. */
-  function message(m) {
+  /**
+   * Which of the agent's words link their run on Activity: in each run the
+   * page read (the conversation's `runs`), its last words (`runAt`). A run
+   * past the page's links none.
+   */
+  function replyRuns(messages, runs) {
+    const last = new Map();
+    for (const m of messages) {
+      if (m.role !== 'agent' || m.text === '') continue;
+      const run = runAt(m.createdAt, runs);
+      if (run !== null) last.set(run.id, m);
+    }
+    return new Map([...last].map(([runId, m]) => [m, runId]));
+  }
+
+  /**
+   * One message: the person's words or the mail that started the turn, the
+   * agent's words, and its steps; the last of a run's words with its run.
+   */
+  function message(m, runId) {
     if (m.role !== 'user' && m.role !== 'agent') return null;
     if (m.mail) return mailTurn(m.mail);
     const steps = stepsOf(m.calls);
@@ -1219,6 +1241,7 @@
       { className: `kindgi-message kindgi-${m.role}` },
       m.role === 'agent' ? rich(m.text) : m.text,
       steps,
+      runId === undefined ? null : el('p', { className: 'kindgi-on-activity' }, runLink(runId)),
     );
   }
 
@@ -1344,7 +1367,13 @@
       ),
       __('Working on it…', 'kindgi'),
     );
-    progress.replaceChildren(working, steps, waits);
+    // The turn's run on Activity, from its start: the conversation links it at its words once it ends.
+    progress.replaceChildren(
+      working,
+      steps,
+      waits,
+      el('p', { className: 'kindgi-on-activity' }, runLink(runId)),
+    );
     for (;;) {
       await visible();
       if (view !== state.view) return null;
@@ -1357,7 +1386,7 @@
           el('li', {}, stepWords(step.toolId).line),
         ),
       );
-      showWaits(waits, shown, run.waitingFor);
+      showWaits(waits, shown, run.waitingFor, runId);
       // Waiting for a person: the approval's box says so, not the dots.
       working.hidden = run.status === 'suspended';
       if (hasEnded(run, progress)) {
@@ -1384,7 +1413,7 @@
     status === 'suspended' ? Math.min(Math.max(delay * 2, 3000), 30_000) : pollMs;
 
   /** The turn's waits: a new one gets its box once, a gone one loses it, the rest stay as they are. */
-  function showWaits(container, shown, waiting) {
+  function showWaits(container, shown, waiting, runId) {
     const ids = new Set(waiting.map((w) => w.approvalId));
     for (const [id, box] of shown) {
       if (ids.has(id)) continue;
@@ -1393,14 +1422,18 @@
     }
     for (const wait of waiting) {
       if (shown.has(wait.approvalId)) continue;
-      const box = waitFor(wait);
+      const box = waitFor(wait, runId);
       shown.set(wait.approvalId, box);
       container.append(box);
     }
   }
 
-  /** A wait in a turn: for a reviewer, the approval's card; for anyone else, what it waits for. */
-  function waitFor(wait) {
+  /**
+   * A wait in a turn: for a reviewer, the approval's card; for anyone else,
+   * what it waits for. The turn's line already links its run (`runId`), so
+   * the card links only another run.
+   */
+  function waitFor(wait, runId) {
     const box = el(
       'div',
       { className: 'kindgi-wait' },
@@ -1410,7 +1443,9 @@
     if (state.me.reviewerRole !== null) {
       // The turn's own polling shows what happens after a decision.
       api(`/approvals/${encodeURIComponent(wait.approvalId)}`)
-        .then((card) => box.replaceChildren(approvalCard(card, { inConversation: true })))
+        .then((card) =>
+          box.replaceChildren(approvalCard(card, { inConversation: true, linked: runId })),
+        )
         .catch((error) => box.append(notice(error)));
     }
     return box;
