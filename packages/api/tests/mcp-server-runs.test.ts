@@ -13,6 +13,7 @@
 import { Hono } from 'hono';
 import { describe, expect, test, vi } from 'vitest';
 
+import { noopLogger } from '@kindgi/log';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type { TenantId, UserId } from '@kindgi/types';
 
@@ -176,6 +177,7 @@ function harness(options: HarnessOptions = {}) {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
     c.set('requestId', 'req-test');
+    c.set('log', noopLogger);
     await next();
   });
   app.use('/v1/*', async (c, next) => {
@@ -627,6 +629,30 @@ describe('/mcp: running an agent', () => {
       status: 'completed',
       answer: JSON.stringify({ filed: true }, null, 2),
     });
+  });
+});
+
+describe('/mcp: the run tools at 2026-07-28', () => {
+  test('an agent tool starts its run, and run_state reads one', async () => {
+    const starting = harness({
+      runs: [agentRun(), completed({ response: { content: 'Clause 4 differs.' } })],
+    });
+    const started = await starting.rpc('chat-run', 'tools/call', callClauses, '2026-07-28');
+    expect(starting.seen.find((s) => s.method === 'POST')?.path).toBe('/v1/runs');
+    expect(started.body.result.structuredContent).toMatchObject({
+      runId: RUN_ID,
+      status: 'completed',
+      answer: 'Clause 4 differs.',
+    });
+
+    const reading = harness();
+    const { body } = await reading.rpc(
+      'chat-read',
+      'tools/call',
+      { name: 'kindgi.run_state', arguments: { runId: RUN_ID } },
+      '2026-07-28',
+    );
+    expect(body.result.structuredContent).toMatchObject({ runId: RUN_ID, status: 'completed' });
   });
 });
 
