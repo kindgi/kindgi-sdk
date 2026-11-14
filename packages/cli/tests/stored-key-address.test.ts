@@ -60,14 +60,18 @@ interface Sent {
   readonly authorization: string | null;
 }
 
-/** The CLI, with a fetch that answers 200 and keeps each request's URL and Authorization. */
-async function cli(argv: readonly string[], env: Record<string, string> = {}) {
+/**
+ * The CLI, with a fetch that answers 200 and keeps each request's URL and
+ * Authorization; `stdin` is what `--token-stdin` reads.
+ */
+async function cli(argv: readonly string[], env: Record<string, string> = {}, stdin?: string) {
   const sent: Sent[] = [];
   const out = await runCli({
     argv,
     env,
     cwd,
     home,
+    ...(stdin !== undefined && { authLoginSeam: { readStdin: async () => stdin } }),
     fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
       sent.push({
         url: String(input),
@@ -159,7 +163,7 @@ describe('a stored key for another address is refused before anything is sent', 
       expect(out.exitCode).toBe(1);
       expect(out.sent).toEqual([]);
       expect(out.stderr).toContain(
-        `kindgi auth whoami would send the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+        `kindgi auth whoami would send the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
       );
       printsNoKey(out);
     },
@@ -260,7 +264,7 @@ describe('kindgi auth login saves a stored key only for its own address', () => 
       const out = await cli(['auth', 'login', ...flags], env);
       expect(out.exitCode).toBe(2);
       expect(out.stderr).toContain(
-        `kindgi auth login would save the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, as ${OTHER}'s key. A stored key goes only to its own address: give ${OTHER}'s key with --token or KINDGI_API_TOKEN.`,
+        `kindgi auth login would save the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, as ${OTHER}'s key. A stored key goes only to its own address: give ${OTHER}'s key with --token-stdin, --token or KINDGI_API_TOKEN.`,
       );
       expect(await readFile(homeFile(), 'utf8')).toBe(before);
       printsNoKey(out);
@@ -292,7 +296,7 @@ describe('kindgi auth login saves a stored key only for its own address', () => 
 
 describe("kindgi auth login keeps another address's login unless --force", () => {
   const kept = (other: string, whose: string) =>
-    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, skip the login: set KINDGI_API_URL and KINDGI_API_TOKEN to ${other} and its key in the shell you use it from.\nTo replace it, run again with --force.\n`;
+    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, save ${other}'s login as a profile: \`kindgi auth login --profile <name> --url ${other} --token-stdin\`, with its key on stdin.\nTo replace it, run again with --force.\n`;
 
   test.each([
     ['--token', [`--token=${GIVEN_KEY}`], {}],
@@ -374,7 +378,30 @@ describe("kindgi auth login keeps another address's login unless --force", () =>
     });
   });
 
-  test('the way out it names: KINDGI_API_URL and KINDGI_API_TOKEN, with the home login kept', async () => {
+  test('the way out it names: a profile, with the home login kept', async () => {
+    await signedIn();
+    const saved = await cli(
+      ['auth', 'login', '--profile', 'other', `--url=${OTHER}`, '--token-stdin'],
+      {},
+      `${GIVEN_KEY}\n`,
+    );
+    expect(saved.exitCode, saved.stderr).toBe(0);
+    expect(saved.stderr).toBe('');
+    const out = await cli(['auth', 'whoami', '--profile', 'other']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.sent).toEqual([
+      { url: `${OTHER}/v1/identity/whoami`, authorization: `Bearer ${GIVEN_KEY}` },
+    ]);
+    expect(JSON.parse(await readFile(homeFile(), 'utf8'))).toEqual({
+      apiUrl: SIGNED_IN,
+      token: HOME_KEY,
+      profiles: { other: { apiUrl: OTHER, token: GIVEN_KEY } },
+    });
+    printsNoKey(saved);
+    printsNoKey(out);
+  });
+
+  test('the env pair still works for one shell, with the home login kept', async () => {
     await signedIn();
     const out = await cli(['auth', 'whoami'], {
       KINDGI_API_URL: OTHER,

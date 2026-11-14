@@ -3,10 +3,10 @@
 
 import { type KindgiClient, createClient } from '@kindgi/client';
 
-import { ownAddressKeyRefusal } from './api-address.js';
+import { ownAddressKeyRefusal, profileNamesFor } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
 import type { ApprovalWaitSeam } from './commands/approval-wait.js';
-import type { RegistryAuthSeam } from './commands/auth.js';
+import type { AuthLoginSeam, RegistryAuthSeam } from './commands/auth.js';
 import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
@@ -181,6 +181,11 @@ export interface CommandContext {
    */
   readonly registryAuthSeam: RegistryAuthSeam | undefined;
   /**
+   * The stdin reader for `kindgi auth login --token-stdin`. Tests pass a
+   * fixture; production leaves this undefined (the real stdin).
+   */
+  readonly authLoginSeam: AuthLoginSeam | undefined;
+  /**
    * `kindgi init`'s read of the host's pnpm version (`pnpm --version` in
    * the new pack). Tests inject it; production leaves it undefined.
    */
@@ -247,6 +252,7 @@ export interface BuildContextInputs {
   readonly secretsInputSeam?: SecretsValueInputSeam;
   readonly envInitInputSeam?: EnvInitInputSeam;
   readonly registryAuthSeam?: RegistryAuthSeam;
+  readonly authLoginSeam?: AuthLoginSeam;
   readonly initSeam?: InitSeam;
   readonly doctorSeam?: DoctorSeam;
   readonly openUrl?: OpenUrl;
@@ -256,22 +262,51 @@ export interface BuildContextInputs {
   readonly approvalWaitSeam?: ApprovalWaitSeam;
 }
 
+/**
+ * No key for the command. Without a profile named, the profiles that hold
+ * a key for its address are named: a profile's key is reached only by its
+ * name.
+ */
+function tokenNotConfigured(config: ResolvedConfig): string {
+  const unset =
+    'API token not configured. Set KINDGI_API_TOKEN, pass --token=..., or run `kindgi auth login`.';
+  const url = config.apiUrl;
+  if (url === undefined || config.profile !== undefined) return unset;
+  const names = profileNamesFor(config, url);
+  if (names.length === 0) return unset;
+  const holders =
+    names.length === 1
+      ? `The profile ${names[0]} holds`
+      : `The profiles ${names.join(' and ')} hold`;
+  return `${unset} ${holders} a key for ${url}: add ${names.map((name) => `--profile ${name}`).join(' or ')}.`;
+}
+
+/**
+ * No address is set. With none named, the usable profiles are named: a
+ * file that holds only profiles is the likely slip.
+ */
+function urlNotConfigured(config: ResolvedConfig): string {
+  const unset =
+    'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.';
+  if (config.profile !== undefined) return unset;
+  const names = (config.profiles ?? []).filter((p) => p.problem === undefined).map((p) => p.name);
+  if (names.length === 0) return unset;
+  const saved =
+    names.length === 1
+      ? `The profile ${names[0]} is saved`
+      : `The profiles ${names.join(' and ')} are saved`;
+  return `${unset} ${saved}: add ${names.map((name) => `--profile ${name}`).join(' or ')}.`;
+}
+
 export function buildContext(inputs: BuildContextInputs): CommandContext {
   const apiUrl = (): string => {
     if (inputs.config.apiUrl === undefined) {
-      throw new Error(
-        inputs.noAddress ??
-          'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.',
-      );
+      throw new Error(inputs.noAddress ?? urlNotConfigured(inputs.config));
     }
     return inputs.config.apiUrl;
   };
   const token = (): string => {
-    if (inputs.config.token === undefined) {
-      throw new Error(
-        'API token not configured. Set KINDGI_API_TOKEN, pass --token=..., or run `kindgi auth login`.',
-      );
-    }
+    if (inputs.config.token === undefined) throw new Error(tokenNotConfigured(inputs.config));
     // A stored key goes only to the address stored with it.
     const refusal = ownAddressKeyRefusal(inputs.commandLabel ?? 'kindgi', inputs.config);
     if (refusal !== undefined) throw new Error(refusal);
@@ -311,6 +346,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     secretsInputSeam: inputs.secretsInputSeam,
     envInitInputSeam: inputs.envInitInputSeam,
     registryAuthSeam: inputs.registryAuthSeam,
+    authLoginSeam: inputs.authLoginSeam,
     initSeam: inputs.initSeam,
     doctorSeam: inputs.doctorSeam,
     openUrl: inputs.openUrl,
