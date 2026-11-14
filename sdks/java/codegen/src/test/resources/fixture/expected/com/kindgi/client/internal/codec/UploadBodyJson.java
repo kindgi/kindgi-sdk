@@ -18,6 +18,7 @@ final class UploadBodyJson {
 
     static void register(SimpleModule module) {
         module.setMixInAnnotation(UploadBody.class, UploadBodyMixIn.class);
+        TextValues.register(module, UploadBody.Visibility.class, UploadBody.Visibility::of, UploadBody.Visibility::asString);
     }
 
     abstract static class UploadBodyMixIn {
@@ -29,5 +30,8 @@ final class UploadBodyJson {
 
         @JsonProperty("ownerId")
         abstract UUID ownerId();
+
+        @JsonProperty("visibility")
+        abstract UploadBody.Visibility visibility();
     }
 }

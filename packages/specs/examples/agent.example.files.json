@@ -1,0 +1,11 @@
+{
+  "id": "acme.notes-editor",
+  "version": "1.0.0",
+  "name": "Notes editor",
+  "instructions": "Keep the meeting notes the run has up to date. Read a file before you change it, and name the version you read.",
+  "capabilities": [{ "needs": [{ "feature": "tool-use" }] }],
+  "tools": [],
+  "retrieval": [],
+  "guardrails": [],
+  "files": { "update": true, "create": true }
+}

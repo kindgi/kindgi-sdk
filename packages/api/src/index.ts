@@ -434,9 +434,28 @@ export type {
   BlobPutInput,
   BlobRead,
   BlobStorageBinding,
+  FileCreateInput,
+  FileDeleteOutcome,
+  FileError,
+  FileFilter,
+  FileListPage,
+  FilePin,
+  FilePinChange,
+  FilePinChangePage,
+  FilePinInput,
+  FileRestoreInput,
+  FileVersion,
+  FileVersionAddInput,
+  FileVersionMadeVia,
+  FileVersionPage,
+  FileVersionRead,
+  FileVersionSelector,
+  FileVersionsBinding,
+  FileVersionWrite,
   MultipartInitiateInput,
   MultipartListPartsPage,
   S3ListPage,
+  StoredFile,
 } from '@kindgi/blob-binding';
 export type { S3Credential, S3CredentialBinding } from './s3-credential-binding.js';
 export {
@@ -481,6 +500,8 @@ export type {
   ToolFilesBinding,
   ToolFileStoreInput,
   ToolFilesRefusal,
+  ToolFileUpdateAnswer,
+  ToolFileUpdateInput,
 } from './tool-files-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {

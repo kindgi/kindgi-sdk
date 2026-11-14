@@ -557,6 +557,43 @@ export const CLI_DEFAULTS = {
   'exports verify': {
     trust: "none (checks against the export's own key only)",
   },
+  'files list': {
+    'content-type': 'none',
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+    run: 'none',
+  },
+  'files versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'files download': {
+    o: "the version's own name, in the current directory",
+  },
+  'files upload': {
+    'content-type': "from the file's extension, else `application/octet-stream`",
+    'expected-version': 'none: the last write wins',
+    name: "the file's name; with `--to`, Latest's",
+    project:
+      "with `--run`, the run's project; else the project your API key is limited to; else the workspace's default project",
+    run: 'none',
+    tag: 'none',
+    to: 'none: version 1 of a file',
+  },
+  'files restore': {
+    'expected-version': 'none: the last write wins',
+  },
+  'files pin': {
+    reason: 'none',
+  },
+  'files unpin': {
+    reason: 'none',
+  },
+  'files pin-history': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
   'artifacts list': {
     'content-type': 'none',
     cursor: 'none',
@@ -567,7 +604,8 @@ export const CLI_DEFAULTS = {
   'artifacts upload': {
     'content-type': '`application/octet-stream`',
     name: "the file's name",
-    project: "with `--run`, the run's project; else the workspace's default project",
+    project:
+      "with `--run`, the run's project; else the project your API key is limited to; else the workspace's default project",
     run: 'none',
     tag: 'none',
   },
@@ -1253,6 +1291,41 @@ export const GLOBAL_FLAG_DEFAULTS = {
  * then the line. The guides' own lines are added after these.
  */
 export const CLI_EXAMPLES = {
+  'artifacts list': [
+    {
+      purpose:
+        'The artifacts one run produced. `kindgi files list` takes its place, with the same flags; 0.8.0 removes `kindgi artifacts`.',
+      line: 'kindgi artifacts list --run=<run-id> --table',
+    },
+  ],
+  'artifacts get': [
+    {
+      purpose:
+        "An artifact's name, type, size and sha256. `kindgi files get <file-id> <version>` takes its place: the id an upload answered is the file's id, at version 1.",
+      line: 'kindgi artifacts get <blob-id>',
+    },
+  ],
+  'artifacts upload': [
+    {
+      purpose:
+        "Keep a run's report. `kindgi files upload` takes its place, and takes the type from the file's extension.",
+      line: 'kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf',
+    },
+  ],
+  'artifacts download': [
+    {
+      purpose:
+        "Save an artifact's bytes to a file. `kindgi files download <file-id> <version>` takes its place, with the same flags.",
+      line: 'kindgi artifacts download <blob-id> -o report.pdf',
+    },
+  ],
+  'artifacts delete': [
+    {
+      purpose:
+        'Delete an artifact. `kindgi files delete <file-id> <version>` takes its place, and deletes that version only.',
+      line: 'kindgi artifacts delete <blob-id>',
+    },
+  ],
   'auth login': [
     {
       purpose:
@@ -1751,6 +1824,73 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Finish an export that stopped part way: the kinds already written are kept.',
       line: 'kindgi exports create --out ./acme-export --resume',
+    },
+  ],
+  'files list': [
+    {
+      purpose: 'List the files one run made, as a table.',
+      line: 'kindgi files list --run=<run-id> --table',
+    },
+  ],
+  'files get': [
+    {
+      purpose:
+        "Show a file and its Latest version; add a version number for that version's details.",
+      line: 'kindgi files get <file-id>',
+    },
+  ],
+  'files download': [
+    {
+      purpose: "Save a file's version 2 under a name you pick.",
+      line: 'kindgi files download <file-id> 2 -o report-v2.pdf',
+    },
+  ],
+  'files upload': [
+    {
+      purpose: 'Keep a file in a project: it becomes version 1 of a file.',
+      line: 'kindgi files upload ./report.pdf --project=<project-id>',
+    },
+    {
+      purpose: 'Add a version to that file, unless someone added one after version 1.',
+      line: 'kindgi files upload ./report.pdf --to=<file-id> --expected-version=1',
+    },
+  ],
+  'files delete': [
+    {
+      purpose: "Delete a file's version 1, without being asked first.",
+      line: 'kindgi files delete <file-id> 1 --yes',
+    },
+  ],
+  'files versions': [
+    {
+      purpose:
+        "List a file's versions as a table, with which one is Latest, and which are deleted or pinned.",
+      line: 'kindgi files versions <file-id> --table',
+    },
+  ],
+  'files restore': [
+    {
+      purpose:
+        "Make version 2's bytes Latest again, as a version of its own, unless someone added a version after 5.",
+      line: 'kindgi files restore <file-id> 2 --expected-version=5',
+    },
+  ],
+  'files pin': [
+    {
+      purpose: "Keep version 3: it can't be deleted, and retention keeps it.",
+      line: 'kindgi files pin <file-id> 3 --reason="signed by the client"',
+    },
+  ],
+  'files unpin': [
+    {
+      purpose: "Take version 3's pin off, saying why.",
+      line: 'kindgi files unpin <file-id> 3 --reason="superseded by version 5"',
+    },
+  ],
+  'files pin-history': [
+    {
+      purpose: "See every pin and unpin of a file's versions, newest first.",
+      line: 'kindgi files pin-history <file-id> --table',
     },
   ],
   'memory facts retrieve': [
@@ -2788,6 +2928,7 @@ export const CLI_EXAMPLES = {
 
 /** "See also" for a command group that no guide runs: page slugs. */
 export const CLI_GROUP_SEE_ALSO = {
+  artifacts: ['concepts/files-and-versions', 'guides/runs/keep-files-with-a-run'],
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/self-hosted/sign-in', 'start/introduction'],
@@ -2813,4 +2954,5 @@ export const CLI_GROUP_SEE_ALSO = {
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
   'queue-rules': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
   'expert-queue': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
+  files: ['guides/runs/keep-files-with-a-run', 'deploy/self-hosted/store-files'],
 };

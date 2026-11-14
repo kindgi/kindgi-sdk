@@ -88,6 +88,7 @@ Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs;
 | Fact | `FactId` |
 | Log entry | `LogEntryId` |
 | Artifact (agent output) | `ArtifactId` |
+| File with versions | `FileId` |
 | Provenance DAG | `ProvenanceId` |
 | Event subscription | `SubscriptionId` |
 | Approval request | `ApprovalId` |

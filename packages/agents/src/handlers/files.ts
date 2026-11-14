@@ -12,7 +12,16 @@ import {
   filesForCall,
   isReadable,
 } from '@kindgi/capabilities';
-import type { FileReadAnswer, FileStore, FileStoreAnswer, FileToStore, Tool } from '@kindgi/tools';
+import type { ProvenanceFileVersion } from '@kindgi/provenance';
+import type {
+  FileReadAnswer,
+  FileStore,
+  FileStoreAnswer,
+  FileToStore,
+  FileToUpdate,
+  FileUpdateAnswer,
+  Tool,
+} from '@kindgi/tools';
 import { type FileValue, isFileValue } from '@kindgi/types';
 
 import type { Agent } from '../types.js';
@@ -42,6 +51,16 @@ export interface FileBinding {
    * never from the value. `notShown: 'gone'` when the file is deleted, or
    * `'changed'` when the value's sha256 isn't the record's. `undefined` when
    * the rule doesn't let the turn show it: the value stays plain JSON.
+   *
+   * A value that names a `fileId` and `version` (on a runtime that keeps
+   * file versions) is admitted only when the record says they're its
+   * `artifactId`'s bytes, and the file carries them, from the record; when
+   * it doesn't, or the value names only one of them, the answer is
+   * `undefined`. A deleted version, or a version of a deleted file, is
+   * `notShown: 'gone'`, as a deleted file is, while the runtime has a
+   * record of it; with none left (a file from before file versions, once
+   * its record is purged), `undefined`. A value that names neither carries
+   * neither, as a value from before file versions.
    *
    * Without `call`, that's all: the answer is kept, as the turn's input, a
    * tool's result or a message's files. With `call`, it's one model call's
@@ -83,6 +102,48 @@ export interface FileBinding {
    */
   readSource(artifactId: string, signal?: AbortSignal): Promise<FileReadAnswer>;
   /**
+   * Add a version to a file of the run's, for a tool's call that updates
+   * files (`Tool.updatesFiles`) or the model's `kindgi_update_file`. The
+   * runtime answers in this order:
+   *   1. `notUpdated: 'rule'`: the run-files rule doesn't let the turn show
+   *      a file of that id (no file of the run's root run or its
+   *      conversation), or the id isn't one;
+   *   2. `notUpdated: 'denied'`: the run's principal has no `write` where
+   *      the file is (its project, or the tenant for a file with no
+   *      project), as the API's add-version route asks. `authorizeToolCall`
+   *      checks `invoke` on the tool, not this;
+   *   3. `notUpdated: 'gone'`: the file is deleted;
+   *   4. `notUpdated: 'size'` for bytes past `MAX_STORED_FILE_BYTES`;
+   *   5. for the same bytes again under the same `callKey`, a re-run of
+   *      the call included: the first version, even after Latest moved;
+   *   6. `conflict` (Latest), when Latest isn't `expectedVersion`;
+   *   7. `same` (Latest), when the bytes are Latest's;
+   *   8. `notUpdated: 'type'`, then `'size'` for the type, then `'storage'`.
+   * The new version keeps Latest's tags, records the run, the call and
+   * who made it (`model` for `kindgi_update_file`'s `toolId`, `tool` for
+   * any other), and is listed among the run's files, so later turns pass
+   * the rule through it. Updates have no count per call. Absent: no tool
+   * or model call updates files.
+   */
+  update?(
+    call: { readonly callKey: string; readonly toolId: string },
+    file: FileToUpdate,
+  ): Promise<FileUpdateAnswer>;
+  /**
+   * Make version 1 of a new file the run owns, for the model's
+   * `kindgi_create_file` only (a tool stores with `store`). The runtime
+   * checks `write` where the file goes first, the run's project, or the
+   * tenant for a run with no project (`notCreated: 'denied'`), then
+   * stores it as `store` does: under `callKey`, so a retry answers the
+   * same file, counted with the call's stores, and checked for `type`,
+   * `size` and `storage`. The version records `model`. Absent: the model
+   * isn't offered `kindgi_create_file`.
+   */
+  create?(
+    call: { readonly callKey: string; readonly toolId: string },
+    file: FileToStore,
+  ): Promise<FileCreateAnswer>;
+  /**
    * A call that carried these files answered: its model was shown them.
    * That only decides which files a later `refuse` marks. Marking one
    * already marked changes nothing.
@@ -107,7 +168,37 @@ export interface FileBinding {
    * later call shows them again. Absent: a call holds nothing.
    */
   hold?(files: readonly MessageFile[], signal: AbortSignal): Promise<FileHold | undefined>;
+  /**
+   * The file versions the run took or made, oldest first, for its
+   * provenance record: one `artifact` node each. Asked once, when the
+   * record is persisted. Absent: the record has no file versions' nodes.
+   */
+  versions?(): Promise<readonly RunFileVersion[]>;
 }
+
+/** A file version a run took or made, as its record is handed it (`FileBinding.versions`). */
+export interface RunFileVersion extends ProvenanceFileVersion {
+  /**
+   * The `idempotencyKey` of the call that made the version or was given
+   * it: the call's node in the record. Absent for an input.
+   */
+  readonly callKey?: string;
+}
+
+/**
+ * Why the model's `kindgi_create_file` made no file (`FileBinding.create`):
+ * `denied` (no `write` where the file would go), `type`, `size` or
+ * `storage`, as a store says them. A set of its own, so a store's
+ * `notStored` never gains a value.
+ */
+export const FILE_NOT_CREATED_REASONS = ['denied', 'type', 'size', 'storage'] as const;
+
+export type FileNotCreatedReason = (typeof FILE_NOT_CREATED_REASONS)[number];
+
+/** What `FileBinding.create` answers: the new file, or why there's none. */
+export type FileCreateAnswer =
+  | { readonly file: FileValue }
+  | { readonly notCreated: FileNotCreatedReason };
 
 /** A model call's room for its files (`FileBinding.hold`). Released once. */
 export interface FileHold {
@@ -116,17 +207,21 @@ export interface FileHold {
 
 /**
  * The call's files (`ToolContext.files`), for a tool that runs in this
- * process, with only what it declares: `store` (`storesFiles`) on a call
- * with an idempotency key, which the dedupe and the count go by, and
- * `read` (`readsFiles`). None when it declares neither, or with no
- * binding: a file the tool fetches is then `notShown: 'store'`. A pack's
- * own code and an MCP tool run elsewhere: their runner gets the call's
- * files, if any, from the runtime. A read passes on `signal`, the call's
- * (`FileBinding.readSource`).
+ * process, with only what it declares: `store` (`storesFiles`) and
+ * `update` (`updatesFiles`, when the binding has one) on a call with an
+ * idempotency key, which the dedupe and the count go by, and `read`
+ * (`readsFiles`). None when it declares none of them, or with no binding:
+ * a file the tool fetches is then `notShown: 'store'`. A pack's own code
+ * and an MCP tool run elsewhere: their runner gets the call's files, if
+ * any, from the runtime. A read passes on `signal`, the call's
+ * (`FileBinding.readSource`). `create` is the model's, never a tool's.
  */
 export function callFileStore(
   files: FileBinding | undefined,
-  tool: Pick<Tool, 'id' | 'storesFiles' | 'readsFiles' | 'codeArtifactRef' | 'transport'>,
+  tool: Pick<
+    Tool,
+    'id' | 'storesFiles' | 'readsFiles' | 'updatesFiles' | 'codeArtifactRef' | 'transport'
+  >,
   callKey: string | undefined,
   signal?: AbortSignal,
 ): FileStore | undefined {
@@ -134,14 +229,16 @@ export function callFileStore(
     return undefined;
   }
   const call =
-    tool.storesFiles === true && callKey !== undefined
-      ? { callKey, toolId: tool.id as unknown as string }
-      : undefined;
+    callKey !== undefined ? { callKey, toolId: tool.id as unknown as string } : undefined;
+  const stores = tool.storesFiles === true && call !== undefined;
+  const update = files.update;
+  const updates = tool.updatesFiles === true && call !== undefined && update !== undefined;
   const reads = tool.readsFiles === true;
-  if (call === undefined && !reads) return undefined;
+  if (!stores && !updates && !reads) return undefined;
   return Object.freeze({
-    ...(call !== undefined && { store: (file: FileToStore) => files.store(call, file) }),
+    ...(stores && { store: (file: FileToStore) => files.store(call, file) }),
     ...(reads && { read: (artifactId: string) => files.readSource(artifactId, signal) }),
+    ...(updates && { update: (file: FileToUpdate) => update.call(files, call, file) }),
   });
 }
 
@@ -392,11 +489,16 @@ function hasFilesField(
   );
 }
 
-/** A kept file value as the file a model message carries: a file's fields only. */
+/**
+ * A kept file value as the file a model message carries: a file's fields
+ * only, its `fileId` and `version` with them, so the model's line names the
+ * version it's shown.
+ */
 export function asMessageFile(value: Omit<FileValue, 'type'>): MessageFile {
-  const { artifactId, name, contentType, size, sha256, pages, notShown } = value;
+  const { artifactId, fileId, version, name, contentType, size, sha256, pages, notShown } = value;
   return {
     artifactId,
+    ...(fileId !== undefined && version !== undefined && { fileId, version }),
     ...(name !== undefined && { name }),
     contentType,
     size,

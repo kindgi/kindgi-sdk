@@ -448,6 +448,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_LICENSE_REPORT_URL',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. Where the server sends its daily license report. Default `https://access.kindgi.com/v1/report`; `https` only. The report honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`. No setting turns reports off: only a key that doesn't report does.",
+    example: 'https://access.kindgi.com/v1/report',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_ENV',
     description:
       'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',
@@ -1073,7 +1082,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACTS',
     description:
-      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+      "Where files are kept, which turns on `/v1/files` and `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy, and a deleted or superseded file version under `file_version`'s, when one is set. Unset (the default): no `/v1/files` or `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`. 0.8.0 renames it `KINDGI_FILES`, and doesn't start with this name set.",
     example: 'gcs:acme-artifacts/prod',
     required: false,
     appliesTo: appliesToServer,
@@ -1082,7 +1091,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACT_MAX_BYTES',
     description:
-      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MiB).',
+      "The most bytes one upload may carry, the whole request body; more is `413 file-too-large` on `/v1/files` and `413 artifact-too-large` on `/v1/artifacts`. Default 104857600 (100 MiB). 0.8.0 renames it `KINDGI_FILE_MAX_BYTES`, and doesn't start with this name set.",
     example: '104857600',
     required: false,
     appliesTo: appliesToServer,
@@ -1102,6 +1111,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "Used from runtime 0.7.0; earlier runtimes ignore it. The most files one person may upload that way in 24 hours, counted as `KINDGI_RUN_UPLOAD_DAILY_BYTES` counts bytes. Default 1000: a whole number from 1, or `off`. With both `off`, only each upload's size is limited.",
     example: '1000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_UNUSED_UPLOAD_TTL_MS',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. How long an upload made for a run (`forRun`) is kept when no run that names it in its input starts, in milliseconds, from 1 to 315360000000 (ten years). Past it, the upload is deleted; its `expiresAt` says when. Once such a run starts, the file stays until it's deleted. Default 86400000 (24 hours). Any other value stops the server at startup, naming the setting.",
+    example: '86400000',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

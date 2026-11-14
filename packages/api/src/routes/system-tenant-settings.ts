@@ -41,6 +41,11 @@ export interface SystemTenantSettingsBinding {
 export interface TenantLimitsInUse {
   /** The tenant's projects in production. */
   readonly projectsInProduction: number;
+  /**
+   * The bytes the tenant's files take, with the uploads under way, from a
+   * runtime that counts them: what `storageMiB` is checked against.
+   */
+  readonly storageUsedBytes?: number;
 }
 
 /** The limits `PUT …/limits` takes: each a whole number from 1 to this. */
@@ -55,6 +60,7 @@ export const TENANT_LIMIT_NAMES = [
   'toolCallsInFlight',
   'approvalsPending',
   'projectsInProduction',
+  'storageMiB',
 ] as const satisfies readonly (keyof TenantLimits)[];
 
 /**
@@ -68,7 +74,8 @@ export const TENANT_LIMIT_NAMES = [
  *   limits as stored, `{ tenantId, limits }`, the shape `PUT` takes, so a
  *   change of one is read, changed and put back. A limit not set is
  *   absent. With a runtime that counts it, `inUse` says how much of each
- *   counted limit the tenant uses now (`projectsInProduction`).
+ *   counted limit the tenant uses now (`projectsInProduction`, and
+ *   `storageUsedBytes` from one that counts files).
  * - **`PUT /:tenantId/limits`** `{ apiRequestsPerMinute?, … }`
  *   (`system:tenants:limits`): replaces the tenant's limits with exactly
  *   these. A limit left out isn't set, and isn't enforced. Answers

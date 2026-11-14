@@ -153,6 +153,10 @@ class Tool(Generic[P, R]):
     reads_files: bool = False
     """`True`: each call gets `ctx.files.read`, and the handler may read the bytes of a file
     its run may be shown, by its file value's `artifactId`."""
+    updates_files: bool = False
+    """`True`: each call with an idempotency key gets `ctx.files.update`, and the handler may
+    add a version to a file its run has, given the version it read, and return the new
+    version in its result's top-level `files`."""
     module: str = ""
     _input_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
     _output_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
@@ -193,6 +197,7 @@ def tool(
     pauses: bool = False,
     stores_files: bool = False,
     reads_files: bool = False,
+    updates_files: bool = False,
 ) -> Callable[[Callable[P, R]], Tool[P, R]]:
     """Declare a tool. The handler is `(input)` or `(input, ctx: ToolContext)`, sync or async.
 
@@ -219,6 +224,12 @@ def tool(
     `reads_files=True` lets a call read stored files' bytes, such as a PDF an agent was given:
     `ctx.files.read(artifact_id)` answers the bytes of a file the call's run may be shown, as
     it was stored, or why there are none.
+
+    `updates_files=True` lets a call add a version to a file its run has, such as a sheet it
+    fills in: it sends the new bytes with the version it read, and gets back the new version
+    to return in its result's top-level `files`. When the file's Latest isn't the version it
+    read, it gets Latest back instead. Only a file of the call's run, and only where the run
+    may write.
     """
     annotation_scope = _caller_locals()
 
@@ -270,6 +281,7 @@ def tool(
             pauses=pauses,
             stores_files=stores_files,
             reads_files=reads_files,
+            updates_files=updates_files,
             module=handler.__module__,
             _input_adapter=_adapter(input_type),
             _output_adapter=_adapter(output_type),
@@ -635,6 +647,12 @@ class Agent:
     verified fact of those types an instruction (in the system message); default: every
     retrieved fact is data. `{"remember": {"types": ["preference"], "scope": "same-user",
     "keepDays": 30}}` lets it remember through the built-in `kindgi_remember` tool."""
+    files: Mapping[str, bool] | None = None
+    """Which of its run's files the model may change, text only. `{"update": True}` offers
+    the built-in `kindgi_update_file` tool, a new version of a text file the run has, and
+    `{"create": True}` offers `kindgi_create_file`, a new text file of the run's. Each call
+    changes something, so the agent's approval rules apply, and the run needs `write`
+    where the file is. Absent: neither tool."""
     mcp: Mapping[str, Any] | None = None
     """Whether the agent is a tool in a person's chat app, through the API's MCP server,
     named by its id (which then can't start with `kindgi.` or

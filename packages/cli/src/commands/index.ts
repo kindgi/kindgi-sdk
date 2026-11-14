@@ -26,6 +26,7 @@ import { environmentsCommand } from './environments.js';
 import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
+import { filesCommand } from './files.js';
 import { flowsCommand } from './flows.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
@@ -102,6 +103,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   suggestedChangesCommand,
   provenanceCommand,
   exportsCommand,
+  filesCommand,
   artifactsCommand,
   flowsCommand,
   schedulesCommand,

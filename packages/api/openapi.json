@@ -111,6 +111,10 @@
       "description": "Blob storage (list metadata, multipart upload, streaming download, HEAD, delete). Caller-plugged via `BlobStorageBinding` (from `@kindgi/blob-binding`)."
     },
     {
+      "name": "files",
+      "description": "Files the runtime keeps, with every edit kept as a version: create, read, restore, pin and delete them, by a number or Latest. Served on a runtime that keeps files."
+    },
+    {
       "name": "observations",
       "description": "Supervisor readback of run outcomes."
     },
@@ -379,6 +383,14 @@
           "blob-hash-mismatch": 400,
           "blob-size-mismatch": 400,
           "blob-storage-error": 500,
+          "storage-limit-reached": 403,
+          "artifact-in-file": 409,
+          "file-not-found": 404,
+          "file-version-not-found": 404,
+          "file-version-conflict": 409,
+          "file-version-pinned": 409,
+          "file-last-version": 409,
+          "file-too-large": 413,
           "capability-not-found": 404,
           "provider-not-found": 404,
           "provider-already-registered": 409,
@@ -8260,6 +8272,21 @@
           }
         }
       },
+      "AgentFilesPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Lets the agent's model change its run's files, text only. `update: true` offers the built-in tool `kindgi_update_file`: a new version of a text file the run has, given the version the model read. `create: true` offers `kindgi_create_file`: a new text file of the run's. Built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`. Each call changes something, so the agent's approval rules apply, and the run needs `write` where the file is. A runtime with no file store offers neither. Absent: neither tool.",
+        "properties": {
+          "update": {
+            "type": "boolean",
+            "description": "Offers `kindgi_update_file`. Absent means `false`."
+          },
+          "create": {
+            "type": "boolean",
+            "description": "Offers `kindgi_create_file`. Absent means `false`."
+          }
+        }
+      },
       "McpExposure": {
         "type": "object",
         "additionalProperties": false,
@@ -8468,6 +8495,9 @@
           },
           "memory": {
             "$ref": "#/components/schemas/AgentMemoryPolicy"
+          },
+          "files": {
+            "$ref": "#/components/schemas/AgentFilesPolicy"
           },
           "guardrails": {
             "type": "array",
@@ -8800,6 +8830,9 @@
           "memory": {
             "$ref": "#/components/schemas/AgentMemoryPolicy"
           },
+          "files": {
+            "$ref": "#/components/schemas/AgentFilesPolicy"
+          },
           "guardrails": {
             "type": "array",
             "items": {
@@ -8859,7 +8892,7 @@
           },
           "warnings": {
             "type": "array",
-            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).",
+            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them), `recall-unavailable` (the deployment cannot recall earlier conversations) or `files-unavailable` (the agent declares `files` and the deployment has no file store).",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -9808,6 +9841,10 @@
             "type": "boolean",
             "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
+          "updatesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
           "resultIsOutsideData": {
             "type": "boolean",
             "description": "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`."
@@ -9937,6 +9974,10 @@
           "readsFiles": {
             "type": "boolean",
             "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "updatesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "resultIsOutsideData": {
             "type": "boolean",
@@ -10123,6 +10164,10 @@
           "readsFiles": {
             "type": "boolean",
             "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "updatesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "resultIsOutsideData": {
             "type": "boolean",
@@ -10795,6 +10840,16 @@
             "type": "string",
             "minLength": 1,
             "description": "The stored file (`POST /v1/artifacts`): its `blobId`."
+          },
+          "fileId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The file these bytes are a version of, on a runtime that keeps file versions. Set with `version`: a value is admitted only when the two name `artifactId`'s bytes."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Which version of `fileId` these bytes are. Set with `fileId`."
           },
           "name": {
             "type": "string",
@@ -13787,6 +13842,11 @@
             "type": "string",
             "format": "date-time"
           },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted."
+          },
           "bucket": {
             "type": "string",
             "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
@@ -13794,6 +13854,15 @@
           "key": {
             "type": "string",
             "description": "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one."
+          },
+          "fileId": {
+            "type": "string",
+            "description": "The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them."
           }
         }
       },
@@ -13871,6 +13940,11 @@
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted."
+                },
                 "bucket": {
                   "type": "string",
                   "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
@@ -13878,6 +13952,15 @@
                 "key": {
                   "type": "string",
                   "description": "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one."
+                },
+                "fileId": {
+                  "type": "string",
+                  "description": "The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id."
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them."
                 }
               }
             }
@@ -13892,7 +13975,7 @@
       },
       "UploadArtifactBody": {
         "type": "object",
-        "description": "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).",
+        "description": "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).",
         "required": [
           "file"
         ],
@@ -13923,6 +14006,14 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "description": "Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400)."
+          },
+          "forRun": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "`true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted."
           }
         }
       },
@@ -13940,6 +14031,458 @@
           "deleted": {
             "type": "boolean",
             "description": "`true` on the first delete; `false` on subsequent calls (already gone). 404 only when the id was never known."
+          }
+        }
+      },
+      "FilePin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "by",
+          "at"
+        ],
+        "description": "A version's keep mark: it can't be deleted, and retention never purges it.",
+        "properties": {
+          "by": {
+            "type": "string",
+            "description": "Who pinned it: `user:<id>` or `service_account:<id>`."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "FileVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fileId",
+          "version",
+          "blobId",
+          "name",
+          "contentType",
+          "size",
+          "hash",
+          "tags",
+          "madeVia",
+          "createdAt"
+        ],
+        "description": "One version of a file. Numbers start at 1, only grow, and are never reused. A deleted or purged version keeps its record, so the runs that used it still name it.",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "The file's id: the `blobId` of its version 1's bytes, which names the file through every later version."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "blobId": {
+            "type": "string",
+            "description": "The stored bytes. Two versions of one file can share them."
+          },
+          "name": {
+            "type": "string",
+            "description": "The file's name when this version was made."
+          },
+          "contentType": {
+            "type": "string",
+            "description": "MIME type, as the writer declared it."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "sha256 of the bytes, hex-encoded, lowercase."
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels the writer gave this version."
+          },
+          "parentVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Latest when this version was made. Absent on version 1."
+          },
+          "restoredFrom": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version a restore copied the bytes of."
+          },
+          "madeVia": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "restore",
+              "tool",
+              "model"
+            ],
+            "description": "How it was made: a person's or a key's upload, a restore, a run's tool, or a run's model."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who made it: `user:<id>` or `service_account:<id>`, or `run:<id>` for a run's tool or model."
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run that made it, when one did."
+          },
+          "callKey": {
+            "type": "string",
+            "description": "The run's tool call that made it."
+          },
+          "toolId": {
+            "type": "string",
+            "description": "The tool that made it."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "supersededAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a newer version replaced it as Latest. Absent on Latest: when Latest is deleted, the version that's Latest again has none."
+          },
+          "pin": {
+            "$ref": "#/components/schemas/FilePin"
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "purgedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When retention dropped its bytes (the `file_version` domain). Its number, hash, size and maker stay."
+          }
+        }
+      },
+      "StoredFile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fileId",
+          "tenantId",
+          "name",
+          "latestVersion",
+          "highestVersion",
+          "pinnedVersions",
+          "latest",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "A file the runtime keeps, with every edit as a version, and its Latest: the highest version that isn't deleted.",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "The file's id: the `blobId` of its version 1's bytes, which names the file through every later version."
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project it belongs to. Reading it needs `read` there, or `run` for a file of the caller's own; changing it needs `write`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Its name: Latest's."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who made version 1: `user:<id>` or `service_account:<id>`."
+          },
+          "ownerRunId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run that made version 1, when one did."
+          },
+          "latestVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "highestVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The highest number it has had, deleted versions included."
+          },
+          "pinnedVersions": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Its pinned versions, lowest first."
+          },
+          "latest": {
+            "$ref": "#/components/schemas/FileVersion"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its newest version was made, or its Latest last moved."
+          }
+        }
+      },
+      "StoredFileCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoredFile"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileVersionCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileVersion"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FilePinChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changeId",
+          "fileId",
+          "version",
+          "change",
+          "by",
+          "at"
+        ],
+        "description": "One pin or unpin of a version. Entries are only ever added.",
+        "properties": {
+          "changeId": {
+            "type": "string"
+          },
+          "fileId": {
+            "type": "string",
+            "description": "The file's id: the `blobId` of its version 1's bytes, which names the file through every later version."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "unpin"
+            ]
+          },
+          "by": {
+            "type": "string",
+            "description": "`user:<id>` or `service_account:<id>`."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "FilePinChangeCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FilePinChange"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileVersionWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "created"
+        ],
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/FileVersion"
+          },
+          "created": {
+            "type": "boolean",
+            "description": "`false` when the bytes were already Latest's: no version was added, and `version` is Latest."
+          }
+        }
+      },
+      "CreateFileBody": {
+        "type": "object",
+        "description": "Multipart form. `file` is the byte stream (required); the other fields are optional.",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Its MIME type. Default: the file part's."
+          },
+          "tags": {
+            "type": "string",
+            "description": "JSON-encoded `Record<string, string>`: labels for this version."
+          },
+          "expectedHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Its name. Default: the file part's filename."
+          },
+          "ownerRunId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run that produced it: the file joins that run's project."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the workspace's default project."
+          }
+        }
+      },
+      "AddFileVersionBody": {
+        "type": "object",
+        "description": "Multipart form. `file` is the byte stream (required); the other fields are optional. The version stays in its file's project.",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Its MIME type. Default: the file part's."
+          },
+          "tags": {
+            "type": "string",
+            "description": "JSON-encoded `Record<string, string>`: labels for this version."
+          },
+          "expectedHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`."
+          },
+          "name": {
+            "type": "string",
+            "description": "A new name for the file. Default: Latest's."
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version the writer read. When Latest isn't it, the answer is `409 file-version-conflict` and nothing is written. Without it, the last write wins: it becomes Latest whatever came in between, which stays in the history."
+          }
+        }
+      },
+      "RestoreFileVersionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "As on adding a version: when Latest isn't it, nothing is written."
+          }
+        }
+      },
+      "PinFileVersionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why, kept in the pin history."
+          }
+        }
+      },
+      "DeleteFileResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fileId",
+          "deleted"
+        ],
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version deleted, when one version was."
+          },
+          "deleted": {
+            "type": "boolean",
+            "description": "`true` on the first delete; `false` on later ones (already gone)."
           }
         }
       },
@@ -16056,11 +16599,12 @@
           "provider",
           "memory",
           "conversation",
+          "file_version",
           "api_key",
           "service_account",
           "*"
         ],
-        "description": "The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them."
+        "description": "The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace."
       },
       "RetentionPolicyConflict": {
         "type": "object",
@@ -24320,6 +24864,9 @@
           "limits": {
             "$ref": "#/components/schemas/TenantLimits"
           },
+          "storage": {
+            "$ref": "#/components/schemas/TenantStorage"
+          },
           "egress": {
             "$ref": "#/components/schemas/EgressAddresses"
           }
@@ -24382,6 +24929,11 @@
             "type": "integer",
             "minimum": 1,
             "description": "Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production."
+          },
+          "storageMiB": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file."
           }
         }
       },
@@ -24474,6 +25026,11 @@
             "type": "integer",
             "minimum": 0,
             "description": "The tenant's projects in production."
+          },
+          "storageUsedBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files."
           }
         }
       },
@@ -24678,6 +25235,21 @@
             "type": "string",
             "format": "date-time",
             "description": "When it came to be in that state."
+          }
+        }
+      },
+      "TenantStorage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "usedBytes"
+        ],
+        "description": "What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.",
+        "properties": {
+          "usedBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it."
           }
         }
       },
@@ -26867,7 +27439,69 @@
                   "limit",
                   "storage"
                 ],
-                "description": "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason."
+                "description": "Why nothing was stored: `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason."
+              }
+            }
+          }
+        ]
+      },
+      "ToolFileUpdateAnswer": {
+        "description": "What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "same"
+            ],
+            "properties": {
+              "same": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "conflict"
+            ],
+            "properties": {
+              "conflict": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "notUpdated"
+            ],
+            "properties": {
+              "notUpdated": {
+                "type": "string",
+                "enum": [
+                  "rule",
+                  "denied",
+                  "gone",
+                  "type",
+                  "size",
+                  "storage"
+                ],
+                "description": "Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full)."
               }
             }
           }
@@ -34509,7 +35143,7 @@
             }
           }
         },
-        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, and `storageUsedBytes` from a runtime that counts files), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
         "parameters": [
           {
             "name": "tenantId",
@@ -49637,7 +50271,8 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
+        "description": "Use `files.list`. Removed in 0.8.0.\n\nCursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
+        "deprecated": true,
         "parameters": [
           {
             "name": "limit",
@@ -49713,7 +50348,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
+            "description": "Malformed multipart body, bad tag JSON, a `forRun` that isn't `true` or `false` or comes with `ownerRunId`, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49733,7 +50368,7 @@
             }
           },
           "403": {
-            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
+            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); the caller's API key is limited to another project (`key-project-mismatch`); or the workspace's storage limit has no room for the file (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49803,7 +50438,8 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+        "description": "Use `files.create`. Removed in 0.8.0.\n\nMultipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`, `forRun`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. Such an upload is always `forRun`. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. A `forRun` upload is deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; until one does, `BlobMeta.expiresAt` says when. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
+        "deprecated": true,
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -49891,7 +50527,8 @@
             }
           }
         },
-        "description": "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
+        "description": "Use `files.versions.download`. Removed in 0.8.0.\n\nStreams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
+        "deprecated": true,
         "parameters": [
           {
             "name": "blobId",
@@ -49937,7 +50574,8 @@
             "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`."
           }
         },
-        "description": "Same headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.",
+        "description": "Use `files.versions.get` for the version's record, or a `HEAD` on `files.versions.download`. Removed in 0.8.0.\n\nSame headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.",
+        "deprecated": true,
         "parameters": [
           {
             "name": "blobId",
@@ -50013,7 +50651,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`artifact-in-file`: on a runtime that keeps file versions, the bytes are a pinned version's, or more than one version's (`details.fileId`); delete the version or the file instead. Bytes that are one file's only version delete it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50043,7 +50681,8 @@
             }
           }
         },
-        "description": "Idempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).",
+        "description": "Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.\n\nIdempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).",
+        "deprecated": true,
         "parameters": [
           {
             "name": "blobId",
@@ -50063,6 +50702,1514 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files": {
+      "get": {
+        "operationId": "files.list",
+        "summary": "List files",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredFileCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`ownerRunId` or `projectId` is not an id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, newest change first. Each file with its Latest (no bytes). Deleted files aren't listed. Filters: `?ownerRunId=`, `?projectId=`, `?contentType=` (Latest's, exactly). With authorization on, only files in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too. On a runtime that doesn't keep files, `/v1/files` isn't served (`404 route-not-found`).",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "ownerRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the files whose version 1 this run made."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only one project's files (its id, a UUID)."
+          },
+          {
+            "name": "contentType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only the files whose Latest has this type, exactly."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "files.create",
+        "summary": "Create a file",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "201": {
+            "description": "The file, at version 1.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionWrite"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed multipart body, bad tag JSON, hash mismatch (`blob-hash-mismatch`), declared size mismatch (`blob-size-mismatch`), or a `projectId` that isn't the owner run's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on the project, and no `run` there for a file of the caller's own that names no run (`permission-denied`); the caller's API key is limited to another project (`key-project-mismatch`); or the workspace's storage limit has no room for the file (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such owner run (`run-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the upload cap (`file-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFileBody"
+              },
+              "encoding": {
+                "file": {
+                  "contentType": "application/octet-stream"
+                },
+                "tags": {
+                  "contentType": "application/json"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}": {
+      "get": {
+        "operationId": "files.get",
+        "summary": "Get a file",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "The file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredFile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found`: no such file in this workspace, a deleted one, or one in a project the caller can't read that isn't a file of their own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The file, with its Latest (no bytes). Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "files.delete",
+        "summary": "Delete a file",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "Delete acknowledged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteFileResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found`: no such file in this workspace, or one in a project the caller can't read that isn't a file of their own. A deleted file answers `{ deleted: false }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`file-version-pinned`: a version is pinned (`details.version`, the lowest); unpin it first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deletes the file and every version: a soft delete, kept until a retention policy for `file_version` purges it. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after (already gone). Refused while any version is pinned. Needs `write` on its project.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/versions": {
+      "get": {
+        "operationId": "files.versions.list",
+        "summary": "List a file's versions",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of versions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found`: no such file in this workspace, a deleted one, or one in a project the caller can't read that isn't a file of their own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, newest first. Every version, deleted and purged ones included: a number is never left out of the history. An own file shows all its versions, including ones others added. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "files.versions.add",
+        "summary": "Add a version",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "The bytes were already Latest's: Latest, with `created: false`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionWrite"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The new version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionWrite"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed multipart body, bad tag JSON, an `expectedVersion` that is not a version number, an `ownerRunId` or `projectId` (a version stays in its file's project), hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`), or the workspace's storage limit has no room for the version (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found`: no such file in this workspace, a deleted one, or one in a project the caller can't read that isn't a file of their own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`file-version-conflict`: `expectedVersion` isn't Latest (`details.expectedVersion`, `details.latestVersion`). Nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the upload cap (`file-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`. A version the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFileVersionBody"
+              },
+              "encoding": {
+                "file": {
+                  "contentType": "application/octet-stream"
+                },
+                "tags": {
+                  "contentType": "application/json"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/versions/{version}": {
+      "get": {
+        "operationId": "files.versions.get",
+        "summary": "Get a version",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One version's record, without its bytes: a deleted or purged one too. `latest` names Latest. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^([1-9][0-9]*|latest)$"
+            },
+            "required": true,
+            "description": "A version number from 1, or `latest`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "files.versions.delete",
+        "summary": "Delete a version",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "Delete acknowledged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteFileResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`file-version-pinned`: the version is pinned; unpin it first. `file-last-version`: it's the file's last live version; delete the file instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deletes one version: a soft delete, kept until a retention policy for `file_version` purges it. Its number is never reused. Deleting Latest moves Latest to the next live version down. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after. Needs `write` on the file's project.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "A version number from 1."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/versions/{version}/content": {
+      "get": {
+        "operationId": "files.versions.download",
+        "summary": "Download a version's bytes (stream)",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "Raw bytes. See headers for metadata.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Streams one version's raw bytes, as a download. `latest` names Latest. A deleted or purged version is `404 file-version-not-found`: a fixed version never falls back to Latest. Response headers: `Content-Type` (as declared when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded name), and `X-Kindgi-File-Version` (the number served). Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^([1-9][0-9]*|latest)$"
+            },
+            "required": true,
+            "description": "A version number from 1, or `latest`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/versions/{version}/restore": {
+      "post": {
+        "operationId": "files.versions.restore",
+        "summary": "Restore a version",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "The bytes were already Latest's: Latest, with `created: false`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionWrite"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The new version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionWrite"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`file-version-conflict`: `expectedVersion` isn't Latest (`details.expectedVersion`, `details.latestVersion`). Nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. A deleted or purged version is `404 file-version-not-found`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "A version number from 1."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreFileVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/versions/{version}/pin": {
+      "post": {
+        "operationId": "files.versions.pin",
+        "summary": "Pin a version",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version, with its pin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing, and a deleted or purged one is `404 file-version-not-found`. Each pin is kept in the file's pin history. Needs `write` on the file's project.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "A version number from 1."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinFileVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/versions/{version}/unpin": {
+      "post": {
+        "operationId": "files.versions.unpin",
+        "summary": "Unpin a version",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version, without a pin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Takes a version's pin off, kept in the file's pin history with who and why. Unpinning a version with no pin changes nothing. Needs `write` on the file's project.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "A version number from 1."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinFileVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/files/{fileId}/pin-history": {
+      "get": {
+        "operationId": "files.pinHistory",
+        "summary": "A file's pin history",
+        "tags": [
+          "files"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of pin changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilePinChangeCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-not-found`: no such file in this workspace, a deleted one, or one in a project the caller can't read that isn't a file of their own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every pin and unpin of its versions, newest first. Needs `read` on the file's project, or `run` there for a file of the caller's own: one they made, or one a run that acts for them made.",
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The file's id: the `blobId` of its version 1's bytes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -67852,7 +69999,7 @@
             }
           }
         },
-        "description": "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
+        "description": "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, one that counts files adds `storage` (what they take, to compare with `limits.storageMiB`), and a deployment that publishes where its calls come from adds `egress`.",
         "security": [
           {
             "bearerAuth": []
@@ -74564,7 +76711,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
+            "description": "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
             "content": {
               "application/json": {
                 "schema": {
@@ -74740,6 +76887,132 @@
             "description": "The file value's `artifactId`."
           }
         ],
+        "security": []
+      }
+    },
+    "/v1/tool-files/{fileId}/versions": {
+      "post": {
+        "operationId": "toolFiles.update",
+        "summary": "Add a version to a file for a pack tool's call",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or no version added, and why (`notUpdated`): `rule`, `denied`, `gone`, `type`, `size` (over its type's limit, or a body past 10 MB, not read to its end) or `storage`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFileUpdateAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: `Kindgi-Expected-Version` is missing or not a whole number from 1, or `Kindgi-File-Name` is not percent-encoded UTF-8.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't update files alike), or this runtime adds no versions for tools.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was added. Told only for a token that matches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was added. `Retry-After` says when to send the version again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was added. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was added. `Retry-After` says when to send the version again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A pack tool that declares `updatesFiles` gets the call's tool files with each call, and its pack service posts each new version the tool adds here, by its file value's `fileId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call updates a file its run may be shown, where the run may write: the file's project, or the workspace for a file with no project. The body is the new bytes, at most 10 MB read; `Content-Type` is the type, and only the bytes decide it. `Kindgi-Expected-Version` is the version the tool read: when Latest has moved past it, nothing is added and the answer is Latest (`conflict`). The new version keeps Latest's tags, and is listed among the run's files. The same bytes again in the same call, a re-run of it included, answer the first version. The token closes when the call answers, when its time passes, or when its run ends.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The file value's `fileId`."
+          },
+          {
+            "name": "Kindgi-Expected-Version",
+            "in": "header",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "The version the tool read, which must still be Latest: a whole number from 1."
+          },
+          {
+            "name": "Kindgi-File-Name",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "A new name for the version, percent-encoded UTF-8. Absent or empty: Latest's name."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The new bytes, with their type as `Content-Type`.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
         "security": []
       }
     },

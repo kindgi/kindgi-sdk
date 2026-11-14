@@ -60,7 +60,7 @@ public final class WidgetsBlobResource {
         Objects.requireNonNull(body, "body");
         RequestSpec request = RequestSpec.of(Operations.WIDGETS_BLOB_UPLOAD)
                 .path("widgetId", widgetId)
-                .multipart(body == null ? null : new Multipart().file("file", body.file()).text("name", body.name()).text("ownerId", body.ownerId()));
+                .multipart(body == null ? null : new Multipart().file("file", body.file()).text("name", body.name()).text("ownerId", body.ownerId()).text("visibility", body.visibility() == null ? null : body.visibility().asString()));
         return transport.json(request, Widget.class);
     }
 }

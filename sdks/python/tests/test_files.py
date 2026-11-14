@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""A tool that declares `stores_files=True` or `reads_files=True` gets `ctx.files` when the call
-carries tool files: each store posts the bytes to the link, each read gets a file's bytes from
-under it, and the handler never sees the link or its token (pack protocol 2.10.0)."""
+"""A tool that declares `stores_files=True`, `reads_files=True` or `updates_files=True` gets
+`ctx.files` when the call carries tool files: each store posts the bytes to the link, each read
+gets a file's bytes from under it, each update posts the new bytes under the file, and the
+handler never sees the link or its token (pack protocol 2.10.0, 2.13.0 for updates)."""
 
 from __future__ import annotations
 
@@ -27,11 +28,12 @@ from kindgi import (
     FileStore,
     FileStoreAnswer,
     FileStoreError,
+    FileUpdateAnswer,
     ToolContext,
     tool,
 )
 from kindgi.pack.context import Cancellation
-from kindgi.pack.files import _FILE_NOT_SHOWN_REASONS, file_store_from_wire
+from kindgi.pack.files import _FILE_NOT_SHOWN_REASONS, _NOT_UPDATED_REASONS, file_store_from_wire
 from kindgi.pack.index import run_indexer
 from kindgi.pack.service import PackService
 
@@ -402,6 +404,195 @@ def test_a_file_shaped_wrong_is_refused_before_its_sent(link: Link, kwargs: Any)
     assert link.received == []
 
 
+VERSION = {**STORED, "artifactId": "art-3", "fileId": "file-1", "version": 3}
+LATEST = {**VERSION, "artifactId": "art-2", "version": 2}
+
+
+def _updates(link: Link) -> FileStore:
+    files = file_store_from_wire(
+        {"toolFiles": {"url": link.url, "token": TOKEN, "updates": True}},
+        stores=False,
+        reads=False,
+        updates=True,
+    )
+    assert files is not None
+    return files
+
+
+def test_an_update_posts_the_new_bytes_under_the_file_with_the_version_it_read(link: Link) -> None:
+    link.answer = (200, {"file": VERSION})
+    answer = _updates(link).update(
+        file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+    )
+    assert answer == FileUpdateAnswer(file=VERSION)
+    [received] = link.received
+    assert received["path"] == "/v1/tool-files/file-1/versions"
+    assert received["headers"]["authorization"] == f"Bearer {TOKEN}"
+    assert received["headers"]["content-type"] == "text/markdown"
+    assert received["headers"]["kindgi-expected-version"] == "2"
+    assert "kindgi-file-name" not in received["headers"]
+    assert received["body"] == b"# v3"
+
+
+@pytest.mark.anyio
+async def test_an_async_handler_updates_the_same_way(link: Link) -> None:
+    link.answer = (200, {"conflict": LATEST})
+    answer = await _updates(link).update_async(
+        file_id="file-1", expected_version=1, content_type="text/markdown", data=b"# v3"
+    )
+    assert answer == FileUpdateAnswer(conflict=LATEST)
+
+
+def test_an_updates_name_and_file_id_are_percent_encoded_and_an_empty_name_isnt_sent(
+    link: Link,
+) -> None:
+    files = _updates(link)
+    files.update(
+        file_id="file 1/x",
+        expected_version=2,
+        content_type="text/markdown",
+        data=b"# v3",
+        name="Notizen März.md",
+    )
+    files.update(
+        file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3", name=""
+    )
+    assert [r["path"] for r in link.received] == [
+        "/v1/tool-files/file%201%2Fx/versions",
+        "/v1/tool-files/file-1/versions",
+    ]
+    assert link.received[0]["headers"]["kindgi-file-name"] == "Notizen%20M%C3%A4rz.md"
+    assert "kindgi-file-name" not in link.received[1]["headers"]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"same": LATEST}, FileUpdateAnswer(same=LATEST)),
+        ({"conflict": LATEST}, FileUpdateAnswer(conflict=LATEST)),
+        *[
+            ({"notUpdated": reason}, FileUpdateAnswer(not_updated=reason))
+            for reason in ("rule", "denied", "gone", "type", "size", "storage")
+        ],
+    ],
+)
+def test_answers_latest_or_why_no_version_was_added(
+    link: Link, body: Any, expected: FileUpdateAnswer
+) -> None:
+    link.answer = (200, body)
+    answer = _updates(link).update(
+        file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+    )
+    assert answer == expected
+
+
+@pytest.mark.parametrize(
+    "body", [{"file": {**VERSION, "sha256": None}}, {"notUpdated": "limit"}, {}]
+)
+def test_an_update_answer_that_isnt_a_version_latest_or_a_reason_raises(
+    link: Link, body: Any
+) -> None:
+    link.answer = (200, body)
+    with pytest.raises(FileStoreError, match="isn't a version, Latest or a reason"):
+        _updates(link).update(
+            file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+        )
+
+
+def test_a_refused_update_raises_naming_the_status_and_the_code(link: Link) -> None:
+    link.answer = (409, {"error": {"code": "tool-file-token-closed", "message": "closed"}})
+    with pytest.raises(
+        FileStoreError, match=r"files\.update: the runtime answered 409 \(tool-file-token-closed\)"
+    ):
+        _updates(link).update(
+            file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+        )
+
+
+def test_an_update_over_the_largest_any_type_allows_answers_size_and_nothing_is_sent(
+    link: Link,
+) -> None:
+    answer = _updates(link).update(
+        file_id="file-1",
+        expected_version=2,
+        content_type="text/markdown",
+        data=bytes(MAX_STORED_FILE_BYTES + 1),
+    )
+    assert answer == FileUpdateAnswer(not_updated="size")
+    assert link.received == []
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"file_id": "", "expected_version": 2},
+        {"file_id": "file-1", "expected_version": 0},
+        {"file_id": "file-1", "expected_version": True},
+        {"file_id": "file-1", "expected_version": 2.0},
+        {"file_id": "file-1", "expected_version": 2, "name": 7},
+        {"file_id": "file-1", "expected_version": 2, "data": "# v3"},
+    ],
+)
+def test_an_update_shaped_wrong_is_refused_before_its_sent(link: Link, kwargs: Any) -> None:
+    sent = {"content_type": "text/markdown", "data": b"# v3", **kwargs}
+    with pytest.raises(TypeError):
+        _updates(link).update(**sent)
+    assert link.received == []
+
+
+def test_a_call_updates_only_when_its_tool_declares_it_and_the_call_has_a_key(link: Link) -> None:
+    def files(*, key: bool, **flags: bool) -> FileStore | None:
+        wire = {
+            "tenantId": "t",
+            "runId": "r",
+            **({"idempotencyKey": "call-key"} if key else {}),
+            "toolFiles": {"url": link.url, "token": TOKEN, "updates": True},
+        }
+        return ToolContext.from_wire(wire, Cancellation(), **flags).files
+
+    updates = files(key=True, updates_files=True)
+    assert updates is not None
+    assert (updates.stores, updates.reads, updates.updates) == (False, False, True)
+    assert files(key=False, updates_files=True) is None
+    keyless = files(key=False, reads_files=True, updates_files=True)
+    assert keyless is not None and (keyless.reads, keyless.updates) == (True, False)
+    with pytest.raises(FileStoreError, match=r"files\.update: this call updates no files"):
+        keyless.update(
+            file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+        )
+    assert link.received == []
+
+
+def test_tool_files_that_dont_say_updates_give_no_update(link: Link) -> None:
+    # A runtime from before pack protocol 2.13.0 sends no `updates`, and has no route for one.
+    def files(updates: object, **flags: bool) -> FileStore | None:
+        sent = {
+            "url": link.url,
+            "token": TOKEN,
+            **({} if updates is None else {"updates": updates}),
+        }
+        wire = {"tenantId": "t", "runId": "r", "idempotencyKey": "call-key", "toolFiles": sent}
+        return ToolContext.from_wire(wire, Cancellation(), **flags).files
+
+    reads = files(None, reads_files=True, updates_files=True)
+    assert reads is not None and (reads.reads, reads.updates) == (True, False)
+    assert files(None, updates_files=True) is None
+    assert files("true", updates_files=True) is None
+    with pytest.raises(FileStoreError, match=r"the runtime didn't say it may"):
+        reads.update(
+            file_id="file-1", expected_version=2, content_type="text/markdown", data=b"# v3"
+        )
+    assert link.received == []
+
+
+def test_an_update_answers_exactly_the_reasons_the_typescript_sdk_has() -> None:
+    found = re.search(
+        r"export const FILE_NOT_UPDATED_REASONS = \[([^\]]*)\]", TYPES_FILE.read_text()
+    )
+    assert found is not None
+    assert set(re.findall(r"'([a-z]+)'", found.group(1))) == _NOT_UPDATED_REASONS
+
+
 class Fetch(BaseModel):
     attachment: str
 
@@ -455,6 +646,33 @@ def test_the_index_says_which_tools_store_files(make_pack: Callable[..., Path]) 
     assert "storesFiles" not in entries["acme.mail.message-get"]
     assert entries["acme.docs.size"]["readsFiles"] is True
     assert "readsFiles" not in entries["acme.mail.attachment-get"]
+
+
+UPDATE_PACK = """
+from typing import Any
+from pydantic import BaseModel
+from kindgi import tool
+
+class Fill(BaseModel):
+    file_id: str
+
+@tool(id="acme.sheets.fill", updates_files=True)
+def fill(input: Fill) -> Any:
+    "Fills in a sheet the run has."
+    return {}
+
+@tool(id="acme.sheets.read")
+def read(input: Fill) -> Any:
+    "Reads a sheet; it changes nothing."
+    return {}
+"""
+
+
+def test_the_index_says_which_tools_update_files(make_pack: Callable[..., Path]) -> None:
+    entries = {t["id"]: t for t in _index(make_pack({"tools/sheets.py": UPDATE_PACK}))["tools"]}
+    assert entries["acme.sheets.fill"]["updatesFiles"] is True
+    assert "storesFiles" not in entries["acme.sheets.fill"]
+    assert "updatesFiles" not in entries["acme.sheets.read"]
 
 
 @pytest.fixture

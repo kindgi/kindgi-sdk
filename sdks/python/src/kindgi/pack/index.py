@@ -292,6 +292,7 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "pauses": True if tool.pauses else None,
             "storesFiles": True if tool.stores_files else None,
             "readsFiles": True if tool.reads_files else None,
+            "updatesFiles": True if tool.updates_files else None,
             "modulePath": rel_path,
         }
     )
@@ -368,6 +369,7 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "toolErrors": _dict(agent.tool_errors),
             "parallelToolCalls": agent.parallel_tool_calls,
             "memory": _dict(agent.memory),
+            "files": _dict(agent.files),
             "mcp": _dict(agent.mcp),
             "settings": [dict(s) for s in agent.settings],
             "modelSettings": _dict(agent.model_settings),

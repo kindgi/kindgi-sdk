@@ -50,6 +50,8 @@ export const ENV_DEFAULTS = {
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_ACCOUNT_KEY:
     'none: the connections that sign in through Kindgi\'s own Meta app show "Needs a Kindgi account"',
+  KINDGI_LICENSE_REPORT_URL:
+    "`https://access.kindgi.com/v1/report`, also when it's empty: no setting here turns reports off, only a key that doesn't report",
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
   KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
@@ -143,7 +145,7 @@ export const ENV_DEFAULTS = {
   KINDGI_PAGINATION_PREVIOUS_KEY_PATH: 'none: no previous key',
   KINDGI_PAGINATION_PREVIOUS_KEY: 'none: no previous key',
   KINDGI_COMPLIANCE_CLASSIFIER: 'none: no compliance routes, and no audit event is purged',
-  KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
+  KINDGI_ARTIFACTS: 'none: no file store (no `/v1/files` or `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
   KINDGI_FILE_MEMORY_MIB:
@@ -156,6 +158,7 @@ export const ENV_DEFAULTS = {
   KINDGI_RUN_UPLOAD_DAILY_BYTES:
     '`1073741824` (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when larger; `off` for none',
   KINDGI_RUN_UPLOAD_DAILY_FILES: '`1000`; `off` for none',
+  KINDGI_UNUSED_UPLOAD_TTL_MS: '`86400000` (24 hours)',
   KINDGI_S3_REGION:
     'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
   KINDGI_S3_ENDPOINT: 'none: AWS S3',
