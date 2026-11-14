@@ -134,7 +134,7 @@ const REPORT = {
 
 const SHARED_DOC = {
   id: 'f-plan',
-  name: 'Plan',
+  name: 'README',
   mimeType: 'application/vnd.google-apps.document',
   modifiedTime: '2026-11-01T17:00:00+01:00',
   webViewLink: 'https://docs.google.com/document/d/f-plan/edit',
@@ -214,7 +214,7 @@ describe('google drive files list', () => {
           },
           {
             id: 'f-plan',
-            name: 'Plan',
+            name: 'README',
             kind: 'file',
             contentType: 'application/vnd.google-apps.document',
             modified: '2026-11-01T16:00:00Z',
@@ -420,14 +420,14 @@ describe('google drive file get', () => {
     expect(await invokeToolForTest(get, { fileId: 'f-plan' }, ctx)).toMatchObject({
       kind: 'ok',
       value: {
-        files: [{ name: 'Plan.md', contentType: 'text/markdown' }],
+        files: [{ name: 'README.md', contentType: 'text/markdown' }],
         listed: { id: 'f-plan' },
       },
     });
     await invokeToolForTest(get, { fileId: 'f-plan', format: 'pdf' }, ctx);
     expect(stored.map((f) => [f.name, f.contentType])).toEqual([
-      ['Plan.md', 'text/markdown'],
-      ['Plan.pdf', 'application/pdf'],
+      ['README.md', 'text/markdown'],
+      ['README.pdf', 'application/pdf'],
     ]);
     expect(sent[1]?.url).toBe(`${FILES}/f-plan/export?mimeType=text%2Fmarkdown`);
     expect(sent[3]?.url).toBe(`${FILES}/f-plan/export?mimeType=application%2Fpdf`);
@@ -435,9 +435,9 @@ describe('google drive file get', () => {
 
   it('a Sheet is CSV, Slides plain text, a Drawing a PNG; a Form has no export', async () => {
     const asText = [
-      ['application/vnd.google-apps.spreadsheet', 'text%2Fcsv', 'Plan.csv'],
-      ['application/vnd.google-apps.presentation', 'text%2Fplain', 'Plan.txt'],
-      ['application/vnd.google-apps.drawing', 'image%2Fpng', 'Plan.png'],
+      ['application/vnd.google-apps.spreadsheet', 'text%2Fcsv', 'README.csv'],
+      ['application/vnd.google-apps.presentation', 'text%2Fplain', 'README.txt'],
+      ['application/vnd.google-apps.drawing', 'image%2Fpng', 'README.png'],
     ] as const;
     for (const [mimeType, exportType, name] of asText) {
       const sent = driveAnswering(
@@ -462,7 +462,10 @@ describe('google drive file get', () => {
       { fileId: 'f-plan' },
       { connections: { drive: drive() }, files },
     );
-    expect(r).toMatchObject({ kind: 'ok', value: { notShown: { name: 'Plan', reason: 'type' } } });
+    expect(r).toMatchObject({
+      kind: 'ok',
+      value: { notShown: { name: 'README', reason: 'type' } },
+    });
     expect(sent).toHaveLength(1);
   });
 
@@ -479,7 +482,7 @@ describe('google drive file get', () => {
     );
     expect(r).toMatchObject({
       kind: 'ok',
-      value: { notShown: { name: 'Plan.md', reason: 'size' } },
+      value: { notShown: { name: 'README.md', reason: 'size' } },
     });
     expect(stored).toHaveLength(0);
   });
@@ -510,7 +513,7 @@ describe('google drive file get', () => {
 describe('google drive file create', () => {
   const ADDED = {
     id: 'f-new',
-    name: 'Summary.md',
+    name: 'README.md',
     mimeType: 'text/markdown',
     size: '9',
     modifiedTime: '2026-11-04T07:00:00.000Z',
@@ -528,14 +531,14 @@ describe('google drive file create', () => {
     const mark = createHash('sha256').update(key).digest('hex');
     const r = await invokeToolForTest(
       create,
-      { name: 'Summary.md', text: '# Summary', contentType: 'text/markdown' },
+      { name: 'README.md', text: '# Summary', contentType: 'text/markdown' },
       { connections: { drive: drive() }, idempotencyKey: key },
     );
     expect(r).toEqual({
       kind: 'ok',
       value: {
         id: 'f-new',
-        name: 'Summary.md',
+        name: 'README.md',
         kind: 'file',
         contentType: 'text/markdown',
         size: 9,
@@ -559,7 +562,7 @@ describe('google drive file create', () => {
     expect(boundary).toBeDefined();
     expect(Buffer.from(sent[1]?.body as Uint8Array).toString('utf8')).toBe(
       `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n` +
-        `{"name":"Summary.md","appProperties":{"kindgiCall":"${mark}"}}\r\n` +
+        `{"name":"README.md","appProperties":{"kindgiCall":"${mark}"}}\r\n` +
         `--${boundary}\r\ncontent-type: text/markdown\r\n\r\n# Summary\r\n--${boundary}--\r\n`,
     );
     expect(JSON.stringify(sent)).not.toContain(key);
@@ -570,7 +573,7 @@ describe('google drive file create', () => {
     const sent = driveAnswering(() => Response.json({ files: [ADDED] }));
     const r = await invokeToolForTest(
       create,
-      { name: 'Summary.md', text: '# Summary' },
+      { name: 'README.md', text: '# Summary' },
       { connections: { drive: drive() }, idempotencyKey: key },
     );
     expect(r).toMatchObject({ kind: 'ok', value: { id: 'f-new' } });
@@ -578,7 +581,7 @@ describe('google drive file create', () => {
     driveAnswering(() => Response.json({ files: [{ ...ADDED, trashed: true }] }));
     const trashed = await invokeToolForTest(
       create,
-      { name: 'Summary.md', text: '# Summary' },
+      { name: 'README.md', text: '# Summary' },
       { connections: { drive: drive() }, idempotencyKey: key },
     );
     expect(trashed.kind === 'err' ? trashed.error.message : '').toContain('moved to the trash');
@@ -594,8 +597,8 @@ describe('google drive file create', () => {
       idempotencyKey: randomUUID(),
       record: journal(),
     };
-    const first = await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, ctx);
-    expect(await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, ctx)).toEqual(
+    const first = await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, ctx);
+    expect(await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, ctx)).toEqual(
       first,
     );
     expect(sent).toHaveLength(2);
