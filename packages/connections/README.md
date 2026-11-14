@@ -6,17 +6,19 @@ then acts with that account, and the server keeps its tokens.
 
 An entry is data. It says:
 
-- **how a person signs in** at the app (`signIn`): OAuth 2.0 with PKCE, or a
-  GitHub App's installation;
+- **how a person signs in** at the app (`signIn`): OAuth 2.0 with PKCE, a
+  GitHub App's installation, or Kindgi's own app at the app's maker (Meta,
+  for Facebook Pages and Instagram);
 - **who may own a connection** (`owners`): a member, the company, or either;
 - **what each permission allows,** in plain words for the person asked
   (`permissions`), and whether it changes anything;
-- **whose account it is** (`account`), learned from an ID token or the
-  installation;
+- **whose account it is** (`account`), learned from an ID token, the
+  installation, a profile URL, or the Page or account the admin shared with
+  Kindgi's app;
 - **how access is withdrawn** on a disconnect, and how the app reports a
   removal made at the app (`removal`);
 - **the app's rate limit,** per connection (`rateLimits`);
-- **the docs page** an admin follows to register the app (`setupGuide`).
+- **the docs page** an admin follows to set the app up (`setupGuide`).
 
 ```ts
 import { google } from '@kindgi/connections/google';

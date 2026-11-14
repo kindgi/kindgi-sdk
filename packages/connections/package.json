@@ -71,6 +71,16 @@
       "import": "./dist/linkedin-tools.js",
       "default": "./dist/linkedin-tools.js"
     },
+    "./facebook-pages": {
+      "types": "./dist/facebook-pages.d.ts",
+      "import": "./dist/facebook-pages.js",
+      "default": "./dist/facebook-pages.js"
+    },
+    "./instagram": {
+      "types": "./dist/instagram.d.ts",
+      "import": "./dist/instagram.js",
+      "default": "./dist/instagram.js"
+    },
     "./app-fetch": {
       "types": "./dist/app-fetch.d.ts",
       "import": "./dist/app-fetch.js",

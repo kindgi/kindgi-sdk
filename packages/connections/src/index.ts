@@ -6,7 +6,8 @@
  * accounts at other apps, and `defineApp` to check one. The entries
  * themselves are subpaths: `@kindgi/connections/google`,
  * `@kindgi/connections/github`, `@kindgi/connections/microsoft`,
- * `@kindgi/connections/linkedin`.
+ * `@kindgi/connections/linkedin`, `@kindgi/connections/facebook-pages`,
+ * `@kindgi/connections/instagram`.
  */
 
 export {

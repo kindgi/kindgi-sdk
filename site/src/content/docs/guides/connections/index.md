@@ -1,6 +1,6 @@
 ---
 title: Connect your apps
-description: Let a tool act in Gmail, Outlook, GitHub or LinkedIn with an account someone connected, its token kept in your own secret store and handed to one call at a time.
+description: Let a tool act in Gmail, Outlook, GitHub, LinkedIn, Facebook Pages or Instagram with an account someone connected, its token kept in your own secret store and handed to one call at a time.
 sidebar:
   order: 0
   label: Overview
@@ -56,7 +56,9 @@ runs as a service account and uses the company's
    OAuth client, Microsoft Entra app, GitHub App or LinkedIn app. Its
    secrets stay in your secret store, and Kindgi keeps only their names
    ([Google](google/), [Microsoft](microsoft/), [GitHub](github/),
-   [LinkedIn](linkedin/)).
+   [LinkedIn](linkedin/)). Facebook Pages and Instagram need no app
+   of your own: they connect through Kindgi's own Meta app
+   ([Facebook Pages](facebook-pages/), [Instagram](instagram/)).
 2. **People connect** on the app's own sign-in page: from the console's
    **Connections** page, from a terminal with `kindgi connections connect`,
    or from a run that's waiting for them. Each connection has a name: the
@@ -139,6 +141,10 @@ npx --yes @kindgi/cli@0.6 connections connect google --permissions=gmail.send
   your organization.
 - [LinkedIn](linkedin/): create your LinkedIn app, register it, and connect
   a profile to post as.
+- [Facebook Pages](facebook-pages/): connect your company's Page, through
+  Kindgi's own Meta app, to post on as the Page.
+- [Instagram](instagram/): connect your company's Instagram professional
+  account, through Kindgi's own Meta app, to post photos to.
 - [Use a connection in a tool](use-a-connection/): declare what a tool
   needs, and read the token in its handler.
 - [Choose a connection](choose-a-connection/): name connections, and say
