@@ -60,6 +60,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **files with versions: `client.files`.** `client.files` has `list`, `create`, `get`, `delete` and `pin_history`, and `client.files.versions` has `list`, `add`, `get`, `download`, `restore`, `delete`, `pin` and `unpin`, one for each `files.*` operation, in the async client too. `create` and `add` send a multipart upload, as `client.artifacts.upload` does. A version is named by its number or by `"latest"`. `BlobMeta` gains `file_id` and `version`, for a blob that is a file's version. `client.artifacts`' methods are deprecated: each warns with `DeprecationWarning`, naming the `files` method to use, until 0.8.0 removes them. `file-not-found` and `file-version-not-found` raise `NotFoundError`; `file-version-conflict`, `file-version-pinned`, `file-last-version` and `artifact-in-file` raise `ConflictError`; and `file-too-large` raises `InvalidRequestError`.
 
 ## 0.6.0
 
