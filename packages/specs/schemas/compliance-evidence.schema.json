@@ -89,7 +89,9 @@
         "suggested-change-created",
         "suggested-change-pinned",
         "suggested-change-added-as-latest",
-        "suggested-change-withdrawn"
+        "suggested-change-withdrawn",
+        "project-deleted",
+        "project-restored"
       ]
     },
     "timestamp": {

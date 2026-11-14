@@ -72,7 +72,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.6.0] [--from <version>] \
+#                [--to 0.7.0] [--from <version>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
 #   --var-file         A tfvars file the deployment uses (.tfvars or
@@ -98,7 +98,7 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.4.0 or later (default
-#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
+#                      0.7.0). An rc such as 0.7.0-rc.0 works too, and so does
 #                      a server-only release such as 0.4.0.1: a server fix for
 #                      0.4.0, with no SDK release of its own. The module here
 #                      is 0.4.0's, which needs the 0.4.0 runtime or later: to
@@ -106,7 +106,7 @@
 #                      release's @kindgi/sdk@<version> tag (for X.Y.Z.N,
 #                      X.Y.Z's tag), and below 0.2.0, which isn't on
 #                      registry.kindgi.com, as of the @kindgi/sdk@0.1.10 tag.
-#                      This script knows the steps up to 0.6.0; for a later
+#                      This script knows the steps up to 0.7.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag or, before that release is
 #                      out, its newest @kindgi/sdk@<version>-rc.N tag.
@@ -141,7 +141,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -457,7 +457,18 @@ EOT
 # run uses. A check job's name is at most 63 characters: the prefix is cut to
 # 45 (the rest adds 18) and loses a trailing "-". $2 is the run's HHMMSS.
 # >>> same in both modules: checks
-readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials" "identity-provider-keys")
+# The first release whose runtime has identity-provider-keys. A run to an
+# earlier release leaves the check out (RUN_CHECKS): its runtime has no such
+# check. The release's rcs and server fixes count as the release.
+readonly IDENTITY_PROVIDER_KEYS_RELEASE="0.7.0"
+# The release a check came with, for one an earlier target's runtime lacks;
+# nothing for the others.
+check_release() {
+  case "$1" in
+    identity-provider-keys) printf '%s' "$IDENTITY_PROVIDER_KEYS_RELEASE" ;;
+  esac
+}
 # <<<
 check_job_name() {
   local prefix="${NAME_PREFIX:0:45}" suffix
@@ -466,6 +477,7 @@ check_job_name() {
     provider-keys) suffix="pk" ;;
     secret-scopes) suffix="ss" ;;
     mcp-header-credentials) suffix="mhc" ;;
+    identity-provider-keys) suffix="ipk" ;;
   esac
   printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
 }
@@ -548,6 +560,27 @@ if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" 
 # <<<
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$MODULE_RUNTIME_FLOOR")" ]] \
   || die "--to $TARGET: the module here is ${MODULE_RUNTIME_FLOOR}'s, which needs the ${MODULE_RUNTIME_FLOOR} runtime or later. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
+
+# >>> same in both modules: target-checks
+# The checks this run makes: each of CHECKS that the target's runtime has.
+RUN_CHECKS=()
+for check in "${CHECKS[@]}"; do
+  since="$(check_release "$check")"
+  if [[ -z $since ]] || [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$since")" ]]; then
+    RUN_CHECKS+=("$check")
+  fi
+done
+# Each check the target's runtime lacks, said where a run lists its checks
+# ($1, the line's indent).
+say_checks_left_out() {
+  local check
+  for check in "${CHECKS[@]}"; do
+    if [[ " ${RUN_CHECKS[*]} " != *" $check "* ]]; then
+      info "${1}check $check isn't run: the $TARGET runtime doesn't have it ($(check_release "$check") and later do)"
+    fi
+  done
+}
+# <<<
 
 require_cmd terraform gcloud jq docker
 
@@ -1447,6 +1480,47 @@ EOT
      target. Register the URL it redirects to.
 EOT
       ;;
+    0.7.0)
+      cat <<'EOT'
+   - The first start runs this release's migrations: they add tables and
+     columns, and fill nothing in.
+   - A server serving many tenants no longer brings every tenant's
+     authorization store up to the new model when it starts: it brings
+     each one up the first time it uses it, and logs "authz: store
+     brought up to the current model". One that fails logs "authz: could
+     not bring a store up to the current model" at WARN, goes on with the
+     store's model, and a later use tries again. A server serving one
+     tenant still does it when it starts.
+   - If this server served many tenants on 0.6.x, run this once after the
+     upgrade, with the new runtime's kindgi-runtime and the server's
+     database and OpenFGA settings (KINDGI_OPENFGA_API_URL, with its
+     preshared key and auth):
+       kindgi-runtime tenants repair --all
+     It brings each tenant's access in OpenFGA back in line with its
+     record, so it puts back the runner roles 0.6.x may have dropped.
+     With --dry-run it shows, for each tenant, what it would put back
+     and take away, and changes nothing. A server serving one tenant
+     doesn't need it.
+   - Within about a minute of the first start, the runtime ends each
+     unfinished run that was part of a run whose record was deleted (by
+     retention, for example). It fails it with "Interrupted: a run it was
+     part of was deleted, so nothing waits for it." So runs that showed as
+     running or waiting for a long time may change to failed.
+   - The runtime reports its usage to Kindgi at most once a day, with its
+     license key, to https://access.kindgi.com/v1/report, through
+     HTTPS_PROXY when that's set: let the server reach it. A report that
+     can't be sent never stops the runtime; it tries again within the
+     hour. Its answer can renew the key: the runtime keeps a renewed key
+     in its database, and runs on it from then on. A key marked offline
+     never reports: a server that can't reach Kindgi can ask for one.
+   - With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants
+     purge and tenants repurge erase a tenant's secrets in the secret
+     manager too. Run them with the server's secret manager settings
+     (KINDGI_SECRETS_MANAGER and that manager's): without them, a purge
+     of a tenant with secrets there is refused, and says how many and in
+     which manager.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1552,6 +1626,18 @@ EOT
      the server has now. INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER is for a
      server behind your own load balancer, with public_url and
      network_mode = "direct".
+EOT
+      ;;
+    0.7.0)
+      cat <<'EOT'
+   - The plan makes one Secret Manager secret, empty: the renewer key's,
+     <name_prefix>-license-renewer (or license_renewer_secret), which
+     kindgi license enroll fills once. It gives the server two plain env
+     vars, KINDGI_LICENSE_KEY_REF and KINDGI_LICENSE_RENEWER_REF, so its
+     expiry warning names the exact kindgi license renew. Nothing else.
+   - Turn on the renewal job (license_renewal_schedule) after this
+     upgrade, in an apply of its own: its job, schedule and alerts are
+     more than this release's plan check allows.
 EOT
       ;;
   esac
@@ -1761,9 +1847,9 @@ EOT
 # an env var or a database flag by its name. A resource the release makes or
 # takes away is "<resource type>.<name> (created)" or "(deleted)", and one
 # instance of it "<resource type>.<name>[<index>]". The module's own changes
-# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf). $1
-# is the plan (terraform show -json), for a change allowed only beside
-# another.
+# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf,
+# renewal.tf). $1 is the plan (terraform show -json), for a change allowed
+# only beside another.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
@@ -1870,6 +1956,14 @@ plan_allowed_changes() {
             "google_storage_bucket_iam_member.pack_reads (created)" \
             "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
         fi
+        ;;
+      0.7.0)
+        # The renewer key's secret, made empty in every shape, and where the
+        # server finds the key and the renewer key (renewal.tf, services.tf).
+        printf '%s\n' \
+          "google_secret_manager_secret.license_renewer (created)" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_KEY_REF" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_RENEWER_REF"
         ;;
     esac
   done
@@ -2053,10 +2147,11 @@ if [[ $DRY_RUN == true ]]; then
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to Artifact Registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
-  info "2. create, run and then delete ${#CHECKS[@]} Cloud Run jobs with the new image, one per check:"
-  for check in "${CHECKS[@]}"; do
+  info "2. create, run and then delete ${#RUN_CHECKS[@]} Cloud Run jobs with the new image, one per check:"
+  for check in "${RUN_CHECKS[@]}"; do
     info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
   done
+  say_checks_left_out "   "
   if [[ -n $JOB_NET_SAID ]]; then info "   with the server's VPC egress: ${JOB_NET_SAID}"; fi
   if [[ $DATABASE_PRIVATE == true ]]; then
     info "   reaching the database at its private IP, its certificate checked against the instance's CAs"
@@ -2115,10 +2210,12 @@ info "mirrored to $NEW_SERVER_IMAGE"
 # need only KINDGI_DATABASE_URL: nothing starts, no migrations, no license. The
 # check name is baked into the job's args at create time, since `jobs execute`
 # can't override them across gcloud versions. provider-keys, secret-scopes and
-# mcp-header-credentials apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore
+# mcp-header-credentials apply for 0.1.8 -> 0.1.10, and identity-provider-keys
+# to IDENTITY_PROVIDER_KEYS_RELEASE or later (stored-secrets is a restore
 # check; purged-tenants is multi-tenant only).
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
+say_checks_left_out ""
 # The way to the database, as the server's: its VPC egress, then the /cloudsql
 # socket, or the CAs a private-IP database's certificate is checked against
 # (PEM text over several lines, so it goes in an env-vars file: YAML, which
@@ -2130,7 +2227,7 @@ if [[ $DATABASE_PRIVATE == true ]]; then
 else
   job_db_args+=(--set-cloudsql-instances="$SQL_CONNECTION_NAME")
 fi
-for check in "${CHECKS[@]}"; do
+for check in "${RUN_CHECKS[@]}"; do
   job="$(check_job_name "$check" "$check_stamp")"
   args="check,${check}"
   if [[ -n $CHECK_TENANT ]]; then args="${args},--tenant,${CHECK_TENANT}"; fi

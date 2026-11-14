@@ -11,6 +11,9 @@
  * runs-in-unsupported`) deploys as before, and says so in one line; so does
  * a key the check refuses (`403`), which on a runtime before the check may
  * still deploy, and on one with it is refused by the deploy the same way.
+ * A runtime that counts the flows and agents in production against its
+ * license key's plan answers for the pack's too: past the most it runs,
+ * `403 plan-limit-reached` refuses the deploy before the build.
  */
 
 import { KindgiApiError } from '@kindgi/client';
@@ -18,28 +21,36 @@ import type { DeployCheckStop, KindgiClient } from '@kindgi/client';
 
 import { blocksOf } from '../build/pack-blocks.js';
 
-/** What the check compares, from a pack's index: its agents, and its blocks at their versions in the files. */
+/** What the check compares, from a pack's index: its agents and flows, and its blocks at their versions in the files. */
 export interface RunsCheckInput {
   readonly packId: string | undefined;
   readonly agents: readonly string[];
+  readonly flows: readonly string[];
   readonly blocks: readonly { readonly id: string; readonly version: string }[];
 }
 
-/** The agents and blocks of a pack's index: the local one a build writes, or the envelope's. */
+/** The agents, flows and blocks of a pack's index: the local one a build writes, or the envelope's. */
 export function runsCheckInputOf(index: unknown): RunsCheckInput {
-  const { packId, agents } = (index ?? {}) as {
+  const { packId, agents, flows } = (index ?? {}) as {
     readonly packId?: unknown;
     readonly agents?: unknown;
+    readonly flows?: unknown;
   };
   return {
     packId: typeof packId === 'string' ? packId : undefined,
-    agents: Array.isArray(agents)
-      ? agents
-          .map((a) => (a as { readonly id?: unknown } | null)?.id)
-          .filter((id): id is string => typeof id === 'string')
-      : [],
+    agents: idsOf(agents),
+    flows: idsOf(flows),
     blocks: blocksOf(index).map(({ id, version }) => ({ id, version })),
   };
+}
+
+/** The ids of an index's list of agents or flows; an entry without one is left out. */
+function idsOf(list: unknown): string[] {
+  return Array.isArray(list)
+    ? list
+        .map((a) => (a as { readonly id?: unknown } | null)?.id)
+        .filter((id): id is string => typeof id === 'string')
+    : [];
 }
 
 /** `--replace=<block>` (repeatable) with its `--reason=<text>`. */
@@ -79,6 +90,8 @@ export type RunsCheck =
    * (`403`) is `forbidden`.
    */
   | { readonly kind: 'unchecked'; readonly why: 'unsupported' | 'forbidden' }
+  /** `403 plan-limit-reached`: the deploy would take a count past the most the license key runs. */
+  | { readonly kind: 'refused'; readonly message: string }
   | { readonly kind: 'failed'; readonly message: string };
 
 /** Ask the runtime what a deploy of these blocks would answer about them, writing nothing. */
@@ -92,6 +105,8 @@ export async function checkRuns(
     const answer = await client.deployments.check({
       ...(opts.projectId !== undefined && { projectId: opts.projectId }),
       agents: [...input.agents],
+      // Only when it has some, so a pack without flows asks what it asked before.
+      ...(input.flows.length > 0 && { flows: [...input.flows] }),
       blocks: input.blocks.map(({ id, version }) => ({ id, version })),
       ...(replace !== undefined && { replace }),
     });
@@ -108,6 +123,9 @@ export async function checkRuns(
     }
     if (serverCode === 'runs-in-unsupported' || e.code === 'not-found') {
       return { kind: 'unchecked', why: 'unsupported' };
+    }
+    if (serverCode === 'plan-limit-reached') {
+      return { kind: 'refused', message: e.message };
     }
     if (e.code === 'auth' && e.reason === 'forbidden') {
       return { kind: 'unchecked', why: 'forbidden' };

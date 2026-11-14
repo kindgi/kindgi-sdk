@@ -17,6 +17,7 @@ import { statusFor, toWireError } from '../errors.js';
 
 import type { Authorizer } from '../middleware/authorize.js';
 import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -120,6 +121,23 @@ export function provenanceRouter(
       isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
     );
     r.use('/:runId/export', onRunProject);
+  } else {
+    // Without one, a project-limited key's or session's export of another
+    // project's run is held there, as a store refuses it.
+    r.use('/:runId/export', async (c, next) => {
+      const runId = c.req.param('runId') ?? '';
+      if (c.get('tokenProjectId') === undefined || !UUID_RE.test(runId)) return next();
+      // Before the handler (`beforeHandler`), so a database too busy to
+      // read the run answers 503.
+      const held = await beforeHandler(c, async () => {
+        const run = await options.runBinding?.getRun(c.get('tenantId') as TenantId, runId as RunId);
+        const project = run?.projectId as unknown as string | undefined;
+        return project === undefined
+          ? undefined
+          : limitedCallerRefusal(c, 'read', ref('project', project), 'the run');
+      });
+      return held ?? next();
+    });
   }
   const exportSigning = options.exportSigning;
 

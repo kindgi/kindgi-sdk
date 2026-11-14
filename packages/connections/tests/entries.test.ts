@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { BUILT_IN_ONLY_APPS } from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
 import { github } from '../src/github.js';
@@ -8,6 +9,7 @@ import { google } from '../src/google.js';
 import { SIGN_IN_TENANT_PATTERN, defineApp } from '../src/index.js';
 import { linkedin } from '../src/linkedin.js';
 import { microsoft } from '../src/microsoft.js';
+import { texts } from '../src/texts.js';
 
 describe('the Google entry', () => {
   it('is a checked, frozen entry', () => {
@@ -468,5 +470,44 @@ describe('the LinkedIn entry', () => {
   it("paces every call by LinkedIn's daily limit per member", () => {
     expect(linkedin.rateLimits).toEqual([{ per: 'connection', units: 150, perSeconds: 86_400 }]);
     expect(linkedin.setupGuide).toBe('/guides/connections/linkedin/');
+  });
+});
+
+describe('the Texts entry', () => {
+  it('is a checked, frozen entry', () => {
+    expect(defineApp(texts)).toEqual(texts);
+    expect(Object.isFrozen(texts)).toBe(true);
+  });
+
+  it("is the company's number at a texting provider, connected with the account's key", () => {
+    expect(texts.id).toBe('texts');
+    expect(texts.name).toBe('Texts');
+    expect(texts.owners).toEqual(['company']);
+    expect(texts.signIn).toEqual({ kind: 'token', providers: ['telnyx'] });
+    expect(texts.account).toEqual({ kind: 'number' });
+  });
+
+  it("is used only by the tools built into Kindgi: a pack tool can't hold the number's key", () => {
+    expect(BUILT_IN_ONLY_APPS).toContain(texts.id);
+  });
+
+  it("puts the number's inbound back on removal", () => {
+    expect(texts.removal).toEqual({ revoke: 'restore-inbound' });
+  });
+
+  it('answers and texts people, each a change, granted by its own key', () => {
+    expect(texts.permissions).toEqual({
+      'texts.reply': {
+        grants: 'texts.reply',
+        says: 'Answer the people who text this number',
+        changes: true,
+      },
+      'texts.send': {
+        grants: 'texts.send',
+        says: 'Text people from this number',
+        changes: true,
+      },
+    });
+    expect(texts.setupGuide).toBe('/guides/connections/texts/');
   });
 });

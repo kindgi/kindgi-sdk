@@ -33,6 +33,8 @@ export const ENV_DEFAULTS = {
   KINDGI_API_TOKEN:
     'none: a new `kgi_bt_` token is generated at each start and printed in the startup banner',
   KINDGI_SEED_USER_ID: 'none: the user the token had at an earlier start, else a new user',
+  KINDGI_ADMIN_EMAILS:
+    'none: no one is a tenant admin by setting, and anyone an earlier list made one stops being one at the next start; People and `tenants make-admin` make tenant admins',
   KINDGI_DOCS: '`true`',
   KINDGI_DEV: '`false`',
   KINDGI_TENANT_HOST_ACCESS: '`local` when `KINDGI_DEV` is on, else `deployed`',
@@ -97,6 +99,7 @@ export const ENV_DEFAULTS = {
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
   KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
   KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
+  KINDGI_AUTH_SIGN_UP_URL: 'none: the sign-in page links no sign-up',
   KINDGI_CONSOLE_LINKS: "none: the console shows no links of the deployment's own",
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",

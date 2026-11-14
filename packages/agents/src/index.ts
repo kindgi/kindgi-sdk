@@ -80,6 +80,8 @@ export type {
   BudgetExceededError,
   CapabilityRoutingError,
   InvokeAgentBindings,
+  TextRefusal,
+  TextsToolBinding,
   ToolCallAuthorization,
   InvokeAgentError,
   InvokeAgentInput,
@@ -176,6 +178,12 @@ export type {
   CreateFileToolOutput,
   UpdateFileToolOutput,
 } from './handlers/model-file-tools.js';
+export {
+  MAX_HAND_OVER_NOTE,
+  MAX_TEXT_BODY,
+  TEXT_TOOLS_VERSION,
+} from './handlers/text-tools.js';
+export type { TextToolOutput } from './handlers/text-tools.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,

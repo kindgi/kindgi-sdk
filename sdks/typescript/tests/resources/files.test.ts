@@ -14,8 +14,8 @@ const WIRE_VERSION = {
   fileId: FILE_ID,
   version: 2,
   blobId: '00000000-0000-4000-8000-0000000000b2',
-  name: 'contract.md',
-  contentType: 'text/markdown',
+  name: 'contract.txt',
+  contentType: 'text/plain',
   size: 120,
   hash: 'a'.repeat(64),
   tags: {},
@@ -29,7 +29,7 @@ const WIRE_FILE = {
   fileId: FILE_ID,
   tenantId: '00000000-0000-4000-8000-000000000002',
   projectId: 'p-1',
-  name: 'contract.md',
+  name: 'contract.txt',
   latestVersion: 2,
   highestVersion: 2,
   pinnedVersions: [],
@@ -243,10 +243,10 @@ describe('files.versions', () => {
         new Response('# Contract', {
           status: 200,
           headers: {
-            'content-type': 'text/markdown',
+            'content-type': 'text/plain',
             'content-length': '10',
             'x-kindgi-blob-hash': 'b'.repeat(64),
-            'x-kindgi-blob-name': encodeURIComponent('my contract.md'),
+            'x-kindgi-blob-name': encodeURIComponent('my contract.txt'),
             'x-kindgi-file-version': '3',
           },
         }),
@@ -259,8 +259,8 @@ describe('files.versions', () => {
     expect([got.fileId, got.version, got.name, got.contentType, got.size, got.hash]).toEqual([
       FILE_ID,
       3,
-      'my contract.md',
-      'text/markdown',
+      'my contract.txt',
+      'text/plain',
       10,
       'b'.repeat(64),
     ]);

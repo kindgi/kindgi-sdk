@@ -16,6 +16,20 @@ candidates, and theirs are just below it.
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool's context names the workspace's time zone.** `ToolContext` gains `timeZone()`, an IANA name such as `America/Toronto`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `UTC` when the workspace sets none. It's `null` outside an agent turn and from an older runtime, so a tool uses UTC then. The record's canonical constructor gains `timeZone` as its last component, a constructor with the components before it is kept, so code that builds one keeps compiling, and `ToolContext.Builder` gains `withTimeZone`.
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool can fail a call on purpose, with its own code and words.** `throw new ToolFailureException("order-not-found", "No order " + id, Map.of("orderId", id))` (Scala: `throw ToolFailureException("order-not-found", s"No order $id", Map("orderId" -> id))`) answers the call `tool-failed` (pack protocol 2.12.0): the code is its `reason`, the message is said as written, and the details go with it, to the run's `failure` and, in an agent whose `toolErrors.retryOn` names `tool-failed`, to the model. A code that isn't kebab case, an empty message, or details that aren't a JSON object of at most 4 KiB throw `IllegalArgumentException`, so the call is a crash that says why.
 - `kindgi-models`, `kindgi-client`: **an agent's `toolErrors.retryOn` takes `tool-failed`,** and `RunFailure`'s Javadoc says what a `tool-failed` failure carries: the tool's code as `reason`, its details, and the tool as `cause`.
+- `kindgi-models`, `kindgi-client`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations()` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules().listDeliveries(triggerId, ...)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `sendResultsTo` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). The runs list takes `completedAfter`, `afterRunId`, `completedBefore` and `startedBy`. A runtime before Kindgi 0.7.0 serves none of them.
+- `kindgi-client`: **the runs list's `include` takes `waitingFor`, which says
+  what each suspended run waits for**, as reading one run does. A page with it
+  holds at most 25 runs. A runtime before Kindgi 0.7.0 refuses it with
+  `400 bad-input`.
+- `kindgi-client`: **an `include` takes one or more values:
+  `.include(Include.OUTPUT, Include.WAITING_FOR)`.** The runs list, an
+  agent's test cases, the cost records and the people list send them as one
+  comma-separated parameter. The builder's `include(...)` takes its values as
+  varargs, so a call with one value, or with a `null` one, compiles and sends
+  what it did. Three things change: `params.include()` returns a `List`; the
+  params record's constructor takes a `List` in that place; and a literal
+  `.include(null)` now gets javac's varargs warning, which fails a `-Werror`
+  build (write `(Include[]) null`, or leave the call out).
 
 ## 0.6.0
 

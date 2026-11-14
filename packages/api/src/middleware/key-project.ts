@@ -21,7 +21,9 @@ const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
  * one there, and the route holds a limited caller itself
  * (`literalProjectRefusal`). Any other request, `/v1/projects/default/…` or
  * a write to `/v1/projects/default`, names the project `default`, as it
- * would any id. A test holds this list to the routes the app mounts.
+ * would any id. A test holds this list, with the literal routes a limited
+ * caller is refused on (`GET /v1/projects/deleted`, a workspace admin's), to
+ * the routes the app mounts.
  */
 export const PROJECT_LITERAL_READS: readonly string[] = ['/v1/projects/default'];
 
@@ -163,13 +165,17 @@ export function holdLimitedCaller(
  * one, the route asks the authorizer instead. `item` names what the
  * request names by its id (`'the trigger'`) when `resource` is that
  * item's project: the refusal then says the item is in that project,
- * not that the request names it.
+ * not that the request names it. `relation` says how the item stands to
+ * that project: absent, it's the item's own ("is in"); `'served'`, the
+ * item runs there besides its own ("runs in … too"); `'made-in'`, the
+ * item's new versions are made there ("new versions of … are made in").
  */
 export function limitedCallerRefusal(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
   item?: string,
+  relation?: 'served' | 'made-in',
 ): Response | undefined {
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
@@ -178,7 +184,11 @@ export function limitedCallerRefusal(
   const where =
     item === undefined
       ? `the request names project ${resource.id}`
-      : `${item} is in project ${resource.id}`;
+      : relation === 'served'
+        ? `${item} runs in project ${resource.id} too`
+        : relation === 'made-in'
+          ? `new versions of ${item} are made in project ${resource.id}`
+          : `${item} is in project ${resource.id}`;
   return refused(c, undefined, {
     action,
     resource,

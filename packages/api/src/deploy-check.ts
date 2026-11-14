@@ -373,14 +373,17 @@ export interface DeployCheckBody {
   /** The project the deploy goes into: admin there is the right it needs. Absent: admin on the tenant. */
   readonly projectId?: string;
   readonly agents: readonly string[];
+  /** The pack's flows by id, for the plan limits. Absent: none. */
+  readonly flows?: readonly string[];
   readonly blocks: readonly { readonly id: string; readonly version: string }[];
   readonly replace?: readonly ReplaceBlock[];
 }
 
 /**
- * `POST /v1/deployments/check`'s body: the pack's agents by id, its blocks
- * each `{ id, version }` (a block named once, a valid version), and
- * `replace` as a deploy's. Each problem is pushed onto `issues`.
+ * `POST /v1/deployments/check`'s body: the pack's agents by id, its flows
+ * by id (optional), its blocks each `{ id, version }` (a block named once,
+ * a valid version), and `replace` as a deploy's. Each problem is pushed
+ * onto `issues`.
  */
 export function parseCheckBody(
   raw: unknown,
@@ -395,17 +398,8 @@ export function parseCheckBody(
   if (b.projectId !== undefined && (typeof b.projectId !== 'string' || b.projectId.length === 0)) {
     issues.push({ path: 'projectId', message: 'projectId must be a project id' });
   }
-  const agents = Array.isArray(b.agents) ? b.agents : undefined;
-  if (
-    agents === undefined ||
-    agents.length > CHECK_LIST_MAX ||
-    agents.some((a) => typeof a !== 'string' || a.length === 0)
-  ) {
-    issues.push({
-      path: 'agents',
-      message: `agents must be a list of up to ${CHECK_LIST_MAX} agent ids`,
-    });
-  }
+  const agents = parseIds(b.agents, 'agents', 'agent', issues);
+  const flows = b.flows === undefined ? undefined : parseIds(b.flows, 'flows', 'flow', issues);
   const blocks: { id: string; version: string }[] = [];
   if (!Array.isArray(b.blocks) || b.blocks.length > CHECK_LIST_MAX) {
     issues.push({
@@ -423,10 +417,29 @@ export function parseCheckBody(
   if (issues.length > before) return undefined;
   return {
     ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
-    agents: [...new Set(agents as string[])],
+    agents: agents ?? [],
+    ...(flows !== undefined && { flows }),
     blocks,
     ...(replace !== undefined && { replace }),
   };
+}
+
+/** Up to `CHECK_LIST_MAX` ids, each named once; an issue at `path` when it isn't such a list. */
+function parseIds(
+  raw: unknown,
+  path: string,
+  noun: string,
+  issues: { path: string; message: string }[],
+): string[] | undefined {
+  if (
+    !Array.isArray(raw) ||
+    raw.length > CHECK_LIST_MAX ||
+    raw.some((id) => typeof id !== 'string' || id.length === 0)
+  ) {
+    issues.push({ path, message: `${path} must be a list of up to ${CHECK_LIST_MAX} ${noun} ids` });
+    return undefined;
+  }
+  return [...new Set(raw as string[])];
 }
 
 /** One of the check body's `blocks`: `{ id, version }`, a block named once (`named`), a valid version. */

@@ -472,10 +472,7 @@ function licenseStandingCheck(
   seam: DoctorSeam,
   how: { readonly advice: (claims: LicenseClaims) => string; readonly wholeKey: string },
 ): DoctorCheck {
-  const checked =
-    seam.licensePublicKeys !== undefined
-      ? checkLicenseKey(key, seam.licensePublicKeys)
-      : checkLicenseKey(key);
+  const checked = checkLicenseKey(key, seam.licensePublicKeys);
   if (checked.kind === 'err') {
     return checked.reason === 'unknown-key'
       ? warn(

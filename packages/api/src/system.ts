@@ -17,7 +17,7 @@ import type { TenantId } from '@kindgi/types';
  * system principal on `/v1/system/keys` alone, where it mints, lists and
  * revokes the system keys (`TokenResolution.systemKeysOperator`), and a
  * system key holds `system:license` alone: it reads the deployment's
- * license, nothing else.
+ * license and hands the running server a renewed key, nothing else.
  */
 export interface SystemPrincipal {
   /** The system key's id, or `boot` for the deployment's own token. */
@@ -39,7 +39,8 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
  * The scopes a system key can hold, each the least one service needs.
  * `kindgi:system` holds them all, but for one read. None of them reads
  * customer content (runs, conversations, memory, files);
- * `system:tenants:contacts` reads account contacts only, and
+ * `system:tenants:contacts` reads account contacts only,
+ * `system:join-domains:read` workspaces' ids and names for one email, and
  * `system:pack-env` reads the env values a deployment's pack declares. Its
  * secrets' values are given only when asked (`?secrets=values`), each
  * audited, and only to a key holding `system:pack-env` itself, never to
@@ -57,7 +58,7 @@ export const SYSTEM_SCOPES = [
   'system:tenants:image-prefix',
   /** A tenant's "production allowed" switch. */
   'system:tenants:production',
-  /** A tenant's limits. */
+  /** A tenant's limits, and the id of the plan it's on. */
   'system:tenants:limits',
   /** A tenant's admins' contact addresses, for service notices. */
   'system:tenants:contacts',
@@ -81,7 +82,7 @@ export const SYSTEM_SCOPES = [
   'system:env-refs',
   /** Usage across tenants: counts and sums only. */
   'system:usage:read',
-  /** The deployment's license: reading it, for its renewal. */
+  /** The deployment's license: reading it, and handing the running server a renewed key, for its renewal. */
   'system:license',
   /**
    * Kept repos (the repos a store keeps for projects without a GitHub
@@ -92,6 +93,19 @@ export const SYSTEM_SCOPES = [
   'system:kept-repos',
   /** Requesting the erasure of a project's kept repo, and reading a kept repo's state. */
   'system:kept-repos:erase',
+  /**
+   * For one verified email, of the workspaces that let people at its
+   * domain join (by the emailed link's rules), the ones it may join and the
+   * ones it's in already: ids, names and join roles only, never a list of
+   * every workspace the email is in. A sign-up page offers them before it
+   * makes a new workspace.
+   */
+  'system:join-domains:read',
+  /**
+   * The email domains a tenant lets people join from: read them, allow
+   * one, change its role, stop allowing it. Its lookup too.
+   */
+  'system:join-domains',
 ] as const;
 
 export type SystemScope = (typeof SYSTEM_SCOPES)[number];
@@ -195,5 +209,6 @@ export const SYSTEM_PRINCIPAL_ALLOWED_ROUTES: readonly {
   readonly scope: SystemScope;
 }[] = [
   { method: 'GET', path: '/v1/license', scope: 'system:license' },
+  { method: 'PUT', path: '/v1/license', scope: 'system:license' },
   { method: 'GET', path: '/v1/license/usage', scope: 'system:license' },
 ];

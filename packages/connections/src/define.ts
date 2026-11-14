@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AccountLookup, AppEntry, AppRemoval, SignIn } from './types.js';
+import type { AccountLookup, AppEntry, AppRemoval, SignIn, TokenProvider } from './types.js';
 
 /** An entry's `id`. */
 export const APP_ID_PATTERN = /^[a-z][a-z0-9-]{1,31}$/;
@@ -17,6 +17,9 @@ export const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
  */
 export const SIGN_IN_TENANT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
 
+/** The providers a `token` sign-in may name: each one the server can serve. */
+export const TOKEN_PROVIDERS: readonly TokenProvider[] = Object.freeze<TokenProvider[]>(['telnyx']);
+
 const TENANT_PLACEHOLDER = '{tenant}';
 
 /** What the scopes an app answers it granted are split on. */
@@ -24,15 +27,23 @@ const SCOPE_SEPARATOR = /[\s,]/;
 
 const OWNER_KINDS: ReadonlySet<string> = new Set(['member', 'company']);
 const REVIEW_CLASSES: ReadonlySet<string> = new Set(['none', 'sensitive', 'restricted']);
-const REVOKE_KINDS: ReadonlySet<string> = new Set(['oauth2-revoke', 'github-installation-token']);
+const REVOKE_KINDS: ReadonlySet<string> = new Set([
+  'oauth2-revoke',
+  'github-installation-token',
+  'restore-inbound',
+]);
 const NOTICE_KINDS: ReadonlySet<string> = new Set(['google-risc', 'github-webhooks']);
+const TOKEN_PROVIDER_SET: ReadonlySet<string> = new Set(TOKEN_PROVIDERS);
 
 /**
  * Checks an app entry and returns a frozen copy of it. A field that's
  * wrong throws a `TypeError` naming it: an id or a permission key that
  * doesn't match its pattern, a URL that isn't `https:`, an owner, review
- * class, revoke or notice kind outside its set, a revoke or an account
- * lookup that doesn't fit the sign-in kind, a `{tenant}` in the sign-in's
+ * class, revoke, notice kind or token provider outside its set, a `token`
+ * sign-in's providers empty or one listed twice, a `token` sign-in's
+ * permission whose `grants` isn't its own key, a revoke or an account
+ * lookup that doesn't fit the sign-in kind (a `token` sign-in takes the
+ * `number` lookup, and only it), a `{tenant}` in the sign-in's
  * URLs without a `signIn.tenant` (or with one, not once in each of the
  * authorize and token URLs, or more than once in the revoke URL), a
  * `{tenant}` in the profile lookup's URL, a scope holding a space or a
@@ -55,6 +66,7 @@ export function defineApp(entry: AppEntry): AppEntry {
   checkSignIn(entry.signIn, at);
   checkOwners(entry.owners, at);
   checkPermissions(entry.permissions, at);
+  if (entry.signIn.kind === 'token') checkTokenGrants(entry.permissions, at);
   checkAccount(entry.account, entry.signIn, at);
   checkRemoval(entry.removal, entry.signIn, at);
   checkRateLimits(entry.rateLimits, at);
@@ -64,15 +76,21 @@ export function defineApp(entry: AppEntry): AppEntry {
 type At = (field: string) => string;
 
 function checkSignIn(signIn: SignIn, at: At): void {
-  if (signIn?.kind === 'github-app') {
+  if (signIn?.kind === 'github-app' || signIn?.kind === 'token') {
     if ('refreshToken' in signIn) {
       throw new TypeError(at('signIn.refreshToken is for an "oauth2" sign-in'));
     }
+    if (signIn.kind === 'token') checkTokenProviders(signIn.providers, at);
     return;
   }
   if (signIn?.kind !== 'oauth2') {
-    throw new TypeError(at('signIn.kind must be "oauth2" or "github-app"'));
+    throw new TypeError(at('signIn.kind must be "oauth2", "github-app" or "token"'));
   }
+  checkOAuth2SignIn(signIn, at);
+}
+
+/** An `oauth2` sign-in's URLs, PKCE, refresh token, parameters, scopes and tenant. */
+function checkOAuth2SignIn(signIn: Extract<SignIn, { kind: 'oauth2' }>, at: At): void {
   requireHttps(signIn.authorizeUrl, at('signIn.authorizeUrl'));
   requireHttps(signIn.tokenUrl, at('signIn.tokenUrl'));
   if (signIn.revokeUrl !== undefined) requireHttps(signIn.revokeUrl, at('signIn.revokeUrl'));
@@ -98,6 +116,26 @@ function checkSignIn(signIn: SignIn, at: At): void {
     }
   }
   checkTenant(signIn, at);
+}
+
+/** A `token` sign-in's providers: at least one, each once, each one of the set. */
+function checkTokenProviders(providers: unknown, at: At): void {
+  const known = TOKEN_PROVIDERS.map((p) => JSON.stringify(p)).join(', ');
+  if (!Array.isArray(providers) || providers.length === 0) {
+    throw new TypeError(at(`signIn.providers must list at least one of ${known}`));
+  }
+  const seen = new Set<string>();
+  for (const provider of providers) {
+    if (!TOKEN_PROVIDER_SET.has(provider)) {
+      throw new TypeError(
+        at(`signIn.providers has ${JSON.stringify(provider)}; each is one of ${known}`),
+      );
+    }
+    if (seen.has(provider)) {
+      throw new TypeError(at(`signIn.providers lists ${JSON.stringify(provider)} twice`));
+    }
+    seen.add(provider);
+  }
 }
 
 /**
@@ -178,7 +216,34 @@ function checkPermissions(permissions: AppEntry['permissions'], at: At): void {
   }
 }
 
+/**
+ * A `token` sign-in's permissions: each one grants its own key. The app
+ * has no scopes, since the credential reaches the whole account, so the
+ * server checks the permission.
+ */
+function checkTokenGrants(permissions: AppEntry['permissions'], at: At): void {
+  for (const [key, permission] of Object.entries(permissions)) {
+    if (permission.grants !== key) {
+      throw new TypeError(
+        at(
+          `permissions[${JSON.stringify(key)}].grants must be ${JSON.stringify(key)}: a "token" sign-in grants each permission by its own key`,
+        ),
+      );
+    }
+  }
+}
+
 function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
+  if (account?.kind === 'number') {
+    if (signIn.kind !== 'token') {
+      throw new TypeError(at('account.kind "number" needs a "token" sign-in'));
+    }
+    return;
+  }
+  // No person signs in, so nothing else can say whose account it is.
+  if (signIn.kind === 'token') {
+    throw new TypeError(at('a "token" sign-in needs account.kind "number"'));
+  }
   if (account?.kind === 'github-installation') {
     if (signIn.kind !== 'github-app') {
       throw new TypeError(at('account.kind "github-installation" needs a "github-app" sign-in'));
@@ -190,7 +255,9 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
     return;
   }
   if (account?.kind !== 'openid') {
-    throw new TypeError(at('account.kind must be "openid", "github-installation" or "profile"'));
+    throw new TypeError(
+      at('account.kind must be "openid", "github-installation", "profile" or "number"'),
+    );
   }
   if (signIn.kind !== 'oauth2') {
     throw new TypeError(at('account.kind "openid" needs an "oauth2" sign-in'));
@@ -233,7 +300,9 @@ function checkRemoval(removal: AppRemoval, signIn: SignIn, at: At): void {
   }
   if (removal.revoke !== undefined && !REVOKE_KINDS.has(removal.revoke)) {
     throw new TypeError(
-      at('removal.revoke must be "oauth2-revoke" or "github-installation-token"'),
+      at(
+        'removal.revoke must be "oauth2-revoke", "github-installation-token" or "restore-inbound"',
+      ),
     );
   }
   if (
@@ -248,6 +317,9 @@ function checkRemoval(removal: AppRemoval, signIn: SignIn, at: At): void {
     throw new TypeError(
       at('removal.revoke "github-installation-token" needs a "github-app" sign-in'),
     );
+  }
+  if (removal.revoke === 'restore-inbound' && signIn.kind !== 'token') {
+    throw new TypeError(at('removal.revoke "restore-inbound" needs a "token" sign-in'));
   }
   if (removal.revokeIsGrantWide !== undefined && typeof removal.revokeIsGrantWide !== 'boolean') {
     throw new TypeError(at('removal.revokeIsGrantWide must be true or false'));

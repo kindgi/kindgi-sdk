@@ -491,7 +491,7 @@ changes (a removed field, a narrower type), not on every save.
    `kindgi dev` and fails in the image, which ships the runtime classpath
    only.
 9. **A read-only tool without `readOnly`.** A dry run stops at it, and an
-   approval gate asks before it on first use.
+   approval gate asks before each call to it.
 10. **`readOnly` on a tool that writes.** A dry run then runs it for real.
 11. **A jackson-module-scala that doesn't match your app's
     `jackson-databind` minor version.** It refuses to load: depend on the

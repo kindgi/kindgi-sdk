@@ -84,7 +84,8 @@ public final class AsyncWidgetsResource {
                 .query("order", params.order())
                 .query("segment", params.segments() == null ? null : params.segments().stream().map(step -> step.key() + ":" + step.value()).toList())
                 .query("since", params.since())
-                .query("archived", params.archived());
+                .query("archived", params.archived())
+                .queryJoined("include", params.include());
         return transport.jsonAsync(request, WidgetPage.class);
     }
 

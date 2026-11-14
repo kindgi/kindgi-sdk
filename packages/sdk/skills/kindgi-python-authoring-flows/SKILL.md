@@ -349,7 +349,7 @@ the output), not on every save.
    real, and an agent's tool approval gate (when it falls back on
    `mutating`) won't ask before it.
 10. **A read-only tool without `mutating=False`.** A dry run stops at it,
-    and an agent's tool approval gate asks before it on first use.
+    and an agent's tool approval gate asks before each call to it.
 
 ## When the framework itself is the problem
 

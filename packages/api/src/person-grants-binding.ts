@@ -22,6 +22,13 @@ export interface PersonGrants {
   /** Absent when the runtime has no authorization store: nothing grants it then. */
   readonly tenantAdmin?: boolean;
   /**
+   * The running server's `KINDGI_ADMIN_EMAILS` names them: they're a tenant
+   * admin at every start, and taking tenant admin from them, or removing
+   * them, is refused (`listed-admin`) until the address is off the list.
+   * Absent when the runtime doesn't report it.
+   */
+  readonly tenantAdminFromSetting?: boolean;
+  /**
    * A tenant member: reads the tenant's settings, not its projects. A
    * person is one from being added. Absent when the runtime has no
    * authorization store, or doesn't report it.
@@ -58,6 +65,8 @@ export type PersonGrantErrorCode =
   | 'last-tenant-admin'
   /** Removing tenant admin from the seed user, whom the runtime grants it at every boot. */
   | 'seed-user-admin'
+  /** Removing tenant admin from someone `KINDGI_ADMIN_EMAILS` names, whom every start makes one. */
+  | 'listed-admin'
   /** A person a site signs in: they hold only the grants their site's sign-in writes. */
   | 'site-person-grants-managed'
   /** The runtime has no authorization store to write grants to. */

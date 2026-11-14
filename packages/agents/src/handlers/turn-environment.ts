@@ -30,6 +30,7 @@ import { withFileTools } from './model-file-tools.js';
 import { withRememberTool } from './remember-tool.js';
 import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js';
 import { resolveTurnTools } from './resolve-tools.js';
+import { withTextTools } from './text-tools.js';
 import { type ToolErrorPolicy, effectiveToolErrorPolicy } from './tool-errors.js';
 
 /** The conversation the turn runs in: open, and opened with this agent version. */
@@ -128,7 +129,10 @@ export async function resolveTurnEnvironment(
   // The built-ins after the registry's tools: `ctx.files` is bound by now.
   ctx.tools = withFileTools(
     ctx,
-    withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools)),
+    withTextTools(
+      ctx,
+      withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools)),
+    ),
   );
   // The data blocks, at the versions pinned (the turn's own on resume).
   const blocks = await resolveTurnBlocks(ctx, pinnedBlocks);

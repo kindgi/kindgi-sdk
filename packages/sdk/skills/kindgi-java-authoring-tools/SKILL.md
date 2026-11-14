@@ -534,7 +534,7 @@ removed field, a narrower type), not on every save.
    `kindgi dev` and fails in the image, which copies the runtime classpath
    only. Use `compile` or `runtime` scope.
 8. **A read-only tool without `mutating(false)`.** A dry run stops at it, an
-   approval gate asks before it on first use, and an agent runs each call to
+   approval gate asks before each call to it, and an agent runs each call to
    it on its own.
 9. **`mutating(false)` on a tool that writes.** A dry run then runs it for
    real, and an agent may run it at the same time as other calls.

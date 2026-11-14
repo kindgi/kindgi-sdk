@@ -595,7 +595,7 @@ describe("a turn's file versions", () => {
     const ctx = await approvedTurn(async () => [
       version('f-in', 1, 'input'),
       version('f-notes', 2, 'made', {
-        fileName: 'notes.md',
+        fileName: 'notes.txt',
         filePreviousVersion: 1,
         callKey: keyOf('c1', 0),
       }),
@@ -623,7 +623,7 @@ describe("a turn's file versions", () => {
       attributes: {
         fileId: 'f-notes',
         fileVersion: 2,
-        fileName: 'notes.md',
+        fileName: 'notes.txt',
         filePreviousVersion: 1,
       },
     });

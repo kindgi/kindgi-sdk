@@ -28,6 +28,7 @@ import type {
 } from '@kindgi/types';
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
+import { RUN_STARTED_BY } from '@kindgi/runtime';
 import { PAUSE_TOKEN_PREFIX } from '@kindgi/tools';
 
 import { actsForOf } from '../caller.js';
@@ -41,9 +42,10 @@ import type {
   RunTrace,
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
-import { type ItemRights, runIn } from '../item-rights.js';
+import { type HeldItems, type ItemRights, limitedStartRefusal, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -53,11 +55,12 @@ import {
 } from '../reference-scope.js';
 import { logResumeAfterAnswer, resumeInline } from '../resume-inline.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
-import { runWaitingFor } from '../run-waiting-for.js';
+import { type RunWaitingFor, runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
 import type { CompleteWaitTokenInput, WaitTokenBinding } from '../wait-token-binding.js';
 import { agentPinScopeToWire } from './agent-pin-scope-wire.js';
 import { deniedBy } from './denied.js';
+import { includeListOf } from './include-list.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
@@ -76,6 +79,7 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
+import { parseTimeInput } from './time-input.js';
 import { type TurnConversation, closedRefusal, hiddenOr, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 import { refusal as waitTokenRefusal } from './wait-tokens.js';
@@ -151,6 +155,12 @@ export interface RunsRouterOptions {
    * one project.
    */
   readonly itemRights?: ItemRights;
+  /**
+   * Without a store: the projects that serve each agent and flow, where a
+   * project-limited key's or session's run is held (`limitedStart`).
+   * Absent: not held.
+   */
+  readonly held?: HeldItems;
   /** The project a target is registered in: the agent's or flow's own. */
   readonly targetProject: (
     tenantId: TenantId,
@@ -274,6 +284,31 @@ export function runsRouter(
     // As cancel: changing a run is `write` on its project (a project has
     // no `execute`; asking for it refused everyone, T243 A).
     r.use('/:runId/resume', onRunProject('write'));
+  } else {
+    // Without a store, a key or session limited to a project changes no
+    // run beyond it, as the store asks `write` on the run's project, its
+    // own runs too (`limitedCallerRefusal`). A run that isn't there, or an
+    // id that isn't a run's, is the route's own answer.
+    const heldRun = async (c: Context<AppEnv>, next: import('hono').Next) => {
+      const runId = c.req.param('runId') ?? '';
+      if (c.get('tokenProjectId') === undefined || !UUID_RE.test(runId)) return next();
+      // Before the handler (`beforeHandler`), so a database too busy to
+      // read the run answers 503 on any method.
+      const held = await beforeHandler(c, async () => {
+        const run = await runBinding.getRun(c.get('tenantId') as TenantId, runId as RunId);
+        return run === null
+          ? undefined
+          : limitedCallerRefusal(
+              c,
+              'write',
+              ref('project', run.projectId as unknown as string),
+              'the run',
+            );
+      });
+      return held ?? next();
+    };
+    r.use('/:runId/cancel', heldRun);
+    r.use('/:runId/resume', heldRun);
   }
 
   // ---------- POST / (start a run — agent | flow) ----------
@@ -318,6 +353,13 @@ export function runsRouter(
       return continued;
     };
 
+    // Without a store, a limited caller's run, held and placed as a store
+    // holds and places it (`limitedStart`).
+    const limited =
+      authorizer === undefined
+        ? await limitedStart(c, options.held, target, parsed.value, conversation)
+        : undefined;
+    if (limited?.refused !== undefined) return limited.refused;
     // An agent or flow more than one project serves, run in one of its
     // projects: that project's right alone (`servedRun`).
     const ran = await servedRun(
@@ -332,7 +374,7 @@ export function runsRouter(
         ? await refusedAsBefore(c, authorizer, options.targetExists, target, parsed.value)
         : ran.refused;
     if (refused !== undefined) return refused;
-    const start = ran?.start ?? parsed.value;
+    const start = ran?.start ?? limited?.start ?? parsed.value;
     // A run filed under a named project runs only what that project
     // reaches (`reference-scope.ts`).
     if (start.projectId !== undefined) {
@@ -474,7 +516,6 @@ export function runsRouter(
   r.get('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const limit = clampLimit(c.req.query('limit'));
 
     let cursorFilter: DecodedCursor | null = null;
     const rawCursor = c.req.query('cursor');
@@ -496,12 +537,33 @@ export function runsRouter(
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
-    const listFilter = parseRunListFilter(c.req.query(), c.req.queries('status'));
+    const listFilter = parseRunListFilter(
+      c.req.query(),
+      c.req.queries('status'),
+      c.req.queries('include'),
+    );
     if (listFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
     }
-    const includeOutput = listFilter.value.includeOutput;
+    // Ordered by when runs ended, a page goes on from its last run's
+    // `completedAt` and id (`completedAfter` + `afterRunId`), never from a
+    // cursor, which is keyed on `createdAt`.
+    const byCompletion = listFilter.value.byCompletion;
+    if (byCompletion && cursorFilter !== null) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`cursor` cannot be combined with `completedAfter` or `completedBefore`: ask for the next page with `completedAfter` and `afterRunId` set to the last run's `completedAt` and `id`",
+          },
+          requestId,
+        ),
+      );
+    }
+    const limit = listLimit(c.req.query('limit'), listFilter.value.includeWaitingFor);
     // `?actsFor=me`: the runs that act for the caller. A caller who acts
     // for no one has none.
     const me = actsForOf(c) as RunActsFor | undefined;
@@ -544,9 +606,11 @@ export function runsRouter(
           )
     ).filter((row) => !listFilter.value.actsForMe || row.actsFor === me);
     return c.json({
-      data: visible.map((row) => serializeRun(row, { output: includeOutput })),
+      // Only rows the caller sees cost a read.
+      data: await listedRuns(runBinding, options, tenantId, visible, listFilter.value),
       hasMore: page.nextCursor !== undefined,
-      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+      ...(page.nextCursor !== undefined &&
+        !byCompletion && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
 
@@ -1044,20 +1108,94 @@ async function runWithWaits(
   tenantId: TenantId,
   run: KernelRunRecord,
 ): Promise<Record<string, unknown>> {
-  const waitingFor = await runWaitingFor(
-    {
-      runBinding,
-      ...(options.hitl !== undefined && { hitl: options.hitl }),
-      ...(options.connections !== undefined && { connections: options.connections }),
-      ...(options.waitTokens !== undefined && { waitTokens: options.waitTokens }),
-    },
-    tenantId,
-    { id: run.runId, status: run.status },
-  );
+  const waitingFor = await runWaitingFor(waitDeps(runBinding, options), tenantId, {
+    id: run.runId,
+    status: run.status,
+  });
   return {
     ...serializeRun(run, { output: true }),
     ...(waitingFor !== undefined && { waitingFor }),
   };
+}
+
+/** What a run's waits are read from: the run's journal, and the bindings that name them. */
+function waitDeps(runBinding: RunBinding, options: RunsRouterOptions) {
+  return {
+    runBinding,
+    ...(options.hitl !== undefined && { hitl: options.hitl }),
+    ...(options.connections !== undefined && { connections: options.connections }),
+    ...(options.waitTokens !== undefined && { waitTokens: options.waitTokens }),
+  };
+}
+
+/** The most rows a page of the list holds with `?include=waitingFor`. */
+const WAITS_PAGE_CAP = 25;
+/** How many of a page's suspended runs have their waits read at once. */
+const WAITS_AT_ONCE = 5;
+
+/**
+ * A list page's size: the list's own bound, or at most `WAITS_PAGE_CAP`
+ * rows with `?include=waitingFor`, since what a suspended row waits for
+ * reads its journal and more.
+ */
+function listLimit(raw: string | undefined, includeWaitingFor: boolean): number {
+  return includeWaitingFor ? clampLimit(raw, WAITS_PAGE_CAP, WAITS_PAGE_CAP) : clampLimit(raw);
+}
+
+/**
+ * A list page's runs on the wire: each with its output when asked, and,
+ * with `?include=waitingFor`, each suspended one with what it waits for
+ * (`waitsOfRows`).
+ */
+async function listedRuns(
+  runBinding: RunBinding,
+  options: RunsRouterOptions,
+  tenantId: TenantId,
+  rows: readonly KernelRunRecord[],
+  include: Pick<RunListFilter, 'includeOutput' | 'includeWaitingFor'>,
+): Promise<Record<string, unknown>[]> {
+  const waits = include.includeWaitingFor
+    ? await waitsOfRows(runBinding, options, tenantId, rows)
+    : [];
+  return rows.map((row, i) => {
+    const wire = serializeRun(row, { output: include.includeOutput });
+    const waitingFor = waits[i];
+    return waitingFor === undefined ? wire : { ...wire, waitingFor };
+  });
+}
+
+/**
+ * What each of a page's runs waits for, as `GET /:runId` gives it, by
+ * position. Read for its suspended runs only: each one's whole journal,
+ * its waits for another system's answer, each child run it waits on, and
+ * its approvals and connect requests. `WAITS_AT_ONCE` runs at a time, so a
+ * page holds at most that many journals at once. `undefined` for a run
+ * that isn't suspended, or whose waits can't be read (a read that throws
+ * leaves that row without them, not the page).
+ */
+async function waitsOfRows(
+  runBinding: RunBinding,
+  options: RunsRouterOptions,
+  tenantId: TenantId,
+  rows: readonly KernelRunRecord[],
+): Promise<(RunWaitingFor | undefined)[]> {
+  const deps = waitDeps(runBinding, options);
+  const out: (RunWaitingFor | undefined)[] = rows.map(() => undefined);
+  const suspended = rows.flatMap((row, i) => (row.status === 'suspended' ? [i] : []));
+  let next = 0;
+  const reader = async (): Promise<void> => {
+    while (next < suspended.length) {
+      const i = suspended[next++] as number;
+      const row = rows[i] as KernelRunRecord;
+      out[i] = await runWaitingFor(deps, tenantId, { id: row.runId, status: row.status }).catch(
+        () => undefined,
+      );
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(WAITS_AT_ONCE, suspended.length) }, () => reader()),
+  );
+  return out;
 }
 
 /** The resume body as an answer to the wait, from the caller. */
@@ -1232,6 +1370,83 @@ async function servedRun(
     start: keyed === undefined ? start : { ...start, projectId: keyed as ProjectId },
     refused: await runIn(c, itemRights, target, keyed ?? served.own),
   };
+}
+
+/**
+ * Without a store, a project-limited key's or session's run, held in a
+ * store's order (`servedRun`, then `refusedAsBefore`, then `turnRefusal`):
+ * the target first, where the run lands. An agent's turn continuing a
+ * conversation in one of the projects that serve it, more than one, lands
+ * there: `call` on it. Otherwise `limitedStartRefusal`: an unnamed run of
+ * an agent, or of a flow, the key's project serves among others lands
+ * there, as `servedRun` places it. Then, the target passing, a turn
+ * continuing a conversation in another project (`continuedRefusal`).
+ */
+async function limitedStart(
+  c: Context<AppEnv>,
+  held: HeldItems | undefined,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  start: ParsedStartRunBody,
+  conversation: () => Promise<{ readonly projectId?: string } | null>,
+): Promise<
+  { readonly refused?: Response | undefined; readonly start?: ParsedStartRunBody } | undefined
+> {
+  if (held === undefined || c.get('tokenProjectId') === undefined) return undefined;
+  const continued = (await conversation())?.projectId;
+  const inConversation =
+    target.kind === 'agent' && continued !== undefined && start.projectId === undefined;
+  if (inConversation && (await landsThere(c, held.agents, target.id, continued))) {
+    const refused = limitedCallerRefusal(c, 'call', ref('project', continued), 'the conversation');
+    return refused === undefined ? undefined : { refused };
+  }
+  const item = await limitedStartRefusal(c, {
+    ...target,
+    held: target.kind === 'agent' ? held.agents : held.flows,
+    unnamed: start.projectId === undefined && !inConversation,
+  });
+  if (item?.refused !== undefined) return item;
+  const onConversation = continuedRefusal(c, continued, start.projectId !== undefined);
+  if (onConversation !== undefined) return { refused: onConversation };
+  return item?.placed === undefined || start.projectId !== undefined || inConversation
+    ? undefined
+    : { start: { ...start, projectId: item.placed } };
+}
+
+/**
+ * Without a store, a limited caller's turn continuing a conversation in
+ * another project, its target passing: `write` on it, as `turnRefusal`
+ * asks; or `read` for a run that names its project (the key's), which
+ * `turnRefusal` asks first of a run naming another project than the
+ * conversation's.
+ */
+function continuedRefusal(
+  c: Context<AppEnv>,
+  projectId: string | undefined,
+  named: boolean,
+): Response | undefined {
+  return projectId === undefined
+    ? undefined
+    : limitedCallerRefusal(
+        c,
+        named ? 'read' : 'write',
+        ref('project', projectId),
+        'the conversation',
+      );
+}
+
+/**
+ * Whether an agent's turn continuing a conversation in `projectId` lands
+ * there: more than one project serves the agent, that one among them
+ * (`servedRun`).
+ */
+async function landsThere(
+  c: Context<AppEnv>,
+  held: HeldItems['agents'],
+  agentId: string,
+  projectId: string,
+): Promise<boolean> {
+  const projects = (await held.projects(c, agentId)) ?? [];
+  return projects.length > 1 && projects.includes(projectId as ProjectId);
 }
 
 /**
@@ -1455,9 +1670,22 @@ function listRunsInput(input: {
     ...(filter.statuses !== undefined && { statuses: filter.statuses }),
     ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
     ...(filter.createdBefore !== undefined && { createdBefore: filter.createdBefore }),
+    ...completionInput(filter),
     ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
     ...(filter.flowId !== undefined && { flowId: filter.flowId }),
     ...(filter.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
+  };
+}
+
+/** `listRunsInput`'s bounds on when runs ended, and `startedBy`, each when given. */
+function completionInput(
+  filter: RunListFilter,
+): Pick<ListRunsInput, 'completedAfter' | 'afterRunId' | 'completedBefore' | 'startedBy'> {
+  return {
+    ...(filter.completedAfter !== undefined && { completedAfter: filter.completedAfter }),
+    ...(filter.afterRunId !== undefined && { afterRunId: filter.afterRunId }),
+    ...(filter.completedBefore !== undefined && { completedBefore: filter.completedBefore }),
+    ...(filter.startedBy !== undefined && { startedBy: filter.startedBy }),
   };
 }
 
@@ -1514,10 +1742,18 @@ interface RunListFilter {
   readonly statuses?: readonly RunStatus[];
   readonly createdAfter?: Timestamp;
   readonly createdBefore?: Timestamp;
+  readonly completedAfter?: Timestamp;
+  readonly afterRunId?: RunId;
+  readonly completedBefore?: Timestamp;
+  /** `completedAfter` or `completedBefore` is given: the page is ordered by when runs ended. */
+  readonly byCompletion: boolean;
+  readonly startedBy?: RunStartedBy;
   readonly agentVersion?: string;
   readonly flowId?: string;
   readonly flowVersion?: string;
   readonly includeOutput: boolean;
+  /** `?include=waitingFor`: what each suspended row waits for, as `GET /:runId` gives it. */
+  readonly includeWaitingFor: boolean;
   /** `?actsFor=me`. */
   readonly actsForMe: boolean;
 }
@@ -1578,14 +1814,72 @@ function parseCreatedBounds(
   };
 }
 
-/** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
+/**
+ * `?completedAfter=` (strict, with `?afterRunId=` as its tie-break) and
+ * `?completedBefore=` (inclusive): when runs ended. Each is kept as the
+ * caller gave it, since a run's `completedAt` can carry microseconds that a
+ * JS `Date` would drop, and a page then goes on from the wrong run.
+ */
+function parseCompletedBounds(
+  query: Readonly<Record<string, string>>,
+): Parsed<
+  Pick<RunListFilter, 'completedAfter' | 'afterRunId' | 'completedBefore' | 'byCompletion'>
+> {
+  const { completedAfter, afterRunId, completedBefore } = query;
+  const after = completedAfter === undefined ? undefined : parseTimeInput(completedAfter);
+  const before = completedBefore === undefined ? undefined : parseTimeInput(completedBefore);
+  if (after === null) return { kind: 'err', message: '`completedAfter` must be a date-time' };
+  if (before === null) return { kind: 'err', message: '`completedBefore` must be a date-time' };
+  if (after !== undefined && before !== undefined && after.getTime() > before.getTime()) {
+    return { kind: 'err', message: '`completedAfter` must not be later than `completedBefore`' };
+  }
+  if (afterRunId !== undefined && completedAfter === undefined) {
+    return { kind: 'err', message: '`afterRunId` needs `completedAfter`' };
+  }
+  if (afterRunId !== undefined && !UUID_RE.test(afterRunId)) {
+    return { kind: 'err', message: '`afterRunId` must be a run id (a UUID)' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(completedAfter !== undefined && { completedAfter: completedAfter as Timestamp }),
+      ...(afterRunId !== undefined && { afterRunId: afterRunId as RunId }),
+      ...(completedBefore !== undefined && { completedBefore: completedBefore as Timestamp }),
+      byCompletion: completedAfter !== undefined || completedBefore !== undefined,
+    },
+  };
+}
+
+/** `?startedBy=`: one of `Run.startedBy`'s values. */
+function parseStartedBy(raw: string | undefined): Parsed<RunStartedBy | undefined> {
+  if (raw === undefined) return { kind: 'ok', value: undefined };
+  if (!(RUN_STARTED_BY as readonly string[]).includes(raw)) {
+    return {
+      kind: 'err',
+      message: `\`startedBy\` must be one of: ${RUN_STARTED_BY.join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: raw as RunStartedBy };
+}
+
+/** The narrowing filters: `status`, the creation and completion bounds, `startedBy`, the agent's version, and the flow with its version. */
 function parseRunNarrowing(
   query: Readonly<Record<string, string>>,
   status: readonly string[] | undefined,
 ): Parsed<
   Pick<
     RunListFilter,
-    'statuses' | 'createdAfter' | 'createdBefore' | 'agentVersion' | 'flowId' | 'flowVersion'
+    | 'statuses'
+    | 'createdAfter'
+    | 'createdBefore'
+    | 'completedAfter'
+    | 'afterRunId'
+    | 'completedBefore'
+    | 'byCompletion'
+    | 'startedBy'
+    | 'agentVersion'
+    | 'flowId'
+    | 'flowVersion'
   >
 > {
   const { agentId, agentVersion, flowId, flowVersion } = query;
@@ -1593,6 +1887,10 @@ function parseRunNarrowing(
   if (statuses.kind === 'err') return statuses;
   const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
   if (bounds.kind === 'err') return bounds;
+  const completed = parseCompletedBounds(query);
+  if (completed.kind === 'err') return completed;
+  const startedBy = parseStartedBy(query.startedBy);
+  if (startedBy.kind === 'err') return startedBy;
   const empty = (
     [
       ['agentVersion', agentVersion],
@@ -1612,6 +1910,8 @@ function parseRunNarrowing(
     value: {
       ...(statuses.value !== undefined && { statuses: statuses.value }),
       ...bounds.value,
+      ...completed.value,
+      ...(startedBy.value !== undefined && { startedBy: startedBy.value }),
       ...(agentVersion !== undefined && { agentVersion }),
       ...(flowId !== undefined && { flowId }),
       ...(flowVersion !== undefined && { flowVersion }),
@@ -1623,14 +1923,16 @@ function parseRunNarrowing(
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
  * `?testRunId=` (one test run's replays; implies they are included),
- * `?triggerId=` (the runs a trigger started), `?include=output`, and the
+ * `?triggerId=` (the runs a trigger started), `?include=output`,
+ * `?include=waitingFor` (either or both, comma-separated), and the
  * narrowing in `parseRunNarrowing`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
   status?: readonly string[],
+  include?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include, actsFor } = query;
+  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, actsFor } = query;
   if (actsFor !== undefined && actsFor !== 'me') {
     return { kind: 'err', message: '`actsFor` must be `me`' };
   }
@@ -1664,11 +1966,8 @@ function parseRunListFilter(
   if (testRunId !== undefined && replays === 'exclude') {
     return { kind: 'err', message: '`testRunId` and `replays=exclude` cannot be combined' };
   }
-  const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
-  const unknown = includes.filter((i) => i !== 'output');
-  if (unknown.length > 0) {
-    return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
-  }
+  const includes = includeListOf(include, ['output', 'waitingFor']);
+  if (includes.kind === 'err') return includes;
   const narrowing = parseRunNarrowing(query, status);
   if (narrowing.kind === 'err') return narrowing;
   return {
@@ -1681,7 +1980,8 @@ function parseRunListFilter(
       replays: replays ?? (testRunId !== undefined ? 'include' : 'exclude'),
       ...(testRunId !== undefined && { testRunId }),
       ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
-      includeOutput: includes.includes('output'),
+      includeOutput: includes.value.has('output'),
+      includeWaitingFor: includes.value.has('waitingFor'),
       actsForMe: actsFor === 'me',
     },
   };

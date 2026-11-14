@@ -34,15 +34,15 @@ const conversationId = 'conv-1' as ConversationId;
 
 const sha = (n: number) => n.toString(16).padStart(64, '0');
 
-/** Version `version` of the file `f_1`, `notes.md`. */
+/** Version `version` of the file `f_1`, `notes.csv`. */
 function notes(version: number, extra: Partial<FileValue> = {}): FileValue {
   return {
     type: 'kindgi.file',
     artifactId: `art-${version}`,
     fileId: 'f_1',
     version,
-    name: 'notes.md',
-    contentType: 'text/markdown',
+    name: 'notes.csv',
+    contentType: 'text/csv',
     size: 5,
     sha256: sha(version),
     ...extra,
@@ -54,8 +54,8 @@ const NEW_FILE: FileValue = {
   artifactId: 'art-new',
   fileId: 'f_9',
   version: 1,
-  name: 'summary.md',
-  contentType: 'text/markdown',
+  name: 'summary.txt',
+  contentType: 'text/plain',
   size: 4,
   sha256: sha(9),
 };
@@ -273,7 +273,7 @@ describe('kindgi_update_file', () => {
     expect(turn.updates).toEqual([
       {
         call: { callKey: expect.any(String), toolId: UPDATE_FILE_TOOL_ID },
-        file: { fileId: 'f_1', expectedVersion: 2, contentType: 'text/markdown', bytes: BYTES },
+        file: { fileId: 'f_1', expectedVersion: 2, contentType: 'text/csv', bytes: BYTES },
       },
     ]);
     expect(outputOf(turn)).toEqual({ status: 'updated' });
@@ -393,11 +393,11 @@ describe('kindgi_create_file', () => {
   ) => fileTurn({ name: CREATE_FILE_TOOL_ID, args, ...more });
 
   test("makes version 1 under the call's key, text/plain unless a text type is given", async () => {
-    const plain = await create({ name: 'summary.md', content: TEXT });
+    const plain = await create({ name: 'summary.txt', content: TEXT });
     expect(plain.creates).toEqual([
       {
         call: { callKey: expect.any(String), toolId: CREATE_FILE_TOOL_ID },
-        file: { name: 'summary.md', contentType: 'text/plain', bytes: BYTES },
+        file: { name: 'summary.txt', contentType: 'text/plain', bytes: BYTES },
       },
     ]);
     expect(outputOf(plain)).toEqual({ status: 'created' });

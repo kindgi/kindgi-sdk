@@ -16,10 +16,17 @@ import type {
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, pinChangeRefusal, pinWidthRefusal } from '../item-rights.js';
+import {
+  type HeldProjects,
+  type ItemRights,
+  limitedItemRefusal,
+  pinChangeRefusal,
+  pinScopeCheck,
+  pinWidthRefusal,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { beforeHandler } from '../middleware/error-mapper.js';
-import { holdLimitedCaller } from '../middleware/key-project.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type {
   PinnedVersion,
   PinnedVersionBinding,
@@ -81,6 +88,8 @@ export interface PinnedRouteDeps {
   readonly referenceScope?: ReferenceScopeBinding;
   /** Where a tool's pin acts: never in a later environment of an order. Absent → no orders. */
   readonly environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
+  /** Without a store: where the item's projects are read, so a pin beyond its project is held. Absent → not held. */
+  readonly held?: HeldProjects;
 }
 
 /**
@@ -88,7 +97,8 @@ export interface PinnedRouteDeps {
  * (`pinChangeRefusal`). Install it ahead of the item's own middleware,
  * which leaves pin writes to it (`isPinWrite`). Without a store, a key or
  * session limited to a project pins nothing tenant- or org-wide
- * (`holdLimitedCaller`).
+ * (`limitedCallerRefusal`), nor an item beyond its project, as a store
+ * asks it (`limitedItemRefusal`).
  */
 export function pinRightsMiddleware(
   kind: PinnedItemKind,
@@ -99,10 +109,12 @@ export function pinRightsMiddleware(
     const authorizer = deps.authorizer;
     if (!isPinWrite(c.req.method, c.req.path)) return next();
     if (authorizer === undefined) {
-      const scope = await bodyPinScope(c);
-      if (scope === undefined) return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
+      // Without a store, the item's projects are read before the handler
+      // too (`beforeHandler`).
+      const held = await beforeHandler(c, () =>
+        heldPinRefusal(c, kind, c.req.param(param) ?? '', deps.held),
+      );
+      return held ?? next();
     }
     // Before the handler, so a store that couldn't be reached, or a database
     // too busy to read, answers 503 on any method (`beforeHandler`).
@@ -117,6 +129,32 @@ export function pinRightsMiddleware(
     );
     return refused ?? next();
   };
+}
+
+/**
+ * `pinRightsMiddleware`'s answer without a store: a key or session
+ * limited to a project is held on a pin tenant- or org-wide, and on one
+ * beyond the item's project when `held` reads where the item is.
+ */
+async function heldPinRefusal(
+  c: Ctx,
+  kind: PinnedItemKind,
+  itemId: string,
+  held: HeldProjects | undefined,
+): Promise<Response | undefined> {
+  const scope = await bodyPinScope(c);
+  const wide =
+    scope === undefined
+      ? undefined
+      : limitedCallerRefusal(c, 'admin', pinScopeResourceRef(scope, c.get('tenantId') as TenantId));
+  if (wide !== undefined || held === undefined) return wide;
+  return limitedItemRefusal(c, {
+    kind,
+    id: itemId,
+    today: 'pin',
+    check: pinScopeCheck(scope),
+    held,
+  });
 }
 
 /**

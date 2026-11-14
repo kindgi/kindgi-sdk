@@ -39,6 +39,7 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/schedules',
   '/webhooks',
   '/mail-triggers',
+  '/text-triggers',
   '/service-accounts/:serviceAccountId/grant',
   '/service-accounts/:serviceAccountId/ungrant',
   '/connections',
