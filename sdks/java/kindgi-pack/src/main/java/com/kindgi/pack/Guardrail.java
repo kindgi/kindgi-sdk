@@ -441,10 +441,15 @@ public final class Guardrail<C> {
         builtInEntry.put("config", Map.copyOf(config));
       }
       Builder<Map<String, Object>> self = cast();
-      return new Guardrail<>(self, builtIn, builtInEntry, true, (c, trace) -> {
+      // The runtime runs a built-in, so its local handler reads no config and must throw the same error whatever
+      // config type it's called with (the Scala DSL passes Scala maps): typed on Object, no bridge cast runs.
+      CheckHandler<Object> runtimeOnly = (c, trace) -> {
         throw new UnsupportedOperationException("guardrail " + id + " names the built-in check \"" + builtIn
             + "\": the Kindgi runtime runs it, not the Java SDK. Run it through Kindgi (an agent, a flow, `kindgi dev`).");
-      });
+      };
+      @SuppressWarnings("unchecked")
+      CheckHandler<Map<String, Object>> handler = (CheckHandler<Map<String, Object>>) (CheckHandler<?>) runtimeOnly;
+      return new Guardrail<>(self, builtIn, builtInEntry, true, handler);
     }
   }
 }
