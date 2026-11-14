@@ -2718,9 +2718,8 @@ export interface RegisterMcpEndpointInput {
 /**
  * @unwired SDK-defined event shapes; the API has no event emission or
  * subscription routes (`client.events.*` throws `not-yet-wired`).
- * Event triggers, which would start runs from events, aren't served yet:
- * the runtime fires schedules only. Filters are declarative predicates
- * over event fields.
+ * Event triggers, which would start runs from events, aren't served yet.
+ * Filters are declarative predicates over event fields.
  */
 export interface Event {
   readonly id: import('@kindgi/types').EventId;
