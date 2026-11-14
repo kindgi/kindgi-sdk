@@ -38,6 +38,7 @@ import type {
 } from '../src/index.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { planLimits } from './support/plan-limits.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
@@ -167,7 +168,7 @@ function agentBinding(
 /** What a test asks of a derive; the harness fills in the rest. */
 type Derive = Pick<
   DeriveAgentVersionInput,
-  'from' | 'swaps' | 'label' | 'suggestedChangeId' | 'projectId'
+  'from' | 'swaps' | 'label' | 'suggestedChangeId' | 'projectId' | 'planLimits'
 >;
 
 async function harness(
@@ -637,5 +638,76 @@ describe('deriveAgentVersion in a tenant with environment orders', () => {
     await settings('acme.weights', '1.1.0', { recency: 0.5 });
     expect((await derive(swap)).kind).toBe('ok');
     expect((await stored('1.0.1'))?.madeInProjectId).toBe(projectId);
+  });
+});
+
+describe('deriveAgentVersion through the plan limits', () => {
+  const swap = { from: '1.0.0', swaps: { settings: { 'acme.weights': '1.1.0' } } };
+  const OVER = {
+    kind: 'refused',
+    over: [{ limit: 'agents', adding: 1, numbers: { plan: 1, most: 2, inUse: 2 } }],
+    newIds: { flows: [], agents: [agentId as unknown as string] },
+  } as const;
+
+  test('asks admit with the agent, in the project its new version is made in, and publishes inside', async () => {
+    const order: string[] = [];
+    const plan = planLimits({ kind: 'done' }, order);
+    const { derive, settings, publishAgent, agents } = await harness();
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const publish = agents.publish;
+    agents.publish = async (input) => {
+      order.push(`published ${input.agent.version as unknown as string}`);
+      return publish(input);
+    };
+    expect((await derive({ ...swap, planLimits: plan.binding })).kind).toBe('ok');
+    expect(plan.admitted).toEqual([
+      { tenantId, projectId, adding: { agents: [agentId], flows: [] } },
+    ]);
+    expect(order).toEqual(['plan: admit', 'published 1.0.1', 'plan: admitted']);
+  });
+
+  test('refused: plan-refused, naming the project, and nothing published', async () => {
+    const { derive, settings, publishAgent, stored } = await harness();
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    expect(await derive({ ...swap, planLimits: planLimits(OVER).binding })).toEqual({
+      kind: 'plan-refused',
+      projectId,
+      refused: OVER,
+    });
+    expect(await stored('1.0.1')).toBeNull();
+  });
+
+  test('busy: plan-busy, and nothing published', async () => {
+    const { derive, settings, publishAgent, stored } = await harness();
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    expect(await derive({ ...swap, planLimits: planLimits({ kind: 'busy' }).binding })).toEqual({
+      kind: 'plan-busy',
+    });
+    expect(await stored('1.0.1')).toBeNull();
+  });
+
+  test('the same swap again is reused without asking: it adds nothing', async () => {
+    const { derive, settings, publishAgent } = await harness();
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    expect((await derive(swap)).kind).toBe('ok');
+    const plan = planLimits({ kind: 'done' });
+    expect((await derive({ ...swap, planLimits: plan.binding })).kind).toBe('reused');
+    expect(plan.admitted).toEqual([]);
+  });
+
+  test("in a tenant with environment orders, it's asked in the first environment", async () => {
+    const STAGING = randomUUID() as ProjectId;
+    const plan = planLimits({ kind: 'done' });
+    const { derive, settings, publishAgent } = await harness({ orders: [[STAGING, projectId]] });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    expect((await derive({ ...swap, planLimits: plan.binding })).kind).toBe('ok');
+    expect(plan.admitted).toEqual([
+      { tenantId, projectId: STAGING, adding: { agents: [agentId], flows: [] } },
+    ]);
   });
 });

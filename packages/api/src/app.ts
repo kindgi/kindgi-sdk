@@ -106,6 +106,8 @@ import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import { candidatesPinProjects } from './pin-test-runs.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
+import type { PlanLimitsBinding } from './plan-limits-binding.js';
+import { planGateOf } from './plan-limits.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -1370,6 +1372,14 @@ export interface CreateAppInput {
    */
   readonly production?: ProductionGateOptions;
   /**
+   * Optional. The plan limits on agents and flows in production
+   * (`plan-limits-binding.ts`). Deploy, promote, publish, reinstate, a
+   * suggested change's new version and putting a project in production ask
+   * it, and a write past the most the plan allows is refused: none of the
+   * flows and agents it adds is added. Absent: nothing is counted.
+   */
+  readonly planLimits?: PlanLimitsBinding;
+  /**
    * Optional. The addresses this deployment's calls to other sites come
    * from (`KINDGI_EGRESS_SERVER_ADDRESSES`,
    * `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES`), for a site that admits only
@@ -1607,6 +1617,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const observedSecrets =
     input.secretsBinding === undefined ? undefined : observeSecretWrites(input.secretsBinding);
   const secretsBinding = observedSecrets?.binding;
+  // The plan limits every writer into production asks, with where a larger plan is.
+  const planGate = planGateOf(input.planLimits, input.production?.next);
   // A cookie session's value is the token the store minted. A store that
   // can't resolve its own tokens would put the session id there instead,
   // and the id is no secret (whoami and the audit trail show it).
@@ -1952,6 +1964,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
+        planGate,
       ),
     );
   }
@@ -1990,6 +2003,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
         itemServing,
         input.pinnedVersions,
+        planGate,
       ),
     );
   }
@@ -2124,6 +2138,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         projectSuspended: input.projectSuspended,
       }),
       ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+      ...(planGate !== undefined && { plan: planGate }),
       // A drafter's pin needs a separate approver when the tenant has
       // a second person who could approve it — one who can read the
       // approval's resource, so the count matches who the decide route lets in.
@@ -2707,6 +2722,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           input.signingKeyRegistry !== undefined && {
             deployments: { ledger: input.deploymentRegistry, keys: input.signingKeyRegistry },
           }),
+        ...(planGate !== undefined && { plan: planGate }),
       }),
     );
     v1.route(
@@ -2838,6 +2854,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       deploymentsRouter(
         {
           deploymentRegistry: input.deploymentRegistry,
+          ...(planGate !== undefined && { plan: planGate }),
           // Only where the runtime serves many tenants: one tenant's runtime
           // deploys any image, as before.
           ...(input.tenancy === 'multi' &&

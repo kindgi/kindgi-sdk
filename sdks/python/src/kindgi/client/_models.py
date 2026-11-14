@@ -3384,6 +3384,38 @@ class PublishAgentBody(BaseModel):
     mcp: McpExposure | None = None
 
 
+class PlanCount(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[int, Field(ge=0)]
+    """
+    The license key's plan: how many it's for.
+    """
+    most: Annotated[int, Field(ge=0)]
+    """
+    The most it runs: its plan and a margin. A write past this is refused.
+    """
+    in_use: Annotated[int, Field(alias="inUse", ge=0)]
+    """
+    How many run in production, with this write.
+    """
+
+
+class PlanWarning(BaseModel):
+    """
+    The plan limits' counts that are at the license key's plan or past it, with this write: flows and agents in production. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flows: PlanCount | None = None
+    agents: PlanCount | None = None
+
+
 class Warning(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3404,6 +3436,7 @@ class PublishAgentResult(BaseModel):
     """
     What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class AgentOwner(BaseModel):
@@ -3463,6 +3496,7 @@ class ReinstateAgentVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowNode(BaseModel):
@@ -3572,6 +3606,7 @@ class PublishFlowResult(BaseModel):
     )
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class UnregisterFlowResult(BaseModel):
@@ -3595,6 +3630,7 @@ class ReinstateFlowVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowCollectionPage(BaseModel):
@@ -9573,6 +9609,13 @@ class DeployCheckAgentId(RootModel[str]):
     """
 
 
+class DeployCheckFlowId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    A flow's id, as the image index names it.
+    """
+
+
 class ReplacedItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9602,6 +9645,7 @@ class DeployCheckResult(BaseModel):
     """
     The blocks `replace` names that nothing newer runs for: nothing to replace.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class By2(BaseModel):
@@ -10887,6 +10931,7 @@ class ProjectProduction(BaseModel):
     """
     When the project went into production; `null` while it isn't in production.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class ProjectRepoConnectionBody(BaseModel):
@@ -18086,6 +18131,7 @@ class DeploymentRecord(BaseModel):
     """
     The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeployCheckBody(BaseModel):
@@ -18100,6 +18146,10 @@ class DeployCheckBody(BaseModel):
     agents: Annotated[list[DeployCheckAgentId], Field(max_length=500)]
     """
     The pack's agents, by id: the image index's.
+    """
+    flows: Annotated[list[DeployCheckFlowId] | None, Field(max_length=500)] = None
+    """
+    The pack's flows, by id: the image index's. With `agents`, what the plan limits count; absent: no flows.
     """
     blocks: Annotated[list[DeployCheckBodyBlock], Field(max_length=500)]
     """
@@ -18148,6 +18198,7 @@ class DeploymentPromotion(BaseModel):
     Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
     block_check: Annotated[PromotionBlockCheck | None, Field(alias="blockCheck")] = None
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeploymentPromotionCheck(BaseModel):
@@ -18169,6 +18220,7 @@ class DeploymentPromotionCheck(BaseModel):
     """
     Edits of the build's agents and flows that would stay behind; absent when none.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeploymentCollectionPage(BaseModel):

@@ -16,6 +16,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type {
   FlowPublishOutcome,
   FlowRegistryBinding,
+  FlowReinstateVersionOutcome,
   FlowVersionRecord,
 } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
@@ -38,6 +39,8 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import type { PlanAdmitted, PlanGate } from '../plan-limits.js';
+import { admitPlan, planWarningField } from '../plan-limits.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -136,6 +139,8 @@ export function flowsRouter(
   itemServing?: ItemServing,
   /** The flows' pinned versions; absent → no pin routes, and a run takes the newest version it reaches. */
   pinnedVersions?: PinnedVersionBinding,
+  /** The plan limits a publish or a reinstate asks (`plan-limits-binding.ts`); absent → nothing is counted. */
+  plan?: PlanGate,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -552,18 +557,31 @@ export function flowsRouter(
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await binding.publish({
-      tenantId,
-      projectId,
-      flow,
-      enqueueTuples: (flowId) =>
-        tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId }, creatorUserId),
-    });
+    // Only the write counts against the plan limits, after every check.
+    const admitted = await admitPlan(
+      c,
+      plan,
+      { tenantId, projectId, adding: { agents: [], flows: [flow.id as unknown as string] } },
+      () =>
+        binding.publish({
+          tenantId,
+          projectId,
+          flow,
+          enqueueTuples: (flowId) =>
+            tuplesForCreate(
+              { kind: 'flow', id: flowId as FlowId, tenantId, projectId },
+              creatorUserId,
+            ),
+        }),
+    );
+    if (admitted.kind === 'answer') return admitted.response;
+    const outcome = admitted.value;
     if (outcome.kind !== 'ok') return publishRefusedResponse(c, requestId, flow, outcome);
     c.status(201);
     return c.json({
       flowId: outcome.flowId as unknown as string,
       version: outcome.version,
+      ...(admitted.planWarning !== undefined && { planWarning: admitted.planWarning }),
     });
   });
 
@@ -620,7 +638,29 @@ export function flowsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
-    const outcome = await binding.reinstateVersion({ tenantId, flowId, version });
+    // A retired version counts again wherever it runs, so only a retired
+    // one is asked about: reinstating an active one adds nothing.
+    const madeIn = retired?.madeInProjectId ?? retired?.projectId;
+    const reinstating: PlanAdmitted<FlowReinstateVersionOutcome> =
+      retired?.unregisteredAt !== undefined
+        ? await admitPlan(
+            c,
+            plan,
+            {
+              tenantId,
+              ...(madeIn !== undefined && { projectId: madeIn }),
+              adding: {
+                reinstate: { limit: 'flows', id: flowId as unknown as string, version },
+              },
+            },
+            () => binding.reinstateVersion({ tenantId, flowId, version }),
+          )
+        : {
+            kind: 'done' as const,
+            value: await binding.reinstateVersion({ tenantId, flowId, version }),
+          };
+    if (reinstating.kind === 'answer') return reinstating.response;
+    const outcome = reinstating.value;
     if (outcome.kind === 'not-found') {
       c.status(statusFor('flow-not-found') as never);
       return c.json(
@@ -639,6 +679,7 @@ export function flowsRouter(
       flowId: outcome.flowId as unknown as string,
       version: outcome.version,
       wasTombstoned: outcome.wasTombstoned,
+      ...planWarningField(reinstating.planWarning),
     });
   });
 

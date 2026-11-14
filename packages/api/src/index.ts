@@ -977,6 +977,19 @@ export type {
   UnpinVersionInput,
 } from './pinned-version-binding.js';
 export type {
+  PlanAdding,
+  PlanAdmission,
+  PlanCheck,
+  PlanCount,
+  PlanLimit,
+  PlanLimitsBinding,
+  PlanLimitsInput,
+  PlanOver,
+  PlanRefused,
+  PlanReinstating,
+  PlanWarning,
+} from './plan-limits-binding.js';
+export type {
   GateMetricName,
   GateMetricSpec,
   ReleaseGate,

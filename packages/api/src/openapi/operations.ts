@@ -1760,10 +1760,6 @@ const withLimitedRecord = (text: string): string => `${text} ${LIMITED_RECORD_PR
 const LIMITED_RECORD_403 = ErrorResponse(
   withLimitedRecord('`permission-denied`: the caller may not make this change.'),
 );
-/** A suggested change's pin: held above the caller's project, and beyond the record's. */
-const LIMITED_RECORD_PIN_403 = ErrorResponse(
-  withLimitedRecord(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
-);
 
 /**
  * Without an authorization store, a key or session limited to a project
@@ -1777,12 +1773,64 @@ const LIMITED_RECORD_PIN_403 = ErrorResponse(
 export const LIMITED_START_PROJECT =
   'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).';
 const withLimitedStart = (text: string): string => `${text} ${LIMITED_START_PROJECT}`;
+/** Who may make new versions of an agent: refused as `permission-denied`. */
+const MADE_IN_DENIED =
+  'No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`).';
 /** A change that makes new versions of an agent: held where they are made. */
-const LIMITED_START_MADE_IN_403 = ErrorResponse(
-  withLimitedStart(
-    'No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`).',
+const LIMITED_START_MADE_IN_403 = ErrorResponse(withLimitedStart(MADE_IN_DENIED));
+
+/**
+ * The plan limits (`CreateAppInput.planLimits`): a write that would add
+ * flows or agents to production past the most the runtime's license key
+ * runs is refused, and none of them is added. Each such write's 403
+ * names `plan-limit-reached`, and its 503 `plan-count-busy`.
+ */
+const PLAN_LIMIT_REACHED =
+  "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.";
+const PLAN_COUNT_BUSY =
+  '`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe.';
+/** The `Idempotency-Key` store's 503, which a keyed write that declares its own 503 names too. */
+const IDEMPOTENCY_STORE_UNAVAILABLE_TOO =
+  "Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.";
+/**
+ * The authorization check's 503s, which an operation that declares a 401
+ * and its own 503 names too (`answersAuthzUnavailable`).
+ */
+const AUTHZ_UNAVAILABLE_TOO =
+  "Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.";
+/** A keyed write's 503: the plan count, its `Idempotency-Key` store, or the authorization check. */
+const PLAN_COUNT_BUSY_503 = ErrorResponse(
+  `${PLAN_COUNT_BUSY} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+);
+/** A publish's 403: `permission-denied`, the plan limits, or a key limited to a project. */
+const PUBLISH_403 = ErrorResponse(
+  withLimitedAbove(
+    `\`permission-denied\`: the caller may not make this change. Or ${PLAN_LIMIT_REACHED}`,
   ),
 );
+/** What a suggested change's check keeps when the plan stops its agent version. */
+const SUGGESTED_CHANGE_KEEPS =
+  "The suggested change and its edit's block version are kept, as a failed check keeps them.";
+/** Where a suggested change's check counts: the agent version it makes, in the project it's made in. */
+const SUGGESTED_CHANGE_COUNTS = `Here it's the agent version a check makes that counts, in the project it's made in. ${SUGGESTED_CHANGE_KEEPS}`;
+/**
+ * A suggested change's check, pin or add-as-Latest 503: the plan count, its
+ * `Idempotency-Key` store, or the authorization check.
+ */
+const SUGGESTED_CHANGE_BUSY_503 = ErrorResponse(
+  `${PLAN_COUNT_BUSY} ${SUGGESTED_CHANGE_KEEPS} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+);
+/**
+ * A reinstate's 403: `permission-denied`, the plan limits (only a retired
+ * version counts again), or a key limited to a project.
+ */
+const REINSTATE_403 = ErrorResponse(
+  withLimitedItem(
+    `\`permission-denied\`: the caller may not make this change. Or ${PLAN_LIMIT_REACHED} Only a retired version counts again; reinstating an active one adds nothing.`,
+  ),
+);
+/** What a suggested change's pin or add as Latest can answer from the rebuild's check. */
+const SUGGESTED_CHANGE_REBUILT = `When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`;
 
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
@@ -4457,7 +4505,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': PUBLISH_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -4619,7 +4668,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateAgentVersionResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ITEM_403,
+      '403': REINSTATE_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -5044,7 +5094,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': PUBLISH_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -5090,7 +5141,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateFlowVersionResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ITEM_403,
+      '403': REINSTATE_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -5989,7 +6041,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_START_MADE_IN_403,
+      '403': ErrorResponse(
+        withLimitedStart(
+          `${MADE_IN_DENIED} Or the suggested change is made, but its check didn't start (\`details.suggestedChangeId\`; check it again with \`POST /v1/suggested-changes/{suggestedChangeId}/check\`): ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`,
+        ),
+      ),
+      '503': ErrorResponse(
+        `\`plan-count-busy\` (with \`Retry-After\`): the suggested change and its edit's block version are made (\`details.suggestedChangeId\`), but counting the flows and agents in production for its check took too long; check it again. ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+      ),
       '400': ErrorResponse(
         "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
       ),
@@ -6019,7 +6078,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
-      '403': LIMITED_START_MADE_IN_403,
+      '403': ErrorResponse(
+        withLimitedStart(`${MADE_IN_DENIED} Or ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`),
+      ),
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
@@ -6057,7 +6119,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChangePinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_RECORD_PIN_403,
+      '403': ErrorResponse(
+        withLimitedRecord(
+          withLimitedAbove(
+            `\`permission-denied\`: the caller may not make this change. ${SUGGESTED_CHANGE_REBUILT}`,
+          ),
+        ),
+      ),
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
@@ -6088,7 +6157,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_RECORD_403,
+      '403': ErrorResponse(
+        withLimitedRecord(
+          `\`permission-denied\`: the caller may not make this change. ${SUGGESTED_CHANGE_REBUILT}`,
+        ),
+      ),
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '404': ErrorResponse(
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
@@ -8808,7 +8882,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Deployment registered.', schema: ref('DeploymentRecord') },
       '200': {
-        description: 'Digest replay — same imageDigest already recorded; returns existing record.',
+        description:
+          'Digest replay — same imageDigest already recorded; returns existing record, with no `planWarning`.',
         schema: ref('DeploymentRecord'),
       },
       ...CommonMutationErrors,
@@ -8820,12 +8895,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(
         withLimitedAbove(
-          "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+          `Signer key not on the workspace's trust list. Or, with \`projectId\`, no admin on that project (\`forbidden\`), or a key limited to another project (\`key-project-mismatch\`); without it, no admin on the workspace. Or ${PLAN_LIMIT_REACHED} It counts the pack's agents and flows in the project it deploys into.`,
         ),
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
+      '503': PLAN_COUNT_BUSY_503,
       '429': ErrorResponse(
         `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
       ),
@@ -8838,7 +8914,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.check',
     summary: "Check a deploy's blocks against what runs",
     description:
-      "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
+      "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
     tags: ['deployments'],
     security: 'bearer',
     requestBody: { required: true, schema: ref('DeployCheckBody') },
@@ -8850,11 +8926,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
+        "`bad-input`: a body that isn't `{ projectId?, agents, flows?, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
       ),
       '403': ErrorResponse(
         withLimitedAbove(
-          'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+          `No admin on \`projectId\` (\`forbidden\`), or a key limited to another project; without it, no admin on the workspace. Or, as \`POST /v1/deployments\` answers it, ${PLAN_LIMIT_REACHED}`,
         ),
       ),
       '409': ErrorResponse(
@@ -9085,7 +9161,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '200': {
         description:
-          'The target has this build already: its deployment, with the edits made since recorded.',
+          'The target has this build already: its deployment, with the edits made since recorded, and no `planWarning`.',
         schema: ref('DeploymentPromotion'),
       },
       ...CommonAuthErrors,
@@ -9093,7 +9169,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+        `No \`admin\` on the target project. Or \`key-project-mismatch\`: the API key or session is limited to a project, and a promotion reads one project and writes another (\`details.keyProjectId\`, \`details.projectId\`). Or \`signer-not-trusted\`: the key that signed the build is no longer on the workspace's trust list (\`details.signerKeyId\`). Or ${PLAN_LIMIT_REACHED} It counts what the build ships and carries in the target, before the move: nothing moved. With \`pin\`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.`,
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
@@ -9105,6 +9181,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
+      '503': ErrorResponse(`${PLAN_COUNT_BUSY} ${AUTHZ_UNAVAILABLE_TOO}`),
       '501': ErrorResponse(
         "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
       ),
@@ -9117,7 +9194,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.promoteCheck',
     summary: 'Check a promotion without making it',
     description:
-      "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.",
+      "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -9140,7 +9217,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
+        `No \`admin\` on the target project. Or \`key-project-mismatch\`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or \`signer-not-trusted\`: the key that signed the build is no longer trusted. Or, as the promotion answers it, ${PLAN_LIMIT_REACHED}`,
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
@@ -10641,10 +10718,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(
         withLimitedAbove(
-          "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+          `Not a tenant admin (\`permission-denied\`); the workspace isn't allowed to put projects in production (\`production-not-allowed\`, \`details.projectId\`, \`details.next\` when the runtime names one); or its projects in production are at its limit (\`production-limit-reached\`, \`details.limit\` \`projects-in-production\`, \`details.projectsInProduction\` the limit, \`details.inProduction\` the count, \`details.projectId\`, \`details.next\` when the runtime names one). Or, putting it in production, ${PLAN_LIMIT_REACHED} It counts every flow and agent that runs in the project; taking a project out of production, or one already in it, adds nothing.`,
         ),
       ),
       '404': ErrorResponse('No project with that id under this workspace (`project-not-found`).'),
+      '503': PLAN_COUNT_BUSY_503,
       '501': ErrorResponse(
         "The runtime's projects can't be put in production (`production-unsupported`).",
       ),
