@@ -56,9 +56,21 @@ your account can read that file.
 
 If that file already holds a login for another runtime (one you run
 yourself, say), `auth login` keeps it and stops, so its key isn't lost.
-Run it again with `--force` to replace that login. Or keep both: skip
-`auth login`, and `export KINDGI_API_URL=https://platform.kindgi.com` beside
-the key, so this terminal's commands go to Kindgi Cloud.
+Run it again with `--force` to replace that login. Or keep both: save
+Kindgi Cloud's login as a Kindgi login profile instead, pasting the key at
+the prompt again:
+
+```sh
+unset KINDGI_API_TOKEN
+read -rs KEY && printf '%s' "$KEY" | pnpm exec kindgi auth login --profile cloud --url=https://platform.kindgi.com --token-stdin
+pnpm exec kindgi auth whoami --profile cloud
+```
+
+Then `--profile cloud` on a command sends it to Kindgi Cloud, with that key.
+Each command in this guide then takes `--profile cloud`: tell your coding
+agent to add it too, or to run `export KINDGI_PROFILE=cloud` in the
+terminal it works in. Without it, a command goes to the login for your own
+runtime.
 :::
 
 ## Sign the pack

@@ -1126,10 +1126,12 @@ describe('auth login', () => {
     expect(out.stderr).toContain('Missing --url');
   });
 
-  test('rejects login without --token', async () => {
+  test('rejects login without an API key', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--url=https://x'] }));
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Missing --token');
+    expect(out.stderr).toContain(
+      'Missing the API key: --token-stdin with it on stdin, or --token=<api-token>',
+    );
   });
 });
 

@@ -507,6 +507,12 @@ own workspace. So set up each runtime as above, from the same commit. To
 bring a self-hosted runtime back, restore its database
 ([Back up and restore](../self-hosted/back-up-and-restore/)).
 
+CI gives each job its runtime's key in `KINDGI_API_TOKEN`, as above, and
+the env block names the endpoint. A person's terminal keeps a Kindgi login
+profile for each runtime instead (`kindgi auth login --profile prod`), and
+names it on each command with `--profile prod`. `kindgi auth list` shows
+the ones it keeps.
+
 ## Python, Java and Scala packs
 
 The jobs are the same. What changes is how each job sets up the pack and

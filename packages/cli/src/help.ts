@@ -21,7 +21,7 @@ export function rootHelpText(): string {
   lines.push(...flagLines(GLOBAL_OPTION_SPEC));
   lines.push('');
   lines.push(
-    'Config precedence: --flag > env var > .kindgirc.json (this directory) > ~/.kindgi/config.json.',
+    'Config precedence: --url/--token > --profile > env var (KINDGI_API_URL/KINDGI_API_TOKEN, or KINDGI_PROFILE) > .kindgirc.json (this directory) > ~/.kindgi/config.json. A profile skips .kindgirc.json.',
   );
   return `${lines.join('\n')}\n`;
 }
