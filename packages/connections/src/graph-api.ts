@@ -17,6 +17,7 @@ import {
   isAutoSubmitted,
   listedAttachments,
   listedRecipients,
+  setInLeftOut,
   trimLinks,
 } from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
@@ -199,7 +200,8 @@ export function people(raw: readonly RawAddress[] | null | undefined): MailPerso
  * A message as a `MailMessage`, its body cut at `chars`: its `body`, or
  * its `uniqueBody` (what it added to its thread), its links as `use`
  * gives them. A body Graph gives as HTML, not taking the `Prefer`, is
- * turned into text.
+ * turned into text. A mail turn's body sets in a line that would read
+ * as the mark a quote cut leaves ({@link setInLeftOut}).
  */
 export function outlookMessage(
   raw: RawMessage,
@@ -213,7 +215,8 @@ export function outlookMessage(
     content?.contentType?.toLowerCase() === 'html'
       ? htmlToText(content.content ?? '')
       : (content?.content ?? '');
-  const body = cutText(trimLinks(text, use), chars);
+  const own = use === 'turn' ? setInLeftOut(text) : text;
+  const body = cutText(trimLinks(own, use), chars);
   const listed = listedAttachments(outlookAttachments(raw).map((entry) => entry.attachment));
   return {
     id: raw.id,

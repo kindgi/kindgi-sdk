@@ -338,6 +338,20 @@ const TRAILING = new Set(['.', ',', ';', ':', '!', '?', ')', ']', "'"]);
 export const LEFT_OUT = '[earlier mail left out]';
 
 /**
+ * A mail turn's text with each line that starts as {@link LEFT_OUT}
+ * does, behind characters that show as nothing, set in by a space: a
+ * line the sender wrote, so it can't be taken for the turn's own. Its
+ * lines break where a mail turn breaks them.
+ */
+export function setInLeftOut(text: string): string {
+  return text.replace(LEFT_OUT_LINE, '$1 ');
+}
+
+/** Where a line that starts as {@link LEFT_OUT} does starts: at the text's start, or after a line break. */
+const LEFT_OUT_LINE =
+  /(^|[\n\v\f\r\u0085\u2028\u2029])(?=[\p{Cf}\p{Default_Ignorable_Code_Point}]*\[earlier mail left out\])/gu;
+
+/**
  * The lines of a thread's mails so far, as the read fetched them, before
  * their own cut: what the quote cut checks an Outlook block against.
  */
@@ -382,15 +396,18 @@ function sameLine(line: string): string {
  * - a run of `>` lines.
  * A `>` line with the sender's own words after it is an inline reply,
  * and stays. A mail that forwards one, or that the cut would leave
- * empty, stays whole. Linear in the text's length.
+ * empty, stays whole. A line the sender wrote that starts as
+ * {@link LEFT_OUT} does is set in ({@link setInLeftOut}). Linear in the
+ * text's length.
  */
 export function cutQuote(text: string, earlier: ThreadLines): string {
-  const lines = text.split('\n');
-  if (lines.some((line) => FORWARDED.test(line.trim()))) return text;
+  const own = setInLeftOut(text);
+  const lines = own.split('\n');
+  if (lines.some((line) => FORWARDED.test(line.trim()))) return own;
   const at = quoteStart(lines, earlier);
-  if (at === undefined) return text;
+  if (at === undefined) return own;
   const kept = lines.slice(0, at).join('\n').trimEnd();
-  return kept.trim() === '' ? text : `${kept}\n\n${LEFT_OUT}`;
+  return kept.trim() === '' ? own : `${kept}\n\n${LEFT_OUT}`;
 }
 
 /** Gmail's and Apple's line above a forwarded mail. */
