@@ -530,6 +530,7 @@ export type {
   TextTriggerPage,
   TextTriggerVersion,
   TextTriggerVersionPage,
+  TextTriggerVersionsClient,
   TextTriggersClient,
   UnregisterTextTriggerResult,
   UpdateTextTriggerInput,

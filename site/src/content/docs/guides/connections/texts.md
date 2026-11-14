@@ -183,8 +183,9 @@ It prints the trigger, with its `id`.
 
 From your app, the clients have the same calls on `textTriggers`:
 `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`,
-`versions`, `getVersion`, `takeOwnership` and `unregister`
-(`text_triggers` and `take_ownership` in Python). The request's `config`
+`versions.list`, `versions.get`, `takeOwnership` and `unregister`
+(`text_triggers`, `list_versions`, `get_version` and `take_ownership` in
+Python). The request's `config`
 holds `connectionId`, `runsPerHour` and `perSenderPerHour`.
 
 ## What a run gets

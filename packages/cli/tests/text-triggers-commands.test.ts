@@ -114,8 +114,10 @@ async function textTriggers(
         textTriggers: {
           list: record('list', { data: [TRIGGER], hasMore: false }),
           get: record('get', TRIGGER),
-          getVersion: record('getVersion', VERSIONS.data[0]),
-          versions: record('versions', VERSIONS),
+          versions: {
+            get: record('versions.get', VERSIONS.data[0]),
+            list: record('versions.list', VERSIONS),
+          },
           register: record('register', TRIGGER),
           update: record('update', TRIGGER),
           pause: record('pause', TRIGGER),
@@ -412,7 +414,7 @@ describe('kindgi text-triggers', () => {
   test("versions: a text trigger's versions, paged; the table names who made each, or Kindgi", async () => {
     const { out, calls } = await textTriggers(['versions', ID, '--limit=2', '--cursor=c-1']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(calls).toEqual([['versions.list', ID, { limit: 2, cursor: 'c-1' }]]);
     expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
     const table = await textTriggers(['versions', ID, '--table']);
     expect(table.out.exitCode, table.out.stderr).toBe(0);
@@ -427,7 +429,7 @@ describe('kindgi text-triggers', () => {
   test('get <trigger-id> <version> reads that version', async () => {
     const { out, calls } = await textTriggers(['get', ID, '2']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(calls).toEqual([['versions.get', ID, 2]]);
     expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
     expect((await textTriggers(['get', ID])).calls).toEqual([['get', ID]]);
   });

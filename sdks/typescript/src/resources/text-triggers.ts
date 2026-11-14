@@ -110,26 +110,8 @@ export interface TextTriggersClient {
    * @wire GET /v1/text-triggers/:triggerId/fires
    */
   fires(triggerId: string, filter?: ListTextFiresFilter): Promise<TextFirePage>;
-  /**
-   * The trigger's versions, newest first: what it was from each version's
-   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
-   * change makes one; a change that alters nothing, pausing and resuming
-   * make none. A text's run uses the newest when it starts, and keeps it
-   * (its `trigger.version`).
-   *
-   * @wire GET /v1/text-triggers/:triggerId/versions
-   */
-  versions(
-    triggerId: string,
-    filter?: ListTextTriggerVersionsFilter,
-  ): Promise<TextTriggerVersionPage>;
-  /**
-   * One version of the trigger, by its number (from 1). Returns 404
-   * `trigger-version-not-found` for a number it never had.
-   *
-   * @wire GET /v1/text-triggers/:triggerId/versions/:version
-   */
-  getVersion(triggerId: string, version: number): Promise<TextTriggerVersion>;
+  /** The trigger's versions: list and get. */
+  readonly versions: TextTriggerVersionsClient;
   /**
    * The caller becomes the trigger's owner: its runs act as the caller,
    * with the caller's connections, from the next text. Pass
@@ -148,6 +130,26 @@ export interface TextTriggersClient {
 
 interface MutationOptions {
   readonly idempotencyKey?: string;
+}
+
+export interface TextTriggerVersionsClient {
+  /**
+   * The trigger's versions, newest first: what it was from each version's
+   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
+   * change makes one; a change that alters nothing, pausing and resuming
+   * make none. A text's run uses the newest when it starts, and keeps it
+   * (its `trigger.version`).
+   *
+   * @wire GET /v1/text-triggers/:triggerId/versions
+   */
+  list(triggerId: string, filter?: ListTextTriggerVersionsFilter): Promise<TextTriggerVersionPage>;
+  /**
+   * One version of the trigger, by its number (from 1). Returns 404
+   * `trigger-version-not-found` for a number it never had.
+   *
+   * @wire GET /v1/text-triggers/:triggerId/versions/:version
+   */
+  get(triggerId: string, version: number): Promise<TextTriggerVersion>;
 }
 
 export function makeTextTriggersClient(transport: Transport): TextTriggersClient {
@@ -219,21 +221,23 @@ export function makeTextTriggersClient(transport: Transport): TextTriggersClient
         },
       });
     },
-    async versions(triggerId, filter) {
-      return transport.request<TextTriggerVersionPage>({
-        method: 'GET',
-        path: `/v1/text-triggers/${encodeURIComponent(triggerId)}/versions`,
-        query: {
-          ...(filter?.limit !== undefined && { limit: filter.limit }),
-          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
-        },
-      });
-    },
-    async getVersion(triggerId, version) {
-      return transport.request<TextTriggerVersion>({
-        method: 'GET',
-        path: `/v1/text-triggers/${encodeURIComponent(triggerId)}/versions/${version}`,
-      });
+    versions: {
+      async list(triggerId, filter) {
+        return transport.request<TextTriggerVersionPage>({
+          method: 'GET',
+          path: `/v1/text-triggers/${encodeURIComponent(triggerId)}/versions`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+      async get(triggerId, version) {
+        return transport.request<TextTriggerVersion>({
+          method: 'GET',
+          path: `/v1/text-triggers/${encodeURIComponent(triggerId)}/versions/${version}`,
+        });
+      },
     },
     async takeOwnership(triggerId, input, options) {
       return transport.request<TextTrigger>({

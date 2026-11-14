@@ -162,10 +162,10 @@ describe('text triggers - wire round-trips', () => {
       { status: 200, body: JSON.stringify(v2) },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
-    const page = await client.textTriggers.versions(TRIGGER, { limit: 1, cursor: 'c1' });
+    const page = await client.textTriggers.versions.list(TRIGGER, { limit: 1, cursor: 'c1' });
     expect(page.data[0]?.definition.connectionId).toBe(CONNECTION);
     expect(page.nextCursor).toBe('c2');
-    expect((await client.textTriggers.getVersion(TRIGGER, 2)).version).toBe(2);
+    expect((await client.textTriggers.versions.get(TRIGGER, 2)).version).toBe(2);
     expect(
       stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
     ).toEqual([
