@@ -11260,6 +11260,12 @@ export const SignInOptionsSchema: JsonSchema = {
         privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
     },
+    signUpUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'The deployment\'s own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.',
+    },
     links: {
       type: 'array',
       maxItems: 8,

@@ -60,6 +60,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **sign-in options can link the deployment's own sign-up page.**
+  `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
+  "No account yet? Sign up". It's `None` when the operator set none, and from
+  older servers.
 
 ## 0.6.0
 

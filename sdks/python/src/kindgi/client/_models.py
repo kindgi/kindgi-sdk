@@ -8258,6 +8258,10 @@ class SignInOptions(BaseModel):
     """
     The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
+    sign_up_url: Annotated[AnyUrl | None, Field(alias="signUpUrl")] = None
+    """
+    The deployment's own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.
+    """
     links: Annotated[list[ConsoleLink] | None, Field(max_length=8)] = None
     """
     The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.
