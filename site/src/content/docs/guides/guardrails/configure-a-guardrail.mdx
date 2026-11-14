@@ -445,7 +445,7 @@ A guardrail that names a built-in check takes `set("at", …)` and
 `set("scope", …)`, at any of the built-in's points
 ([Where each check runs](../use-a-built-in-check/#where-each-check-runs)):
 
-```java
+```java excerpt
 public static final Guardrail<Map<String, Object>> NO_SECRET_IN_RESULTS =
     Guardrail.define("my-pack.no-secret-in-results")
         .set("at", "after-tool")
@@ -473,7 +473,7 @@ A guardrail that names a built-in check takes `set("at", …)` and
 `set("scope", …)`, at any of the built-in's points
 ([Where each check runs](../use-a-built-in-check/#where-each-check-runs)):
 
-```scala
+```scala excerpt
 val noSecretInResults: Guardrail[Map[String, Any]] = Guardrail.json("my-pack.no-secret-in-results")
   .set("at", "after-tool")
   .set("scope", Map("tools" -> List("acme.crm.*")))
