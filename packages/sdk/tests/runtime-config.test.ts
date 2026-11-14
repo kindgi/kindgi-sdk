@@ -79,11 +79,47 @@ describe('resolveClientOptions', () => {
     expect(warnings).toHaveLength(1);
   });
 
-  test('only the missing field comes from kindgi dev', async () => {
+  test("a URL that is the running kindgi dev's own takes its token", async () => {
     await writeRc(dir, DEV);
-    const options = resolveClientOptions({}, context({ KINDGI_API_URL: DEV.apiUrl }));
-    expect(options.auth).toEqual({ kind: 'apiToken', token: DEV.token });
+    const options = resolveClientOptions({}, context({ KINDGI_API_URL: `${DEV.apiUrl}/` }));
+    expect(options).toEqual({
+      apiUrl: `${DEV.apiUrl}/`,
+      auth: { kind: 'apiToken', token: DEV.token },
+    });
+    expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('for KINDGI_API_TOKEN.');
+  });
+
+  test("a token with no URL never goes to the running kindgi dev's URL: the error names the file and what to set", async () => {
+    await writeRc(dir, DEV);
+    const rc = join(dir, '.kindgirc.json');
+    expect(() => resolveClientOptions({}, context({ KINDGI_API_TOKEN: 'kgi_bt_prod' }))).toThrow(
+      `createClient(): KINDGI_API_TOKEN is set, and KINDGI_API_URL isn't set. The client won't send that token to the URL in ${rc}, the running kindgi dev's. Set KINDGI_API_URL and KINDGI_API_TOKEN in your env file (.env / .env.local), or pass { apiUrl, auth }. To use the running kindgi dev, set neither.`,
+    );
+    expect(() =>
+      resolveClientOptions({ auth: { kind: 'oauth', accessToken: 'at' } }, context({})),
+    ).toThrow("createClient(): `auth` is passed, and KINDGI_API_URL isn't set.");
+    expect(warnings).toEqual([]);
+  });
+
+  test("a URL other than the running kindgi dev's, with no token, never takes its token", async () => {
+    await writeRc(dir, DEV);
+    const rc = join(dir, '.kindgirc.json');
+    expect(() =>
+      resolveClientOptions({}, context({ KINDGI_API_URL: 'https://kindgi.acme.dev' })),
+    ).toThrow(
+      `createClient(): KINDGI_API_URL is set, and KINDGI_API_TOKEN isn't set. The token in ${rc} is the running kindgi dev's, for ${DEV.apiUrl} only, so the client won't send it to another URL. Set KINDGI_API_URL and KINDGI_API_TOKEN in your env file (.env / .env.local), or pass { apiUrl, auth }. To use the running kindgi dev, set neither.`,
+    );
+    expect(() => resolveClientOptions({ apiUrl: 'https://kindgi.acme.dev' }, context({}))).toThrow(
+      "createClient(): `apiUrl` is passed, and KINDGI_API_TOKEN isn't set.",
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  test('with no kindgi dev, a token with no URL is the plain missing-URL error', () => {
+    expect(() => resolveClientOptions({}, context({ KINDGI_API_TOKEN: 'kgi_bt_prod' }))).toThrow(
+      "createClient(): KINDGI_API_URL isn't set. Set it in your env file",
+    );
   });
 
   test('production never reads .kindgirc.json: missing env is an error', async () => {

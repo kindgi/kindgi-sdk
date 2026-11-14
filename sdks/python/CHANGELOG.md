@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **the client takes the URL and the token from the running
+  `kindgi dev` together, or not at all.** With `KINDGI_API_TOKEN` set (or
+  `token=` passed) and no URL, `Kindgi()` and `AsyncKindgi()` no longer send
+  that token to the URL in the nearest `.kindgirc.json`: they raise
+  `ValueError`, naming the file and what to set. With `KINDGI_API_URL` set
+  (or `base_url=` passed) and no token, they take the file's token only when
+  the URL is the file's own, and raise the same way for another URL. Set
+  both in your env file, or neither to use the running `kindgi dev`.
 - `kindgi`: **a SAML provider carries the service provider's certificates,
   for its metadata.** `SamlIdentityProviderConfig` and
   `UpdateIdentityProviderBody` gain `sp_signing_certificates` and
