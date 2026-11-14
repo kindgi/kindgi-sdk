@@ -68,6 +68,14 @@ final class PackEnv {
   static final List<String> PLATFORM_ENV_PREFIXES = List.of("LC_", "PYTHON", "OTEL_", "CLOUD_RUN_", "CONTAINER_APP_");
 
   /**
+   * Names the launcher drops like any other undeclared one, but the service leaves out of the names
+   * it logs ({@code env-dropped}): a base image sets them in every pack's image (Python's sets {@code
+   * GPG_KEY}, the fingerprint of the key Python's releases are signed with). A pack that reads one
+   * declares it.
+   */
+  static final Set<String> QUIETLY_DROPPED_ENV_NAMES = Set.of("GPG_KEY");
+
+  /**
    * Names the JVM sets in its own environment once it runs (macOS's {@code java} sets {@code
    * JAVA_MAIN_CLASS_<pid>}): the launcher can't have dropped them, and no operator sets them.
    */

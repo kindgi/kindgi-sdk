@@ -7,7 +7,7 @@
 - 3. Forgetting the `Result` unwrap.
 - 4. `handler` and `spec` together.
 - 5. `{placeholder}` in `urlTemplate` without a matching input key.
-- 6. An HTTP tool's `secretRef` in the wrong env.
+- 6. Naming an env in an HTTP tool's `secretRef`.
 - 7. Reading a secret from `process.env` in a tool that runs for many tenants.
 - 8. Bumping `version` on every dev save.
 - 9. A package a tool imports, listed only in `devDependencies`.
@@ -39,13 +39,17 @@
    Missing keys throw a clear error at invoke time — check both sides
    line up.
 
-6. **An HTTP tool's `secretRef` in the wrong env.** The runtime
-   resolves `authorization.secretRef` itself, on every call, in the env
-   the ref names: `{ envName: 'local', … }` is the pack's `.env` /
-   `.env.local` under `kindgi dev`, while `'production'` reads
-   `.env.production`. A secret it can't find fails the call with
-   `secret-unavailable`, naming it. Only a harness of your own that
-   calls `invokeTool` directly has to pass `ctx.resolveSecret`.
+6. **Naming an env in an HTTP tool's `secretRef`.** The runtime
+   resolves `authorization.secretRef` itself, on every call. Leave
+   `envName` out and it reads the env the runtime serves, as it does
+   the secrets a tool's code declares: the pack's `.env` /
+   `.env.local` under `kindgi dev`, and each deployment's own env
+   after. `{ envName: 'production', … }` reads `production` everywhere,
+   so under `kindgi dev` it reads `.env.production`, and a runtime that
+   refuses other envs refuses the tool (`env-not-served`). A secret it
+   can't find fails the call with `secret-unavailable`, naming it. Only
+   a harness of your own that calls `invokeTool` directly has to pass
+   `ctx.resolveSecret`, and its `ref.envName` may be absent.
 7. **Reading a secret from `process.env` in a tool that runs for many
    tenants.** The pack service's environment is one for all of them.
    Declare the secret in `needsSpec.secrets` and read `ctx.secrets`.

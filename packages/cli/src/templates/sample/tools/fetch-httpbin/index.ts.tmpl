@@ -11,12 +11,12 @@
 //
 //     authorization: {
 //       kind: 'bearer',
-//       secretRef: { envName: 'local', name: 'MY_TOKEN' },
+//       secretRef: { name: 'MY_TOKEN' },
 //     },
 //
 // The runtime resolves the secret on every call from its secrets
-// store, in the env the ref names — under `kindgi dev`, env `local`
-// is your `.env` / `.env.local`, then Kindgi's own `.kindgi/secrets.env`
+// store, in the env it serves — under `kindgi dev`, env `local` is
+// your `.env` / `.env.local`, then Kindgi's own `.kindgi/secrets.env`
 // (where `kindgi secrets set` writes). A secret it can't find fails the
 // call with `secret-unavailable`, naming it.
 

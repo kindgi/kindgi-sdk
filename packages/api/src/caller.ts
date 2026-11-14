@@ -27,7 +27,8 @@ export function callerPrincipal(c: Context<AppEnv>): TokenPrincipal | undefined 
 /**
  * Whether the caller is a tenant admin: `admin` on the tenant when
  * authorization is on, otherwise the `tenant-admin` scope. Never through
- * a `member` key or a key limited to a project (see the authorizer).
+ * a `member` key, a key limited to a project, or a key that only reads
+ * (see the authorizer).
  */
 export async function isTenantAdmin(
   c: Context<AppEnv>,
@@ -78,9 +79,24 @@ export async function canForDisplay(
 function scopedTenantAdmin(c: Context<AppEnv>): boolean {
   return (
     (c.get('scopes') ?? []).includes('tenant-admin') &&
-    c.get('tokenRole') !== 'member' &&
-    c.get('tokenProjectId') === undefined
+    credentialLimit(c) === undefined &&
+    c.get('tokenReadOnly') !== true
   );
+}
+
+/**
+ * What holds the caller's key or session to less than its principal may
+ * do across the tenant: `member` (`a member API key`), or a project
+ * (`a session limited to project <id>`). `undefined` for a full one. A
+ * limited credential is never a tenant admin, and doesn't take back its
+ * own person's capabilities either: they are tenant-wide.
+ */
+export function credentialLimit(c: Context<AppEnv>): string | undefined {
+  const session = c.get('sessionId') !== undefined;
+  if (c.get('tokenRole') === 'member') return `a member ${session ? 'session' : 'API key'}`;
+  const project = c.get('tokenProjectId');
+  if (project === undefined) return undefined;
+  return `${session ? 'a session' : 'an API key'} limited to project ${project}`;
 }
 
 /**

@@ -123,7 +123,9 @@ same way:
 - **An agent's retired test set cases:** `?include=retired`.
 - **Removed versions** of agents, flows, tools, blocks, policies and test
   sets: `?includeTombstoned=true`.
-- **Removed sites, people and service accounts:** `?includeUnregistered=true`.
+- **Removed sites, people, service accounts, schedules, webhook triggers and
+  mail triggers:** `?includeUnregistered=true`, on a removed trigger's
+  versions and fires too.
 - **Removed connection apps, connections and connection choices:**
   `?includeRemoved=true`.
 - **Revoked signing keys and secrets:** `?includeRevoked=true`.
@@ -158,9 +160,9 @@ A list that pages answers a page at a time: `?limit=` (at most 100), and
 | Environments, their order, and env values | `environments.jsonl`, `environment-orders.jsonl`, `env.jsonl` | `GET /v1/environments`, `/v1/environment-orders`, `/v1/env` |
 | Secrets: names and versions, never values | `secrets.jsonl`, `secret-versions.jsonl` | `GET /v1/secrets`, `…/{name}/versions` |
 | Workspace settings and sign-in settings | `tenant-config.jsonl`, `sign-in-settings.jsonl` | `GET /v1/tenant/config`, `/v1/auth/settings` |
-| Schedules: every version, and when they fired | `schedules.jsonl`, `schedule-versions.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
-| Webhook triggers: every version, and when they fired | `webhooks.jsonl`, `webhook-versions.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
-| Mail triggers: every version, and when they fired | `mail-triggers.jsonl`, `mail-trigger-versions.jsonl`, `mail-trigger-fires.jsonl` | `GET /v1/mail-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Schedules, removed ones too: every version, and when they fired | `schedules.jsonl`, `schedule-versions.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Webhook triggers, removed ones too: every version, and when they fired | `webhooks.jsonl`, `webhook-versions.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Mail triggers, removed ones too: every version, and when they fired | `mail-triggers.jsonl`, `mail-trigger-versions.jsonl`, `mail-trigger-fires.jsonl` | `GET /v1/mail-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
 | Webhook endpoints, and their deliveries | `webhook-endpoints.jsonl`, `webhook-deliveries.jsonl` | `GET /v1/webhook-endpoints`, `…/{endpointId}/deliveries` |
 | MCP endpoints | `mcp-endpoints.jsonl` | `GET /v1/mcp/endpoints` |
 | Capabilities | `capabilities.jsonl` | `GET /v1/capabilities` |

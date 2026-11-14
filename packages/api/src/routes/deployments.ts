@@ -136,7 +136,12 @@ import {
   toolSecretRefs,
 } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
-import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
+import {
+  type ServedEnvRule,
+  readReferencesOnce,
+  refuseUnservedToolSecret,
+  refuseUnservedValue,
+} from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { DeployCardsInput, DeployCardsOutcome } from '../suggested-change-service.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
@@ -353,8 +358,9 @@ export interface DeploymentsRouterBindings {
   readonly cloudSecrets?: Pick<EnvCloudSecretBinding, 'get'>;
   /**
    * On a runtime that refuses other envs: a secret sync under another env
-   * answers `409 env-not-served` before any write (`refuseUnservedValue`).
-   * Absent: any env.
+   * answers `409 env-not-served` before any write (`refuseUnservedValue`),
+   * and so does a deploy with a tool whose `secretRef` names another env
+   * (`refuseUnservedToolSecret`). Absent: any env.
    */
   readonly servedEnv?: ServedEnvRule;
   /**
@@ -459,8 +465,10 @@ export function deploymentsRouter(
   // an agent there does; a tenant-wide deploy, the tenant's. Every read
   // here needs `read` on the tenant, and a read of one deployment `read` on
   // the project it serves as well (`readableDeployment`). (A key limited to
-  // another project was already refused, `refuseOtherProjectForKey`.)
-  const tenantAccess = tenantResourceAccess(authorizer);
+  // another project was already refused, `refuseOtherProjectForKey`.) The
+  // tenant is read here as its projects' root, which a key limited to a
+  // project reads (`projectsRoot`).
+  const tenantAccess = tenantResourceAccess(authorizer, { projectsRoot: true });
   // What this runtime offers a deploy refused as another project's: the fix
   // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
   const packRuntime = {
@@ -1237,6 +1245,17 @@ export function deploymentsRouter(
         named,
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
+    // A tool whose `secretRef` names another env than the one this runtime
+    // serves would never have its secret read: refused before any write,
+    // whether the deploy publishes it or keeps a version already registered.
+    for (const tool of validated.tools) {
+      const unserved = refuseUnservedToolSecret(bindings.servedEnv, tool);
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
+      }
     }
 
     // Every schema a deploy compiles is compiled before its first write,

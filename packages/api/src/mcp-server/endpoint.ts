@@ -37,7 +37,7 @@ export interface McpServerInput {
    * `kindgi:schedule`). The tools call `/v1` as that person, with their
    * key's `tokenRole`, so a resolution that names someone else (a service
    * account, a system principal) or narrows the person further
-   * (`tokenProjectId`, `reviewerRole`, `lastActiveAt`) is refused rather
+   * (`tokenProjectId`, `tokenReadOnly`, `reviewerRole`, `lastActiveAt`) is refused rather
    * than served without it.
    */
   readonly resolveToken: TokenResolver;
@@ -222,13 +222,14 @@ function chatPerson(
     return { refusal: 'Only a person can use Kindgi from a chat app.' };
   }
   if (
+    resolution.tokenReadOnly === true ||
     resolution.tokenProjectId !== undefined ||
     resolution.reviewerRole !== undefined ||
     resolution.lastActiveAt !== undefined
   ) {
     return {
       refusal:
-        "A chat app can't keep this token's limits (one project, a reviewer role or an inactivity timeout).",
+        "A chat app can't keep this token's limits (one project, read only, a reviewer role or an inactivity timeout).",
     };
   }
   return { userId };

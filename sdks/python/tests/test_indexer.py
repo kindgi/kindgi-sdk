@@ -8,7 +8,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from kindgi._json import stable_dumps
+from kindgi.pack.__main__ import main
 from kindgi.pack.index import _spec, run_indexer
 
 PINS = {"artifact_version": "20261001.3", "published_at": "2026-10-01T00:00:00.000Z"}
@@ -146,6 +149,120 @@ def test_one_bad_file_does_not_stop_the_rest(make_pack: Callable[..., Path]) -> 
         "tools/nothing.py": "no-primitives",
     }
     assert [t["id"] for t in index["tools"]] == ["acme.shout", "acme.whisper"]
+
+
+def _index_args(root: Path) -> list[str]:
+    return [
+        "index",
+        "--pack-dir",
+        str(root),
+        "--artifact-version",
+        PINS["artifact_version"],
+        "--published-at",
+        PINS["published_at"],
+    ]
+
+
+def test_strict_exits_1_on_a_missing_package_naming_it_and_the_dev_group_fix(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A package the image doesn't install: one only a dev group lists.
+    root = full_pack(make_pack, **{"tools/needs.py": "import acme_package_not_installed\n"})
+    # Without --strict the index is written without the module, and the command succeeds.
+    assert main(_index_args(root)) == 0
+    capsys.readouterr()
+    assert main([*_index_args(root), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert (
+        "kindgi.pack index: file-import-failed: Failed to import tools/needs.py: "
+        "ModuleNotFoundError: No module named 'acme_package_not_installed'"
+    ) in err
+    assert (
+        "if that module is a package pyproject.toml lists only in a dev group, move it to "
+        "[project].dependencies"
+    ) in err
+
+
+def test_strict_counts_a_helper_that_wont_import_only_through_a_module_that_imports_it(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A test helper that imports a dev-only package, which no tool imports: it doesn't count.
+    helper = {"tools/_fixtures.py": "import acme_package_not_installed\n"}
+    assert main([*_index_args(full_pack(make_pack, **helper)), "--strict"]) == 0
+    err = capsys.readouterr().err
+    assert (
+        "kindgi.pack index: file-import-failed: Failed to import tools/_fixtures.py: "
+        "ModuleNotFoundError"
+    ) in err
+    assert (
+        "kindgi.pack index: tools/_fixtures.py's name starts with an underscore, so on its own "
+        "this doesn't fail the build: a file that imports it fails too. If it defines tools "
+        "itself, they're missing from this index"
+    ) in err
+    # The dev-group fix, for the case it defines tools.
+    assert (
+        "a module above whose name starts with an underscore imports a module that isn't "
+        "installed here. If it defines tools, they're left out: a pack's image installs its main "
+        "dependencies only"
+    ) in err
+    # A tool that imports it fails on its own: the helper's import runs again and fails again.
+    uses = {**helper, "tools/uses.py": "from ._fixtures import *  # noqa: F403\n"}
+    assert main([*_index_args(full_pack(make_pack, **uses)), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert "kindgi.pack index: file-import-failed: Failed to import tools/uses.py" in err
+    assert "if that module is a package pyproject.toml lists only in a dev group" in err
+
+
+def test_strict_lets_a_helper_that_defines_tools_through_saying_they_are_left_out(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Its tools are in the local index; the build stops at the index check, after this line.
+    shared = (
+        "import acme_package_not_installed\n"
+        "from kindgi import tool\n"
+        '@tool(id="acme.shared")\n'
+        "def shared(input: dict) -> dict:\n"
+        '    """Shared."""\n'
+        "    return {}\n"
+    )
+    root = full_pack(make_pack, **{"tools/_more.py": shared})
+    assert main([*_index_args(root), "--strict"]) == 0
+    err = capsys.readouterr().err
+    assert (
+        "kindgi.pack index: tools/_more.py's name starts with an underscore, so on its own this "
+        "doesn't fail the build: a file that imports it fails too. If it defines tools itself, "
+        "they're missing from this index, and the build stops when it's checked against the "
+        "local one."
+    ) in err
+    assert (
+        "If it defines tools, they're left out: a pack's image installs its main dependencies "
+        "only (uv sync --no-dev, or Poetry's main group), so if that module is a package "
+        "pyproject.toml lists only in a dev group, move it to [project].dependencies"
+    ) in err
+
+
+def test_strict_exits_1_on_any_file_error_with_the_package_hint_only_for_a_missing_one(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = full_pack(make_pack, **{"tools/nothing.py": "VALUE = 1\n"})
+    assert main([*_index_args(root), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert "kindgi.pack index: no-primitives: File tools/nothing.py defines no tool" in err
+    assert "dev group" not in err
+    # --json keeps its one line on stdout; --strict still decides the exit code.
+    assert main([*_index_args(root), "--json", "--strict"]) == 1
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1 and json.loads(out[0])["value"]["fileErrors"][0]["code"] == "no-primitives"
+
+
+def test_strict_passes_a_pack_without_file_errors_and_the_help_names_it(
+    make_pack: Callable[..., Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([*_index_args(full_pack(make_pack)), "--strict"]) == 0
+    capsys.readouterr()
+    # A pack image's build looks for --strict in the help, as an older kindgi has none.
+    assert main(["index", "--help"]) == 0
+    assert "[--strict]" in capsys.readouterr().out
 
 
 def test_a_duplicate_id_is_a_file_error(make_pack: Callable[..., Path]) -> None:
@@ -351,6 +468,13 @@ def test_config_errors(make_pack: Callable[..., Path], tmp_path: Path) -> None:
         "message": f"Config file {no_id / 'pyproject.toml'}: 'pack.id' is missing or not a non-empty string",
         "filePath": str(no_id / "pyproject.toml"),
     }
+    for bad in ("1", "1.0", "1.0.0-rc.1", "01.0.0"):
+        not_core = make_pack({}, pyproject=f'[tool.kindgi.pack]\nid = "acme"\nversion = "{bad}"\n')
+        assert run_indexer(not_core)["error"] == {
+            "code": "config-parse-failed",
+            "message": f"Config file {not_core / 'pyproject.toml'}: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '{bad}'",
+            "filePath": str(not_core / "pyproject.toml"),
+        }
     assert run_indexer(make_pack({}))["error"]["code"] == "discovery-empty"
 
 

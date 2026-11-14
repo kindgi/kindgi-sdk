@@ -77,6 +77,64 @@ describe('tokens.create', () => {
   });
 });
 
+describe('a key that only reads', () => {
+  it('create sends `readOnly`, and the key says it only reads; `false` is sent as asked', async () => {
+    const stub = jsonFetch(
+      {
+        tokenId: 't',
+        token: 's',
+        role: 'member',
+        capabilities: [],
+        readOnly: true,
+        createdAt: '2026-10-03T00:00:00Z',
+      },
+      { status: 201 },
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const created = await client.tokens.create({ label: 'sandbox', readOnly: true });
+    expect(JSON.parse(stub.calls[0]?.body ?? 'null')).toEqual({ label: 'sandbox', readOnly: true });
+    expect(created.meta.readOnly).toBe(true);
+    const full = jsonFetch(
+      {
+        tokenId: 't',
+        token: 's',
+        role: 'member',
+        capabilities: [],
+        createdAt: '2026-10-03T00:00:00Z',
+      },
+      { status: 201 },
+    );
+    const other = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: full.fetch,
+    });
+    const plain = await other.tokens.create({ readOnly: false });
+    expect(JSON.parse(full.calls[0]?.body ?? 'null')).toEqual({ readOnly: false });
+    expect(plain.meta).not.toHaveProperty('readOnly');
+  });
+
+  it('a key without the field reads without it', async () => {
+    const stub = jsonFetch({
+      tokenId: 't',
+      role: 'member',
+      capabilities: [],
+      createdAt: '2026-10-03T00:00:00Z',
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const key = await client.tokens.get('t' as never);
+    expect(key).not.toHaveProperty('readOnly');
+  });
+});
+
 describe('tokens for a principal', () => {
   it('create sends `for`, and the key says whom it acts for', async () => {
     const stub = jsonFetch(

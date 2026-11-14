@@ -68,7 +68,7 @@ A pack image runs it bundled (`dist/kindgi-pack-service.mjs`) with `--bundle-map
 - **Requests** (`@kindgi/handler-runtime/protocol`) name a tool (`{ id, version? }`) or a check (`{ id }`). The service resolves it from its own `index.json`, so a caller never chooses which module is imported.
 - **Every outcome of running pack code is a message**, answered with `200`: the result, validation failures (with `issues`), a throw, an unknown tool or check, a version mismatch, `deadline-exceeded` (from `kindgi-timeout-ms`), and `cancelled` (the caller disconnected). HTTP statuses are for the transport only: `401`, `404`, `405`, `413`, `415`, `503` with `Retry-After` when the service isn't ready, is draining, or is at its concurrency cap, and `500` if the service itself fails while handling a call.
 - **The declared process env:** a pack lists the environment variables its code reads in `kindgi.config` (`env: { required, optional }`), and the index carries them. With a `required` name unset or empty, the service isn't ready: `/readyz` and every call answer `503` with `{ "error": "missing env", "missingEnv": [...] }`, names only. `KINDGI_PACK_ENV_CHECK=warn` serves anyway and names them in the log (`missing-env`) and `/v1/info`; `kindgi dev` uses it. `resolvePackEnv` and `missingPackEnv` are the shared checks.
-- **Only the declared names reach the pack's code:** before it loads, the process entry drops from its environment every variable the pack doesn't declare, except `KINDGI_*` and the platform's (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs their names once (`env-dropped`), never their values. `KINDGI_PACK_ENV_FILTER=off` keeps every variable; `kindgi dev` sets it. `undeclaredPackEnv` is the shared check; `startPackService` filters only when its config says `envFilter: 'on'`, so an in-process caller's environment is left alone.
+- **Only the declared names reach the pack's code:** before it loads, the process entry drops from its environment every variable the pack doesn't declare, except `KINDGI_*` and the platform's (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs their names once (`env-dropped`), never their values. The line leaves out `QUIETLY_DROPPED_ENV_NAMES` (`GPG_KEY`, which Python's base image sets), though it drops them too. `KINDGI_PACK_ENV_FILTER=off` keeps every variable; `kindgi dev` sets it. `undeclaredPackEnv` is the shared check; `startPackService` filters only when its config says `envFilter: 'on'`, so an in-process caller's environment is left alone.
 - **Cancellation:** the handler's `ctx.abortSignal` fires on a deadline or a disconnect. Handlers that do slow I/O should pass it on.
 - **Connections** (protocol 2.9.0): a call's context can carry `connections`, the accounts at other apps the tool declares (`needsSpec.connections`), each with a short-lived token. The handler gets them as `ctx.connections`, not enumerable, like `ctx.secrets`, and the service never logs them. A handler whose app refuses a token throws `ConnectionRejectedError` (`@kindgi/tools`) with the connection's name; the call answers `connection-rejected` with `connection`, and the runtime renews that token once and runs the call again.
 - **Boot fails** (exit `1`, listing every problem) when the index can't be read, a module it names is missing, or one fails to import. SIGTERM drains in-flight calls and exits `0`.
@@ -139,13 +139,15 @@ if (outcome.kind === 'ok') {
 | `config-parse-failed` | Config file imported but is malformed. |
 | `discovery-empty` | Glob patterns matched zero files. |
 | `file-import-failed` | Dynamic `import()` of a discovered file threw. |
-| `no-default-export` | A discovered file exported no `default`. |
+| `no-default-export` | A discovered file exported no `default`, and its name doesn't start with `_`. |
 | `kind-mismatch` | File under `tools/` default-exports a non-tool (or symmetric for the other three folders). |
-| `ambiguous-kind` | Custom-pattern file whose default export doesn't structurally match any primitive shape. |
+| `ambiguous-kind` | A discovered file whose default export doesn't structurally match any primitive shape, and whose name doesn't start with `_`. |
 | `zod-conversion-failed` | `z.toJSONSchema()` threw for a specific schema. |
 | `manifest-validation-failed` | Inner manifest didn't match the expected shape (or was a `Result`-wrapped error). |
 | `output-write-failed` | Filesystem write error. |
 | `reserved-check-id` | A guardrail ships its own check (an `id` and an `evaluate`, as its `check` or any check its module exports) under a built-in check's id (`RESERVED_CHECK_IDS`: `must-cite`, `never-call-tool`, …), which the runtime would replace with the built-in. Naming a built-in (`check: 'must-cite'`) is fine: that's how to use it. |
+
+A helper module, a discovered file whose name starts with `_` (`tools/_shared.ts`, `tools/echo/_format.ts`), is skipped when it defines no primitive, as in a Python pack. One that defines a primitive is indexed, and fails as any other file does.
 
 Some things the pack should change don't stop the build. The report lists them as `warnings` (`IndexerWarning`), and the pack indexes as it would without them:
 
@@ -170,7 +172,8 @@ It looks up `KINDGI_CONFIG_FILENAMES` in order and imports the first that
 exists (cache-busted by mtime, so a long-running process sees edits). With
 none, a `pyproject.toml` whose `[tool.kindgi]` table holds the same keys is
 the config — a **Python pack** (`language: 'python'`, unless the table says
-otherwise). It checks `pack.id` / `pack.version` and `language`. Never throws.
+otherwise). It checks `pack.id`, `pack.version` (`MAJOR.MINOR.PATCH`, such as
+`1.0.0`) and `language`. Never throws.
 
 - `findKindgiConfig(packDir)` — where the config is (`{ path, format: 'module' | 'pyproject' }`), or `undefined`; a `pyproject.toml` without the table is not a pack.
 - `packLanguage(config)` — `'node'` or `'python'`: which indexer reads the pack and which pack service runs it. `runIndexer` refuses a Python pack (`language-mismatch`); `python -m kindgi.pack index` indexes it.

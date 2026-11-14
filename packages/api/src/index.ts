@@ -341,7 +341,12 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
-export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  PersonCapabilitiesBinding,
+  PersonCapabilityChange,
+  PersonCapabilityError,
+  PersonCapabilityErrorCode,
+} from './person-capabilities-binding.js';
 export type {
   SecondFactorBinding,
   SecondFactorConfirmOutcome,
@@ -463,6 +468,11 @@ export type {
   ToolFileStoreInput,
   ToolFilesRefusal,
 } from './tool-files-binding.js';
+export type {
+  VersionLock,
+  VersionLocksBinding,
+  VersionLocksInput,
+} from './version-locks-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {
   CompleteWaitTokenInput,

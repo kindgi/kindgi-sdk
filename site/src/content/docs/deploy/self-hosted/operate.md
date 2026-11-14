@@ -471,8 +471,8 @@ What to check before you upgrade, and what's different after:
     If your code reads one of them, declare it
     ([Declare the environment your code reads](../../../guides/secrets/pack-env/)).
     To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
-    the pack service. A Python pack's image always names `GPG_KEY`: its base
-    image sets it, and nothing reads it.
+    the pack service. The line leaves out `GPG_KEY`, which Python's base image
+    sets: the service drops it too, so declare it if your code reads it.
   - **A tool call has an idempotency key,** `ctx.idempotencyKey`, the same
     every time the same call runs. Pass it to the system a tool writes to, so
     a step that runs again doesn't refund or email twice
@@ -762,7 +762,8 @@ and set `server_image` to its digest.
 **If you removed someone from a project or a team on an earlier version,
 after re-adding them with another role,** they may still hold that role.
 Remove them again on 0.1.5.1: the removal now clears it. For a leftover
-`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+`owner` on a project, as a tenant admin, add the person as `owner`, then
+remove them. 0.1.6
 adds a check that finds who needs it.
 
 ### From 0.1.4 to 0.1.5

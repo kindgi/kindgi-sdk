@@ -440,7 +440,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_REFUSE_OTHER_ENVS',
     description:
-      '`true`: this runtime keeps every value under the env it serves (`KINDGI_ENV`, which must then be set). A secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another, is refused (`409 env-not-served`): it would never be read. Reads and deletes under any env still work, and a secret that a registration made before names under its own env can still be written, so it can be rotated. Unset or `false`: any env is taken.',
+      "`true`: this runtime keeps every value under the env it serves (`KINDGI_ENV`, which must then be set). A secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another, or an HTTP tool, registered or deployed, whose `secretRef` names another, is refused (`409 env-not-served`): it would never be read. A tool that leaves its `secretRef`'s `envName` out reads its secret under the served env. Reads and deletes under any env still work, and a secret that a registration made before names under its own env can still be written, so it can be rotated; a tool's `secretRef` isn't such a registration. Unset or `false`: any env is taken.",
     example: 'true',
     required: false,
     appliesTo: appliesToServer,

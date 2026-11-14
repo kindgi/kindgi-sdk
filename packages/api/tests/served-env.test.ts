@@ -105,6 +105,11 @@ const hookEndpoint = (envName: string) => ({
 
 /** What a write reached: each store or registry call, by name. */
 type Write = readonly [op: string, envName: string, name: string];
+type HttpSpecLike = {
+  readonly authorization?: {
+    readonly secretRef?: { readonly envName?: string; readonly name: string };
+  };
+};
 
 /** `stored`: env values already stored, as before an upgrade. */
 function makeApp(
@@ -248,6 +253,17 @@ function makeApp(
           input.secretRef?.name ?? '',
         ]);
         return { kind: 'ok', endpoint: hookEndpoint(input.secretRef?.envName ?? 'local') };
+      },
+    } as never,
+    toolRegistry: {
+      list: async () => ({ data: [] }),
+      headExists: async () => false,
+      get: async () => null,
+      getVersion: async () => null,
+      publish: async (input: { tool: { id: string; version: string; spec?: HttpSpecLike } }) => {
+        const ref = input.tool.spec?.authorization?.secretRef;
+        writes.push(['tool.publish', ref?.envName ?? '', ref?.name ?? '']);
+        return { kind: 'ok', toolId: input.tool.id, version: input.tool.version };
       },
     } as never,
   });
@@ -651,6 +667,74 @@ describe('a runtime that refuses other envs: a registration naming its secret un
       ['mcp.register', 'prod', 'DOCS_TOKEN'],
       ['webhook.create', 'prod', 'NEW_HOOK_SECRET'],
     ]);
+  });
+});
+
+describe("a runtime that refuses other envs: an HTTP tool's secretRef", () => {
+  const httpTool = (id: string, secretRef: { envName?: string; name: string }) => ({
+    id,
+    version: '1.0.0',
+    description: 'Looks an order up.',
+    input: { type: 'object' },
+    output: { type: 'object' },
+    spec: {
+      kind: 'http',
+      method: 'GET',
+      urlTemplate: 'https://shop.acme.example/orders',
+      authorization: { kind: 'bearer', secretRef },
+    },
+    projectId,
+  });
+
+  test('naming another env: 409, naming the fix, and nothing is published', async () => {
+    const h = refusing();
+    const res = await h.call(
+      'POST',
+      '/v1/tools',
+      httpTool('acme.fetch-order', { envName: 'production', name: 'SHOP_TOKEN' }),
+    );
+    expect([res.status, res.body.error]).toEqual([
+      409,
+      expect.objectContaining({
+        code: 'env-not-served',
+        message: REFUSAL(
+          'tool "acme.fetch-order" 1.0.0\'s `authorization.secretRef` names `SHOP_TOKEN` under `production`. Leave `envName` out to read it under `prod`',
+        ),
+        details: { envName: 'production', servedEnv: 'prod' },
+      }),
+    ]);
+    expect(h.writes).toEqual([]);
+  });
+
+  test('naming the served env, or none: published', async () => {
+    const h = refusing();
+    const named = await h.call(
+      'POST',
+      '/v1/tools',
+      httpTool('acme.fetch-order', { envName: 'prod', name: 'SHOP_TOKEN' }),
+    );
+    expect(named.status).toBe(201);
+    const unnamed = await h.call(
+      'POST',
+      '/v1/tools',
+      httpTool('acme.fetch-invoice', { name: 'SHOP_TOKEN' }),
+    );
+    expect(unnamed.status).toBe(201);
+    expect(h.writes).toEqual([
+      ['tool.publish', 'prod', 'SHOP_TOKEN'],
+      ['tool.publish', '', 'SHOP_TOKEN'],
+    ]);
+  });
+
+  test('without the switch: another env is published', async () => {
+    const h = makeApp({ envName: 'prod' });
+    const res = await h.call(
+      'POST',
+      '/v1/tools',
+      httpTool('acme.fetch-order', { envName: 'production', name: 'SHOP_TOKEN' }),
+    );
+    expect(res.status).toBe(201);
+    expect(h.writes).toEqual([['tool.publish', 'production', 'SHOP_TOKEN']]);
   });
 });
 

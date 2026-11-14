@@ -153,6 +153,11 @@ resource "google_secret_manager_secret" "orchestrator_key" {
       }
     }
   }
+  # Kept as it is, as the server's secrets are (data.tf): a replace deletes
+  # the key.
+  lifecycle {
+    ignore_changes = [replication]
+  }
   depends_on = [google_project_service.apis]
 }
 

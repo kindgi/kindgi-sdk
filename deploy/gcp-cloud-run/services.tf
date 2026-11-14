@@ -27,8 +27,9 @@ locals {
   server_url = var.server_ingress == "INGRESS_TRAFFIC_ALL" ? google_cloud_run_v2_service.server.uri : trimsuffix(var.public_url, "/")
 
   # Every name the module sets on the server (some only with an option on),
-  # plus KINDGI_DEV and KINDGI_DATABASE_SERVER_CA_PATH (the database's CA
-  # comes from the module): server_env and server_secret_env can't set these.
+  # plus KINDGI_DEV, KINDGI_DATABASE_SERVER_CA_PATH (the database's CA comes
+  # from the module) and KINDGI_PAGINATION_KEY_PATH (so does the page-cursor
+  # key): server_env and server_secret_env can't set these.
   # KINDGI_PUBLIC_URL comes from var.public_url.
   server_module_env = toset([
     "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_SERVER_CA",
@@ -37,7 +38,8 @@ locals {
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_ENDPOINT_HOSTS", "KINDGI_PACK_ENDPOINT_KMS_KEY",
-    "KINDGI_PACK_ROUTING", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
+    "KINDGI_PACK_ROUTING", "KINDGI_PAGINATION_KEY", "KINDGI_PAGINATION_KEY_PATH",
+    "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
     "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANCY", "KINDGI_TENANT_ID",
@@ -308,6 +310,22 @@ resource "google_cloud_run_v2_service" "server" {
           }
         }
       }
+      # The page-cursor key, pinned (var.pagination_key_version): every
+      # instance and every revision seals and opens cursors with the same
+      # key, which `latest`, read at each instance's start, wouldn't keep
+      # once a version is added. Unset, the server makes one at each start.
+      dynamic "env" {
+        for_each = var.pagination_key_version != null ? [var.pagination_key_version] : []
+        content {
+          name = "KINDGI_PAGINATION_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.server["pagination_key"].secret_id
+              version = env.value
+            }
+          }
+        }
+      }
       dynamic "env" {
         for_each = google_secret_manager_secret.export_signing_key[*].secret_id
         content {
@@ -372,6 +390,9 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
 
+      # C-RT-4: a slow first start runs the migrations; up to 10 minutes,
+      # the most Cloud Run allows a startup probe (failure_threshold times
+      # period_seconds). A start that runs longer is shut down and starts over.
       startup_probe {
         http_get {
           path = "/health"
@@ -379,7 +400,7 @@ resource "google_cloud_run_v2_service" "server" {
         }
         period_seconds    = 5
         timeout_seconds   = 3
-        failure_threshold = 24
+        failure_threshold = 120
       }
       liveness_probe {
         http_get {
@@ -461,6 +482,10 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "server_public (an allUsers invoker binding) and server_invoker_iam_disabled are two ways to the same thing: pick one."
     }
     precondition {
+      condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_PAGINATION_KEY", "KINDGI_PAGINATION_KEY_PATH"]))) == 0
+      error_message = "The module keeps the page-cursor key now, in ${local.server_secrets.pagination_key} at pagination_key_version: copy the key the server reads now into that secret, then set pagination_key_version in place of KINDGI_PAGINATION_KEY, so every cursor out there still opens (README, Upgrading)."
+    }
+    precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
       error_message = "server_env and server_secret_env can't set a name this module sets itself (its variables do: public_url for KINDGI_PUBLIC_URL, trusted_proxies, cors_origins, ...), nor KINDGI_DEV, which is for `kindgi dev` only."
     }
@@ -479,6 +504,14 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = var.tenancy != "multi" || length(local.multi_missing) == 0
       error_message = "tenancy = \"multi\" needs: ${join("; ", local.multi_missing)}. The server won't start without them."
+    }
+    precondition {
+      condition     = var.pagination_key_version != null || length(setintersection(local.server_extra_env, toset(["KINDGI_PAGINATION_PREVIOUS_KEY", "KINDGI_PAGINATION_PREVIOUS_KEY_PATH"]))) == 0
+      error_message = "KINDGI_PAGINATION_PREVIOUS_KEY is the page-cursor key before the current one: set pagination_key_version too. The server won't start without it."
+    }
+    precondition {
+      condition     = try(var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].secret != local.server_secrets.pagination_key || coalesce(var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].project, var.project_id) != var.project_id || !contains([var.pagination_key_version, "latest"], var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].version), true)
+      error_message = "server_secret_env's KINDGI_PAGINATION_PREVIOUS_KEY is ${local.server_secrets.pagination_key} at the version the server seals with: after a rotation, the previous key is the version before pagination_key_version's, pinned (never \"latest\", which is the newest)."
     }
     precondition {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""

@@ -142,7 +142,7 @@ describe("a Scala pack's build context", () => {
 
   test('a kindgi.config.json saying "scala" is a standalone Scala pack', async () => {
     await files({
-      'kindgi.config.json': '{"language": "scala", "pack": {"id": "a", "version": "1"}}',
+      'kindgi.config.json': '{"language": "scala", "pack": {"id": "a", "version": "1.0.0"}}',
     });
     expect(await resolvePackRoots({ cwd: packDir })).toEqual({
       kind: 'ok',

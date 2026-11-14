@@ -15,7 +15,7 @@ import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type {
   CallUsageByCallId,
@@ -191,10 +191,12 @@ export function provenanceRouter(
     const visible =
       authorizer === undefined
         ? records
-        : await authorizer.filterByCan(c, 'read', records, (rec) =>
+        : // A record with no project is the whole workspace's, which a key
+          // limited to a project doesn't read.
+          await authorizer.filterByCan(c, 'read', records, (rec) =>
             rec.projectId !== undefined
               ? ref('project', rec.projectId as unknown as string)
-              : ref('tenant', tenantId as unknown as string),
+              : tenantWide(tenantId as unknown as string),
           );
     return c.json({
       data: visible.map(serializeRecordMetadata),

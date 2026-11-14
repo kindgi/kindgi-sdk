@@ -186,7 +186,9 @@ object AddOrderNote {
 
 - **The URL.** Each `{name}` in the URL template is filled from the input
   field with that wire name, URL-encoded. Every placeholder must be an input
-  field.
+  field. The URL starts with `http://` or `https://` and a host, and
+  placeholders go in its path and query only, never in its host or port:
+  there, the input would choose where the request goes.
 - **The body.** A `POST`, `PUT`, `PATCH` or `DELETE` sends the input fields
   the URL didn't use, as JSON: here `{"text": …}`. A `GET` sends no body.
   For another shape, set the request body. `input-passthrough` sends the
@@ -307,7 +309,7 @@ const defined = defineTool({
     urlTemplate: 'https://httpbin.org/bearer',
     authorization: {
       kind: 'bearer',
-      secretRef: { envName: 'local', name: 'HTTPBIN_TOKEN' },
+      secretRef: { name: 'HTTPBIN_TOKEN' },
     },
   },
 });
@@ -336,7 +338,7 @@ check_token = http_tool(
     output=TokenCheck,
     method="GET",
     url_template="https://httpbin.org/bearer",
-    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "HTTPBIN_TOKEN"}},
+    authorization={"kind": "bearer", "secretRef": {"name": "HTTPBIN_TOKEN"}},
     mutating=False,
 )
 ```
@@ -370,7 +372,7 @@ public final class CheckToken {
       .http(HttpToolSpec.builder()
           .method(HttpMethod.GET)
           .urlTemplate("https://httpbin.org/bearer")
-          .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("local", "HTTPBIN_TOKEN")))
+          .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("HTTPBIN_TOKEN")))
           .build());
 
   private CheckToken() {}
@@ -401,7 +403,7 @@ object CheckToken {
     .http(HttpToolSpec.builder()
       .method(HttpMethod.GET)
       .urlTemplate("https://httpbin.org/bearer")
-      .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("local", "HTTPBIN_TOKEN")))
+      .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("HTTPBIN_TOKEN")))
       .build())
 }
 ```
@@ -412,15 +414,21 @@ object CheckToken {
 - `bearer` sends `Authorization: Bearer <value>`. For an API that wants the
   key in its own header, use
   `{ kind: 'header', headerName: 'X-Api-Key', secretRef: … }`.
-- `secretRef` names the secret and the environment it lives in. Under
-  `kindgi dev`, `local` is your app's `.env` and `.env.local`, then Kindgi's
-  own `.kindgi/secrets.env`. Any other name is that environment's file,
-  `.env.<name>`.
+- `secretRef` names the secret. Kindgi reads it in the environment the
+  runtime serves (`KINDGI_ENV`), as it reads the secrets a tool's code
+  declares, so the same tool reads each deployment's own secret. Under
+  `kindgi dev` that's `local`: your app's `.env` and `.env.local`, then
+  Kindgi's own `.kindgi/secrets.env`.
+- To read one environment's secret wherever the tool runs, add `envName`,
+  for example `{ envName: 'staging', name: 'HTTPBIN_TOKEN' }`. Under
+  `kindgi dev`, any name other than `local` is that environment's file,
+  `.env.<name>`. A runtime that keeps its values only under the environment
+  it serves refuses a tool that names another (`env-not-served`).
 - A secret a header can't carry, such as a value pasted with a line break
   inside it, fails the call by its header's name, never showing the value:
 
   ```json excerpt
-  "message":"Tool \"acme.probe\" handler threw: http-tool \"acme.probe\": its secret local/K for the header \"X-Api-Key\" has a line break, which a header can't carry: store the secret without it"
+  "message":"Tool \"acme.probe\" handler threw: http-tool \"acme.probe\": its secret K for the header \"X-Api-Key\" has a line break, which a header can't carry: store the secret without it"
   ```
 
   A trailing line break is fine: it's dropped, as HTTP drops it.

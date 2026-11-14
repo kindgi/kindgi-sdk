@@ -374,7 +374,10 @@ the workspace's people, whatever its case
 `DELETE …/memberships/<user-id>` removes the member. In the clients, the
 calls are `projects.memberships.add`, `updateRole` and `remove`, with
 `update_role` in Python. Changing members takes `admin` on the project: a
-tenant admin, or the project's own admins.
+tenant admin, or the project's own admins. Giving `owner`, or changing or
+removing a member who holds it, also takes `delete` on the project, which
+an owner of the project, an admin of its org or a tenant admin holds.
+Anyone else gets `403 permission-denied`, and nothing changes.
 
 A project's admins also decide which of its triggers run as the project:
 `--run-as=project` on a schedule, webhook trigger or mail trigger runs it
@@ -585,14 +588,20 @@ show to the project's admins.
 A project admin changes who works there:
 
 - **Add someone** by their email in the workspace, with one of the four roles.
-  An email that isn't one of the workspace's people isn't added: "No one with
+  `owner` is offered only to someone who holds `delete` on the project. An
+  email that isn't one of the workspace's people isn't added: "No one with
   that email in this workspace: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them
   more, it says so under it, such as "editor through another way in". A
   role through a team, an org or tenant admin is changed where it comes
-  from, and a service account's on its own page.
-- **Take away** a person's role of their own. It asks first, and says what
-  stays:
+  from, and a service account's on its own page. To a project admin without
+  `delete` on the project, an owner's role can't be changed, and reads "Only
+  an owner, an admin of the project's org, or a tenant admin changes an
+  owner."
+- **Take away** a person's role of their own. To a project admin without
+  `delete` on the project, an owner's role has no Take away, and reads "Only
+  an owner, an admin of the project's org, or a tenant admin changes an
+  owner." Taking a role away asks first, and says what stays:
 
 ![The Take away step: "Take Ada Lovelace off Support? From their next request on, they can't work in Support through this role. Ada Lovelace keeps editor access through Team Support crew. What was done here stays.", with Cancel and Take it away.](../../../assets/access/members-take-away.png)
 
@@ -632,7 +641,7 @@ refused:
 
 - what the caller's API key rules out: a `member` key asking for a tenant
   admin's action, a key limited to a project acting on another project's
-  resource, a key without the capability a write needs (`env:write`,
+  resource or reading the whole workspace's, a key without the capability a write needs (`env:write`,
   `secrets:write`, …);
 - a request that names a project other than its key's, and a key limited to
   a project minting one that isn't (`key-project-mismatch`);

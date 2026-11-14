@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Scope } from '@kindgi/platform';
+import type { ToolManifest } from '@kindgi/tools';
 import type { EnvName, TenantId } from '@kindgi/types';
 
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretRefs } from './mcp-endpoint-binding.js';
@@ -193,6 +194,26 @@ export function refuseUnservedReference(
     rule.envName,
     ref.envName,
     `${who} names \`${ref.name}\` under \`${ref.envName}\`. Name it under \`${rule.envName}\`, and store the secret there`,
+  );
+}
+
+/**
+ * Why a tool can't be registered for the env its `authorization.secretRef`
+ * names, or nothing. A ref that names no env is read under the served env,
+ * so it's never refused, and that's the fix the refusal names.
+ */
+export function refuseUnservedToolSecret(
+  rule: ServedEnvRule | undefined,
+  tool: Pick<ToolManifest, 'id' | 'version' | 'spec'>,
+): EnvNotServed | undefined {
+  const auth = tool.spec?.authorization;
+  if (rule === undefined || auth === undefined || auth.kind === 'connection') return undefined;
+  const { envName, name } = auth.secretRef;
+  if (envName === undefined || envName === rule.envName) return undefined;
+  return envNotServed(
+    rule.envName,
+    envName,
+    `tool "${tool.id}" ${tool.version}'s \`authorization.secretRef\` names \`${name}\` under \`${envName}\`. Leave \`envName\` out to read it under \`${rule.envName}\``,
   );
 }
 

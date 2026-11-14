@@ -3,6 +3,7 @@
 
 /** A Python pack's image: its Containerfile, its build context, its pack root. */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -67,6 +68,39 @@ describe('the Python Containerfile', () => {
       'ENTRYPOINT ["/app/.venv/bin/python", "-m", "kindgi.pack", "serve", "--index", "/app/index.json", "--module-root", "/app"]',
     );
     expect(text).toMatch(/USER 65532:65532/);
+  });
+
+  test("the indexer runs --strict where the pack's kindgi has it, and as before where it doesn't", async () => {
+    const stage = text.slice(
+      text.indexOf('FROM build AS indexer'),
+      text.indexOf('# --- stage: final'),
+    );
+    const run = stage.slice(stage.indexOf('\nRUN ') + 5);
+    // The RUN step under sh, with a stand-in for the image's python that prints what it's given.
+    const python = join(packDir, 'python');
+    const indexed = async (help: string): Promise<string> => {
+      await writeFile(
+        python,
+        `#!/bin/sh\nif [ "$4" = --help ]; then echo '${help}'; else echo "$@"; fi\n`,
+        { mode: 0o755 },
+      );
+      return execFileSync('sh', ['-c', run.replaceAll('/app/.venv/bin/python', python)], {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          KINDGI_ARTIFACT_VERSION: '20261001.4',
+          KINDGI_PUBLISHED_AT: 'now',
+        },
+      }).trim();
+    };
+    expect(
+      await indexed('  [--artifact-version <str>] [--published-at <iso>] [--json] [--strict]'),
+    ).toBe(
+      '-m kindgi.pack index --pack-dir /app --artifact-version 20261001.4 --published-at now --strict --output /app/index.json',
+    );
+    expect(await indexed('  [--artifact-version <str>] [--published-at <iso>] [--json]')).toBe(
+      '-m kindgi.pack index --pack-dir /app --artifact-version 20261001.4 --published-at now --output /app/index.json',
+    );
   });
 });
 

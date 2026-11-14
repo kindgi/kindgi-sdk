@@ -1061,6 +1061,91 @@
             "maxLength": 256
           }
         }
+      },
+      "Gate": {
+        "type": "object",
+        "description": "Plain values beside objects: each read by its JSON token and written back as it.",
+        "additionalProperties": false,
+        "properties": {
+          "separate": {
+            "description": "A boolean, or a named object.",
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/components/schemas/GateRule"
+              }
+            ]
+          },
+          "limit": {
+            "description": "An integer, or one of two objects told apart by their properties.",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["max"],
+                "properties": {
+                  "max": {
+                    "type": "integer"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["perTool"],
+                "properties": {
+                  "perTool": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "weight": {
+            "description": "A number, an object, or `null`.",
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["scale"],
+                "properties": {
+                  "scale": {
+                    "type": "number"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "GateRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "type": "boolean"
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          }
+        }
       }
     }
   }

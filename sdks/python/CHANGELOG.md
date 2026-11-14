@@ -29,6 +29,18 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `sp_signing_key_ref` and `sp_decryption_key_ref` name, published in the
   service provider's metadata. Each needs its key. Both are optional and
   default to `None`.
+- `kindgi`: **a Python pack's service no longer names `GPG_KEY` when it
+  starts.** Python's base image sets it in every pack's image, so the
+  `env-dropped` line warned at every start. The service still drops it like
+  any name the pack doesn't declare: a pack that reads it declares it.
+- `kindgi`: **an HTTP tool's `secretRef` can leave its env out.**
+  `http_tool(authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}})`
+  is read in the env the runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`), as the secrets a tool's code declares are. A ref that names
+  its env still reads there, and an empty `envName` is refused. The client's
+  `ToolSecretRef.env_name` is optional: `None` when a tool's ref names no env.
+  An older `kindgi` fails to read such a tool, or a page of tools that holds
+  one, so upgrade it with the runtime.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
@@ -44,6 +56,39 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   API's spec now says it's required, so `scope_kind` is a required keyword
   argument, sync and async. A call without it raises `TypeError` before it's
   sent, where it got that `400`.
+- `kindgi`: **an agent's `ConversationPolicy` has `hitl`.**
+  `ConversationPolicy.hitl` (`ConversationHitlPolicy`, with `ToolHitlPolicy`,
+  `ToolHitlRule` and `SeparateApproverPolicy`) holds the agent's approval
+  rules, as an agent published over the API sets them and reads them back.
+- `kindgi`: **`http_tool` refuses a placeholder in the URL's host or port.**
+  There, a run's input or a model's arguments would choose where the runtime
+  sends the request. The URL must also start with `http://` or `https://` and
+  a host. TypeScript's `defineTool` and Java's `Tool.Builder.http` already
+  refused these with the same messages, and so did a deployment of the pack.
+  Python now refuses them when the tool is defined, with a `DefinitionError`.
+- `kindgi`: **a tool's schema with a name holding a lone surrogate is refused
+  as the runtime refuses it.** Under `properties`, `patternProperties`,
+  `dependentSchemas` or `dependencies`, such a name over a subschema the
+  runtime compiles now fails the definition with the runtime's "URI
+  malformed", where checking it raised `UnicodeEncodeError` before. The
+  runtime writes the name into that subschema's path, URI encoded, and a lone
+  surrogate can't be encoded. Over a subschema any data passes, such as `{}`,
+  the schema compiles, as it does in the runtime.
+- `kindgi`: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.**
+  A tool that sets no version takes the pack's, and a deploy takes no other
+  tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or
+  `"1.0.0-rc.1"` no longer loads: `python -m kindgi.pack index`, and
+  `kindgi build`, `deploy`, `env`, `dev` and `mcp`, stop with
+  `config-parse-failed`, naming `pack.version`, as they do when it's missing.
+  Write `1.0.0`.
+- `kindgi`: **each kind's version is checked where it's declared, by the
+  deploy's rule.** A tool's (`@tool(version=...)`, `http_tool`) is
+  `MAJOR.MINOR.PATCH`, so a prerelease or build metadata is refused. An
+  agent's is an exact semver with no build metadata, and so is a flow's,
+  which wasn't checked. Each of those was refused only at deploy before. The
+  messages are `version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got '...'`
+  and `version must be an exact semver with no build metadata (e.g. 1.2.3 or
+  1.2.3-rc.1), got '...'`.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's
@@ -76,6 +121,34 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `?token=`. An error with no cause and no secret reads as it did. `kindgi.log`
   gains `scrub_text(text, full_mask=True)` and `describe_causes`, as
   `@kindgi/log`'s `scrubText` and `describeCauses`.
+- `kindgi`: **`RunEvent.kind` lists only the kinds the run stream sends.**
+  Eight it never sent (`run.queued`, `run.tool-invoked`, `run.tool-result`,
+  `run.model-token`, `run.artifact-produced`, `run.guardrail-violated`,
+  `run.approval-requested`, `run.approval-completed`) are gone from its
+  `Literal`. It still takes any string, so nothing you read changes.
+- `kindgi`: **a removed schedule, webhook trigger or mail trigger can be read.**
+  `get_version` on `schedules`, `webhooks` and `mail_triggers` answers a
+  removed trigger's version, with `unregistered_at`, so a run's
+  `trigger.version` resolves whatever became of its trigger. `get`, `list`,
+  `list_versions` and `fires` take `include_unregistered=True` for removed
+  ones, and the trigger and version models gain an optional
+  `unregistered_at`.
+- `kindgi`: **unregistering a tool or agent version can say what can still
+  run it.** `UnregisterToolResult.locked_by` and
+  `UnregisterAgentResult.locked_by` list each agent and flow version you
+  can read that locks it, as the new `VersionLock` model (`kind`, `id`, `version`, and
+  `unregistered` for an unregistered agent version a registered flow version
+  still runs). `[]` says nothing you can read locks it. They're `None` when the runtime
+  doesn't send it.
+- `kindgi`: **`python -m kindgi.pack index --strict` exits 1 when a file
+  fails to index**, printing each file error, as `kindgi-index --strict`
+  does for a TypeScript pack. When a module imports a package that isn't
+  installed, it also says that a pack's image installs the main dependencies
+  only, so a package that only a dev group lists belongs in
+  `[project].dependencies`. A helper module (`tools/_db.py`) that won't
+  import doesn't count on its own: a module that imports it fails too. If it
+  defines tools itself, it says they're left out of the index. A pack image's
+  build runs it with `--strict`. Without the flag, nothing changes.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
@@ -89,6 +162,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **an API key can be made to only read.** `MintTokenBody.read_only`, set when the key is made, gives a key whose every request but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. Such a key makes and revokes no keys. `ApiToken`, `MintTokenResult`, `WhoamiResult` and `MyKeyLimits` gain `read_only`. A server whose key store can't keep the limit makes no key (`read-only-unsupported`).
+- `kindgi`: **a tenant admin gives another tenant admin capabilities, and takes them back.** `identity.users.give_capabilities` and `identity.users.take_back_capability` answer with the person's grants after. A person's grants carry the capabilities they hold, when the runtime reports them.
 
 ## 0.6.0
 

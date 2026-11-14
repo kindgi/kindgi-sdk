@@ -267,12 +267,14 @@ final class ModelWriter {
         b.addMethod(
             setter(bn, f.java, ft, fdoc).addStatement("this.$N = $N", f.java, f.java).addStatement("return this").build());
       }
-      Ir.UnionDecl textUnion = textUnion(f.type);
-      if (textUnion != null) {
-        Ir.Variant text = textUnion.textVariant();
+      Ir.UnionDecl valueUnion = valueUnion(f.type);
+      if (valueUnion != null) {
+        Ir.Variant text = valueUnion.textVariant() != null ? valueUnion.textVariant() : valueUnion.scalarVariant();
+        TypeName form = text.text() ? ModelPlanner.STRING : text.scalar();
+        String formName = text.text() ? "text" : scalarName(text.scalar());
         CodeBlock wrap = CodeBlock.of("new $T($N)", text.type(), f.java);
         b.addMethod(
-            setter(bn, f.java, ModelPlanner.STRING, "The text form of {@link #" + f.java + "(" + textUnion.name.simpleName() + ")}.")
+            setter(bn, f.java, form, "The " + formName + " form of {@link #" + f.java + "(" + valueUnion.name.simpleName() + ")}.")
                 .addStatement(
                     f.triState ? "this.$N = $T.of($L)" : "this.$N = $L",
                     f.triState ? new Object[] {f.java, OPTIONAL_NULLABLE, wrap} : new Object[] {f.java, wrap})
@@ -333,14 +335,24 @@ final class ModelWriter {
     return m;
   }
 
-  private Ir.UnionDecl textUnion(TypeName t) {
+  /** The union {@code t} names when it has a text or a plain-value variant, or null. */
+  private Ir.UnionDecl valueUnion(TypeName t) {
     if (t instanceof ClassName) {
       Ir.Decl d = planner.index.get(t);
-      if (d instanceof Ir.UnionDecl && ((Ir.UnionDecl) d).textVariant() != null) {
+      if (d instanceof Ir.UnionDecl
+          && (((Ir.UnionDecl) d).textVariant() != null || ((Ir.UnionDecl) d).scalarVariant() != null)) {
         return (Ir.UnionDecl) d;
       }
     }
     return null;
+  }
+
+  /** The JSON name of a plain value's Java type: boolean, integer or number. */
+  static String scalarName(TypeName scalar) {
+    if (scalar.equals(TypeName.BOOLEAN)) {
+      return "boolean";
+    }
+    return scalar.equals(TypeName.LONG) ? "integer" : "number";
   }
 
   /**
@@ -620,6 +632,8 @@ final class ModelWriter {
         doc.append(": {@code ").append(u.tagWire).append("} is ").append(String.join(" or ", v.tags().stream().map(t -> "<code>" + Docs.javadoc(t) + "</code>").toList()));
       } else if (v.text()) {
         doc.append(": text").append(v.allowed() == null ? "" : ", <code>" + Docs.javadoc(String.join("|", v.allowed())) + "</code>");
+      } else if (v.scalar() != null) {
+        doc.append(": ").append(scalarName(v.scalar()).equals("integer") ? "an " : "a ").append(scalarName(v.scalar()));
       } else if (v.uniqueRequired() != null) {
         doc.append(": has {@code ").append(v.uniqueRequired().get(0)).append("}");
       }
@@ -689,6 +703,18 @@ final class ModelWriter {
                 .build());
       }
       ib.addType(textVariant(u, text));
+    }
+    if (u.kind == Ir.UnionKind.SCALAR_OR_OBJECT) {
+      Ir.Variant value = u.scalarVariant();
+      ib.addMethod(
+          MethodSpec.methodBuilder("of")
+              .addJavadoc("The $L variant.\n", scalarName(value.scalar()))
+              .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+              .returns(cn)
+              .addParameter(value.scalar(), "value")
+              .addStatement("return new $T(value)", value.type())
+              .build());
+      ib.addType(scalarVariant(u, value));
     }
     for (Ir.Decl n : u.nested) {
       ib.addType(type(n));
@@ -846,6 +872,27 @@ final class ModelWriter {
         .addJavadoc("The text variant.\n\n@param value the text\n")
         .recordConstructor(ctor)
         .addMethod(validate.build())
+        .build();
+  }
+
+  private TypeSpec scalarVariant(Ir.UnionDecl u, Ir.Variant value) {
+    MethodSpec ctor =
+        MethodSpec.compactConstructorBuilder()
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(ParameterSpec.builder(value.scalar(), "value").addAnnotation(JSON_VALUE).build())
+            .build();
+    MethodSpec validate =
+        MethodSpec.methodBuilder("validate")
+            .addAnnotation(Override.class)
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(CHECKS, "checks")
+            .build();
+    return TypeSpec.recordBuilder(value.type())
+        .addModifiers(modifiers(value.type()))
+        .addSuperinterface(u.name)
+        .addJavadoc("The $L variant.\n\n@param value the value\n", scalarName(value.scalar()))
+        .recordConstructor(ctor)
+        .addMethod(validate)
         .build();
   }
 }

@@ -297,14 +297,17 @@ resource "azurerm_container_app" "server" {
         }
       }
 
-      # C-RT-4: a slow first start runs the migrations; up to 2 minutes.
+      # C-RT-4: a slow first start runs the migrations; up to 10 minutes, as
+      # on Cloud Run. Azure applies more failures than its API reference's
+      # 10 (the pack's probe above), and its own default startup probe has
+      # 240. A start that runs longer is restarted and starts over.
       startup_probe {
         transport               = "HTTP"
         path                    = "/health"
         port                    = 4000
         interval_seconds        = 5
         timeout                 = 3
-        failure_count_threshold = 24
+        failure_count_threshold = 120
       }
       liveness_probe {
         transport        = "HTTP"
