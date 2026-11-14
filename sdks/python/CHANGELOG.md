@@ -25,6 +25,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
   read doesn't change.
+- `kindgi`: **the corrections docstrings say which run can be corrected:**
+  one that completed with an output. `CorrectionsResource.create` and
+  `AgentsTestSetResource.add_case` (and their async twins) said a finished
+  run, but a run that failed, was cancelled, or completed with no output is
+  finished too, and is refused with `409 run-not-finished`. What you pass or
+  read doesn't change.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

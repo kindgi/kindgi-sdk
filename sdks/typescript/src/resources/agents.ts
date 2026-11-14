@@ -261,9 +261,9 @@ export interface AgentTestSetClient {
   ): Promise<TestCaseCollectionPage>;
   /**
    * Add a case by hand, from a correction's body on one of the agent's
-   * finished runs. It has no status, isn't sorted, and nothing that counts
-   * corrections counts it. Needs `publish` on the agent, or `write` on the
-   * run's project for an agent in more than one project.
+   * runs that completed with an output. It has no status, isn't sorted, and
+   * nothing that counts corrections counts it. Needs `publish` on the agent,
+   * or `write` on the run's project for an agent in more than one project.
    *
    * @wire POST /v1/agents/:agentId/test-set/cases
    */
