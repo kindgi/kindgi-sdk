@@ -19,9 +19,11 @@ import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types
 import {
   callerPrincipal,
   callerRef,
+  credentialLimit,
   isTenantAdmin,
   isTenantAdminForDisplay,
   principalToWire,
+  sameUserId,
 } from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
 import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
@@ -36,6 +38,10 @@ import { AUTHZ_UNAVAILABLE_RETRY_AFTER_S } from '../middleware/error-mapper.js';
 import { personWideRefusal } from '../middleware/key-project.js';
 import type { MyAccess, MyAccessBinding, RoleCapabilities } from '../my-access-binding.js';
 import type {
+  PersonCapabilitiesBinding,
+  PersonCapabilityError,
+} from '../person-capabilities-binding.js';
+import type {
   PersonGrant,
   PersonGrantError,
   PersonGrants,
@@ -45,6 +51,7 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { MAX_CAPABILITY_LENGTH, isCapabilityName } from './capability-name.js';
 import { type LicenseStatusBinding, licenseOperatorOnlyFor } from './license.js';
 import { clampLimit } from './pagination.js';
 import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
@@ -104,6 +111,14 @@ export interface IdentityRouterOptions {
    */
   readonly personGrants?: PersonGrantsBinding;
   /**
+   * Optional. Its `give` and `takeBack` serve `POST
+   * /users/:userId/capabilities` and `DELETE
+   * /users/:userId/capabilities/:capability`, which answer with the
+   * person's grants (`personGrants`). Without them, those routes answer
+   * `501 person-capabilities-unsupported`.
+   */
+  readonly personCapabilities?: PersonCapabilitiesBinding;
+  /**
    * Optional. What the caller holds (`GET /me/permissions`): its projects
    * with their roles, its orgs and teams, what each project role allows.
    * Without it, that route answers `501 permissions-unsupported`, and a
@@ -139,6 +154,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     reviewerBinding,
     authorizer,
     personGrants,
+    personCapabilities,
     myAccess,
     tenantConfig,
     license,
@@ -530,6 +546,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
   });
 
   mountPersonGrants(r, personGrants, authorizer);
+  mountPersonCapabilities(r, personGrants, personCapabilities, authorizer);
   return r;
 }
 
@@ -550,9 +567,11 @@ const unsupported = (c: Context<AppEnv>) => {
 /** Why a caller limited to a project neither reads nor revokes its person's sessions. */
 const SESSIONS_REACH = "its person's sessions reach beyond it";
 
-/** Whether `userId` is the caller's own. */
-const isOwn = (c: Context<AppEnv>, userId: string) =>
-  (c.get('userId') as unknown as string | undefined) === userId;
+/** Whether `userId` is the caller's own (a seed id may differ in case: `sameUserId`). */
+const isOwn = (c: Context<AppEnv>, userId: string) => {
+  const own = c.get('userId') as unknown as string | undefined;
+  return own !== undefined && sameUserId(own, userId);
+};
 
 const denied = (c: Context<AppEnv>, message: string) => {
   c.status(statusFor('permission-denied') as never);
@@ -609,6 +628,146 @@ function mountPersonGrants(
       return c.json(serializePersonGrants(result.value));
     });
   }
+}
+
+/** How many capabilities one give names at most. */
+const MAX_GIVEN_AT_ONCE = 32;
+
+const capabilitiesUnsupported = (c: Context<AppEnv>) => {
+  c.status(statusFor('person-capabilities-unsupported') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'person-capabilities-unsupported',
+        message: "This runtime doesn't give or take back a person's capabilities",
+      },
+      c.get('requestId'),
+    ),
+  );
+};
+
+/**
+ * `POST /users/:userId/capabilities` (a tenant admin gives another tenant
+ * admin capabilities their own person holds) and `DELETE
+ * /users/:userId/capabilities/:capability` (a tenant admin who holds it
+ * takes it back, or the person drops their own with a full key or
+ * session). The route checks the caller's role and the input; the binding
+ * checks the rest under the tenant's admins lock. Both answer with the
+ * person's grants after, `capabilities` as the binding read them.
+ */
+function mountPersonCapabilities(
+  r: Hono<AppEnv>,
+  grants: PersonGrantsBinding | undefined,
+  binding: PersonCapabilitiesBinding | undefined,
+  authorizer: Authorizer | undefined,
+): void {
+  r.post('/users/:userId/capabilities', async (c) => {
+    if (!(await isTenantAdmin(c, authorizer))) {
+      return denied(c, 'Only a tenant admin gives a person capabilities');
+    }
+    const given = parseGiven(await c.req.json().catch(() => undefined));
+    if (typeof given === 'string') return badCapabilities(c, given);
+    if (grants === undefined) return unsupported(c);
+    if (binding?.give === undefined) return capabilitiesUnsupported(c);
+    const tenantId = c.get('tenantId') as TenantId;
+    const userId = c.req.param('userId');
+    const by = callerRef(c);
+    const result = await binding.give({
+      tenantId,
+      userId: userId as UserId,
+      capabilities: given,
+      ...(by !== undefined && { by }),
+    });
+    if (result.kind === 'err') return grantError(c, result.error);
+    return grantsAfter(c, grants, tenantId, userId, result.value);
+  });
+
+  r.delete('/users/:userId/capabilities/:capability', async (c) => {
+    const userId = c.req.param('userId');
+    const refusal = await takeBackRefusal(c, userId, authorizer);
+    if (refusal !== undefined) return denied(c, refusal);
+    const capability = c.req.param('capability');
+    if (!isCapabilityName(capability)) {
+      return badCapabilities(
+        c,
+        `The capability in the path must be a name of at most ${MAX_CAPABILITY_LENGTH} characters`,
+      );
+    }
+    if (grants === undefined) return unsupported(c);
+    if (binding?.takeBack === undefined) return capabilitiesUnsupported(c);
+    const tenantId = c.get('tenantId') as TenantId;
+    const by = callerRef(c);
+    const result = await binding.takeBack({
+      tenantId,
+      userId: userId as UserId,
+      capability,
+      ...(by !== undefined && { by }),
+    });
+    if (result.kind === 'err') return grantError(c, result.error);
+    return grantsAfter(c, grants, tenantId, userId, result.value);
+  });
+}
+
+/**
+ * Why the caller may not take back the person's capability, or
+ * `undefined` when they may: a tenant admin, or the person themselves
+ * with a full key or session, since capabilities are tenant-wide.
+ */
+async function takeBackRefusal(
+  c: Context<AppEnv>,
+  userId: string,
+  authorizer: Authorizer | undefined,
+): Promise<string | undefined> {
+  const own = isOwn(c, userId);
+  const limit = own ? credentialLimit(c) : undefined;
+  if (own && limit === undefined) return undefined;
+  if (await isTenantAdmin(c, authorizer)) return undefined;
+  return limit === undefined
+    ? "Only a tenant admin takes back someone else's capabilities"
+    : `Taking back your own capability needs a full API key or session, and this is ${limit}`;
+}
+
+const badCapabilities = (c: Context<AppEnv>, message: string) => {
+  c.status(statusFor('bad-input') as never);
+  return c.json(toWireError({ code: 'bad-input', message }, c.get('requestId')));
+};
+
+/** The person's grants after a change, with what the binding says they hold. */
+async function grantsAfter(
+  c: Context<AppEnv>,
+  grants: PersonGrantsBinding,
+  tenantId: TenantId,
+  userId: string,
+  capabilities: readonly string[],
+) {
+  const after = await grants.read({ tenantId, userId });
+  if (after === null) return notFound(c, userId);
+  return c.json(serializePersonGrants({ ...after, capabilities }));
+}
+
+/**
+ * A give's body, `{capabilities: [...]}`: 1 to 32 names, counted as sent,
+ * each named once after; or why not.
+ */
+function parseGiven(raw: unknown): readonly string[] | string {
+  const b = raw as { capabilities?: unknown } | null | undefined;
+  if (
+    typeof b !== 'object' ||
+    b === null ||
+    Array.isArray(b) ||
+    !Array.isArray(b.capabilities) ||
+    Object.keys(b).length !== 1
+  ) {
+    return 'The body must be { capabilities: [...] }: the capabilities to give';
+  }
+  const names: readonly unknown[] = b.capabilities;
+  if (names.length === 0 || names.length > MAX_GIVEN_AT_ONCE) {
+    return `\`capabilities\` must name 1 to ${MAX_GIVEN_AT_ONCE} capabilities`;
+  }
+  if (!names.every(isCapabilityName)) {
+    return `\`capabilities\` must hold names of at most ${MAX_CAPABILITY_LENGTH} characters`;
+  }
+  return [...new Set(names)];
 }
 
 /** Project roles from the highest: `capabilities` is answered in this order. */
@@ -915,7 +1074,7 @@ function notFound(c: Context<AppEnv>, userId: string) {
   );
 }
 
-function grantError(c: Context<AppEnv>, error: PersonGrantError) {
+function grantError(c: Context<AppEnv>, error: PersonGrantError | PersonCapabilityError) {
   c.status(statusFor(error.code) as never);
   return c.json(toWireError({ code: error.code, message: error.message }, c.get('requestId')));
 }
@@ -976,6 +1135,7 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
     projects: g.projects.map((p) => ({ projectId: p.projectId, role: p.role })),
     teams: g.teams.map((t) => ({ teamId: t.teamId, role: t.role })),
     ...(g.reviewer !== undefined && { reviewer: { role: g.reviewer.role } }),
+    ...(g.capabilities !== undefined && { capabilities: [...g.capabilities] }),
   };
 }
 

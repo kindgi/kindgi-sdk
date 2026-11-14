@@ -63,6 +63,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
 - `kindgi`: **an API key can be made to only read.** `MintTokenBody.read_only`, set when the key is made, gives a key whose every request but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. Such a key makes and revokes no keys. `ApiToken`, `MintTokenResult`, `WhoamiResult` and `MyKeyLimits` gain `read_only`. A server whose key store can't keep the limit makes no key (`read-only-unsupported`).
+- `kindgi`: **a tenant admin gives another tenant admin capabilities, and takes them back.** `identity.users.give_capabilities` and `identity.users.take_back_capability` answer with the person's grants after. A person's grants carry the capabilities they hold, when the runtime reports them.
 
 ## 0.6.0
 

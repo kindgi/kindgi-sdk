@@ -2495,6 +2495,12 @@ export interface PersonGrants {
   }[];
   readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+  /**
+   * The capabilities the person holds, such as `env:write` or
+   * `signing-keys:write`. Absent when the runtime doesn't report them:
+   * unknown, not none.
+   */
+  readonly capabilities?: readonly string[];
 }
 
 /** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */

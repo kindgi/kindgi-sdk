@@ -2332,6 +2332,21 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['POST /v1/tokens', 'POST /v1/system/keys'],
   },
+  'caller-not-a-person': {
+    description:
+      "Only a person gives or takes back a person's capabilities: what their own person holds now is what bounds it, and a service account or a system key holds none. Ask with a person's API key or session.",
+    details: [],
+  },
+  'capability-not-givable': {
+    description:
+      'No person gives `secrets:reveal` or a system capability (`kindgi:system`, `system:*`). Nothing changed. Give the rest without them.',
+    details: [],
+  },
+  'capability-not-held': {
+    description:
+      'A tenant admin gives, and takes back, only what their own person holds now; what their key was minted with never counts. The message names the ones they lack. Nothing changed. Ask a tenant admin who holds them.',
+    details: [],
+  },
   'system-key-on-tenant-route': {
     description:
       "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*`, `GET /v1/license` and `GET /v1/license/usage` only: use one of the tenant's keys.",
@@ -2662,6 +2677,11 @@ export const ERROR_ENTRIES = {
     description: "The person was removed from the workspace, so they can't be granted anything.",
     details: [],
   },
+  'receiver-not-tenant-admin': {
+    description:
+      'Only a tenant admin is given capabilities, and this person is not one now. Make them a tenant admin first (`POST /v1/identity/users/{userId}/grant`), then give them the capabilities.',
+    details: [],
+  },
   'identity-user-not-invited': {
     description:
       'The person has no invitation to send again: they have signed in already, were added before invitations, or have no email. Nothing changed.',
@@ -2675,6 +2695,11 @@ export const ERROR_ENTRIES = {
   'person-grants-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
+    details: [],
+  },
+  'person-capabilities-unsupported': {
+    description:
+      "The runtime doesn't give or take back a person's capabilities. Nothing changed. Its operator can still change what a person holds in the runtime's own store.",
     details: [],
   },
   'agent-owner-unsupported': {

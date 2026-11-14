@@ -8683,6 +8683,22 @@ class PersonGrantBody(BaseModel):
     kind: Literal["tenant-admin"]
 
 
+class Capability6(RootModel[str]):
+    root: Annotated[str, Field(max_length=100, min_length=1)]
+
+
+class PersonCapabilitiesBody(BaseModel):
+    """
+    The capabilities to give: 1 to 32 names, counted as sent; a name sent twice is given once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    capabilities: Annotated[list[Capability6], Field(max_length=32, min_length=1)]
+
+
 class QueueRuleWhen(BaseModel):
     """
     Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
@@ -19870,6 +19886,10 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+    capabilities: list[str] | None = None
+    """
+    The capabilities the person holds, such as `env:write` or `signing-keys:write`. Absent when the runtime doesn't report them: unknown, not none.
+    """
 
 
 class EnvSetOutcome(

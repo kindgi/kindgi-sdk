@@ -332,6 +332,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'token-expiry-exceeds-minter': 403,
   /** Mint: a capability a tenant's key can't carry (`system:*`; `kindgi:system` on a runtime serving many tenants). */
   'capability-not-mintable': 403,
+  /** Giving or taking back a person's capabilities, asked by a service account or a system key: only a person's own rows bound what is given. */
+  'caller-not-a-person': 403,
+  /** Giving `secrets:reveal` or a system capability: no person gives it. */
+  'capability-not-givable': 403,
+  /** Giving or taking back a capability the caller's own person doesn't hold now. */
+  'capability-not-held': 403,
   /** A system key (it acts in no tenant) on a route outside `/v1/system/*`. */
   'system-key-on-tenant-route': 403,
   /** A system route called with a tenant's key or session. */
@@ -434,6 +440,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-unregister-refused': 409,
   /** A grant or a key for a person who was unregistered. */
   'identity-user-unregistered': 409,
+  /** Giving capabilities to a person who isn't a tenant admin: only a tenant admin is given any. */
+  'receiver-not-tenant-admin': 409,
   /**
    * Renewing the invitation of a person who has joined, was added before
    * invitations, or has no email to send one to.
@@ -441,6 +449,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
+  /** Giving or taking back a person's capabilities on a runtime that doesn't. */
+  'person-capabilities-unsupported': 501,
   /** Setting an agent's owner on a runtime whose agent store doesn't keep one. */
   'agent-owner-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
