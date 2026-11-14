@@ -212,6 +212,29 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'read-only-key': {
+    description:
+      "The API key making the request only reads: it was minted with `readOnly: true`. Every request it makes but a `GET` or a `HEAD` is refused, before any route runs, apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys, its own included. Use a key that can write, or ask someone who can.",
+    details: [
+      {
+        key: 'action',
+        meaning: '`write`: what a key that only reads may not do',
+      },
+      {
+        key: 'resource',
+        meaning: "the key's workspace, as `tenant:<id>`",
+      },
+      {
+        key: 'reason',
+        meaning: 'why the check refused it',
+      },
+    ],
+  },
+  'read-only-unsupported': {
+    description:
+      "A key was asked to only read (`readOnly: true` on `POST /v1/tokens`), but this server's key store can't keep that limit, so no key was made: the one minted is revoked at once, and the answer carries no secret. Ask whoever runs the deployment to update it.",
+    details: [],
+  },
   'second-factor-required': {
     description:
       "The workspace requires a second factor at sign-in. Signing in to the console with an API token is refused, since a token can't give one: sign in another way, with your second factor. Taking your own second factor off is refused too: replace it (`POST /v1/identity/me/second-factor` with a code), or ask a tenant admin to remove it.",

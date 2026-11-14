@@ -377,8 +377,9 @@ a role.
     `assignedTo`, and which is absent without a roster row;
   - the approvals' roles you may decide: your rank and those under it;
   - whether you can decide at all.
-- **`key`:** when you call with an API key, its role and the project it's
-  limited to.
+- **`key`:** when you call with an API key, its role, the project it's
+  limited to, and `readOnly`: whether it only reads
+  ([A key that only reads](#a-key-that-only-reads)).
 - **`tokenCapabilities`:** what your token itself carries for secret, env,
   config-entry and signing-key writes. A sign-in session carries the ones you
   hold as a person.
@@ -594,6 +595,30 @@ of your keys beyond its limits answers `403`, naming its own limit
 (`key-project-mismatch`, or `permission-denied` for an `admin` key), and
 says nothing about that key. A key or session without limits sees what it
 did before: a tenant admin's, every key; anyone else's, all of their own.
+
+### A key that only reads
+
+A key minted with `readOnly: true` reads and changes nothing: for a tool
+that should look at a workspace and never act in it. The CLI's
+`tokens create` has no flag for it. Mint it with `POST /v1/tokens` and
+`{"readOnly": true}`, or with the TypeScript client's
+`tokens.create({ readOnly: true })`. Its other limits apply as for any key:
+its role, its project and its capabilities.
+
+- Every request it makes but a `GET` or a `HEAD` is refused with
+  `403 read-only-key`, before any route runs. The one exception is an
+  agent's pin check, `POST /v1/agents/{agentId}/pinned/check`, which writes
+  nothing.
+- It mints and revokes no keys, its own included, and it doesn't open a
+  console session: a sign-in with it is refused with `403 read-only-key`,
+  as any other post is.
+- Its record carries `readOnly: true`. Called with it,
+  `GET /v1/identity/whoami` answers `readOnly: true`, and
+  [What you may do](#what-you-may-do) has `key.readOnly` and shows each of
+  its projects' roles as `viewer`, and its org and team `admin` roles as
+  `member`.
+- A server whose key store can't keep the limit makes no such key: the mint
+  answers `501 read-only-unsupported`, with no secret.
 
 ## Service accounts
 

@@ -49,6 +49,7 @@ const ROLE_ONLY = 'tok-role-only'; // carries a reviewer role, no user
 const DEPLOYMENT = 'tok-deployment'; // the deployment's own token, with capabilities
 const CAROL = 'tok-carol'; // a viewer of one project, and runs two because everyone may
 const CAROL_P3_KEY = 'kgi_ak_carol-p3';
+const CAROL_READ_KEY = 'kgi_ak_carol-read'; // only reads
 
 const noopRunHandler: RunHandlerBinding = {
   invokeAgent: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'noop' } }),
@@ -91,6 +92,15 @@ const resolveToken: TokenResolver = async (token) => {
         tokenId: 'k-cp' as ApiTokenId,
         tokenRole: 'member',
         tokenProjectId: P3,
+      };
+    case CAROL_READ_KEY:
+      return {
+        tenantId,
+        userId: 'carol' as UserId,
+        scopes: [],
+        tokenId: 'k-cr' as ApiTokenId,
+        tokenRole: 'member',
+        tokenReadOnly: true,
       };
     case DEPLOYMENT:
       return {
@@ -385,14 +395,14 @@ describe('GET /v1/identity/me/permissions', () => {
     const r = await harness(store)(ALICE_MEMBER_KEY);
     expect(r.status).toBe(200);
     expect(r.body.tenant).toEqual({ admin: false });
-    expect(r.body.key).toEqual({ tokenId: 'k-am', role: 'member' });
+    expect(r.body.key).toEqual({ tokenId: 'k-am', role: 'member', readOnly: false });
     // Below the tenant, the principal's roles hold.
     expect((r.body.projects as { role: string }[])[0]?.role).toBe('admin');
   });
 
   test('a key limited to a project sees it alone, and administers no org or team', async () => {
     const r = await harness(store)(BOB_PROJECT_KEY);
-    expect(r.body.key).toEqual({ tokenId: 'k-bp', role: 'admin', projectId: P1 });
+    expect(r.body.key).toEqual({ tokenId: 'k-bp', role: 'admin', projectId: P1, readOnly: false });
     expect((r.body.projects as { projectId: string }[]).map((p) => p.projectId)).toEqual([P1]);
     expect(r.body.orgs).toEqual([{ orgId: 'o1', name: 'Acme', role: 'member' }]);
     expect(r.body.teams).toEqual([{ teamId: 't1', name: 'Support', role: 'member' }]);
@@ -518,9 +528,23 @@ describe('GET /v1/identity/me/permissions', () => {
     test('a key limited to a project everyone may run lists that project alone', async () => {
       const r = await harness(store)(CAROL_P3_KEY);
       expect(r.status).toBe(200);
-      expect(r.body.key).toEqual({ tokenId: 'k-cp', role: 'member', projectId: P3 });
+      expect(r.body.key).toEqual({
+        tokenId: 'k-cp',
+        role: 'member',
+        projectId: P3,
+        readOnly: false,
+      });
       expect(r.body.projects).toEqual([]);
       expect(r.body.everyoneCanRunProjects).toEqual([{ projectId: P3, name: 'Beta' }]);
+    });
+
+    test('a key that only reads runs none: no project is listed as one everyone may run', async () => {
+      const r = await harness(store)(CAROL_READ_KEY);
+      expect(r.status).toBe(200);
+      expect(r.body.key).toEqual({ tokenId: 'k-cr', role: 'member', readOnly: true });
+      expect(r.body.projects.length).toBeGreaterThan(0);
+      expect(r.body.projects.every((p: { role: string }) => p.role === 'viewer')).toBe(true);
+      expect('everyoneCanRunProjects' in r.body).toBe(false);
     });
   });
 });

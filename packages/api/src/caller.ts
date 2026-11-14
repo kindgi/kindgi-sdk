@@ -27,7 +27,8 @@ export function callerPrincipal(c: Context<AppEnv>): TokenPrincipal | undefined 
 /**
  * Whether the caller is a tenant admin: `admin` on the tenant when
  * authorization is on, otherwise the `tenant-admin` scope. Never through
- * a `member` key or a key limited to a project (see the authorizer).
+ * a `member` key, a key limited to a project, or a key that only reads
+ * (see the authorizer).
  */
 export async function isTenantAdmin(
   c: Context<AppEnv>,
@@ -79,7 +80,8 @@ function scopedTenantAdmin(c: Context<AppEnv>): boolean {
   return (
     (c.get('scopes') ?? []).includes('tenant-admin') &&
     c.get('tokenRole') !== 'member' &&
-    c.get('tokenProjectId') === undefined
+    c.get('tokenProjectId') === undefined &&
+    c.get('tokenReadOnly') !== true
   );
 }
 

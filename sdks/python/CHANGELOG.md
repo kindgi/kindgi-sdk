@@ -62,6 +62,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **an API key can be made to only read.** `MintTokenBody.read_only`, set when the key is made, gives a key whose every request but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. Such a key makes and revokes no keys. `ApiToken`, `MintTokenResult`, `WhoamiResult` and `MyKeyLimits` gain `read_only`. A server whose key store can't keep the limit makes no key (`read-only-unsupported`).
 
 ## 0.6.0
 

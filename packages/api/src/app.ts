@@ -72,6 +72,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { refuseWritesForReadOnlyKey } from './middleware/key-read-only.js';
 import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
@@ -1732,6 +1733,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', refuseDeepJson(ownBodyLimits));
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer, ownBodyLimits));
+  // A key that only reads makes no request but a read, with or without an
+  // authorization store.
+  v1.use('*', refuseWritesForReadOnlyKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 

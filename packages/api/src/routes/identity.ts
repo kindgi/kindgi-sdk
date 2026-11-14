@@ -687,8 +687,11 @@ function mountMyPermissions(
 
     // A key limited to a project acts on no other, and administers no
     // org or team (`keyCeilingDeny`): a project only everyone may run
-    // included.
+    // included. A key that only reads takes no action but `read`
+    // (`keyCeilingDeny`), so it shows as a viewer and a member, and runs
+    // nothing everyone may run.
     const keyProject = c.get('tokenProjectId') as string | undefined;
+    const readOnly = c.get('tokenReadOnly') === true;
     const reached = (access?.projects ?? []).filter(
       (p) => keyProject === undefined || p.projectId === keyProject,
     );
@@ -702,16 +705,18 @@ function mountMyPermissions(
             {
               projectId: p.projectId,
               name: p.name,
-              role: p.role,
+              role: readOnly ? ('viewer' as const) : p.role,
               via: p.via.map(serializeAccessPath),
             },
           ],
     );
-    const everyoneCanRunProjects = reached
-      .filter((p) => p.role === undefined && p.via.some((v) => v.kind === 'everyone'))
-      .map((p) => ({ projectId: p.projectId, name: p.name }));
+    const everyoneCanRunProjects = readOnly
+      ? []
+      : reached
+          .filter((p) => p.role === undefined && p.via.some((v) => v.kind === 'everyone'))
+          .map((p) => ({ projectId: p.projectId, name: p.name }));
     const ceiling = <R extends string>(role: R): R | 'member' =>
-      keyProject !== undefined && role === 'admin' ? 'member' : role;
+      (keyProject !== undefined || readOnly) && role === 'admin' ? 'member' : role;
     const orgs = (access?.orgs ?? []).map((o) => ({
       orgId: o.orgId,
       name: o.name,
@@ -739,6 +744,7 @@ function mountMyPermissions(
           tokenId,
           ...(tokenRole !== undefined && { role: tokenRole }),
           ...(keyProject !== undefined && { projectId: keyProject }),
+          readOnly,
         },
       }),
       tokenCapabilities: [...(c.get('capabilities') ?? [])].sort(),
@@ -1018,6 +1024,7 @@ function serializeSession(s: SessionSummary): Record<string, unknown> {
 /**
  * What an API key adds to whoami: whom it acts for, its id, and what it's
  * limited to, so a client can say "you're acme-ci, limited to project X".
+ * `readOnly` comes with a key's id, true or false; a session has neither.
  */
 function keyFacts(c: Context<AppEnv>): Record<string, unknown> {
   const principal = callerPrincipal(c);
@@ -1026,7 +1033,7 @@ function keyFacts(c: Context<AppEnv>): Record<string, unknown> {
   const projectId = c.get('tokenProjectId');
   return {
     ...(principal !== undefined && { principal: principalToWire(principal) }),
-    ...(tokenId !== undefined && { tokenId }),
+    ...(tokenId !== undefined && { tokenId, readOnly: c.get('tokenReadOnly') === true }),
     ...(role !== undefined && { role }),
     ...(projectId !== undefined && { projectId }),
   };

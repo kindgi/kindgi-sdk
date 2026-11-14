@@ -9271,6 +9271,10 @@ class MyKeyLimits(BaseModel):
     """
     The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Whether the key only reads: then each project's `role` shows as `viewer`, and each org's and team's `admin` as `member`. Absent from older servers.
+    """
 
 
 class IdentitySessionSummary(BaseModel):
@@ -15323,6 +15327,10 @@ class MintTokenBody(BaseModel):
     """
     Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    `true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`.
+    """
 
 
 class MintTokenResult(BaseModel):
@@ -15348,6 +15356,10 @@ class MintTokenResult(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Present and `true` when the key only reads.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -15553,6 +15565,10 @@ class ApiToken(BaseModel):
     """
     The project the key is limited to.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Present and `true` when the key only reads.
+    """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
     Who minted it: `user:<id>` or `service_account:<id>`.
@@ -15596,6 +15612,10 @@ class Datum4(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Present and `true` when the key only reads.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -17206,7 +17226,7 @@ class MyPermissions(BaseModel):
         list[MyEveryoneCanRunProject] | None, Field(alias="everyoneCanRunProjects")
     ] = None
     """
-    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.
+    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone, and a key that only reads, none. Absent when there are none, and from an older server.
     """
     orgs: list[MyOrgAccess]
     """
@@ -20196,9 +20216,13 @@ class WhoamiResult(BaseModel):
     """
     The project the caller's API key or session is limited to, when it is.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    With `tokenId`: whether the caller's API key only reads. A session has none. Absent from older servers.
+    """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
-    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key, one limited to a project, or one that only reads). A console shows its admin pages by it. Absent from older servers: read `scopes`.
     """
     served_env: Annotated[ServedEnv | None, Field(alias="servedEnv")] = None
     """
