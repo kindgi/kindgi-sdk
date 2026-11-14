@@ -22,7 +22,7 @@ import {
   resolveTurnEnvironment,
   resolveTurnHitlPolicy,
 } from './turn-environment.js';
-import { decisionOf } from './turn-provenance.js';
+import { agentActor, decisionOf } from './turn-provenance.js';
 
 /**
  * Deterministic waitpoint token — must produce the same value on every
@@ -198,7 +198,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
           id: waitNodeId,
           kind: 'wait',
           timestamp: new Date().toISOString() as never,
-          actor: `agent:${ctx.input.agent.id as unknown as string}`,
+          actor: agentActor(ctx.input.agent),
           attributes: {
             gate: 'session-hitl',
             turnCount: gate.turnCount,
@@ -222,8 +222,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             id: resumeNodeId,
             kind: 'resume',
             timestamp: new Date().toISOString() as never,
-            // Whoever decided; a decision recorded before it named them, the agent.
-            actor: decision.decidedBy ?? `agent:${ctx.input.agent.id as unknown as string}`,
+            // Whoever decided; a decision recorded before it named them, no one.
+            ...(decision.decidedBy !== undefined && { actor: decision.decidedBy }),
             attributes: {
               gate: 'session-hitl',
               decision: decisionOf(decision),
@@ -259,7 +259,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               id: resumeNodeId,
               kind: 'resume',
               timestamp: new Date().toISOString() as never,
-              actor: `agent:${ctx.input.agent.id as unknown as string}`,
+              // No one decided: the wait was cancelled.
               attributes: {
                 gate: 'session-hitl',
                 decision: 'cancelled',

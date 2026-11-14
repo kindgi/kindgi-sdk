@@ -427,7 +427,7 @@ const get: LeafCommand = {
       const version = triggerVersionPositional(ctx, 1);
       const webhooksClient = ctx.client().webhooks;
       if (version !== undefined) {
-        return renderJson(await webhooksClient.getVersion(id, version), ctx.globals.format);
+        return renderJson(await webhooksClient.versions.get(id, version), ctx.globals.format);
       }
       const trigger = await webhooksClient.get(id);
       const rendered = renderJson(trigger, ctx.globals.format);
@@ -548,7 +548,9 @@ const versions: LeafCommand = {
       ctx,
       'webhooks versions',
       async () =>
-        await ctx.client().webhooks.versions(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
+        await ctx
+          .client()
+          .webhooks.versions.list(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
       TRIGGER_VERSIONS_TABLE,
     ),
 };

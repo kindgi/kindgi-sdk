@@ -107,7 +107,8 @@ export interface CommandContext {
    * Where a command says how it's going while it runs (`kindgi build`'s
    * lines): the CLI's stderr, each line as it comes (`cli.ts`). Undefined
    * when `runCli` is given none (tests): the command then returns those
-   * lines with its result.
+   * lines with its result. `kindgi connections connect`'s link and waiting
+   * line go to stderr instead, since the person needs them while it waits.
    */
   readonly progress: ((text: string) => void) | undefined;
   /**
@@ -201,7 +202,7 @@ export interface CommandContext {
    * production leaves this undefined (a timer, the clock, stderr).
    */
   readonly rateLimitWaits?: RateLimitWaitSeam;
-  /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
+  /** `kindgi exports create`'s clock and pauses. Tests inject them; production leaves this undefined. */
   readonly exportsSeam?: ExportsSeam;
   /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. Tests inject them; production leaves this undefined. */
   readonly connectionsSeam?: ConnectionsSeam;

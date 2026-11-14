@@ -12,6 +12,7 @@ import type { Principal } from '@kindgi/authz';
 import type { FactSubject, MemoryScope, RememberReviewReason } from '@kindgi/memory';
 import type { ConversationId, ProjectId, TenantId, ThreadId, UserId } from '@kindgi/types';
 
+import { isLetter, isSchemeChar, startsWord } from './char-class.js';
 import type { RememberPolicy, RememberScope } from './types.js';
 
 /**
@@ -112,19 +113,44 @@ export function rememberTarget(scope: RememberScope, run: RememberRun): Remember
  * prompt injection uses: "always" or "never", "ignore" or "disregard",
  * "you must" and the like, a system prompt or instructions, a link, or one
  * of the agent's own tools. This routes a fact to a person; it isn't the
- * defense (the scope guard, the trust label and the data block are).
+ * defense (the scope guard, the trust label and the data block are). A
+ * link with a scheme is `hasSchemeUrl`'s.
  */
 const INSTRUCTION_LIKE: readonly RegExp[] = [
   /\b(always|never)\b/i,
   /\b(ignore|disregard)\b/i,
   /\byou (must|should|shall|have to|need to|are required to)\b/i,
   /\b(system prompt|instructions?)\b/i,
-  /\b[a-z][a-z0-9+.-]*:\/\/\S/i,
   /\bwww\.[a-z0-9-]+\.[a-z]/i,
 ];
 
+/** A character that isn't a space, from just after `://`. */
+const NOT_SPACE = /\S/y;
+
+/**
+ * Whether `text` has a link with a scheme: a match of
+ * `/\b[a-z][a-z0-9+.-]*:\/\/\S/i`, found in time in step with the text's
+ * length. That pattern tries a scheme from every word's start, so its time
+ * grows with the square of a long run of scheme characters.
+ *
+ * From each `://`, the scheme is walked back once. A link's scheme starts at
+ * a letter in that run with a word break before it, and a character that
+ * isn't a space follows the `://`.
+ */
+function hasSchemeUrl(text: string): boolean {
+  for (let at = text.indexOf('://'); at !== -1; at = text.indexOf('://', at + 1)) {
+    let scheme = false;
+    for (let i = at - 1; i >= 0 && !scheme && isSchemeChar(text.charCodeAt(i)); i--) {
+      scheme = isLetter(text.charCodeAt(i)) && startsWord(text, i);
+    }
+    NOT_SPACE.lastIndex = at + 3;
+    if (scheme && NOT_SPACE.test(text)) return true;
+  }
+  return false;
+}
+
 export function looksLikeInstruction(text: string, toolIds: readonly string[]): boolean {
-  if (INSTRUCTION_LIKE.some((pattern) => pattern.test(text))) return true;
+  if (INSTRUCTION_LIKE.some((pattern) => pattern.test(text)) || hasSchemeUrl(text)) return true;
   return toolIds.some((id) =>
     // The id, or the name a provider sees for a dotted one (`.` → `__`), as a whole token.
     [id, id.replace(/\./g, '__')].some((name) =>

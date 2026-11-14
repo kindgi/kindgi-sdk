@@ -62,7 +62,7 @@ variable "server_min_instances" {
 }
 
 variable "server_max_instances" {
-  description = "Maximum server instances. 1 until multiple replicas are verified: background work (the waitpoint sleeper, sweepers, the webhook worker, schedules) runs in every instance, and scale-in interrupts runs in flight."
+  description = "Maximum server instances. 1 until multiple replicas are verified: background work (the waitpoint sleeper, sweepers, the webhook worker) runs in every instance, and scale-in interrupts runs in flight."
   type        = number
   default     = 1
 }
@@ -491,6 +491,17 @@ variable "orchestrator_key_version" {
   validation {
     condition     = var.orchestrator_key_version == null || can(regex("^[1-9][0-9]*$", var.orchestrator_key_version))
     error_message = "orchestrator_key_version is a version number (\"1\" the first time), never \"latest\": a version added by mistake must not reach the Job."
+  }
+}
+
+variable "server_rotation" {
+  description = "Changed, rolls a new revision of the server, which reads each secret it takes at \"latest\" again (its database URL, API token, license key and signing keys, and each server_secret_env entry at \"latest\"): after you add a secret's new version, set it to a value it hasn't had, such as the date and time (\"2026-11-06-1530\"), and apply. It is the revision's rotated label. \"\" (the default) sets no label."
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = can(regex("^[a-z0-9_-]{0,63}$", var.server_rotation))
+    error_message = "server_rotation is a label value: at most 63 lowercase letters, digits, dashes and underscores, such as \"2026-11-06-1530\"."
   }
 }
 

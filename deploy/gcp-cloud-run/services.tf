@@ -73,6 +73,10 @@ resource "google_cloud_run_v2_service" "server" {
   template {
     service_account = google_service_account.server.email
     timeout         = "3600s"
+    # A new server_rotation is a new revision, which reads each secret it
+    # takes at "latest" again (README, "Rotating a secret"). Through
+    # Terraform, so the next apply has nothing to take back.
+    labels = var.server_rotation == "" ? null : { rotated = var.server_rotation }
     # The second-generation environment. The two keys come as env vars
     # (base64, from Secret Manager), not as files: a secret volume is 0444
     # and, in gen2, root's, and the server refuses a key file others can read.

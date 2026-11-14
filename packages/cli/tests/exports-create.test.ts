@@ -109,8 +109,9 @@ function routeAnswer(url: URL, answer: Records | undefined): Response {
 async function cli(
   fake: ReturnType<typeof server>,
   args: readonly string[] = [],
-  extra: { stopSignal?: AbortSignal } = {},
+  extra: { stopSignal?: AbortSignal; stream?: boolean } = {},
 ) {
+  // Each kind's line as it ends (`ctx.progress`), as the CLI streams it to stderr.
   const progress: string[] = [];
   const pauses: number[] = [];
   const waits: number[] = [];
@@ -120,8 +121,8 @@ async function cli(
     cwd,
     home,
     fetchImpl: fake.fetchImpl,
+    ...(extra.stream !== false && { progress: (text: string) => progress.push(text) }),
     exportsSeam: {
-      progress: (line) => progress.push(line),
       now: () => new Date('2026-10-15T12:00:00.000Z'),
       pause: async (ms) => {
         pauses.push(ms);
@@ -880,6 +881,20 @@ describe('kindgi exports create', () => {
     const quiet = await cli(server(answers), ['--quiet']);
     expect(quiet).toMatchObject({ exitCode: 0, stdout: '', stderr: '', progress: [] });
     expect((await manifest()).kinds.agents).toMatchObject({ status: 'ok', records: 1 });
+  });
+
+  test("given no progress to stream to, each kind's line comes in the outcome's stderr, as it would have streamed", async () => {
+    const answers = { '/v1/agents': [{ id: 'agent-a' }] };
+    const streamed = await cli(server(answers));
+    expect(streamed.exitCode, streamed.stderr).toBe(0);
+
+    await rm(out, { recursive: true, force: true });
+    const kept = await cli(server(answers), [], { stream: false });
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(kept.progress).toEqual([]);
+    expect(kept.stderr).toContain('agents: 1 record\n');
+    expect(kept.stderr).toBe(`${streamed.progress.join('')}${streamed.stderr}`);
+    expect(kept.stdout).toBe(streamed.stdout);
   });
 
   test('--quiet: a kind that fails says its line alone, then how to read it again', async () => {

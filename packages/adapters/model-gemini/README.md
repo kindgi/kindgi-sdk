@@ -38,7 +38,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 `costUsd` is computed from the response's usage against the picked model's `cost`:
 
 - uncached prompt tokens at `promptUsdPer1kTokens`;
-- cached prompt tokens at `promptUsdPer1kTokens × cachedPromptMultiplier` (default `0.25`, Gemini 2.5's implicit-cache discount);
+- cached prompt tokens at `promptUsdPer1kTokens × cachedPromptMultiplier`. Google bills Gemini 3.x's cached prompt tokens at a tenth of the input price, so set `0.1` for them; left out, it's `0.25`, Gemini 2.5's implicit-cache discount;
 - completion tokens, thinking included, at `completionUsdPer1kTokens`;
 - `longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }`: a call whose prompt exceeds the threshold bills entirely at those rates, for a model whose price rises past a prompt size.
 
@@ -88,8 +88,12 @@ const gemini = createGeminiProvider({
         contextWindow: 1_048_576,
         features: ['tool-use', 'structured-output', 'long-context'],
         maxOutputTokens: 8_192,
-        // Rates from Google's published pricing.
-        cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
+        // Rates from Google's published pricing; cached prompt tokens bill at a tenth.
+        cost: {
+          promptUsdPer1kTokens: 0.00075,
+          completionUsdPer1kTokens: 0.00375,
+          cachedPromptMultiplier: 0.1,
+        },
       },
     ],
   },

@@ -24,18 +24,24 @@ each answer the model writes.
   same way once its answers run out. Any other action is recorded on the
   turn as a violation, and the turn completes: `escalate` and `compensate`
   don't escalate or call a tool.
-- **A check sees one turn:** the turn's user message, its tool calls and
-  their results, and its answer. Earlier turns aren't in it, so a check
-  can't compare an answer with what an earlier turn said or fetched.
+- **A check sees one turn, unless its guardrail asks for more:** the turn's
+  user message, its tool calls and their results, and its answer. A
+  TypeScript guardrail with `sees: 'conversation'` gets the earlier turns
+  the model was given too, so its check can compare an answer with what an
+  earlier turn said or fetched
+  ([See the earlier turns](write-a-guardrail/#see-the-earlier-turns)).
+  A Python, Java or Scala pack's guardrail can't set `sees`; a guardrail
+  registered through the API can.
 - **What a check keeps in memory doesn't last.** It lives in the process
   that runs the pack's code. `kindgi dev` loses it on every reload and
   restart, and a deployment loses it whenever an instance stops. With more
   than one instance, each keeps its own.
 
-For a check on figures, tell the agent in its instructions to call its tools
-again in every answer that quotes a figure: the figure is then in that
-turn's tool results. That depends on the model following the instruction,
-and it doesn't cover figures the user typed in an earlier turn.
+For a check on figures in Python, Java or Scala, tell the agent in its
+instructions to call its tools again in every answer that quotes a figure:
+the figure is then in that turn's tool results. That depends on the model
+following the instruction, and it doesn't cover figures the user typed in
+an earlier turn.
 
 ## The guides
 

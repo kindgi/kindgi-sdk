@@ -30,7 +30,7 @@ its own credentials to tenant configuration.
         "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
         "thinking": { "mode": "adaptive", "lowest": "low" },
-        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 }
+        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375, "cachedPromptMultiplier": 0.1 }
       },
       {
         "name": "gemini-3.5-flash-lite",
@@ -38,7 +38,7 @@ its own credentials to tenant configuration.
         "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
         "thinking": { "mode": "adaptive", "lowest": "minimal" },
-        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
+        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025, "cachedPromptMultiplier": 0.1 }
       }
     ]
   },
@@ -61,8 +61,10 @@ its own credentials to tenant configuration.
   launch price, through 2026-12-31 ($0.0015 / $0.0075 from 2027-01-01).
   `longContext` (`{ thresholdTokens, promptUsdPer1kTokens,
   completionUsdPer1kTokens }` in a model's `cost`) switches the whole call
-  to the higher rates past the threshold; `cachedPromptMultiplier` (default 0.25) prices cached
-  prompt tokens.
+  to the higher rates past the threshold. `cachedPromptMultiplier` prices
+  cached prompt tokens as a fraction of the input rate: Google bills
+  Gemini 3.x's at a tenth, so the example sets 0.1. Left out, it's the
+  adapter's default, 0.25 (Gemini 2.5's discount).
 - `thinking` is how the model thinks, as the preset has it. `lowest` is
   the least level it takes, which a judge's call asks for. `levels`
   (optional) are the levels it takes besides `lowest`, least first; without

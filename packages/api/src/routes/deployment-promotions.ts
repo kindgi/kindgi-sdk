@@ -110,10 +110,11 @@ import { scopeResourceRef } from './scope-params.js';
 
 /**
  * The values check's deps (`deploymentValues`), from the router's
- * bindings: the env it serves, secrets, projects, tools and agents, with
- * `values` for the rest. `administers`: whether the caller administers a
- * scope, where a tool's secret is recorded only at one they do (as at a
- * promotion's target); absent, every scope (where a run finds it).
+ * bindings: the env it serves, secrets and where one is (`secretLocate`),
+ * projects, tools and agents, with `values` for the rest. `administers`:
+ * whether the caller administers a scope, where a tool's secret is
+ * recorded only at one they do (as at a promotion's target); absent,
+ * every scope (where a run finds it).
  */
 export function valuesDepsFor(
   bindings: DeploymentsRouterBindings,
@@ -123,6 +124,7 @@ export function valuesDepsFor(
     ...bindings.values,
     ...(bindings.envName !== undefined && { envName: bindings.envName }),
     ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+    ...(bindings.secretLocate !== undefined && { secretLocate: bindings.secretLocate }),
     ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
     ...(bindings.toolRegistry !== undefined && { tools: bindings.toolRegistry }),
     ...(bindings.agentRegistry !== undefined && { agents: bindings.agentRegistry }),

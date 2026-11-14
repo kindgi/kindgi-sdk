@@ -4,8 +4,9 @@
 /**
  * `GET /v1/deployments/:deploymentId/values`: what a deployment needs set
  * in a project, names only. In its own project a value counts wherever
- * it's set; in another, a tool's secret counts only where the caller
- * administers, as their promotion would record it. It asks `admin` on the
+ * it's set, and a tool's secret where its version recorded it; in
+ * another, a tool's secret counts only where the caller administers, as
+ * their promotion would record it. It asks `admin` on the
  * project, as listing secrets there does, and never answers a value.
  */
 
@@ -15,7 +16,14 @@ import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { EnvName, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type {
+  EnvName,
+  OrgId,
+  ProjectId,
+  RecordedSecretScope,
+  TenantId,
+  UserId,
+} from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -78,13 +86,17 @@ const scopeKey = (scope: Scope) =>
 /**
  * `granted`: the pairs the caller holds, as `<action> <type>:<id>`, or
  * `<action> <type>` for every one of that type. `secrets` / `env`: where
- * each is set, as `<scope>/<name>` (`tenant/ACME_TOKEN`).
+ * each is set, as `<scope>/<name>` (`tenant/ACME_TOKEN`); `revoked`: where
+ * a secret is revoked, which `get` never answers and `secretLocate` does.
+ * `recorded`: the tool version's recorded secret scopes.
  */
 function harness(opts: {
   granted: readonly string[];
   secrets?: readonly string[];
+  revoked?: readonly string[];
   env?: readonly string[];
   providers?: Record<string, string>;
+  recorded?: Record<string, RecordedSecretScope | null>;
   /** `false`: a runtime that records no projects (no project binding). */
   projectBinding?: false;
 }) {
@@ -136,10 +148,28 @@ function harness(opts: {
           : null;
       },
     } as never,
+    // The store's walk: the scope asked, then its org, then the tenant.
+    secretLocate: async ({ scope, name }: { scope: Scope; name: string }) => {
+      const walk: Scope[] = [
+        scope,
+        ...(scope.kind === 'project' ? [{ kind: 'org' as const, tenantId, orgId: ORG }] : []),
+        ...(scope.kind === 'tenant' ? [] : [{ kind: 'tenant' as const, tenantId }]),
+      ];
+      for (const at of walk) {
+        const key = `${scopeKey(at).split(':')[0]}/${name}`;
+        if ((opts.revoked ?? []).includes(key)) {
+          return { scope: at, revokedAt: '2026-01-01T00:00:00Z' };
+        }
+        if ((opts.secrets ?? []).includes(key)) return { scope: at };
+      }
+      return null;
+    },
     toolRegistry: {
       get: async () => null,
       getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
-        toolId === TOOL.id && version === TOOL.version ? TOOL : null,
+        toolId === TOOL.id && version === TOOL.version
+          ? { ...TOOL, ...(opts.recorded !== undefined && { secretScopes: opts.recorded }) }
+          : null,
     } as never,
     agentRegistry: {
       getVersion: async ({ version }: { version: string }) =>
@@ -238,6 +268,38 @@ describe('the values a deployment needs in a project, names only', () => {
     const out = await h.get(`/v1/deployments/d-own/values?projectId=${OWN}`);
     expect(out.status, out.text).toBe(200);
     expect((out.body.data as object[])[0]).toEqual({
+      name: 'ACME_TOKEN',
+      kind: 'secret',
+      neededBy: SEARCH,
+      foundAt: 'tenant',
+    });
+  });
+
+  test("its own project: a tool's secret where its version recorded it, revoked there though the tenant's is live; another project doesn't read the record", async () => {
+    const h = harness({
+      granted: [
+        READ,
+        `read project:${OWN}`,
+        `admin project:${OWN}`,
+        `admin project:${TARGET}`,
+        `admin tenant:${tenantId}`,
+      ],
+      secrets: ['tenant/ACME_TOKEN'],
+      revoked: ['project/ACME_TOKEN'],
+      recorded: { ACME_TOKEN: { kind: 'project', projectId: OWN } },
+    });
+    const own = await h.get('/v1/deployments/d-own/values');
+    expect(own.status, own.text).toBe(200);
+    expect((own.body.data as object[])[0]).toEqual({
+      name: 'ACME_TOKEN',
+      kind: 'secret',
+      neededBy: SEARCH,
+      foundAt: 'project',
+      problem: 'revoked',
+    });
+    const other = await h.get(`/v1/deployments/d-own/values?projectId=${TARGET}`);
+    expect(other.status, other.text).toBe(200);
+    expect((other.body.data as object[])[0]).toEqual({
       name: 'ACME_TOKEN',
       kind: 'secret',
       neededBy: SEARCH,

@@ -52,22 +52,7 @@ export async function invokeAgent(
     },
     abortReason: undefined,
   };
-  const timer = setTimeout(() => {
-    ctx.abortReason = 'timeout';
-    controller.abort(new Error('wall-clock budget exhausted'));
-  }, maxWallMs);
-  if (input.abortSignal !== undefined) {
-    const external = input.abortSignal;
-    if (external.aborted) {
-      ctx.abortReason = 'external';
-      controller.abort(external.reason);
-    } else {
-      external.addEventListener('abort', () => {
-        ctx.abortReason = 'external';
-        controller.abort(external.reason);
-      });
-    }
-  }
+  const disarm = armTurnAbort(ctx, maxWallMs, input.abortSignal);
 
   try {
     const handlers = buildHandlers(ctx);
@@ -112,8 +97,37 @@ export async function invokeAgent(
     });
     return await projectRunResult(runResult, ctx);
   } finally {
-    clearTimeout(timer);
+    disarm();
   }
+}
+
+/**
+ * Abort the turn (`ctx.turnAbort`) when its wall-clock budget runs out, or
+ * when the caller's `abortSignal` aborts, recording why (`ctx.abortReason`):
+ * whichever comes first, its reason stands when the other follows before the
+ * turn returns. Returns what disarms both once the turn returns: the timer
+ * is cleared, and the turn's listener leaves the caller's signal.
+ */
+function armTurnAbort(
+  ctx: TurnContext,
+  maxWallMs: number,
+  abortSignal: AbortSignal | undefined,
+): () => void {
+  const timer = setTimeout(() => {
+    ctx.abortReason ??= 'timeout';
+    ctx.turnAbort.abort(new Error('wall-clock budget exhausted'));
+  }, maxWallMs);
+  if (abortSignal === undefined) return () => clearTimeout(timer);
+  const external = (): void => {
+    ctx.abortReason ??= 'external';
+    ctx.turnAbort.abort(abortSignal.reason);
+  };
+  if (abortSignal.aborted) external();
+  else abortSignal.addEventListener('abort', external, { once: true });
+  return () => {
+    clearTimeout(timer);
+    abortSignal.removeEventListener('abort', external);
+  };
 }
 
 export interface ResumeAgentTurnInput {
@@ -133,6 +147,14 @@ export interface ResumeAgentTurnInput {
    * `orgId`, so the resumed turn's tools and guardrails see it too.
    */
   readonly orgId?: OrgId;
+  /**
+   * Aborts the resumed turn, as `InvokeAgentInput.abortSignal` does a
+   * started one: combined with the agent's `budget.maxWallMs`, whichever
+   * comes first. A caller that resumes a turn inside work of its own with
+   * a timeout (a flow's agent step) passes that work's signal, so the
+   * timeout reaches the turn.
+   */
+  readonly abortSignal?: AbortSignal;
 }
 
 /**
@@ -253,10 +275,7 @@ export async function resumeAgentTurn(
     },
     abortReason: undefined,
   };
-  const timer = setTimeout(() => {
-    ctx.abortReason = 'timeout';
-    controller.abort(new Error('wall-clock budget exhausted'));
-  }, maxWallMs);
+  const disarm = armTurnAbort(ctx, maxWallMs, input.abortSignal);
 
   try {
     const handlers = buildHandlers(ctx);
@@ -278,7 +297,7 @@ export async function resumeAgentTurn(
     });
     return await projectRunResult(runResult, ctx);
   } finally {
-    clearTimeout(timer);
+    disarm();
   }
 }
 

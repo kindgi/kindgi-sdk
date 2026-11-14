@@ -98,7 +98,7 @@ When WooCommerce turns off a webhook to Kindgi after refused deliveries, **Kindg
 
 The agents send what they work on to the AI model provider they're set up with, and to the tools they call.
 
-With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run the store's agents: see the [Kindgi Cloud terms](<terms URL>) and the [privacy policy](<privacy URL>). With a Kindgi server the site's owner runs, the data goes to that server.
+With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run the store's agents: see the [Kindgi Cloud terms](https://www.kindgi.com/legal/hosted-terms) and the [privacy policy](https://www.kindgi.com/privacy). With a Kindgi server the site's owner runs, the data goes to that server.
 
 == Changelog ==
 

@@ -27,7 +27,7 @@ describe('projects — wire round-trips', () => {
       { status: 200, body: JSON.stringify({ data: [SAMPLE_PROJECT], hasMore: false }) },
       { status: 200, body: JSON.stringify(SAMPLE_PROJECT) },
       { status: 200, body: JSON.stringify(SAMPLE_PROJECT) },
-      { status: 200, body: JSON.stringify(SAMPLE_PROJECT) },
+      { status: 204 },
       { status: 200, body: '{}' },
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
       { status: 201, body: JSON.stringify({ userId: 'u1', role: 'admin' }) },
@@ -39,7 +39,8 @@ describe('projects — wire round-trips', () => {
     await client.projects.list();
     await client.projects.getDefault();
     await client.projects.get('p1');
-    await client.projects.update('p1', { name: 'Renamed' });
+    // The server answers 204: the update resolves to nothing.
+    await expect(client.projects.update('p1', { name: 'Renamed' })).resolves.toBeUndefined();
     await client.projects.delete('p1');
     await client.projects.memberships.list('p1');
     await client.projects.memberships.add('p1', { userId: 'u1', role: 'admin' });

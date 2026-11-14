@@ -88,12 +88,12 @@ export interface QueueRulesClient {
   update(projectId: string, ruleId: string, patch: QueueRulePatch): Promise<QueueRule>;
   /** @wire POST /v1/projects/:projectId/queue-rules/:ruleId/unregister */
   unregister(projectId: string, ruleId: string): Promise<QueueRuleUnregisterResult>;
-  /** Every version, newest first. @wire GET /v1/projects/:projectId/queue-rules/:ruleId/versions */
-  versions(
-    projectId: string,
-    ruleId: string,
-    filter?: { readonly limit?: number; readonly cursor?: string },
-  ): Promise<QueueRulePage>;
+  /**
+   * A rule's versions: list. Calling it directly lists them. That is
+   * deprecated: use `projects.queueRules.versions.list`, which sends the
+   * same request. A later minor release removes it, announced in advance.
+   */
+  readonly versions: QueueRuleVersionsClient;
   /** By the rule's version and the agent's, never pooled. @wire GET /v1/projects/:projectId/queue-rules/:ruleId/results */
   results(projectId: string, ruleId: string, since?: string): Promise<QueueRuleResults>;
   /** What a rule would have queued. @wire GET /v1/projects/:projectId/queue-rules/preview */
@@ -104,6 +104,24 @@ export interface QueueRulesClient {
     ruleId: string,
     input: ExpertQueueRecentInput,
   ): Promise<ExpertQueueRecentQueued>;
+}
+
+export interface QueueRuleVersionsClient {
+  /**
+   * @deprecated Use `projects.queueRules.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
+  (
+    projectId: string,
+    ruleId: string,
+    filter?: { readonly limit?: number; readonly cursor?: string },
+  ): Promise<QueueRulePage>;
+  /** Every version, newest first. @wire GET /v1/projects/:projectId/queue-rules/:ruleId/versions */
+  list(
+    projectId: string,
+    ruleId: string,
+    filter?: { readonly limit?: number; readonly cursor?: string },
+  ): Promise<QueueRulePage>;
 }
 
 export interface ExpertQueueClient {
@@ -122,6 +140,20 @@ const page = (filter?: { readonly limit?: number; readonly cursor?: string }) =>
 });
 
 export function makeQueueRulesClient(transport: Transport): QueueRulesClient {
+  const list: QueueRuleVersionsClient['list'] = (projectId, ruleId, filter) =>
+    transport.request<QueueRulePage>({
+      method: 'GET',
+      path: `/v1/projects/${seg(projectId)}/queue-rules/${seg(ruleId)}/versions`,
+      query: page(filter),
+    });
+  const versions: QueueRuleVersionsClient = Object.assign(
+    (
+      projectId: string,
+      ruleId: string,
+      filter?: { readonly limit?: number; readonly cursor?: string },
+    ) => list(projectId, ruleId, filter),
+    { list },
+  );
   return {
     list: (projectId, filter) =>
       transport.request<QueueRulePage>({
@@ -152,12 +184,7 @@ export function makeQueueRulesClient(transport: Transport): QueueRulesClient {
         method: 'POST',
         path: `/v1/projects/${seg(projectId)}/queue-rules/${seg(ruleId)}/unregister`,
       }),
-    versions: (projectId, ruleId, filter) =>
-      transport.request<QueueRulePage>({
-        method: 'GET',
-        path: `/v1/projects/${seg(projectId)}/queue-rules/${seg(ruleId)}/versions`,
-        query: page(filter),
-      }),
+    versions,
     results: (projectId, ruleId, since) =>
       transport.request<QueueRuleResults>({
         method: 'GET',

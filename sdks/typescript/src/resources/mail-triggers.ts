@@ -117,23 +117,14 @@ export interface MailTriggersClient {
    */
   fires(triggerId: string, filter?: ListMailFiresFilter): Promise<MailFirePage>;
   /**
-   * The trigger's versions, newest first: what it was from each version's
-   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
-   * change makes one; a change that alters nothing, pausing and resuming
-   * make none. A new mail's run uses the newest when it starts, and keeps
-   * it (its `trigger.version`).
-   *
-   * @wire GET /v1/mail-triggers/:triggerId/versions
+   * The trigger's versions: list and get. Calling it directly lists them.
+   * That is deprecated: use `mailTriggers.versions.list`, which sends the same
+   * request. A later minor release removes it, announced in advance.
    */
-  versions(
-    triggerId: string,
-    filter?: ListMailTriggerVersionsFilter,
-  ): Promise<MailTriggerVersionPage>;
+  readonly versions: MailTriggerVersionsClient;
   /**
-   * One version of the trigger, by its number (from 1). Returns 404
-   * `trigger-version-not-found` for a number it never had.
-   *
-   * @wire GET /v1/mail-triggers/:triggerId/versions/:version
+   * @deprecated Use `mailTriggers.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
    */
   getVersion(triggerId: string, version: number): Promise<MailTriggerVersion>;
   /**
@@ -157,7 +148,53 @@ interface MutationOptions {
   readonly idempotencyKey?: string;
 }
 
+export interface MailTriggerVersionsClient {
+  /**
+   * @deprecated Use `mailTriggers.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
+  (triggerId: string, filter?: ListMailTriggerVersionsFilter): Promise<MailTriggerVersionPage>;
+  /**
+   * The trigger's versions, newest first: what it was from each version's
+   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
+   * change makes one; a change that alters nothing, pausing and resuming
+   * make none. A new mail's run uses the newest when it starts, and keeps
+   * it (its `trigger.version`).
+   *
+   * @wire GET /v1/mail-triggers/:triggerId/versions
+   */
+  list(triggerId: string, filter?: ListMailTriggerVersionsFilter): Promise<MailTriggerVersionPage>;
+  /**
+   * One version of the trigger, by its number (from 1). Returns 404
+   * `trigger-version-not-found` for a number it never had.
+   *
+   * @wire GET /v1/mail-triggers/:triggerId/versions/:version
+   */
+  get(triggerId: string, version: number): Promise<MailTriggerVersion>;
+}
+
 export function makeMailTriggersClient(transport: Transport): MailTriggersClient {
+  const list: MailTriggerVersionsClient['list'] = async (triggerId, filter) =>
+    transport.request<MailTriggerVersionPage>({
+      method: 'GET',
+      path: `/v1/mail-triggers/${encodeURIComponent(triggerId)}/versions`,
+      query: {
+        ...(filter?.limit !== undefined && { limit: filter.limit }),
+        ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+      },
+    });
+  const versions: MailTriggerVersionsClient = Object.assign(
+    (triggerId: string, filter?: ListMailTriggerVersionsFilter) => list(triggerId, filter),
+    {
+      list,
+      async get(triggerId: string, version: number) {
+        return transport.request<MailTriggerVersion>({
+          method: 'GET',
+          path: `/v1/mail-triggers/${encodeURIComponent(triggerId)}/versions/${version}`,
+        });
+      },
+    },
+  );
   const key = (options: MutationOptions | undefined) =>
     options?.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {};
   return {
@@ -226,22 +263,8 @@ export function makeMailTriggersClient(transport: Transport): MailTriggersClient
         },
       });
     },
-    async versions(triggerId, filter) {
-      return transport.request<MailTriggerVersionPage>({
-        method: 'GET',
-        path: `/v1/mail-triggers/${encodeURIComponent(triggerId)}/versions`,
-        query: {
-          ...(filter?.limit !== undefined && { limit: filter.limit }),
-          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
-        },
-      });
-    },
-    async getVersion(triggerId, version) {
-      return transport.request<MailTriggerVersion>({
-        method: 'GET',
-        path: `/v1/mail-triggers/${encodeURIComponent(triggerId)}/versions/${version}`,
-      });
-    },
+    versions,
+    getVersion: (triggerId, version) => versions.get(triggerId, version),
     async takeOwnership(triggerId, input, options) {
       return transport.request<MailTrigger>({
         method: 'POST',

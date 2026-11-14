@@ -49,8 +49,6 @@ export interface ConnectionsSeam {
   readonly now?: () => Date;
   /** The pause between reads of a connect request. Default: a timer the stop signal cuts short. */
   readonly pause?: (ms: number, signal?: AbortSignal) => Promise<void>;
-  /** Where the link and the waiting line go while it waits. Default: stderr. */
-  readonly progress?: (line: string) => void;
   /** Where the link goes before a `--quiet` connect waits: it's the command's result. Default: stdout. */
   readonly result?: (line: string) => void;
 }
@@ -522,7 +520,10 @@ async function linkThenWait(
     const ended = await afterWaiting(ctx, request, await waitForConnect(ctx, request));
     return { ...ended, stdout: '' };
   }
-  (seam.progress ?? ((line: string) => process.stderr.write(line)))(
+  // The link and the waiting line go out as the CLI's progress (`ctx.progress`), after
+  // what it says first. With none, to stderr: they can't wait for the result, and it
+  // waits only when stderr is a terminal, where the person waiting reads them.
+  (ctx.progress ?? ((text: string) => process.stderr.write(text)))(
     `${link}Waiting for the connect to finish (Ctrl-C stops waiting; the link works until ${String(request.expiresAt)})…\n`,
   );
   return await afterWaiting(ctx, request, await waitForConnect(ctx, request));

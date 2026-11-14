@@ -37,9 +37,10 @@ output "key_id" {
 }
 
 output "secrets_to_fill" {
-  description = "The secrets the operator creates in the vault before the services apply (README, step 3), plus the pack's own."
+  description = "The secrets the operator creates in the vault before the services apply (README, step 3), plus the pack's own. pagination-key is read only once pagination_key_version names its version: add it before you set that."
   value = sort(concat(
     values(local.server_secrets),
+    [local.pagination_key_secret],
     values(local.shared_secrets),
     tolist(local.pack_secret_names),
   ))
