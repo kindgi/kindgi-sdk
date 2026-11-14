@@ -800,9 +800,9 @@ check of what they may do.
 
 For a person removed on an earlier runtime, their creates' `owner` and
 `admin` entries stayed, and their schedules and webhook triggers could go on
-running as them. Before runtime 0.7.0, the connections they owned stayed
-too. To finish it: take over their schedules and webhook triggers, upgrade
-the runtime, then remove them again.
+running as them. The connections they owned stayed too, unless the removal
+ran on runtime 0.7.0 or later. To finish it: take over their schedules and
+webhook triggers, upgrade the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`
 on someone already removed takes what's left.
 
@@ -897,8 +897,8 @@ the workspace**.
 
 A removed person's page says what their removal took away, and keeps what
 they had, for the record. When their removal left roles or connections to
-other apps behind, because it stopped part-way or ran before runtime 0.7.0,
-a tenant admin's page shows **Finish removing**: it removes them again,
+other apps behind, because it stopped part-way or ran on a runtime older
+than 0.7.0, a tenant admin's page shows **Finish removing**: it removes them again,
 which takes what's left and changes nothing else.
 
 Until they first sign in, their page has an **Invitation** section: when

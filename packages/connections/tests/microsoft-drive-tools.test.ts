@@ -437,30 +437,30 @@ describe('sharepoint libraries list', () => {
 describe('onedrive file create', () => {
   const ADDED = {
     id: '01SUMMARY',
-    name: 'Summary.md',
+    name: 'README.md',
     file: { mimeType: 'text/markdown' },
     size: 9,
     lastModifiedDateTime: '2026-11-04T07:00:00Z',
-    webUrl: 'https://acme-my.sharepoint.com/personal/ana/Documents/Summary.md',
+    webUrl: 'https://acme-my.sharepoint.com/personal/ana/Documents/README.md',
     parentReference: { id: '01ROOT', driveId: 'b!own-drive' },
   };
   const ADDED_LISTED = {
     id: '01SUMMARY',
-    name: 'Summary.md',
+    name: 'README.md',
     kind: 'file',
     contentType: 'text/markdown',
     size: 9,
     modified: '2026-11-04T07:00:00Z',
-    link: 'https://acme-my.sharepoint.com/personal/ana/Documents/Summary.md',
+    link: 'https://acme-my.sharepoint.com/personal/ana/Documents/README.md',
     folderId: '01ROOT',
   };
-  const PUT_ROOT = `${GRAPH}/me/drive/root:/Summary.md:/content?@microsoft.graph.conflictBehavior=fail`;
+  const PUT_ROOT = `${GRAPH}/me/drive/root:/README.md:/content?@microsoft.graph.conflictBehavior=fail`;
 
   it('adds text at the top level in one PUT, which never replaces a file of that name', async () => {
     const sent = graphAnswering(() => Response.json(ADDED, { status: 201 }));
     const r = await invokeToolForTest(
       create,
-      { name: 'Summary.md', text: '# Summary', contentType: 'text/markdown' },
+      { name: 'README.md', text: '# Summary', contentType: 'text/markdown' },
       onedrive(),
     );
     expect(r).toEqual({ kind: 'ok', value: ADDED_LISTED });
@@ -506,13 +506,13 @@ describe('onedrive file create', () => {
     );
     const again = await invokeToolForTest(
       create,
-      { name: 'Summary.md', text: '# Summary' },
+      { name: 'README.md', text: '# Summary' },
       onedrive(),
     );
     expect(again).toEqual({ kind: 'ok', value: ADDED_LISTED });
     expect(sent.map((s) => `${s.method} ${s.url}`)).toEqual([
       `PUT ${PUT_ROOT}`,
-      `GET ${GRAPH}/me/drive/root:/Summary.md?${PAGE.split('&')[0]}`,
+      `GET ${GRAPH}/me/drive/root:/README.md?${PAGE.split('&')[0]}`,
     ]);
 
     graphAnswering(graphError(409, 'nameAlreadyExists', 'exists'), () =>
@@ -520,25 +520,25 @@ describe('onedrive file create', () => {
     );
     expect(
       message(
-        await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, onedrive()),
+        await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, onedrive()),
       ),
-    ).toBe('A file named "Summary.md" is already there: give the file another `name`.');
+    ).toBe('A file named "README.md" is already there: give the file another `name`.');
 
     graphAnswering(graphError(409, 'nameAlreadyExists', 'exists'), () =>
-      Response.json({ ...FINANCE, name: 'Summary.md' }),
+      Response.json({ ...FINANCE, name: 'README.md' }),
     );
     expect(
       message(
-        await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, onedrive()),
+        await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, onedrive()),
       ),
-    ).toBe('A folder named "Summary.md" is already there: give the file another `name`.');
+    ).toBe('A folder named "README.md" is already there: give the file another `name`.');
   });
 
   it('a step run again gets the first answer from its record, sending nothing', async () => {
     const sent = graphAnswering(() => Response.json(ADDED, { status: 201 }));
     const ctx = { ...onedrive(), idempotencyKey: randomUUID(), record: journal() };
-    const first = await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, ctx);
-    expect(await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, ctx)).toEqual(
+    const first = await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, ctx);
+    expect(await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, ctx)).toEqual(
       first,
     );
     expect(sent).toHaveLength(1);
@@ -562,8 +562,8 @@ describe('onedrive file create', () => {
       ),
     ).toContain('"a/b.png" isn\'t a name a OneDrive file can have');
     for (const input of [
-      { name: 'a/b.md', text: 'x' },
-      { name: 'b.md', text: 'x', folderId: '01ROOT:/x' },
+      { name: 'a/b.txt', text: 'x' },
+      { name: 'b.txt', text: 'x', folderId: '01ROOT:/x' },
     ]) {
       expect((await invokeToolForTest(create, input, onedrive())).kind).toBe('err');
     }
@@ -574,7 +574,7 @@ describe('onedrive file create', () => {
     graphAnswering(graphError(507, 'quotaLimitReached', 'Insufficient Space Available'));
     expect(
       message(
-        await invokeToolForTest(create, { name: 'Summary.md', text: '# Summary' }, onedrive()),
+        await invokeToolForTest(create, { name: 'README.md', text: '# Summary' }, onedrive()),
       ),
     ).toBe(
       "OneDrive didn't add the file (HTTP 507): quotaLimitReached: Insufficient Space Available",
