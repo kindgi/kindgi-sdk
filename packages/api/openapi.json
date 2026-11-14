@@ -65446,7 +65446,7 @@
             }
           },
           "403": {
-            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+            "description": "The caller lacks `admin` on the project, or gives `owner` without `delete` on it, which an owner of the project, an admin of its org or a tenant admin holds, checked before the person named is looked up (`permission-denied`); or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -66707,7 +66707,7 @@
             }
           },
           "403": {
-            "description": "The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
+            "description": "The caller lacks `admin` on the project, or the member holds `owner` and the caller lacks `delete` on the project, which an owner of the project, an admin of its org or a tenant admin holds (`permission-denied`); or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -66804,7 +66804,7 @@
             }
           },
           "403": {
-            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+            "description": "The caller lacks `admin` on the project, or gives `owner`, or changes the role of a member who holds it, without `delete` on the project, which an owner of the project, an admin of its org or a tenant admin holds (`permission-denied`); or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {

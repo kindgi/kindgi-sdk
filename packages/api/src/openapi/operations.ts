@@ -10109,7 +10109,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        "The caller lacks `admin` on the project, or gives `owner` without `delete` on it, which an owner of the project, an admin of its org or a tenant admin holds, checked before the person named is looked up (`permission-denied`); or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
         'No project with that id under this workspace (`project-not-found`), or the person named is not a member of this workspace (`identity-user-not-found`).',
@@ -10372,7 +10372,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '403': ErrorResponse(
-        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        'The caller lacks `admin` on the project, or the member holds `owner` and the caller lacks `delete` on the project, which an owner of the project, an admin of its org or a tenant admin holds (`permission-denied`); or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
       ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
@@ -10411,7 +10411,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        "The caller lacks `admin` on the project, or gives `owner`, or changes the role of a member who holds it, without `delete` on the project, which an owner of the project, an admin of its org or a tenant admin holds (`permission-denied`); or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this workspace.',
