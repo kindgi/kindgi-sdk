@@ -17048,7 +17048,10 @@ export const ConnectionAccountSchema: JsonSchema = {
   description: 'Whose account a connection is at the app.',
   properties: {
     id: { type: 'string', description: "The account's stable id at the app." },
-    label: { type: 'string', description: 'What people see: an email address, a login.' },
+    label: {
+      type: 'string',
+      description: "What people see: an email address, a login, a Page's name.",
+    },
   },
 };
 
@@ -17091,7 +17094,12 @@ export const ConnectionEntrySchema: JsonSchema = {
       required: ['kind'],
       description: 'How a person signs in at the app.',
       properties: {
-        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        kind: {
+          type: 'string',
+          enum: ['oauth2', 'github-app', 'kindgi-app'],
+          description:
+            "`oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`).",
+        },
         tenant: {
           type: 'object',
           additionalProperties: false,
@@ -17187,10 +17195,16 @@ export const ConnectionAppSchema: JsonSchema = {
   additionalProperties: false,
   required: ['appId', 'app', 'redirectUrl', 'noticesUrl', 'createdAt', 'updatedAt'],
   description:
-    "A workspace's registration of its own client at an app. Secrets are references, never values.",
+    "A workspace's registration of an app: its own client there, or Kindgi's own app (`via`). Secrets are references, never values.",
   properties: {
     appId: { type: 'string', format: 'uuid' },
     app: { type: 'string', description: "The app's entry id." },
+    via: {
+      type: 'string',
+      enum: ['kindgi'],
+      description:
+        "`kindgi`: the app connects through Kindgi's own app (its entry's `signIn.kind` is `kindgi-app`). The server makes this registration itself, with no `oauth2` or `githubApp`. Absent: the workspace's own client.",
+    },
     label: { type: 'string' },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
@@ -17203,12 +17217,13 @@ export const ConnectionAppSchema: JsonSchema = {
       type: 'string',
       format: 'uri',
       description:
-        'Give this to the app as its redirect URL: a GitHub App\'s Callback URL, with "Request user authorization (OAuth) during installation" ticked.',
+        "Give this to the app as its redirect URL: a GitHub App's Callback URL, with \"Request user authorization (OAuth) during installation\" ticked. Nothing to give anyone for a registration `via: 'kindgi'`.",
     },
     noticesUrl: {
       type: 'string',
       format: 'uri',
-      description: 'Give this to the app as the place it reports removals.',
+      description:
+        "Give this to the app as the place it reports removals. Nothing to give anyone for a registration `via: 'kindgi'`.",
     },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -17231,7 +17246,8 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['app'],
-  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  description:
+    "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes that registration itself.",
   properties: {
     app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
     label: { type: 'string', maxLength: 200 },
@@ -17250,7 +17266,8 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
 export const UpdateConnectionAppBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'Fields to change; absent fields are kept. The app itself cannot change.',
+  description:
+    "Fields to change; absent fields are kept. The app itself cannot change. A registration `via: 'kindgi'` has no client of its own: only `label` and `projects`.",
   properties: {
     label: { type: 'string', maxLength: 200 },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
@@ -17678,6 +17695,12 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
     },
+    accounts: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ConnectionAccount' },
+      description:
+        "For an app that connects through Kindgi's own app, while the request is `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.",
+    },
     connectionId: {
       type: 'string',
       format: 'uuid',
@@ -17777,7 +17800,7 @@ export const StartConnectBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+    "Optional: a GitHub App's installation to attach, or a new one; or, for an app through Kindgi's own app, the account picked. Leave it out for any other app.",
   properties: {
     installationId: {
       type: 'string',
@@ -17789,6 +17812,13 @@ export const StartConnectBodySchema: JsonSchema = {
       type: 'boolean',
       description:
         "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.",
+    },
+    accountId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description:
+        "For an app that connects through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.",
     },
   },
 };
@@ -17837,9 +17867,9 @@ export const ConnectFinishSchema: JsonSchema = {
   properties: {
     kind: {
       type: 'string',
-      enum: ['connected', 'declined', 'pick-installation'],
+      enum: ['connected', 'declined', 'pick-installation', 'pick-account'],
       description:
-        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.",
+        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`. `pick-account`: through Kindgi's own app, the business shared several accounts that fit and none was picked; the request stays `pending` with its `accounts`.",
     },
     request: { $ref: '#/components/schemas/ConnectRequest' },
     connection: {
