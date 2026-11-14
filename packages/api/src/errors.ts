@@ -249,6 +249,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'blob-hash-mismatch': 400,
   'blob-size-mismatch': 400,
   'blob-storage-error': 500,
+  /** A file past the tenant's storage limit (`details.limit`, `storageMiB`, `usedBytes`, `neededBytes`). Nothing was stored. */
+  'storage-limit-reached': 403,
   /** Deleting a blob a file's versions still need (pinned, or shared by two versions); `details.fileId`. */
   'artifact-in-file': 409,
   // Files and their versions.

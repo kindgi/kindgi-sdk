@@ -32,7 +32,7 @@ export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
  * its new line (`scripts/sync-docs-line.mjs`).
  */
 export const ARTIFACTS_DEPRECATION_LINK =
-  '<https://docs.kindgi.com/v0.4/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+  '<https://docs.kindgi.com/v0.6/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
 
 /**
  * {@link ARTIFACTS_DEPRECATION_LINK} on every `/v1/artifacts` answer, an
@@ -301,6 +301,11 @@ export function artifactsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: validated.message }, requestId));
     }
+    const forRun = forRunOf(form.get('forRun'), validated.value.ownerRunId);
+    if (forRun.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: forRun.message }, requestId));
+    }
     const project = await uploadProject(c, deps, validated.value);
     if (project.kind === 'err') {
       c.status(statusFor(project.code) as never);
@@ -321,10 +326,11 @@ export function artifactsRouter(
     const userId = c.get('userId') as unknown as string | undefined;
     const createdBy = userId !== undefined ? `user:${userId}` : undefined;
     // `write`, or `run` for a file of the caller's own that names no run:
-    // an input for a run they start. One that names a run stays `write`.
-    const onRunAlone =
-      authorizer !== undefined &&
-      !(await authorizer.can(
+    // an input for a run they start, so it's `forRun` whatever the form
+    // says. One that names a run stays `write`.
+    const writes =
+      authorizer === undefined ||
+      (await authorizer.can(
         c,
         'write',
         project.projectId !== undefined
@@ -332,12 +338,13 @@ export function artifactsRouter(
           : ref('tenant', tenantId as unknown as string),
       ));
     if (
-      onRunAlone &&
+      !writes &&
       !(
         project.projectId !== undefined &&
         validated.value.ownerRunId === undefined &&
         createdBy !== undefined &&
         createdBy === actsForOf(c) &&
+        authorizer !== undefined &&
         (await authorizer.can(c, 'run', ref('project', project.projectId as unknown as string)))
       )
     ) {
@@ -349,7 +356,7 @@ export function artifactsRouter(
         ),
       );
     }
-    if (onRunAlone && deps.runUploadLimiter !== undefined && createdBy !== undefined) {
+    if (!writes && deps.runUploadLimiter !== undefined && createdBy !== undefined) {
       const room = await deps.runUploadLimiter.check({
         tenantId,
         createdBy,
@@ -361,6 +368,7 @@ export function artifactsRouter(
       ...validated.value,
       ...(project.projectId !== undefined && { projectId: project.projectId }),
       ...(createdBy !== undefined && { createdBy }),
+      ...((forRun.value || !writes) && { forRun: true }),
     };
 
     const outcome = await binding.put(tenantId, input);
@@ -456,6 +464,7 @@ function serializeMeta(m: BlobMeta): Record<string, unknown> {
     ...(m.projectId !== undefined && { projectId: m.projectId as unknown as string }),
     ...(m.createdBy !== undefined && { createdBy: m.createdBy }),
     createdAt: m.createdAt as unknown as string,
+    ...(m.expiresAt !== undefined && { expiresAt: m.expiresAt as unknown as string }),
     ...(m.bucket !== undefined && { bucket: m.bucket }),
     ...(m.key !== undefined && { key: m.key }),
     ...(m.fileId !== undefined && { fileId: m.fileId as unknown as string }),
@@ -474,6 +483,25 @@ function downloadHeaders(meta: BlobMeta, requestId: string): Record<string, stri
 }
 
 // -------------------- request parsing --------------------
+
+/** The form's `forRun`: absent or empty is `false`; `true` names no run. */
+function forRunOf(
+  field: ReturnType<FormData['get']>,
+  ownerRunId: RunId | undefined,
+): ValidationResult<boolean> {
+  if (field === null || field === '' || field === 'false') return { kind: 'ok', value: false };
+  if (field !== 'true') {
+    return { kind: 'err', message: 'Field `forRun` must be `true` or `false`' };
+  }
+  if (ownerRunId !== undefined) {
+    return {
+      kind: 'err',
+      message:
+        "Field `forRun` is for a run that hasn't started; an upload with `ownerRunId` belongs to that run",
+    };
+  }
+  return { kind: 'ok', value: true };
+}
 
 function decodeListFilter(
   params: URLSearchParams,

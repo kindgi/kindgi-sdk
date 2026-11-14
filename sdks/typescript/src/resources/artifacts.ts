@@ -44,7 +44,9 @@ import type {
 export interface ArtifactsClient {
   /**
    * Upload bytes as an artifact. Over the runtime's cap (default 100 MiB)
-   * is `413 artifact-too-large`; no `write` on its project is `403`.
+   * is `413 artifact-too-large`; no `write` on its project is `403`, and
+   * so is a file the workspace's storage limit has no room for
+   * (`storage-limit-reached`).
    *
    * @deprecated Use `client.files.create`. A later minor release removes it, announced in advance.
    * @wire `POST /v1/artifacts` (multipart) — see
@@ -162,6 +164,7 @@ export function makeArtifactsClient(transport: Transport): ArtifactsClient {
         body: uploadForm(input, {
           ownerRunId: input.ownerRunId as string | undefined,
           projectId: input.projectId,
+          forRun: input.forRun === true ? 'true' : undefined,
         }),
         ...(options?.idempotencyKey !== undefined && {
           headers: { 'Idempotency-Key': options.idempotencyKey },

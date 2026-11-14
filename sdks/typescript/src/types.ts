@@ -2840,6 +2840,11 @@ export interface BlobMeta {
    */
   readonly version?: number;
   /**
+   * A `forRun` upload's: when it's deleted if no run that names it in its
+   * input has started by then. Absent once one has, and on any other file.
+   */
+  readonly expiresAt?: import('@kindgi/types').Timestamp;
+  /**
    * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
    * neither: present when the server's storage gives the blob one.
    */
@@ -2862,6 +2867,14 @@ export interface UploadArtifactInput {
   readonly projectId?: string;
   /** sha256, hex, lowercase: the upload is refused when the bytes differ. */
   readonly expectedHash?: string;
+  /**
+   * An input for a run that hasn't started, with no `ownerRunId`. It's
+   * deleted once the server's unused-upload time has passed (24 hours by
+   * default) unless a run that names it in its input has started by then;
+   * the answer's `expiresAt` says when. Default: the file stays until it's
+   * deleted. An upload by someone who may run but not write is always one.
+   */
+  readonly forRun?: boolean;
 }
 
 /** What `artifacts.head` returns: an artifact's download headers, no bytes. */

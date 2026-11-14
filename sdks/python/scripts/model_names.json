@@ -1139,6 +1139,7 @@
   "TenantLimitsResult": ["TenantLimitsResult"],
   "TenantPatch": ["TenantPatch"],
   "TenantProductionAllowed": ["TenantProductionAllowed"],
+  "TenantStorage": ["TenantStorage"],
   "TenantTableRows": ["TenantTableRows"],
   "TestAdapterBody": ["TestAdapterBody"],
   "TestCase": ["TestCase"],

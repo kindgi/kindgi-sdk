@@ -1717,11 +1717,13 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'declared',
-        meaning: 'the size you declared',
+        meaning:
+          'the size you declared, or, for bytes sent with no size, the most an upload may be',
       },
       {
         key: 'actual',
-        meaning: 'the size of the bytes received',
+        meaning:
+          'the size of the bytes received, or, past that most, how many came in before the upload stopped',
       },
     ],
     seeAlso: ['guides/runs/keep-files-with-a-run'],
@@ -1731,6 +1733,31 @@ export const ERROR_ENTRIES = {
       "The runtime's artifact storage failed while reading or writing the bytes. Retry; contact the operator if it persists.",
     details: [],
     seeAlso: ['guides/runs/keep-files-with-a-run'],
+  },
+  'storage-limit-reached': {
+    description:
+      "You sent a file that the workspace's storage limit has no room for (`storageMiB`, set by whoever runs the server). Nothing was stored. Uploads still under way count until they finish. Delete files the workspace no longer needs, or ask whoever runs the server to raise the limit; then send the file again.",
+    details: [
+      {
+        key: 'limit',
+        meaning: 'which limit: `storage`',
+      },
+      {
+        key: 'storageMiB',
+        meaning: "the workspace's storage limit, in MiB",
+      },
+      {
+        key: 'usedBytes',
+        meaning:
+          "what the workspace's files take, with the uploads under way, before this file; over the limit when the limit was lowered below it",
+      },
+      {
+        key: 'neededBytes',
+        meaning:
+          "what this file needs: its size, or the largest an upload may be when its size wasn't known ahead",
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants', 'guides/runs/keep-files-with-a-run'],
   },
   'artifact-in-file': {
     description:

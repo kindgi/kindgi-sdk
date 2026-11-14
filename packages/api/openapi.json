@@ -383,6 +383,7 @@
           "blob-hash-mismatch": 400,
           "blob-size-mismatch": 400,
           "blob-storage-error": 500,
+          "storage-limit-reached": 403,
           "artifact-in-file": 409,
           "file-not-found": 404,
           "file-version-not-found": 404,
@@ -13841,6 +13842,11 @@
             "type": "string",
             "format": "date-time"
           },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted."
+          },
           "bucket": {
             "type": "string",
             "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
@@ -13934,6 +13940,11 @@
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted."
+                },
                 "bucket": {
                   "type": "string",
                   "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
@@ -13964,7 +13975,7 @@
       },
       "UploadArtifactBody": {
         "type": "object",
-        "description": "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).",
+        "description": "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).",
         "required": [
           "file"
         ],
@@ -13995,6 +14006,14 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "description": "Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400)."
+          },
+          "forRun": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "`true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted."
           }
         }
       },
@@ -24840,6 +24859,9 @@
           "limits": {
             "$ref": "#/components/schemas/TenantLimits"
           },
+          "storage": {
+            "$ref": "#/components/schemas/TenantStorage"
+          },
           "egress": {
             "$ref": "#/components/schemas/EgressAddresses"
           }
@@ -24902,6 +24924,11 @@
             "type": "integer",
             "minimum": 1,
             "description": "Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production."
+          },
+          "storageMiB": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file."
           }
         }
       },
@@ -24994,6 +25021,11 @@
             "type": "integer",
             "minimum": 0,
             "description": "The tenant's projects in production."
+          },
+          "storageUsedBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files."
           }
         }
       },
@@ -25198,6 +25230,21 @@
             "type": "string",
             "format": "date-time",
             "description": "When it came to be in that state."
+          }
+        }
+      },
+      "TenantStorage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "usedBytes"
+        ],
+        "description": "What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.",
+        "properties": {
+          "usedBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it."
           }
         }
       },
@@ -35091,7 +35138,7 @@
             }
           }
         },
-        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, and `storageUsedBytes` from a runtime that counts files), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
         "parameters": [
           {
             "name": "tenantId",
@@ -50296,7 +50343,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
+            "description": "Malformed multipart body, bad tag JSON, a `forRun` that isn't `true` or `false` or comes with `ownerRunId`, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50316,7 +50363,7 @@
             }
           },
           "403": {
-            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
+            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); the caller's API key is limited to another project (`key-project-mismatch`); or the workspace's storage limit has no room for the file (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50386,7 +50433,7 @@
             }
           }
         },
-        "description": "Use `files.create`. Removed in 0.8.0.\n\nMultipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+        "description": "Use `files.create`. Removed in 0.8.0.\n\nMultipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`, `forRun`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. Such an upload is always `forRun`. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. A `forRun` upload is deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; until one does, `BlobMeta.expiresAt` says when. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
         "deprecated": true,
         "parameters": [
           {
@@ -69947,7 +69994,7 @@
             }
           }
         },
-        "description": "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
+        "description": "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, one that counts files adds `storage` (what they take, to compare with `limits.storageMiB`), and a deployment that publishes where its calls come from adds `egress`.",
         "security": [
           {
             "bearerAuth": []

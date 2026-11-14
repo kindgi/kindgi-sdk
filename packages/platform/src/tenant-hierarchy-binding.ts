@@ -280,6 +280,14 @@ export interface TenantLimits {
    * limit, the next one waits until enough come out.
    */
   readonly projectsInProduction?: number;
+  /**
+   * MiB of files the workspace may keep: its uploads, its runs' files and
+   * its tools' files, with the uploads under way. Past it, an upload is
+   * refused with 403 `storage-limit-reached`, and a tool's file isn't
+   * stored. Lowering it deletes no file: with more stored than the limit,
+   * every new file is refused until enough are deleted.
+   */
+  readonly storageMiB?: number;
 }
 
 /** A workspace's new name, slug, or both (`renameTenant`). A field left out stays as it is. */

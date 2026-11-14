@@ -8161,6 +8161,12 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.",
+    },
     bucket: {
       type: 'string',
       description:
@@ -8199,7 +8205,7 @@ export const ArtifactCollectionPageSchema: JsonSchema = {
 export const UploadArtifactBodySchema: JsonSchema = {
   type: 'object',
   description:
-    'Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).',
+    "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).",
   required: ['file'],
   properties: {
     file: { type: 'string', format: 'binary' },
@@ -8220,6 +8226,12 @@ export const UploadArtifactBodySchema: JsonSchema = {
       pattern: '^[0-9a-f]{64}$',
       description:
         'Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400).',
+    },
+    forRun: {
+      type: 'string',
+      enum: ['true', 'false'],
+      description:
+        "`true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted.",
     },
   },
 };
@@ -14758,7 +14770,24 @@ export const TenantSchema: JsonSchema = {
         'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
     },
     limits: ref('TenantLimits'),
+    storage: ref('TenantStorage'),
     egress: ref('EgressAddresses'),
+  },
+};
+
+export const TenantStorageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['usedBytes'],
+  description:
+    "What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.",
+  properties: {
+    usedBytes: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it.",
+    },
   },
 };
 
@@ -14849,6 +14878,12 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
     },
+    storageMiB: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file.",
+    },
   },
 };
 
@@ -14863,6 +14898,12 @@ export const TenantLimitsInUseSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description: "The tenant's projects in production.",
+    },
+    storageUsedBytes: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files.",
     },
   },
 };
@@ -19372,6 +19413,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['KeptRepoErasurePage', KeptRepoErasurePageSchema],
   ['KeptRepoPurgedBody', KeptRepoPurgedBodySchema],
   ['KeptRepoState', KeptRepoStateSchema],
+  ['TenantStorage', TenantStorageSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

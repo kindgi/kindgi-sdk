@@ -155,6 +155,7 @@ export const ENV_DEFAULTS = {
   KINDGI_RUN_UPLOAD_DAILY_BYTES:
     '`1073741824` (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when larger; `off` for none',
   KINDGI_RUN_UPLOAD_DAILY_FILES: '`1000`; `off` for none',
+  KINDGI_UNUSED_UPLOAD_TTL_MS: '`86400000` (24 hours)',
   KINDGI_S3_REGION:
     'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
   KINDGI_S3_ENDPOINT: 'none: AWS S3',

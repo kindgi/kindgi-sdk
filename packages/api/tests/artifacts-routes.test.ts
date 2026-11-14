@@ -74,9 +74,13 @@ const resolveToken: TokenResolver = async (token) =>
 
 /**
  * With `s3Address`, each upload gets an S3-compatible address, as a store
- * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key.
+ * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key. A
+ * `forRun` upload expires a day after it's made. With `storageMiB`, every
+ * put is refused as past a full storage limit.
  */
-function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding & {
+function memoryBlobs(
+  options: { s3Address?: boolean; storageMiB?: number } = {},
+): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
   /** Each blob `get` opened, by id. */
@@ -91,6 +95,20 @@ function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding 
     async put(_t, input) {
       const blobId = randomUUID() as ArtifactId;
       const body = await read(input.bytes);
+      if (options.storageMiB !== undefined) {
+        const usedBytes = options.storageMiB * 1024 * 1024;
+        return {
+          kind: 'err',
+          error: {
+            code: 'storage-limit-reached',
+            message: 'full',
+            limit: 'storage',
+            storageMiB: options.storageMiB,
+            usedBytes,
+            neededBytes: body.byteLength,
+          },
+        };
+      }
       const meta: BlobMeta = {
         blobId,
         tenantId,
@@ -103,6 +121,7 @@ function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding 
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: '2026-10-07T00:00:00.000Z' as Timestamp,
+        ...(input.forRun === true && { expiresAt: '2026-10-08T00:00:00.000Z' as Timestamp }),
         ...(options.s3Address === true && { bucket: 'artifacts', key: blobId }),
       };
       rows.set(blobId, meta);
@@ -151,10 +170,14 @@ function harness(
     defaultProject?: string;
     s3Address?: boolean;
     limiter?: RunUploadLimiter;
+    storageMiB?: number;
   } = {},
 ) {
   const stubs = createStubAppBindings();
-  const blobs = memoryBlobs({ s3Address: options.s3Address === true });
+  const blobs = memoryBlobs({
+    s3Address: options.s3Address === true,
+    ...(options.storageMiB !== undefined && { storageMiB: options.storageMiB }),
+  });
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) => {
@@ -463,6 +486,56 @@ describe('someone who may only run the project reaches their own files', () => {
       expect([del.status, del.json().error.code]).toEqual([403, 'permission-denied']);
     }
     expect(h.blobs.rows.size).toBe(5);
+  });
+
+  test("their upload is always for a run, even one whose form says it isn't", async () => {
+    const h = harness();
+    for (const fields of [{}, { forRun: 'false' }, { forRun: 'true' }]) {
+      const input = await h.upload('carol', { projectId: P3, ...fields });
+      expect(input.status, JSON.stringify(input.body)).toBe(201);
+      expect(input.body.expiresAt).toBe('2026-10-08T00:00:00.000Z');
+    }
+  });
+});
+
+describe('an upload for a run that has not started', () => {
+  test('`forRun=true` gives it an expiry; without it, or `false`, there is none', async () => {
+    const h = harness();
+    const forRun = await h.upload('alice', { forRun: 'true' });
+    expect(forRun.status, JSON.stringify(forRun.body)).toBe(201);
+    expect(forRun.body.expiresAt).toBe('2026-10-08T00:00:00.000Z');
+    expect(validateAgainst('BlobMeta', forRun.body)).toEqual([]);
+    for (const fields of [{}, { forRun: 'false' }, { forRun: '' }]) {
+      const kept = await h.upload('alice', fields);
+      expect(kept.status, JSON.stringify(kept.body)).toBe(201);
+      expect(kept.body).not.toHaveProperty('expiresAt');
+    }
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data.filter((m: BlobMeta) => m.expiresAt !== undefined)).toEqual([forRun.body]);
+  });
+
+  test('a `forRun` other than `true` or `false`, or with `ownerRunId`, is bad input, and nothing is stored', async () => {
+    const h = harness();
+    const other = await h.upload('alice', { forRun: 'yes' });
+    expect([other.status, other.body.error.code]).toEqual([400, 'bad-input']);
+    expect(other.body.error.message).toBe('Field `forRun` must be `true` or `false`');
+    const withRun = await h.upload('alice', { forRun: 'true', ownerRunId: RUN_IN_P2 });
+    expect([withRun.status, withRun.body.error.code]).toEqual([400, 'bad-input']);
+    expect(withRun.body.error.message).toMatch(/^Field `forRun` is for a run that hasn't started/);
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
+describe('the storage limit', () => {
+  test("a put it has no room for is 403 storage-limit-reached, with the store's numbers", async () => {
+    const h = harness({ storageMiB: 1 });
+    const up = await h.upload('alice', {}, 'ten bytes!');
+    expect(up.status).toBe(403);
+    expect(up.body.error).toMatchObject({
+      code: 'storage-limit-reached',
+      details: { limit: 'storage', storageMiB: 1, usedBytes: 1024 * 1024, neededBytes: 10 },
+    });
+    expect(h.blobs.rows.size).toBe(0);
   });
 });
 
