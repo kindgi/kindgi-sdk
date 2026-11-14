@@ -139,13 +139,15 @@ if (outcome.kind === 'ok') {
 | `config-parse-failed` | Config file imported but is malformed. |
 | `discovery-empty` | Glob patterns matched zero files. |
 | `file-import-failed` | Dynamic `import()` of a discovered file threw. |
-| `no-default-export` | A discovered file exported no `default`. |
+| `no-default-export` | A discovered file exported no `default`, and its name doesn't start with `_`. |
 | `kind-mismatch` | File under `tools/` default-exports a non-tool (or symmetric for the other three folders). |
-| `ambiguous-kind` | Custom-pattern file whose default export doesn't structurally match any primitive shape. |
+| `ambiguous-kind` | A discovered file whose default export doesn't structurally match any primitive shape, and whose name doesn't start with `_`. |
 | `zod-conversion-failed` | `z.toJSONSchema()` threw for a specific schema. |
 | `manifest-validation-failed` | Inner manifest didn't match the expected shape (or was a `Result`-wrapped error). |
 | `output-write-failed` | Filesystem write error. |
 | `reserved-check-id` | A guardrail ships its own check (an `id` and an `evaluate`, as its `check` or any check its module exports) under a built-in check's id (`RESERVED_CHECK_IDS`: `must-cite`, `never-call-tool`, …), which the runtime would replace with the built-in. Naming a built-in (`check: 'must-cite'`) is fine: that's how to use it. |
+
+A helper module, a discovered file whose name starts with `_` (`tools/_shared.ts`, `tools/echo/_format.ts`), is skipped when it defines no primitive, as in a Python pack. One that defines a primitive is indexed, and fails as any other file does.
 
 Some things the pack should change don't stop the build. The report lists them as `warnings` (`IndexerWarning`), and the pack indexes as it would without them:
 

@@ -39,7 +39,11 @@
  *
  * Missing config, missing default export, kind mismatch, Zod conversion
  * failure, filesystem write error — each is a distinct typed
- * `IndexerError` variant with the file path attached. No silent skips.
+ * `IndexerError` variant with the file path attached. No silent skips:
+ * the one skip is a stated rule, as in a Python pack. A helper module, a
+ * discovered file whose name starts with `_` (`tools/_shared.ts`), is
+ * skipped when it defines no primitive, and indexed like any other file
+ * when it does.
  *
  * ## Determinism
  *
@@ -728,9 +732,10 @@ export async function runIndexer(
 
     const defExport = extractDefaultExport(module_);
     if (defExport === undefined) {
+      if (isHelperModule(relPath)) continue;
       fileErrors.push({
         code: 'no-default-export',
-        message: `File ${relPath} has no default export`,
+        message: `File ${relPath} has no default export (${HELPER_RULE})`,
         filePath: relPath,
       });
       continue;
@@ -750,9 +755,10 @@ export async function runIndexer(
     const unwrapped = unwrapResult(defExport);
     const detected = detectKind(unwrapped);
     if (detected === undefined) {
+      if (isHelperModule(relPath)) continue;
       fileErrors.push({
         code: 'ambiguous-kind',
-        message: `File ${relPath} default export does not match any primitive shape (tool / guardrail / agent / flow)`,
+        message: `File ${relPath} default export does not match any primitive shape (tool / guardrail / agent / flow; ${HELPER_RULE})`,
         filePath: relPath,
       });
       continue;
@@ -1465,6 +1471,18 @@ function kindPatterns(
     { kind: 'agent', pattern: discovery.agents },
     { kind: 'flow', pattern: discovery.flows },
   ];
+}
+
+/** What the indexer's errors for a file that defines no primitive say, as a Python pack's do. */
+const HELPER_RULE = "a helper module's name starts with `_`";
+
+/**
+ * A helper module: a discovered file whose name starts with `_`
+ * (`tools/_shared.ts`, `tools/echo/_format.ts`). One that defines no
+ * primitive is skipped, as in a Python pack; one that does is indexed.
+ */
+function isHelperModule(relPath: string): boolean {
+  return path.posix.basename(relPath).startsWith('_');
 }
 
 /** Record `rel`, matched by `kind`'s pattern, unless it's a test file or already seen. */
