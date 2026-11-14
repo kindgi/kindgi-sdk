@@ -328,11 +328,11 @@ take-over reaches the next run that starts, never a run already going.
 
 From your app, newest first:
 
-- `GET /v1/schedules/{triggerId}/versions` pages them (`schedules.versions`
-  in TypeScript, `list_versions` in Python);
+- `GET /v1/schedules/{triggerId}/versions` pages them
+  (`schedules.versions.list` in TypeScript, `list_versions` in Python);
 - `GET /v1/schedules/{triggerId}/versions/{version}` reads one
-  (`getVersion`, `get_version`). A version the schedule doesn't have is
-  `404 trigger-version-not-found`.
+  (`schedules.versions.get`, `get_version`). A version the schedule doesn't
+  have is `404 trigger-version-not-found`.
 
 From the CLI:
 

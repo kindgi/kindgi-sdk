@@ -74,13 +74,17 @@ import type {
   ClientOptions,
   KindgiClient,
   KindgiError,
+  PolicyVersionsClient,
   RunProgressEvent,
   RunsClient,
+  SecretVersionsClient,
   SseEvent,
   SubscribeToRunOptions,
+  ToolVersionRow,
   ToolsClient,
   Transport,
   TransportRequest,
+  UnregisterPolicyVersionResult,
 } from '@kindgi/sdk/client';
 
 // ---------- Sub-path: /webhooks (server only) ----------
@@ -271,6 +275,16 @@ describe('@kindgi/sdk/client — client callsite re-exports', () => {
     expectTypeOf<AgentsClient>().toEqualTypeOf<import('@kindgi/client').AgentsClient>();
     expectTypeOf<RunsClient>().toEqualTypeOf<import('@kindgi/client').RunsClient>();
     expectTypeOf<ToolsClient>().toEqualTypeOf<import('@kindgi/client').ToolsClient>();
+    expectTypeOf<PolicyVersionsClient>().toEqualTypeOf<
+      import('@kindgi/client').PolicyVersionsClient
+    >();
+    expectTypeOf<SecretVersionsClient>().toEqualTypeOf<
+      import('@kindgi/client').SecretVersionsClient
+    >();
+    expectTypeOf<ToolVersionRow>().toEqualTypeOf<import('@kindgi/client').ToolVersionRow>();
+    expectTypeOf<UnregisterPolicyVersionResult>().toEqualTypeOf<
+      import('@kindgi/client').UnregisterPolicyVersionResult
+    >();
     expectTypeOf<ClientOptions>().toEqualTypeOf<import('@kindgi/client').ClientOptions>();
   });
 

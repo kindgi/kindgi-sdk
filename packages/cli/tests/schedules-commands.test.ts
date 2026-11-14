@@ -93,8 +93,10 @@ async function schedules(
         schedules: {
           list: record('list', { data: listed, hasMore: false }),
           get: record('get', SCHEDULE),
-          getVersion: record('getVersion', VERSIONS.data[0]),
-          versions: record('versions', VERSIONS),
+          versions: {
+            get: record('versions.get', VERSIONS.data[0]),
+            list: record('versions.list', VERSIONS),
+          },
           register: record('register', SCHEDULE),
           update: record('update', SCHEDULE),
           pause: record('pause', SCHEDULE),
@@ -471,7 +473,7 @@ describe('kindgi schedules', () => {
   test("versions: a schedule's versions, paged; the table names who made each, or Kindgi", async () => {
     const { out, calls } = await schedules(['versions', ID, '--limit=2', '--cursor=c-1']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(calls).toEqual([['versions.list', ID, { limit: 2, cursor: 'c-1' }]]);
     expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
     const table = await schedules(['versions', ID, '--table']);
     expect(table.out.exitCode, table.out.stderr).toBe(0);
@@ -484,7 +486,7 @@ describe('kindgi schedules', () => {
   test('get <schedule-id> <version> reads that version; --upcoming is not with one', async () => {
     const { out, calls } = await schedules(['get', ID, '2']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(calls).toEqual([['versions.get', ID, 2]]);
     expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
     expect((await schedules(['get', ID])).calls).toEqual([['get', ID, undefined]]);
     const both = await schedules(['get', ID, '2', '--upcoming=3']);

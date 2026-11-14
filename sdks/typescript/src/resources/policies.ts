@@ -24,9 +24,9 @@ import type {
  * versions policies (semver per id); enforcement happens where each
  * kind is consumed, not in this resource.
  *
- * Routes back `publish`, `get`, `list`, `versions`,
- * `getVersion`, `unregister` and `reinstateVersion`. `activate` and
- * `evaluate` have no API route — a policy is active once published.
+ * Routes back `publish`, `get`, `list` and `versions` (`list`, `get`,
+ * `unregister`, `reinstate`). `activate` and `evaluate` have no API
+ * route — a policy is active once published.
  */
 export interface PoliciesClient {
   /**
@@ -79,31 +79,24 @@ export interface PoliciesClient {
   list(filter?: PolicyListFilter): Promise<ListPage<PolicyVersionRow>>;
 
   /**
-   * Historical versions of a policy.id. Defaults to active-only. Pass
-   * `filter.includeTombstoned = true` to include soft-tombstoned rows
-   * too — tombstoned rows carry an `unregisteredAt` ISO timestamp,
-   * active rows do not.
-   *
-   * @wire `GET /v1/policies/{policyId}/versions` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions/get`.
+   * A policy's versions: list, get, unregister and reinstate. Calling it
+   * directly lists them. That is deprecated: use `policies.versions.list`,
+   * which sends the same request. A later minor release removes it,
+   * announced in advance.
    */
-  versions(id: PolicyId, filter?: PolicyVersionsFilter): Promise<ListPage<PolicyVersionRow>>;
+  readonly versions: PolicyVersionsClient;
 
   /**
-   * Fetch a specific version of a policy. A retired (unregistered)
-   * version is returned too, with its `unregisteredAt`; an active one
-   * has none.
-   *
-   * @wire `GET /v1/policies/{policyId}/versions/{version}` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions~1{version}/get`.
+   * @deprecated Use `policies.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
    */
   getVersion(id: PolicyId, version: string): Promise<PolicyVersionRow>;
 
   /**
-   * Unregister a specific version.
-   *
-   * @wire `POST /v1/policies/{policyId}/versions/{version}/unregister`
-   *   — see `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions~1{version}~1unregister/post`.
+   * @deprecated Use `policies.versions.unregister`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   *   It answers `void`; `versions.unregister` answers
+   *   `{ policyId, version, unregistered }`.
    */
   unregister(
     id: PolicyId,
@@ -112,9 +105,8 @@ export interface PoliciesClient {
   ): Promise<void>;
 
   /**
-   * Un-tombstone a previously-unregistered version. Idempotent.
-   *
-   * @wire `POST /v1/policies/{policyId}/versions/{version}/reinstate`
+   * @deprecated Use `policies.versions.reinstate`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
    */
   reinstateVersion(
     id: PolicyId,
@@ -132,6 +124,56 @@ export interface PoliciesClient {
    * @unwired No `POST /v1/policies/{policyId}/evaluate` route.
    */
   evaluate(id: PolicyId, input: PolicyEvaluateInput): Promise<PolicyDecision>;
+}
+
+export interface PolicyVersionsClient {
+  /**
+   * @deprecated Use `policies.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
+  (id: PolicyId, filter?: PolicyVersionsFilter): Promise<ListPage<PolicyVersionRow>>;
+  /**
+   * Historical versions of a policy.id. Defaults to active-only. Pass
+   * `filter.includeTombstoned = true` to include soft-tombstoned rows
+   * too — tombstoned rows carry an `unregisteredAt` ISO timestamp,
+   * active rows do not.
+   *
+   * @wire `GET /v1/policies/{policyId}/versions` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions/get`.
+   */
+  list(id: PolicyId, filter?: PolicyVersionsFilter): Promise<ListPage<PolicyVersionRow>>;
+  /**
+   * Fetch a specific version of a policy. A retired (unregistered)
+   * version is returned too, with its `unregisteredAt`; an active one
+   * has none.
+   *
+   * @wire `GET /v1/policies/{policyId}/versions/{version}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions~1{version}/get`.
+   */
+  get(id: PolicyId, version: string): Promise<PolicyVersionRow>;
+  /**
+   * Unregister a specific version. Reversible via
+   * `policies.versions.reinstate`.
+   *
+   * @wire `POST /v1/policies/{policyId}/versions/{version}/unregister`
+   *   — see `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions~1{version}~1unregister/post`.
+   */
+  unregister(
+    id: PolicyId,
+    version: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterPolicyVersionResult>;
+  /**
+   * Un-tombstone a previously-unregistered version. Idempotent —
+   * reinstating an active version returns `wasTombstoned: false`.
+   *
+   * @wire `POST /v1/policies/{policyId}/versions/{version}/reinstate`
+   */
+  reinstate(
+    id: PolicyId,
+    version: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ReinstatePolicyVersionResult>;
 }
 
 export interface PolicyListFilter extends Filter {
@@ -158,7 +200,7 @@ export interface PolicyVersionsFilter {
 }
 
 /**
- * A version as `versions` and `getVersion` return it — standard `Policy`
+ * A version as `versions.list` and `versions.get` return it — standard `Policy`
  * fields plus an optional `unregisteredAt` timestamp, present iff the
  * version is soft-tombstoned. Callers can ignore the extra field and
  * treat the row as a plain `Policy`.
@@ -166,6 +208,12 @@ export interface PolicyVersionsFilter {
 export type PolicyVersionRow = Policy & {
   readonly unregisteredAt?: string;
 };
+
+export interface UnregisterPolicyVersionResult {
+  readonly policyId: PolicyId;
+  readonly version: string;
+  readonly unregistered: true;
+}
 
 export interface ReinstatePolicyVersionResult {
   readonly policyId: PolicyId;
@@ -179,6 +227,75 @@ interface PublishPolicyWire {
 }
 
 export function makePoliciesClient(transport: Transport): PoliciesClient {
+  const list: PolicyVersionsClient['list'] = async (id, filter) => {
+    const page = await transport.request<WirePage<PolicyVersionRow>>({
+      method: 'GET',
+      path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions`,
+      query: {
+        ...(filter?.limit !== undefined && { limit: filter.limit }),
+        ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
+        ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
+      },
+    });
+    return listPage(page);
+  };
+  const versions: PolicyVersionsClient = Object.assign(
+    (id: PolicyId, filter?: PolicyVersionsFilter) => list(id, filter),
+    {
+      list,
+      async get(id: PolicyId, version: string) {
+        return transport.request<PolicyVersionRow>({
+          method: 'GET',
+          path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
+        });
+      },
+      async unregister(
+        id: PolicyId,
+        version: string,
+        options?: { readonly idempotencyKey?: string },
+      ): Promise<UnregisterPolicyVersionResult> {
+        const wire = await transport.request<{
+          readonly policyId: string;
+          readonly version: string;
+          readonly unregistered: true;
+        }>({
+          method: 'POST',
+          path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
+          body: {},
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+        return {
+          policyId: wire.policyId as unknown as PolicyId,
+          version: wire.version,
+          unregistered: wire.unregistered,
+        };
+      },
+      async reinstate(
+        id: PolicyId,
+        version: string,
+        options?: { readonly idempotencyKey?: string },
+      ): Promise<ReinstatePolicyVersionResult> {
+        const wire = await transport.request<{
+          readonly policyId: string;
+          readonly version: string;
+          readonly wasTombstoned: boolean;
+        }>({
+          method: 'POST',
+          path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/reinstate`,
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+        return {
+          policyId: wire.policyId as unknown as PolicyId,
+          version: wire.version,
+          wasTombstoned: wire.wasTombstoned,
+        };
+      },
+    },
+  );
   const client: PoliciesClient = {
     author: (spec, options) => client.publish(spec, options),
     async publish(spec, options) {
@@ -224,60 +341,12 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
       return listPage(page);
     },
 
-    async versions(id, filter) {
-      const page = await transport.request<WirePage<PolicyVersionRow>>({
-        method: 'GET',
-        path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions`,
-        query: {
-          ...(filter?.limit !== undefined && { limit: filter.limit }),
-          ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-          ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
-        },
-      });
-      return listPage(page);
-    },
-
-    async getVersion(id, version) {
-      return transport.request<PolicyVersionRow>({
-        method: 'GET',
-        path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
-      });
-    },
-
+    versions,
+    getVersion: (id, version) => versions.get(id, version),
     async unregister(id, version, options) {
-      await transport.request<{
-        readonly policyId: string;
-        readonly version: string;
-        readonly unregistered: true;
-      }>({
-        method: 'POST',
-        path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
-        body: {},
-        discardResponse: true,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
+      await versions.unregister(id, version, options);
     },
-
-    async reinstateVersion(id, version, options) {
-      const wire = await transport.request<{
-        readonly policyId: string;
-        readonly version: string;
-        readonly wasTombstoned: boolean;
-      }>({
-        method: 'POST',
-        path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/reinstate`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-      return {
-        policyId: wire.policyId as unknown as PolicyId,
-        version: wire.version,
-        wasTombstoned: wire.wasTombstoned,
-      };
-    },
+    reinstateVersion: (id, version, options) => versions.reinstate(id, version, options),
 
     async activate(_id) {
       throw new KindgiApiError(
