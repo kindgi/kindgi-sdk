@@ -25,6 +25,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
   read doesn't change.
+- `kindgi`: **an agent's `ConversationPolicy` has `hitl`.**
+  `ConversationPolicy.hitl` (`ConversationHitlPolicy`, with `ToolHitlPolicy`,
+  `ToolHitlRule` and `SeparateApproverPolicy`) holds the agent's approval
+  rules, as an agent published over the API sets them and reads them back.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

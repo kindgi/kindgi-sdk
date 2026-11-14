@@ -3043,13 +3043,45 @@ class McpExposure(BaseModel):
     """
 
 
-class ConversationPolicy(BaseModel):
+class ToolHitlRule(BaseModel):
+    """
+    A tool's gate, and the reviewer role its approvals need. Without `requiredRole`, the agent's `defaultReviewerRole`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
+    mode: Annotated[Literal["never_ask", "ask_on_first_use", "always_ask"] | str, _open.OPEN]
+    """
+    A tool's gate. `never_ask`: its calls run without asking. `ask_on_first_use`: a call asks the first time the conversation makes it with those arguments, and once approved, the same call runs without asking. `always_ask`: every call asks.
+    """
+    required_role: Annotated[
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None,
+        Field(alias="requiredRole"),
+    ] = None
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+
+
+class SeparateApproverPolicy(BaseModel):
+    """
+    Four eyes per tool.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    default: bool | None = None
+    """
+    For every gated tool `overrides` doesn't name. Default `false`.
+    """
+    overrides: dict[str, bool] | None = None
+    """
+    By tool id. Each names one of the agent's tools.
+    """
 
 
 class TurnBudget(BaseModel):
@@ -3284,63 +3316,6 @@ class FlowVersionOverrides(BaseModel):
     """
     Agent id → exact version, for agent nodes with or without a version of their own.
     """
-
-
-class PublishAgentBody(BaseModel):
-    """
-    Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str
-    name: str
-    description: str | None = None
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
-    """
-    instructions: Instructions | PromptRef
-    """
-    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
-    """
-    parameters: list[PromptParameter] | None = None
-    settings: list[BlockRef] | None = None
-    """
-    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
-    """
-    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
-    """
-    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
-    """
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    memory: AgentMemoryPolicy | None = None
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
-    """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.
-    """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`). Combined with `preferredProvider` to pin an exact tuple; alone to select a model across every provider that exposes it.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
-    )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
-    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
-    """
-    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
-    """
-    mcp: McpExposure | None = None
 
 
 class Warning(BaseModel):
@@ -16234,92 +16209,32 @@ class CorrectedTestCaseCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class Agent(BaseModel):
+class ToolHitlPolicy(BaseModel):
+    """
+    The agent's tool gates. A tool `overrides` doesn't name takes `default`. Without `default`, a read-only tool (`mutating: false`) runs without asking and any other tool asks on first use. Without `tools`, the agent's own rules gate no tool.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    default: (
+        Annotated[Literal["never_ask", "ask_on_first_use", "always_ask"] | str, _open.OPEN] | None
+    ) = None
     """
-    AgentId — dotted namespace (e.g. `acme.drafting`).
+    A tool's gate. `never_ask`: its calls run without asking. `ask_on_first_use`: a call asks the first time the conversation makes it with those arguments, and once approved, the same call runs without asking. `always_ask`: every call asks.
     """
-    version: str
+    overrides: (
+        dict[
+            str,
+            ToolHitlRule
+            | Annotated[Literal["never_ask", "ask_on_first_use", "always_ask"] | str, _open.OPEN],
+        ]
+        | None
+    ) = None
     """
-    Semver.
+    By tool id: a mode, or a mode and the reviewer role its approvals need.
     """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    name: str
-    description: str | None = None
-    instructions: Instructions | PromptRef
-    """
-    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
-    """
-    parameters: list[PromptParameter] | None = None
-    settings: list[BlockRef] | None = None
-    """
-    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
-    """
-    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
-    """
-    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
-    """
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    memory: AgentMemoryPolicy | None = None
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
-    """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
-    """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
-    )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
-    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
-    """
-    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
-    """
-    mcp: McpExposure | None = None
-    pins: AgentPins | None = None
-    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
-    """
-    pins_digest: Annotated[
-        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
-    ] = None
-    """
-    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
-    """
-    owner: AgentOwner | None = None
-    """
-    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
-    """
-
-
-class AgentCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Agent]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class HttpToolSpec(BaseModel):
@@ -19596,6 +19511,45 @@ class CorrectionCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class ConversationHitlPolicy(BaseModel):
+    """
+    When the agent's turns and tool calls wait for a person's approval: its tool gates, the reviewer role their approvals need, four eyes, how long an approval waits, and the session gate. The workspace's approval rules can only make them stricter.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    after_turns: Annotated[int | None, Field(alias="afterTurns", ge=1)] = None
+    """
+    Once the conversation has this many completed turns, each new turn waits for an approval before it runs. Takes precedence over `hitlAfterTurns`.
+    """
+    tools: ToolHitlPolicy | None = None
+    default_reviewer_role: Annotated[
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None,
+        Field(alias="defaultReviewerRole"),
+    ] = None
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    separate_approver: Annotated[
+        bool | SeparateApproverPolicy | None, Field(alias="separateApprover")
+    ] = None
+    """
+    Four eyes: whether an approval needs someone other than the person who asked for the call. `true` or `false` for every gated tool, or per tool. Default `false`.
+    """
+    timeout_ms: Annotated[int | None, Field(alias="timeoutMs", ge=1)] = None
+    """
+    How long an approval waits for a decision, in milliseconds. Default 24 hours. The workspace's approval rules may cap it.
+    """
+    on_timeout: Annotated[
+        Annotated[Literal["escalate"] | str, _open.OPEN] | None, Field(alias="onTimeout")
+    ] = None
+    """
+    What an approval does when its time runs out: it goes to the next reviewer role, and at `admin` it expires and the turn fails. The only behavior, and the default.
+    """
+
+
 class Tool(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -20065,6 +20019,161 @@ class WebhookDeliveryCollectionPage(BaseModel):
     )
     data: list[WebhookDelivery]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConversationPolicy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
+    hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
+    hitl: ConversationHitlPolicy | None = None
+
+
+class Agent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    AgentId — dotted namespace (e.g. `acme.drafting`).
+    """
+    version: str
+    """
+    Semver.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    name: str
+    description: str | None = None
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+    parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
+    """
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
+    """
+    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
+    """
+    mcp: McpExposure | None = None
+    pins: AgentPins | None = None
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+    owner: AgentOwner | None = None
+    """
+    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
+    """
+
+
+class PublishAgentBody(BaseModel):
+    """
+    Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    name: str
+    description: str | None = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
+    """
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+    parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
+    """
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`). Combined with `preferredProvider` to pin an exact tuple; alone to select a model across every provider that exposes it.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
+    """
+    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
+    """
+    mcp: McpExposure | None = None
+
+
+class AgentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Agent]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
