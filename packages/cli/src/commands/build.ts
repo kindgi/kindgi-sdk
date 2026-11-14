@@ -66,7 +66,7 @@ import {
 } from '../build/java-image.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
 import { type PackBlocksCheck, checkPackBlocks, packIndexerName } from '../build/pack-blocks.js';
-import { resolvePackRoots } from '../build/pack-root.js';
+import { type PackRoots, resolvePackRoots } from '../build/pack-root.js';
 import {
   DEFAULT_PYTHON_BASE_IMAGE_REF,
   DEFAULT_UV_IMAGE_REF,
@@ -96,7 +96,7 @@ import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { CLI_VERSION } from '../version-info.js';
 import { timeFlagValue } from './helpers.js';
-import type { CommandResult, LeafCommand } from './types.js';
+import type { CommandResult, LeafCommand, ParseArgsOption } from './types.js';
 
 /**
  * The `kindgi.config.ts` shape this command consumes. Kept loose —
@@ -146,6 +146,25 @@ export function projectOfEnv(
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
+
+/** `--artifact-version` and `--published-at`, which `kindgi prepare` takes as `kindgi build` does. */
+export const VERSION_OPTIONS: Readonly<Record<string, ParseArgsOption>> = {
+  'artifact-version': {
+    type: 'string',
+    description:
+      'The artifact version, in the image and its signature. Default: the build time as `YYYYMMDD.HHMMSS` (UTC). For a reproducible build, pass `--artifact-version` and `--published-at`.',
+  },
+  'published-at': {
+    type: 'string',
+    description:
+      'The publish time (an ISO 8601 time with a zone, or a date: its start, UTC), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
+  },
+};
+
+/** `--path`, which `kindgi prepare` takes as `kindgi build` does. */
+export const PATH_OPTION: Readonly<Record<string, ParseArgsOption>> = {
+  path: { type: 'string', description: 'The pack root. Default: the current directory.' },
+};
 
 export const buildCommand: LeafCommand = {
   kind: 'leaf',
@@ -201,16 +220,7 @@ export const buildCommand: LeafCommand = {
       description:
         'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root or a directory containing it; for a TypeScript pack it must stay under the pack root.',
     },
-    'artifact-version': {
-      type: 'string',
-      description:
-        'The artifact version, in the image and its signature. Default: the build time as `YYYYMMDD.HHMMSS` (UTC). For a reproducible build, pass `--artifact-version` and `--published-at`.',
-    },
-    'published-at': {
-      type: 'string',
-      description:
-        'The publish time (an ISO 8601 time with a zone, or a date: its start, UTC), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
-    },
+    ...VERSION_OPTIONS,
     tenant: {
       type: 'string',
       description:
@@ -246,14 +256,29 @@ export const buildCommand: LeafCommand = {
       description:
         'Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it.',
     },
-    path: { type: 'string', description: 'The pack root. Default: the current directory.' },
+    ...PATH_OPTION,
   },
   run: async (ctx): Promise<CommandResult> =>
     runBuild(ctx, progressLines(ctx.progress, ctx.globals.format === 'quiet')),
 };
 
-interface ResolvedBuildArgs {
+/**
+ * What the pack's own steps read (`preparePackContext`, `prepareTarball`):
+ * the pack, its config, where the output goes, the target and the two
+ * versions. Never a key, a token, a workspace or a build server.
+ */
+export interface PackArgs {
   readonly packDir: string;
+  /** The pack's code language: a Node pack bundles; a Python pack ships its sources. */
+  readonly language: PackLanguage;
+  readonly outDir: string;
+  readonly buildTarget: string;
+  readonly artifactVersion: string;
+  readonly publishedAt: string;
+  readonly config: PackConfig;
+}
+
+interface ResolvedBuildArgs extends PackArgs {
   /**
    * The directory containing the SURROUNDING repo's `package.json`.
    * Equal to `packDir` for standalone packs (the shape `kindgi init
@@ -265,9 +290,6 @@ interface ResolvedBuildArgs {
    */
   readonly repoRoot: string;
   readonly packMode: 'standalone' | 'augment';
-  /** The pack's code language: a Node pack bundles; a Python pack ships its sources. */
-  readonly language: PackLanguage;
-  readonly outDir: string;
   readonly envName: string;
   readonly endpoint: string;
   /** `--hosted`, or the env block's `build: 'hosted'`: the hosted build service, with the API key. */
@@ -276,10 +298,7 @@ interface ResolvedBuildArgs {
   readonly authorization: string | undefined;
   /** `--project`, with `--hosted`: a label on the build. */
   readonly projectId: string | undefined;
-  readonly buildTarget: string;
   readonly registryPushCredsRef: string | undefined;
-  readonly artifactVersion: string;
-  readonly publishedAt: string;
   readonly tenantId: string;
   readonly signingKeyPath: string | undefined;
   /** `--signer-key-id`, else the env block's; signing falls back to the key file's name. */
@@ -293,7 +312,6 @@ interface ResolvedBuildArgs {
   readonly pushRepository: string | undefined;
   /** The image's platform: `--platform`, else `linux/amd64` when pushing, else this machine's. */
   readonly platform: string | undefined;
-  readonly config: PackConfig;
 }
 
 /**
@@ -775,7 +793,7 @@ async function signAndWriteEnvelope(
 }
 
 /** A failure that still shows what the build did up to it (the lines kept, when not streamed). */
-function withBanner(
+export function withBanner(
   result: CommandResult & { readonly kind: 'error' },
   out: ProgressLines,
 ): CommandResult & { readonly kind: 'error' } {
@@ -790,7 +808,10 @@ type ArgsOutcome =
   | { readonly kind: 'ok'; readonly args: ResolvedBuildArgs }
   | (CommandResult & { readonly kind: 'error' });
 
-type PreparedContext =
+/** A refusal, before anything is built or sent. */
+type Refusal = CommandResult & { readonly kind: 'error' };
+
+export type PreparedContext =
   | {
       readonly kind: 'ok';
       readonly tarball: TarPackResult;
@@ -822,19 +843,33 @@ type PackContext =
     }
   | (CommandResult & { readonly kind: 'error' });
 
+/**
+ * What the pack's steps do when the install reads a settings file it takes
+ * as a build secret (`.npmrc`, a Yarn rc file): go on, as `kindgi build`
+ * does, or refuse the pack before anything is written, as `kindgi prepare`
+ * does, since Kindgi Cloud's build gets none. The file may hold settings
+ * only (`save-exact`, Yarn's `nodeLinker`), so the refusal names the file,
+ * not a private registry.
+ */
+export type BuildSecrets = 'allow' | 'refuse';
+
+/** Why `kindgi prepare` refuses a pack whose install reads a settings file. */
+const SETTINGS_FILES_REFUSAL = "Kindgi Cloud's build doesn't take an install's settings files yet";
+
 /** The pack's image context, by the pack's language. */
 function preparePackContext(
   ctx: CommandContext,
   runners: BuildRunners,
-  args: ResolvedBuildArgs,
+  args: PackArgs,
   expectedIndexPath: string,
   out: ProgressLines,
+  buildSecrets: BuildSecrets = 'allow',
 ): Promise<PackContext> {
   if (args.language === 'java' || args.language === 'scala')
     return prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, out);
   return args.language === 'python'
     ? preparePythonContext(ctx, runners, args, expectedIndexPath, out)
-    : prepareNodeContext(runners, args, expectedIndexPath, out);
+    : prepareNodeContext(runners, args, expectedIndexPath, out, buildSecrets);
 }
 
 /**
@@ -878,13 +913,20 @@ async function withHostPnpm(
  */
 async function prepareNodeContext(
   runners: BuildRunners,
-  args: ResolvedBuildArgs,
+  args: PackArgs,
   expectedIndexPath: string,
   out: ProgressLines,
+  buildSecrets: BuildSecrets,
 ): Promise<PackContext> {
   const lines = out.line;
   const hostInstall = await resolveHostInstall(args.packDir);
   if (hostInstall.kind === 'err') return failure(`${hostInstall.message}\n`);
+  const needed = hostInstall.install.secrets;
+  if (buildSecrets === 'refuse' && needed.length > 0) {
+    return failure(
+      `This version's install reads ${needed.map((s) => s.file).join(', ')}: ${SETTINGS_FILES_REFUSAL}.\n`,
+    );
+  }
   const pinned = await withHostPnpm(runners, hostInstall.install);
   if (pinned.kind === 'err') return failure(`${pinned.message}\n`);
   const install = pinned.install;
@@ -1089,15 +1131,23 @@ function scriptWhere(s: SkippedScript): string {
   return s.manifest === 'package.json' ? s.name : `${s.manifest} ${s.name}`;
 }
 
-/** A pack's context, tarred for the build service. */
-async function prepareTarball(
+/** A pack's context, tarred for the build service (`kindgi build`, `kindgi prepare`). */
+export async function prepareTarball(
   ctx: CommandContext,
   runners: BuildRunners,
-  args: ResolvedBuildArgs,
+  args: PackArgs,
   expectedIndexPath: string,
   out: ProgressLines,
+  buildSecrets: BuildSecrets = 'allow',
 ): Promise<PreparedContext> {
-  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, out);
+  const context = await preparePackContext(
+    ctx,
+    runners,
+    args,
+    expectedIndexPath,
+    out,
+    buildSecrets,
+  );
   if (context.kind === 'error') return context;
   if (context.secrets.length > 0) {
     out.problem(
@@ -1124,7 +1174,7 @@ async function prepareTarball(
 async function preparePythonContext(
   ctx: CommandContext,
   runners: BuildRunners,
-  args: ResolvedBuildArgs,
+  args: PackArgs,
   expectedIndexPath: string,
   out: ProgressLines,
 ): Promise<PackContext> {
@@ -1213,7 +1263,7 @@ async function preparePythonContext(
 async function prepareJvmContext(
   ctx: CommandContext,
   runners: BuildRunners,
-  args: ResolvedBuildArgs,
+  args: PackArgs,
   language: 'java' | 'scala',
   expectedIndexPath: string,
   out: ProgressLines,
@@ -1367,11 +1417,47 @@ async function realpathDeepestAncestor(abs: string): Promise<string> {
   }
 }
 
-async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
-  // --path — pack root; auto-detects repo root separately so augment-
-  // mode packs (kindgi.config.ts under <repo>/kindgi/, package.json at
-  // <repo>/) build correctly. See src/build/pack-root.ts for the
-  // algorithm.
+/**
+ * `kindgi prepare`'s arguments: the pack (`--path`) and its config, `--out`,
+ * the two versions, and the target it's given. No env block, key, token or
+ * workspace is read; `kindgi build`'s own arguments (`resolveBuildArgs`)
+ * take the same steps, among its others.
+ */
+export async function resolvePackArgs(
+  ctx: CommandContext,
+  buildTarget: string,
+): Promise<{ readonly kind: 'ok'; readonly args: PackArgs } | Refusal> {
+  const roots = await packRootsOf(ctx);
+  if (roots.kind === 'error') return roots;
+  const { packDir, language } = roots.roots;
+  const configResult = await loadBuildConfig(ctx, packDir, 'kindgi prepare');
+  if (configResult.kind === 'error') return configResult;
+  const out = await outDirOf(ctx, packDir, language);
+  if (out.kind === 'error') return out;
+  const versions = versionsOf(ctx);
+  if (versions.kind === 'error') return versions;
+  return {
+    kind: 'ok',
+    args: {
+      packDir,
+      language,
+      outDir: out.outDir,
+      buildTarget,
+      artifactVersion: versions.artifactVersion,
+      publishedAt: versions.publishedAt,
+      config: configResult.config,
+    },
+  };
+}
+
+/**
+ * `--path` — pack root; auto-detects repo root separately so augment-mode
+ * packs (kindgi.config.ts under <repo>/kindgi/, package.json at <repo>/)
+ * build correctly. See src/build/pack-root.ts for the algorithm.
+ */
+async function packRootsOf(
+  ctx: CommandContext,
+): Promise<{ readonly kind: 'ok'; readonly roots: PackRoots } | Refusal> {
   const pathFlag = typeof ctx.options.path === 'string' ? ctx.options.path : undefined;
   const rootsResult = await resolvePackRoots({
     cwd: ctx.cwd,
@@ -1380,7 +1466,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   if (rootsResult.kind === 'err') {
     return { kind: 'error', stderr: `${rootsResult.message}\n`, exitCode: 1 };
   }
-  const { packDir, repoRoot, mode: packMode, language } = rootsResult.roots;
+  return { kind: 'ok', roots: rootsResult.roots };
+}
+
+async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
+  const roots = await packRootsOf(ctx);
+  if (roots.kind === 'error') return roots;
+  const { packDir, repoRoot, mode: packMode, language } = roots.roots;
   const local = ctx.options.local === true;
   const push = typeof ctx.options.push === 'string' ? ctx.options.push : undefined;
   if (push !== undefined && !local) {
@@ -1471,73 +1563,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     };
   }
 
-  // --out — output dir.
-  const outFlag = ctx.options.out;
-  const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
-  const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
+  const out = await outDirOf(ctx, packDir, language);
+  if (out.kind === 'error') return out;
+  const { outDir } = out;
 
-  // The build writes its output — `dist/`, the Containerfile, `context/`
-  // (and `<language>/` for a JVM pack) — under --out. Rules constrain it,
-  // all following symlinks (realpath) so an in-pack symlink can't slip past.
-  // Mirrors the local-dependency refusal in build/host-install.ts.
-  const realPackDir = await realpathUnderExisting(packDir);
-  const realOutDir = await realpathUnderExisting(outDir);
-  // 1. In any language, --out must not BE the pack root: the build would
-  //    write its dist/, Containerfile and context/ over the pack's own files.
-  if (realOutDir === realPackDir) {
-    return failure(
-      `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
-    );
-  }
-  // 1b. Nor may --out CONTAIN the pack root (an ancestor directory): the
-  //     build would write dist/, the Containerfile and context/ beside the
-  //     pack, over a sibling of the same name — or, when the pack is itself
-  //     named like one of them, over the pack. Same hazard as (1), any
-  //     language. (A TypeScript pack with such an --out is also outside-root,
-  //     caught by (2); this gives every language the clearer reason.)
-  const packRel = relative(realOutDir, realPackDir);
-  if (packRel !== '..' && !packRel.startsWith(`..${sep}`) && !isAbsolute(packRel)) {
-    return failure(
-      `--out ${outDirRaw} resolves to ${realOutDir}, which contains the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, beside the pack — over a sibling of the same name, or the pack itself. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
-    );
-  }
-  // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
-  //    indexer runs `node <out>/dist/kindgi-index.mjs`, whose bundle keeps
-  //    the pack's dependencies (zod, @kindgi/*) as bare externals that Node
-  //    resolves by walking up from <out>/dist into the pack's node_modules —
-  //    only reachable under the pack root. A Python or JVM pack's indexer
-  //    takes the pack dir and an explicit output path and never walks up from
-  //    <out>, so its output may sit anywhere; only this walk-up is bound to
-  //    the pack root.
-  // 'node' is the one pack language whose indexer walks up from <out>/dist;
-  // naming it positively stays correct if another language is added later.
-  const isTypeScriptPack = language === 'node';
-  if (isTypeScriptPack) {
-    const outRel = relative(realPackDir, realOutDir);
-    if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
-      return failure(
-        `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: a TypeScript pack's build indexes from <out>/dist and resolves the pack's dependencies by walking up into its node_modules, which only works under the pack root. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
-      );
-    }
-  }
-
-  // --artifact-version and --published-at: pinned, else the build time.
-  const defaults = buildTimeDefaults(new Date());
-  const avFlag = ctx.options['artifact-version'];
-  const artifactVersion =
-    typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaults.artifactVersion;
-  // A given --published-at goes into the signed image as the API's
-  // `date-time` (a date reads as that day's start in UTC), or deploying it
-  // would be refused.
-  const paFlag = ctx.options['published-at'];
-  let publishedAt = defaults.publishedAt;
-  if (typeof paFlag === 'string' && paFlag !== '') {
-    try {
-      publishedAt = timeFlagValue(paFlag, 'published-at');
-    } catch (err) {
-      return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
-    }
-  }
+  const versions = versionsOf(ctx);
+  if (versions.kind === 'error') return versions;
+  const { artifactVersion, publishedAt } = versions;
 
   // --tenant — flag > env block > KINDGI_TENANT_ID env var > (hosted) the
   // key's own tenant > error.
@@ -1700,9 +1732,94 @@ function nameTheKey(envName: string | undefined): string {
     : 'pass --signing-key ~/.kindgi/keys/<id>.pem, or set signingKey in an env block of kindgi.config.ts and pick that block with --env=<name> (with no --env, the block is `staging`)';
 }
 
+/**
+ * `--out` — the output dir: under the pack root, default `.kindgi/build`.
+ */
+async function outDirOf(
+  ctx: CommandContext,
+  packDir: string,
+  language: PackLanguage,
+): Promise<{ readonly kind: 'ok'; readonly outDir: string } | Refusal> {
+  const outFlag = ctx.options.out;
+  const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
+  const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
+
+  // The build writes its output — `dist/`, the Containerfile, `context/`
+  // (and `<language>/` for a JVM pack) — under --out. Rules constrain it,
+  // all following symlinks (realpath) so an in-pack symlink can't slip past.
+  // Mirrors the local-dependency refusal in build/host-install.ts.
+  const realPackDir = await realpathUnderExisting(packDir);
+  const realOutDir = await realpathUnderExisting(outDir);
+  // 1. In any language, --out must not BE the pack root: the build would
+  //    write its dist/, Containerfile and context/ over the pack's own files.
+  if (realOutDir === realPackDir) {
+    return failure(
+      `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 1b. Nor may --out CONTAIN the pack root (an ancestor directory): the
+  //     build would write dist/, the Containerfile and context/ beside the
+  //     pack, over a sibling of the same name — or, when the pack is itself
+  //     named like one of them, over the pack. Same hazard as (1), any
+  //     language. (A TypeScript pack with such an --out is also outside-root,
+  //     caught by (2); this gives every language the clearer reason.)
+  const packRel = relative(realOutDir, realPackDir);
+  if (packRel !== '..' && !packRel.startsWith(`..${sep}`) && !isAbsolute(packRel)) {
+    return failure(
+      `--out ${outDirRaw} resolves to ${realOutDir}, which contains the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, beside the pack — over a sibling of the same name, or the pack itself. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
+  //    indexer runs `node <out>/dist/kindgi-index.mjs`, whose bundle keeps
+  //    the pack's dependencies (zod, @kindgi/*) as bare externals that Node
+  //    resolves by walking up from <out>/dist into the pack's node_modules —
+  //    only reachable under the pack root. A Python or JVM pack's indexer
+  //    takes the pack dir and an explicit output path and never walks up from
+  //    <out>, so its output may sit anywhere; only this walk-up is bound to
+  //    the pack root.
+  // 'node' is the one pack language whose indexer walks up from <out>/dist;
+  // naming it positively stays correct if another language is added later.
+  const isTypeScriptPack = language === 'node';
+  if (isTypeScriptPack) {
+    const outRel = relative(realPackDir, realOutDir);
+    if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+      return failure(
+        `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: a TypeScript pack's build indexes from <out>/dist and resolves the pack's dependencies by walking up into its node_modules, which only works under the pack root. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+      );
+    }
+  }
+  return { kind: 'ok', outDir };
+}
+
+/** `--artifact-version` and `--published-at`: pinned, else the build time. */
+function versionsOf(
+  ctx: CommandContext,
+):
+  | { readonly kind: 'ok'; readonly artifactVersion: string; readonly publishedAt: string }
+  | Refusal {
+  const defaults = buildTimeDefaults(new Date());
+  const avFlag = ctx.options['artifact-version'];
+  const artifactVersion =
+    typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaults.artifactVersion;
+  // A given --published-at goes into the signed image as the API's
+  // `date-time` (a date reads as that day's start in UTC), or deploying it
+  // would be refused.
+  const paFlag = ctx.options['published-at'];
+  let publishedAt = defaults.publishedAt;
+  if (typeof paFlag === 'string' && paFlag !== '') {
+    try {
+      publishedAt = timeFlagValue(paFlag, 'published-at');
+    } catch (err) {
+      return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
+    }
+  }
+  return { kind: 'ok', artifactVersion, publishedAt };
+}
+
 async function loadBuildConfig(
   ctx: CommandContext,
   packDir: string,
+  command = 'kindgi build',
 ): Promise<
   | { readonly kind: 'ok'; readonly config: PackConfig }
   | (CommandResult & { readonly kind: 'error' })
@@ -1713,7 +1830,7 @@ async function loadBuildConfig(
     kind: 'error',
     stderr:
       outcome.kind === 'missing'
-        ? `kindgi build could not load kindgi.config.ts at ${packDir}. Run \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir>.\n`
+        ? `${command} could not load kindgi.config.ts at ${packDir}. Run \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir>.\n`
         : `Failed to load kindgi.config.ts at ${packDir}: ${outcome.message}\n`,
     exitCode: 1,
   };
@@ -1764,7 +1881,7 @@ function discoveryOf(config: PackConfig, language?: PackLanguage): Required<Disc
 
 /** The pack's blocks after its local index (`checkPackBlocks`), in every language. */
 function checkBuildBlocks(
-  args: ResolvedBuildArgs,
+  args: PackArgs,
   counts: IndexedCounts,
   indexPath: string,
 ): Promise<PackBlocksCheck> {

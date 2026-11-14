@@ -1,0 +1,635 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/*/AGENTS.md
+
+/**
+ * `kindgi prepare`: Kindgi Cloud's own build step. Over a Node, a Python and
+ * a Java or Scala pack with faked build runners (as tests/build.test.ts
+ * does), it writes `pack.tgz` and `expected-index.json`, prints one JSON
+ * line, and never sends, checks an image or signs. It reads no key, token
+ * or profile, and refuses a Node pack whose install reads a settings file
+ * (`.npmrc`) before writing anything. It's hidden from `--help`, the
+ * reference and their suggestions, and still runs.
+ */
+
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+} from '../src/build/java-image.js';
+import type {
+  BuildRunners,
+  EsbuildBundleResult,
+  JvmBuildRunners,
+  LocalIndexResult,
+  PythonBuildRunners,
+  TarPackResult,
+} from '../src/build/runners.js';
+import { DEFAULT_SCALA_BUILD_IMAGE_REF } from '../src/build/scala-image.js';
+import type { Command, LeafCommand } from '../src/commands/types.js';
+import { wiredCommands } from '../src/commands/unwired.js';
+import { commandHelpText, rootHelpText, unknownSubcommandText } from '../src/help.js';
+import { type RunCliInputs, runCli } from '../src/main.js';
+import { describeCommands } from '../src/reference.js';
+
+let cwd: string;
+let home: string;
+let packDir: string;
+
+const SAMPLE_INDEX = {
+  v: 1,
+  packId: 'my-pack',
+  packVersion: '0.1.0',
+  artifactVersion: '20260921.1',
+  publishedAt: '1970-01-01T00:00:00.000Z',
+  tools: [
+    {
+      id: 'my-pack.echo',
+      input: { type: 'object' },
+      output: { type: 'object' },
+      modulePath: 'tools/echo/index.js',
+    },
+  ],
+  guardrails: [],
+  agents: [],
+  flows: [],
+};
+const SAMPLE_INDEX_BYTES = new TextEncoder().encode(JSON.stringify(SAMPLE_INDEX));
+const TARBALL_BYTES = new TextEncoder().encode('fake-tarball-bytes');
+
+beforeEach(async () => {
+  // An empty HOME: no stored key, token or profile.
+  home = await mkdtemp(join(tmpdir(), 'kindgi-cli-prepare-home-'));
+  cwd = await mkdtemp(join(tmpdir(), 'kindgi-cli-prepare-cwd-'));
+  packDir = join(cwd, 'sample-pack');
+  await mkdir(packDir, { recursive: true });
+  await writeFile(join(packDir, 'kindgi.config.ts'), 'export default {};\n', 'utf8');
+  await writeFile(
+    join(packDir, 'package.json'),
+    '{"name": "test-pack", "version": "0.1.0"}\n',
+    'utf8',
+  );
+  await writeFile(join(packDir, 'package-lock.json'), '{"lockfileVersion": 3}\n', 'utf8');
+});
+
+afterEach(async () => {
+  await rm(home, { recursive: true, force: true });
+  await rm(cwd, { recursive: true, force: true });
+});
+
+interface Calls {
+  indexer: number;
+  esbuild: number;
+  tar: number;
+  /** The steps `kindgi prepare` never takes: Kindgi Cloud does them. */
+  post: number;
+  stream: number;
+  pull: number;
+  sign: number;
+}
+
+function fakeRunners(): { readonly runners: BuildRunners; readonly calls: Calls } {
+  const calls: Calls = { indexer: 0, esbuild: 0, tar: 0, post: 0, stream: 0, pull: 0, sign: 0 };
+  const runners: BuildRunners = {
+    runLocalIndexer: async (o) => {
+      calls.indexer += 1;
+      await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+      return {
+        kind: 'ok',
+        packId: 'my-pack',
+        packVersion: '0.1.0',
+        counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+        fileErrors: [],
+        index: SAMPLE_INDEX,
+      } as LocalIndexResult;
+    },
+    esbuildBundle: async () => {
+      calls.esbuild += 1;
+      const res: EsbuildBundleResult = {
+        emitted: ['dist/tools/echo/index.mjs', 'dist/kindgi-index.mjs'],
+        totalBytes: 2048,
+        externals: [],
+        bundleMap: { 'tools/echo/index.ts': 'tools/echo/index.mjs' },
+      };
+      return res;
+    },
+    writeContainerfile: async (o) => {
+      await writeFile(o.outputPath, '# fake containerfile\n', 'utf8');
+    },
+    writeContext: async (o) => {
+      await mkdir(o.contextDir, { recursive: true });
+    },
+    tarPack: async (o) => {
+      calls.tar += 1;
+      await writeFile(o.outputPath, TARBALL_BYTES);
+      const res: TarPackResult = {
+        path: o.outputPath,
+        bytes: TARBALL_BYTES,
+        size: TARBALL_BYTES.length,
+      };
+      return res;
+    },
+    postBuild: async () => {
+      calls.post += 1;
+      throw new Error('kindgi prepare never posts a build');
+    },
+    streamBuildLogs: async () => {
+      calls.stream += 1;
+      throw new Error('kindgi prepare never streams a build');
+    },
+    pullImageIndex: async () => {
+      calls.pull += 1;
+      throw new Error('kindgi prepare never pulls an image');
+    },
+    signEnvelope: async () => {
+      calls.sign += 1;
+      throw new Error('kindgi prepare never signs');
+    },
+    hostPnpmVersion: async () => '10.28.0',
+    loadedInstall: async () => {
+      throw new Error('the pack keeps every dependency');
+    },
+  };
+  return { runners, calls };
+}
+
+/** No env at all: no `KINDGI_API_TOKEN`, `KINDGI_TENANT_ID` or profile. */
+function inputs(runners: BuildRunners, argv: readonly string[]): RunCliInputs {
+  return {
+    argv,
+    env: {},
+    cwd,
+    home,
+    buildRunners: runners,
+    // A config with no env block: prepare reads none.
+    buildConfigLoader: async () => ({ pack: { id: 'my-pack', version: '0.1.0' } }),
+  };
+}
+
+describe('kindgi prepare', () => {
+  test('writes pack.tgz and expected-index.json, and stdout is exactly one JSON line', async () => {
+    const { runners, calls } = fakeRunners();
+    const out = await runCli(
+      inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(0);
+
+    const lines = out.stdout.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe('');
+    const result = JSON.parse(lines[0] as string) as Record<string, unknown>;
+    expect(Object.keys(result).sort()).toEqual(
+      ['counts', 'expectedIndex', 'packTgz', 'sha256', 'size'].sort(),
+    );
+    expect(result.packTgz).toMatch(/[/\\]\.kindgi[/\\]build[/\\]pack\.tgz$/);
+    expect(result.expectedIndex).toMatch(/[/\\]\.kindgi[/\\]build[/\\]expected-index\.json$/);
+    expect(await readFile(result.packTgz as string)).toEqual(Buffer.from(TARBALL_BYTES));
+    expect(await readFile(result.expectedIndex as string)).toEqual(Buffer.from(SAMPLE_INDEX_BYTES));
+    expect(result.sha256).toBe(
+      `sha256:${createHash('sha256').update(TARBALL_BYTES).digest('hex')}`,
+    );
+    expect(result.size).toBe(TARBALL_BYTES.length);
+    expect(result.counts).toEqual({ tools: 1, guardrails: 0, agents: 0, flows: 0 });
+
+    // The progress lines go to stderr, never stdout.
+    expect(out.stderr).toContain('Target:      production');
+    expect(out.stdout).not.toContain('Target:');
+    expect(calls).toMatchObject({ indexer: 1, esbuild: 1, tar: 1 });
+  });
+
+  test('progress streamed as it comes still never reaches stdout', async () => {
+    const { runners } = fakeRunners();
+    const streamed: string[] = [];
+    const out = await runCli({
+      ...inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+      progress: (text) => streamed.push(text),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(streamed.join('')).toContain('Target:      production');
+    expect(out.stdout.split('\n')).toHaveLength(2);
+    expect(() => JSON.parse(out.stdout)).not.toThrow();
+  });
+
+  test('never posts, streams, pulls or signs', async () => {
+    const { runners, calls } = fakeRunners();
+    const out = await runCli(
+      inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(calls).toMatchObject({ post: 0, stream: 0, pull: 0, sign: 0 });
+    const outDir = join(packDir, '.kindgi', 'build');
+    expect(existsSync(join(outDir, 'deploy-envelope.json'))).toBe(false);
+  });
+
+  test('with an empty HOME and no token, tenant or profile in the env, it succeeds', async () => {
+    expect(await readdir(home)).toEqual([]);
+    const { runners } = fakeRunners();
+    const run = inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]);
+    expect(Object.keys(run.env ?? {}).filter((k) => k.startsWith('KINDGI_'))).toEqual([]);
+    const out = await runCli(run);
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toHaveProperty('packTgz');
+    // And it leaves HOME as it found it.
+    expect(await readdir(home)).toEqual([]);
+  });
+
+  test('without --target it fails as a usage error, before anything is built', async () => {
+    const { runners, calls } = fakeRunners();
+    const out = await runCli(inputs(runners, ['prepare', `--path=${packDir}`]));
+    expect(out.exitCode).toBe(2);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain('--target');
+    expect(calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 0 });
+  });
+
+  // A private registry's token and a settings-only file are refused alike:
+  // the build takes no install settings file, whatever it holds.
+  for (const [what, npmrc] of [
+    ["a private registry's token", '//registry.example.com/:_authToken=x\n'],
+    ['settings only', 'save-exact=true\n'],
+  ] as const) {
+    test(`a pack whose .npmrc holds ${what} is refused, naming the file, and nothing is written under --out`, async () => {
+      await writeFile(join(packDir, '.npmrc'), npmrc, 'utf8');
+      const { runners, calls } = fakeRunners();
+      const out = await runCli(
+        inputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+      );
+      expect(out.exitCode).toBe(1);
+      expect(out.stdout).toBe('');
+      expect(out.stderr).toContain(
+        "This version's install reads .npmrc: Kindgi Cloud's build doesn't take an install's settings files yet.",
+      );
+      expect(out.stderr).not.toContain('private package registry');
+      const outDir = join(packDir, '.kindgi', 'build');
+      expect(existsSync(join(outDir, 'pack.tgz'))).toBe(false);
+      expect(existsSync(join(outDir, 'expected-index.json'))).toBe(false);
+      expect(await readdir(outDir)).toEqual([]);
+      expect(calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 0 });
+    });
+  }
+});
+
+describe('kindgi prepare — a Python pack', () => {
+  const PYTHON_CONFIG = {
+    pack: { id: 'my-pack', version: '0.1.0' },
+    language: 'python',
+    dev: { python: ['/opt/py/bin/python'] },
+  };
+
+  async function pythonPack(withLock = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'pyproject.toml'),
+      '[tool.kindgi.pack]\nid = "my-pack"\nversion = "0.1.0"\n',
+      'utf8',
+    );
+    if (withLock) await writeFile(join(packDir, 'uv.lock'), 'version = 1\n', 'utf8');
+    await mkdir(join(packDir, 'tools'), { recursive: true });
+    await writeFile(join(packDir, 'tools', 'echo.py'), 'x = 1\n', 'utf8');
+    await writeFile(join(packDir, '.env'), 'SECRET=1\n', 'utf8');
+  }
+
+  function withPython(runners: BuildRunners) {
+    const calls = {
+      pythons: [] as (readonly string[])[],
+      targets: [] as string[],
+      files: [] as (readonly string[])[],
+      contextDirs: [] as string[],
+    };
+    const python: PythonBuildRunners = {
+      runLocalIndexer: async (o) => {
+        calls.pythons.push(o.python);
+        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.targets.push(o.buildTarget);
+        await writeFile(o.outputPath, '# python containerfile\n', 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+        calls.contextDirs.push(o.contextDir);
+      },
+    };
+    return { runners: { ...runners, python }, calls };
+  }
+
+  function pythonInputs(runners: BuildRunners, argv: readonly string[]): RunCliInputs {
+    return { ...inputs(runners, argv), buildConfigLoader: async () => PYTHON_CONFIG };
+  }
+
+  test("indexes with the pack's Python, writes pack.tgz and expected-index.json, and never posts, streams, pulls or signs", async () => {
+    await pythonPack();
+    const faked = fakeRunners();
+    const { runners, calls } = withPython(faked.runners);
+    const out = await runCli(
+      pythonInputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+
+    const lines = out.stdout.split('\n');
+    expect(lines).toHaveLength(2);
+    const result = JSON.parse(lines[0] as string) as Record<string, unknown>;
+    expect(await readFile(result.packTgz as string)).toEqual(Buffer.from(TARBALL_BYTES));
+    expect(await readFile(result.expectedIndex as string)).toEqual(Buffer.from(SAMPLE_INDEX_BYTES));
+    expect(result.counts).toEqual({ tools: 1, guardrails: 0, agents: 0, flows: 0 });
+
+    expect(calls.pythons).toEqual([['/opt/py/bin/python']]);
+    expect(calls.targets).toEqual(['production']);
+    // The pack root minus its secrets: .env stays out of the image.
+    expect(calls.files).toEqual([['pyproject.toml', 'tools/echo.py', 'uv.lock']]);
+    expect(calls.contextDirs).toEqual([join(packDir, '.kindgi', 'build', 'context')]);
+    // The Node indexer and bundler never run; the context is tarred as a Node pack's is.
+    expect(faked.calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 1 });
+    expect(faked.calls).toMatchObject({ post: 0, stream: 0, pull: 0, sign: 0 });
+    expect(out.stdout).not.toContain('Target:');
+  });
+
+  test('without uv.lock it fails before the tar, and stdout stays empty', async () => {
+    await pythonPack(false);
+    const faked = fakeRunners();
+    const { runners } = withPython(faked.runners);
+    const out = await runCli(
+      pythonInputs(runners, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain('uv lock');
+    expect(existsSync(join(packDir, '.kindgi', 'build', 'pack.tgz'))).toBe(false);
+    expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
+  });
+});
+
+describe('kindgi prepare — a Java or Scala pack', () => {
+  const PACK = { id: 'my-pack', version: '0.1.0' };
+  const JAVA_CONFIG = {
+    pack: PACK,
+    language: 'java',
+    dev: { javaHome: '/opt/jdk-17', maven: ['mvn'] },
+  };
+  const SCALA_CONFIG = { pack: PACK, language: 'scala', dev: { javaHome: '/opt/jdk-17' } };
+
+  const JAVA_FILES: Record<string, string> = {
+    'pom.xml': '<project/>\n',
+    'src/main/java/acme/tools/Echo.java': 'x',
+    'target/classes/Echo.class': 'x',
+  };
+  const SCALA_FILES: Record<string, string> = {
+    'build.sbt': 'scalaVersion := "3.3.8"\n',
+    'project/build.properties': 'sbt.version=1.12.15\n',
+    'src/main/scala/acme/tools/Echo.scala': 'object Echo',
+    // Build output, build-server state and credentials stay out of the image.
+    'target/scala-3.3.8/classes/acme/tools/Echo$.class': 'x',
+    '.bsp/sbt.json': '{}',
+    'credentials.sbt': 'credentials += ???',
+  };
+
+  async function jvmPack(language: 'java' | 'scala', files: Record<string, string>): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    const all = {
+      'kindgi.config.json': JSON.stringify({ language, pack: PACK }),
+      '.env': 'SECRET=1\n',
+      ...files,
+    };
+    for (const [rel, text] of Object.entries(all)) {
+      await mkdir(dirname(join(packDir, rel)), { recursive: true });
+      await writeFile(join(packDir, rel), text, 'utf8');
+    }
+  }
+
+  function withJvm(runners: BuildRunners, compileErrors?: readonly string[]) {
+    const calls = {
+      prepared: [] as unknown[],
+      indexed: [] as unknown[],
+      images: [] as (readonly string[])[],
+      targets: [] as string[],
+      files: [] as (readonly string[])[],
+      contextDirs: [] as string[],
+    };
+    const jvm: JvmBuildRunners = {
+      prepare: async (o) => {
+        calls.prepared.push(o.code);
+        return compileErrors === undefined
+          ? { kind: 'ok' }
+          : { kind: 'err', errors: compileErrors };
+      },
+      runLocalIndexer: async (o) => {
+        calls.indexed.push(o.code);
+        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.images.push([o.buildImageRef, o.runtimeImageRef]);
+        calls.targets.push(o.buildTarget);
+        await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+        calls.contextDirs.push(o.contextDir);
+      },
+    };
+    return { runners: { ...runners, jvm }, calls };
+  }
+
+  function jvmInputs(
+    runners: BuildRunners,
+    config: Record<string, unknown>,
+    argv: readonly string[],
+  ): RunCliInputs {
+    return { ...inputs(runners, argv), buildConfigLoader: async () => config };
+  }
+
+  const cases = [
+    {
+      name: 'Java',
+      language: 'java',
+      config: JAVA_CONFIG,
+      files: JAVA_FILES,
+      tool: { maven: ['mvn'] },
+      images: [DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF],
+      context: ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
+    },
+    {
+      name: 'Scala',
+      language: 'scala',
+      config: SCALA_CONFIG,
+      files: SCALA_FILES,
+      tool: { sbt: ['sbt'] },
+      images: [DEFAULT_SCALA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF],
+      context: [
+        'build.sbt',
+        'kindgi.config.json',
+        'project/build.properties',
+        'src/main/scala/acme/tools/Echo.scala',
+      ],
+    },
+  ] as const;
+
+  for (const c of cases) {
+    test(`a ${c.name} pack: compiles and indexes with the pack's JDK, writes pack.tgz and expected-index.json, and never posts, streams, pulls or signs`, async () => {
+      await jvmPack(c.language, c.files);
+      const faked = fakeRunners();
+      const { runners, calls } = withJvm(faked.runners);
+      const out = await runCli(
+        jvmInputs(runners, c.config, ['prepare', '--target', 'production', `--path=${packDir}`]),
+      );
+      expect(out.exitCode, out.stderr).toBe(0);
+
+      const lines = out.stdout.split('\n');
+      expect(lines).toHaveLength(2);
+      const result = JSON.parse(lines[0] as string) as Record<string, unknown>;
+      expect(await readFile(result.packTgz as string)).toEqual(Buffer.from(TARBALL_BYTES));
+      expect(await readFile(result.expectedIndex as string)).toEqual(
+        Buffer.from(SAMPLE_INDEX_BYTES),
+      );
+      expect(result.counts).toEqual({ tools: 1, guardrails: 0, agents: 0, flows: 0 });
+
+      const code = {
+        language: c.language,
+        java: '/opt/jdk-17/bin/java',
+        javaHome: '/opt/jdk-17',
+        ...c.tool,
+        workDir: join(packDir, '.kindgi', 'build', c.language),
+      };
+      expect(calls.prepared).toEqual([code]);
+      expect(calls.indexed).toEqual([code]);
+      expect(calls.images).toEqual([c.images]);
+      expect(calls.targets).toEqual(['production']);
+      // The pack root minus build output, build-server state and secrets (.env, credentials.sbt).
+      expect(calls.files).toEqual([c.context]);
+      expect(calls.contextDirs).toEqual([join(packDir, '.kindgi', 'build', 'context')]);
+      // The Node indexer and bundler never run; the context is tarred as a Node pack's is.
+      expect(faked.calls).toMatchObject({ indexer: 0, esbuild: 0, tar: 1 });
+      expect(faked.calls).toMatchObject({ post: 0, stream: 0, pull: 0, sign: 0 });
+    });
+  }
+
+  test("a Java pack that doesn't compile fails before indexing, with javac's located errors, and stdout stays empty", async () => {
+    await jvmPack('java', JAVA_FILES);
+    const faked = fakeRunners();
+    const { runners, calls } = withJvm(faked.runners, [
+      'src/main/java/acme/tools/Echo.java:3:1: class expected',
+    ]);
+    const out = await runCli(
+      jvmInputs(runners, JAVA_CONFIG, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain("The pack didn't compile");
+    expect(out.stderr).toContain('src/main/java/acme/tools/Echo.java:3:1: class expected');
+    expect(calls.indexed).toEqual([]);
+    expect(existsSync(join(packDir, '.kindgi', 'build', 'pack.tgz'))).toBe(false);
+    expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
+  });
+
+  test('a Java pack without pom.xml fails before the tar, and stdout stays empty', async () => {
+    const { 'pom.xml': _pom, ...withoutPom } = JAVA_FILES;
+    await jvmPack('java', withoutPom);
+    const faked = fakeRunners();
+    const { runners } = withJvm(faked.runners);
+    const out = await runCli(
+      jvmInputs(runners, JAVA_CONFIG, ['prepare', '--target', 'production', `--path=${packDir}`]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain('No pom.xml');
+    expect(faked.calls).toMatchObject({ tar: 0, post: 0, sign: 0 });
+  });
+});
+
+describe('kindgi prepare is hidden', () => {
+  test('kindgi --help leaves it out', async () => {
+    expect(rootHelpText()).toMatch(/^ {2}build\s/m);
+    expect(rootHelpText()).not.toMatch(/^ {2}prepare\s/m);
+    const { runners } = fakeRunners();
+    const out = await runCli(inputs(runners, ['--help']));
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).not.toMatch(/^ {2}prepare\s/m);
+  });
+
+  test('the reference (and the docs site built from it) leaves it out', () => {
+    const names = describeCommands().map((c) => c.name);
+    expect(names).toContain('build');
+    expect(names).not.toContain('prepare');
+  });
+
+  test('kindgi prepare --help still shows its own help, saying what it is for', async () => {
+    const { runners } = fakeRunners();
+    const out = await runCli(inputs(runners, ['prepare', '--help']));
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain(
+      "Kindgi Cloud's own build step: indexes the pack and writes `pack.tgz` and `expected-index.json` under `--out`.",
+    );
+    expect(out.stdout).toContain('Not for self-hosted runtimes yet: build with `kindgi build`.');
+    expect(out.stdout).toContain('--target');
+  });
+
+  test("a hidden subcommand is left out of its group's help and its did-you-mean", () => {
+    const leaf = (name: string, hidden: boolean): LeafCommand => ({
+      kind: 'leaf',
+      name,
+      description: `${name} it`,
+      usage: `kindgi grp ${name}`,
+      ...(hidden && { hidden: true as const }),
+      run: async () => ({ kind: 'ok', rendered: { stdout: '', stderr: '' } }),
+    });
+    const group: Extract<Command, { kind: 'group' }> = {
+      kind: 'group',
+      name: 'grp',
+      description: 'A group.',
+      subcommands: [leaf('shown', false), leaf('secret', true)],
+    };
+    expect(wiredCommands(group.subcommands, ['grp']).map((c) => c.name)).toEqual(['shown']);
+    const help = commandHelpText(group, ['grp']);
+    expect(help).toMatch(/^ {2}shown\s/m);
+    expect(help).not.toContain('secret');
+    expect(unknownSubcommandText(group, ['grp'], 'secrte')).not.toContain('secret"');
+    expect(unknownSubcommandText(group, ['grp'], 'shwn')).toContain('Did you mean "shown"?');
+  });
+});
+
+describe("the templates' AGENTS.md", () => {
+  test('each tells the coding agent not to run prepare with a self-hosted runtime', async () => {
+    const templates = fileURLToPath(new URL('../src/templates/', import.meta.url));
+    const names = (await readdir(templates, { withFileTypes: true }))
+      .filter((d) => d.isDirectory() && existsSync(join(templates, d.name, 'AGENTS.md')))
+      .map((d) => d.name);
+    expect(names.length).toBeGreaterThan(0);
+    for (const name of names) {
+      const cli = name === 'java' || name === 'scala' ? './kindgiw' : 'kindgi';
+      const text = (await readFile(join(templates, name, 'AGENTS.md'), 'utf8')).replace(
+        /\s+/g,
+        ' ',
+      );
+      expect(text, name).toContain(
+        `\`${cli} prepare\` is Kindgi Cloud's own build step: with a self-hosted runtime, don't run it; build with \`${cli} build\`.`,
+      );
+    }
+  });
+});

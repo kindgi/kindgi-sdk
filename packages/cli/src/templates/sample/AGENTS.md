@@ -75,3 +75,6 @@ runs: use that one.
 A tool's own `EPERM` while it runs under `kindgi dev` is something else:
 Kindgi's dev sandbox, which the tools skill covers. Never turn that one off
 either.
+
+`kindgi prepare` is Kindgi Cloud's own build step: with a self-hosted runtime,
+don't run it; build with `kindgi build`.

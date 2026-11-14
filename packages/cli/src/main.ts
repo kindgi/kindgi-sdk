@@ -269,8 +269,9 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   // Same shape for `kindgi build`: lazy-load the esbuild / tar /
   // docker seams so unrelated commands don't pay the transitive load.
   // `kindgi deploy` needs the build runners too when the envelope
-  // is missing and the command auto-runs `kindgi build` inline.
-  const needsBuildRunners = topLevel === 'build' || topLevel === 'deploy';
+  // is missing and the command auto-runs `kindgi build` inline, and
+  // `kindgi prepare` runs build's pack steps.
+  const needsBuildRunners = topLevel === 'build' || topLevel === 'deploy' || topLevel === 'prepare';
   const buildRunners =
     inputs.buildRunners ?? (needsBuildRunners ? await loadRealBuildRunners() : undefined);
   const deployRunners =
