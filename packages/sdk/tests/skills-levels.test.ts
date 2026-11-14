@@ -51,7 +51,7 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-java-authoring-agents': { bytes: 16_608 },
   'kindgi-java-authoring-flows': { bytes: 20_363 },
   'kindgi-java-authoring-guardrails': { bytes: 14_003 },
-  'kindgi-java-authoring-tools': { bytes: 29_313 },
+  'kindgi-java-authoring-tools': { bytes: 29_314 },
   'kindgi-java-getting-started': { bytes: 18_055 },
   'kindgi-python-authoring-agents': { bytes: 17_436 },
   'kindgi-python-authoring-flows': { bytes: 16_750 },
@@ -61,7 +61,7 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-scala-authoring-agents': { bytes: 16_498 },
   'kindgi-scala-authoring-flows': { bytes: 19_153 },
   'kindgi-scala-authoring-guardrails': { bytes: 13_786 },
-  'kindgi-scala-authoring-tools': { bytes: 27_564 },
+  'kindgi-scala-authoring-tools': { bytes: 27_687 },
   'kindgi-scala-getting-started': { bytes: 19_382 },
   'kindgi-using': { bytes: 16_058 },
 };
