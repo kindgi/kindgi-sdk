@@ -213,7 +213,8 @@ export function schedulesRouter(
    * ({@link ownerAlsoAllows}), and, where the route says so (`ownerReads`:
    * the schedule itself, not its fires or versions), `read` it. A removed
    * one only for a read that asks for it (`includeUnregistered`), under the
-   * same `read` on the project it was in.
+   * same `read` on the project it was in, or, where `ownerReads` is set, by
+   * its owner with `run`.
    */
   async function scheduleFor(
     c: Context<AppEnv>,
