@@ -160,7 +160,22 @@ final class HttpToolTest {
   }
 
   @Test
-  void aSecretRefWithoutAnEnvNameIsRefusedBySchema() {
+  void aSecretRefThatNamesNoEnvLeavesEnvNameOut() {
+    Tool<CaseLookup, Found> tool =
+        lookup()
+            .http(
+                HttpToolSpec.builder()
+                    .method(HttpMethod.GET)
+                    .urlTemplate("https://cases.example.com/{court}/{docket}")
+                    .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("ACME_TOKEN")))
+                    .build());
+    assertEquals(
+        Map.of("kind", "bearer", "secretRef", Map.of("name", "ACME_TOKEN")),
+        specOf(tool).get("authorization"));
+  }
+
+  @Test
+  void aSecretRefWithAnEmptyEnvNameIsRefusedBySchema() {
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class,

@@ -340,8 +340,7 @@ public static final Tool<FetchOrder, Order> TOOL =
             HttpToolSpec.builder()
                 .method(HttpMethod.GET)
                 .urlTemplate("https://api.shop.example/orders/{orderId}")
-                .authorization(
-                    new HttpAuthSpec.Bearer(new ToolSecretRef("production", "shop-api-token")))
+                .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("shop-api-token")))
                 .successStatus(200, 299)
                 .build());
 ```
@@ -350,7 +349,7 @@ Every `{placeholder}` in the URL — in the path and query only, never in the
 host or port — is a field of the input, and so is one in a
 `HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. Authorization
 is a `secretRef` (`HttpAuthSpec.Bearer` or `HttpAuthSpec.Header`), named for the
-runtime to resolve, never a literal credential. A request body is
+runtime to resolve in the env it serves, never a literal credential. A request body is
 `HttpRequestBodySpec.JsonInput` (the input as JSON), `InputPassthrough` or
 `Text`. `timeoutMs` (default 30 seconds) covers the whole call, the response
 read included, and a run's cancel does too; a response body over 10 MiB,

@@ -3614,7 +3614,10 @@ class ToolSecretRef(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    env_name: Annotated[str, Field(alias="envName", min_length=1)]
+    env_name: Annotated[str | None, Field(alias="envName", min_length=1)] = None
+    """
+    The env the secret is read in. Left out, it's the env the runtime serves (KINDGI_ENV; local under kindgi dev), as for the secrets a tool's code declares.
+    """
     name: Annotated[str, Field(min_length=1)]
 
 

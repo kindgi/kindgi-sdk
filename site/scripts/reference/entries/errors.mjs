@@ -3774,7 +3774,7 @@ export const ERROR_ENTRIES = {
   },
   'env-not-served': {
     description:
-      'This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). Reads and deletes under any env still work.',
+      "This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another, or an HTTP tool, registered or deployed, whose `secretRef` names another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). For a tool, leave its `secretRef`'s `envName` out, and its secret is read under the served env. Reads and deletes under any env still work.",
     details: [
       {
         key: 'envName',
@@ -3785,7 +3785,13 @@ export const ERROR_ENTRIES = {
         meaning: 'the env this runtime serves, to use instead',
       },
     ],
-    seeAlso: ['POST /v1/secrets', 'PUT /v1/env/{name}', 'POST /v1/providers'],
+    seeAlso: [
+      'POST /v1/secrets',
+      'PUT /v1/env/{name}',
+      'POST /v1/providers',
+      'POST /v1/tools',
+      'POST /v1/deployments',
+    ],
   },
   'env-cross-scope': {
     description: "The API doesn't send this code.",

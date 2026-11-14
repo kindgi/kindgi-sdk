@@ -316,7 +316,7 @@ def http_tool(
     host or port. `authorization` and `request_body` take the spec's JSON
     shape:
 
-        authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "ACME_TOKEN"}}
+        authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}}
         request_body={"kind": "json-input"}
 
     The runtime resolves the secret on every call (`local`: the pack's `.env`

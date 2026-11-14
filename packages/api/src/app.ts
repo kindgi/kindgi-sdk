@@ -1965,6 +1965,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
         ...(input.environmentOrders !== undefined && {
           environmentOrders: input.environmentOrders,
         }),

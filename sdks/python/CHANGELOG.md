@@ -25,6 +25,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   starts.** Python's base image sets it in every pack's image, so the
   `env-dropped` line warned at every start. The service still drops it like
   any name the pack doesn't declare: a pack that reads it declares it.
+- `kindgi`: **an HTTP tool's `secretRef` can leave its env out.**
+  `http_tool(authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}})`
+  is read in the env the runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`), as the secrets a tool's code declares are. A ref that names
+  its env still reads there, and an empty `envName` is refused. The client's
+  `ToolSecretRef.env_name` is optional: `None` when a tool's ref names no env.
+  An older `kindgi` fails to read such a tool, or a page of tools that holds
+  one, so upgrade it with the runtime.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
