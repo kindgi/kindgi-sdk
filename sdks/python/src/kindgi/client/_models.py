@@ -3401,6 +3401,24 @@ class SetAgentOwnerResult(BaseModel):
     owner: AgentOwner
 
 
+class VersionLock(BaseModel):
+    """
+    An agent or flow version that locks an unregistered tool or agent version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["agent", "flow"] | str, _open.OPEN]
+    id: str
+    version: str
+    unregistered: Literal[True] | None = None
+    """
+    Present (true) when this agent version is unregistered: a registered flow version still runs it.
+    """
+
+
 class UnregisterAgentResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3409,6 +3427,10 @@ class UnregisterAgentResult(BaseModel):
     agent_id: Annotated[str, Field(alias="agentId")]
     version: str
     unregistered: Literal[True]
+    locked_by: Annotated[list[VersionLock] | None, Field(alias="lockedBy")] = None
+    """
+    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.
+    """
 
 
 class ReinstateAgentVersionResult(BaseModel):
@@ -3737,6 +3759,10 @@ class UnregisterToolResult(BaseModel):
     tool_id: Annotated[str, Field(alias="toolId")]
     version: str
     unregistered: Literal[True]
+    locked_by: Annotated[list[VersionLock] | None, Field(alias="lockedBy")] = None
+    """
+    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.
+    """
 
 
 class ReinstateToolVersionResult(BaseModel):
