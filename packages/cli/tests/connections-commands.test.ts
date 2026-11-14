@@ -973,7 +973,7 @@ describe('kindgi connections connect texts: a number, connected at once', () => 
           get: rec('get', NUMBER_CONNECTION),
         },
       },
-      waitingSeam([]),
+      waitingSeam(),
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([

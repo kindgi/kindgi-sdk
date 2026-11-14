@@ -49,7 +49,7 @@ describe('destinations: wire round-trips', () => {
       {
         name: 'Acme ops channel',
         kind: 'slack',
-        url: 'https://hooks.slack.com/services/T000/B000/x',
+        url: 'https://hooks.slack.com/services/T00000000/B00000000/x',
         projects: [PROJECT],
       },
       { idempotencyKey: 'k-1' },
@@ -62,7 +62,7 @@ describe('destinations: wire round-trips', () => {
     expect(JSON.parse(call.body ?? '{}')).toEqual({
       name: 'Acme ops channel',
       kind: 'slack',
-      url: 'https://hooks.slack.com/services/T000/B000/x',
+      url: 'https://hooks.slack.com/services/T00000000/B00000000/x',
       projects: [PROJECT],
     });
   });
