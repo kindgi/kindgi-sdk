@@ -21,6 +21,7 @@
  * `components.schemas` (populated from `schemas.ts`).
  */
 
+import { frozenTenantMay } from '../middleware/tenant-state-rules.js';
 import { type JsonSchema, ref } from './schemas.js';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head';
@@ -50,6 +51,12 @@ export interface ResponseSpec {
   readonly contentType?: string | readonly string[];
   /** A JSON body the status may carry instead of `contentType`'s (`application/json`). */
   readonly orJson?: JsonSchema;
+  /**
+   * The answer, or some of the codes its text names, sends `Retry-After`
+   * (whole seconds, at least 1). Emitted as the shared header
+   * (`components.headers.RetryAfter`); the text names the codes that send it.
+   */
+  readonly retryAfter?: true;
 }
 
 export interface OperationSpec {
@@ -1614,13 +1621,43 @@ const ErrorResponse = (description: string): ResponseSpec => ({
   schema: ref('WireError'),
 });
 
+/** An `ErrorResponse` whose text names `Retry-After`, which it, or some of its codes, sends. */
+const RetryAfterResponse = (description: string): ResponseSpec => ({
+  ...ErrorResponse(description),
+  retryAfter: true,
+});
+
+/**
+ * A workspace's API requests a minute, spent: on a runtime that sets
+ * workspace limits, any request of its key or session past it is refused
+ * (`answersRequestLimit`). The generator's shared 429 says it, and an
+ * operation's own 429 names it after its own codes (`withRequestLimit`).
+ */
+export const REQUEST_LIMIT_TEXT =
+  '`rate-limit-exceeded` with `details.limit: "api-requests"`, on a runtime that sets workspace limits (Kindgi Cloud): this workspace\'s limit on API requests a minute is reached, so the request wasn\'t run; `Retry-After` says when to send it again.';
+
+/** An operation's own 429 text, then the workspace's request limit. */
+const withRequestLimit = (text: string): string => `${text} Or ${REQUEST_LIMIT_TEXT}`;
+
+/**
+ * A write the frozen-workspace gate checks, refused because the workspace's
+ * state couldn't be read (`answersTenantStateUnavailable`). The generator
+ * names it in the shared 503, and an operation's own 503 names it after its
+ * own codes (`withTenantState`).
+ */
+export const TENANT_STATE_UNAVAILABLE_TEXT =
+  "`tenant-state-unavailable` (with `Retry-After`), on a runtime serving many workspaces: the workspace's state couldn't be read, so nothing was changed.";
+
+/** An operation's own 503 text, then the workspace's state unread. */
+const withTenantState = (text: string): string => `${text} Or ${TENANT_STATE_UNAVAILABLE_TEXT}`;
+
 /**
  * A request that publishes schemas, refused by its tenant's compile
  * budget before it stored anything.
  */
 const SCHEMA_COMPILE_BUDGET_TEXT =
   '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this workspace\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.';
-const SCHEMA_COMPILE_BUDGET = ErrorResponse(SCHEMA_COMPILE_BUDGET_TEXT);
+const SCHEMA_COMPILE_BUDGET = RetryAfterResponse(withRequestLimit(SCHEMA_COMPILE_BUDGET_TEXT));
 
 /**
  * A publish through the API into a later environment of an environment
@@ -1691,14 +1728,18 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
  * that takes an `Idempotency-Key`, so its 503 names that store's too.
  */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
-  '429': ErrorResponse(
-    "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+  '429': RetryAfterResponse(
+    withRequestLimit(
+      "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+    ),
   ),
   '502': ErrorResponse(
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
-  '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
+  '503': RetryAfterResponse(
+    withTenantState(
+      "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
+    ),
   ),
 };
 
@@ -1758,18 +1799,61 @@ export function answersDatabaseBusy(op: OperationSpec): boolean {
 }
 
 /**
- * Whether a served operation can answer `503 idempotency-store-unavailable`:
- * a write that takes an `Idempotency-Key`, which `idempotencyMiddleware`
- * answers so when the key's store fails before the write runs. The spec
- * generator injects the 503 for these (unless the operation declares a 503
- * of its own, which then names it too), and a test holds every one of them
- * to it.
+ * Whether a served operation is a write that takes an `Idempotency-Key`,
+ * which `idempotencyMiddleware` answers `503 idempotency-store-unavailable`
+ * when the key's store fails before the write runs, and `409
+ * idempotency-key-in-flight` when the same key's first request still runs,
+ * each with `Retry-After`. The spec generator injects the 503 for these
+ * (unless the operation declares a 503 of its own, which then names it too)
+ * and names the 409 in theirs, and a test holds every one of them to it.
  */
-export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
+export function takesIdempotencyKey(op: OperationSpec): boolean {
   return (
     op.method !== 'get' &&
     op.method !== 'head' &&
     (op.parameters ?? []).some((p) => p.in === 'header' && p.name === IdempotencyKeyParam.name)
+  );
+}
+
+/**
+ * Whether a workspace's key or session calls the operation: it takes one, and
+ * it isn't the operator's (`/v1/system`).
+ */
+function workspaceCalls(op: OperationSpec): boolean {
+  return op.security !== 'public' && !/^\/v1\/system(?:\/|$)/.test(op.openapiPath);
+}
+
+/**
+ * Whether a served operation counts against a workspace's API requests a
+ * minute, and so can answer `429 rate-limit-exceeded` (`details.limit:
+ * "api-requests"`) with `Retry-After`, on a runtime that sets workspace
+ * limits: one a workspace's key or session calls. The limiter counts a
+ * request that has a `tenantId` and isn't a system principal's
+ * (`countApiRequest`, `tenant-limits.ts`); only a key's or a session's
+ * authentication sets `tenantId`, so the spec reads it from the operation's
+ * security. The generator injects the 429 for these (unless the operation
+ * declares a 429 of its own, which then names it too), and a test holds
+ * every one of them to it.
+ */
+export function answersRequestLimit(op: OperationSpec): boolean {
+  return workspaceCalls(op);
+}
+
+/**
+ * Whether a served operation can answer `503 tenant-state-unavailable` with
+ * `Retry-After`: a write of a workspace's key or session that the
+ * frozen-workspace gate (`tenantStateGate`) checks, which answers so when the
+ * workspace's state can't be read, on a runtime serving many workspaces. The
+ * gate lets reads, deletes and the `POST`s in `ALLOWED_POSTS` through
+ * (`tenant-state-rules.ts`), matched here with each `{param}` filled in, as
+ * the gate sees a request's path. The generator names the code in the
+ * shared 503 of these (an operation that declares a 503 of its own names it
+ * itself), and a test holds every one of them to it.
+ */
+export function answersTenantStateUnavailable(op: OperationSpec): boolean {
+  return (
+    workspaceCalls(op) &&
+    !frozenTenantMay(op.method.toUpperCase(), op.openapiPath.replace(/\{[^}]+\}/g, 'x'))
   );
 }
 
@@ -2103,8 +2187,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the workspace (`details.issues`).",
       ),
-      '429': ErrorResponse(
-        "A limit of the workspace's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`, with the limit in `details.runsPending`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`), when the call waits for the run (with `options.wait: false`, the call answers 202 and the run fails with that code). On a server with budgets kept per workspace (Kindgi Cloud), also `rate-limit-exceeded` when work the agent's turn needed was refused, because this workspace's work of that kind took `details.budgetMs` in the last 60 seconds: `details.limit` names the budget, `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "A limit of the workspace's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`, with the limit in `details.runsPending`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`), when the call waits for the run (with `options.wait: false`, the call answers 202 and the run fails with that code). On a server with budgets kept per workspace (Kindgi Cloud), also `rate-limit-exceeded` when work the agent's turn needed was refused, because this workspace's work of that kind took `details.budgetMs` in the last 60 seconds: `details.limit` names the budget, `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
+        ),
       ),
     },
   },
@@ -2602,7 +2688,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2656,7 +2742,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2689,7 +2775,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Another tenant has the slug, or a create whose setup is pending holds it with another request (`tenant-slug-taken`); or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body; or that key's replay, when the first answer held the admin key (`idempotency-key-replay-withheld`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2775,7 +2861,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2807,7 +2893,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2843,7 +2929,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2880,7 +2966,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2926,7 +3012,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3002,7 +3088,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '502': ErrorResponse(
         "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3364,7 +3450,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         'This server keeps no orchestrator round (`orchestrator-round-unsupported`): whatever runs its pack services keeps one pass at a time itself.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3394,7 +3480,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         'This server keeps no orchestrator round (`orchestrator-round-unsupported`).',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3432,7 +3518,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '422': ErrorResponse(
         "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3490,7 +3576,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`). Or the database was too busy to answer in time (`database-busy`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3526,7 +3612,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3554,7 +3640,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3587,7 +3673,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3617,7 +3703,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4313,8 +4399,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '422': ErrorResponse(
         "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`). With the gate's `cases` rule, `details.passing` and `details.needs` come with `minPassing`, and `details.newlyFailing` (the cases that passed before and fail now) with `noNewFailures`.",
       ),
-      '429': ErrorResponse(
-        "`approvals-pending-limit`: the gate wants an approval, and the workspace's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "`approvals-pending-limit`: the gate wants an approval, and the workspace's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
+        ),
       ),
       '501': ErrorResponse(
         "`pin-gate-unsupported`: a release gate applies, and the deployment can't record a gated pin.",
@@ -7620,7 +7708,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The ways to sign in (possibly none).', schema: ref('SignInOptions') },
       '400': ErrorResponse('`email` is not an email address.'),
-      '429': ErrorResponse('Too many lookups from this client.'),
+      '429': RetryAfterResponse(
+        'Too many lookups from this client; `Retry-After` says when to try again.',
+      ),
     },
   },
   {
@@ -8046,8 +8136,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.',
       ),
-      '429': ErrorResponse(
-        '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
+        ),
       ),
     },
   },
@@ -8087,8 +8179,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
     },
   },
@@ -8115,8 +8209,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'No new key to confirm, or it is over an hour old (`second-factor-not-started`), or an idempotency conflict.',
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
     },
   },
@@ -8139,8 +8235,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
       '409': ErrorResponse(
         'No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.',
@@ -8169,8 +8267,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.',
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
     },
   },
@@ -8260,8 +8360,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
       ),
-      '503': ErrorResponse(
-        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`, with `Retry-After`): try again.",
+      '503': RetryAfterResponse(
+        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`); either way `Retry-After` says when to try again.",
       ),
     },
   },
@@ -8473,8 +8573,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
-      '429': ErrorResponse(
-        `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+        ),
       ),
     },
   },
@@ -8744,8 +8846,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
-      '429': ErrorResponse(
-        "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+        ),
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
       '501': ErrorResponse(
@@ -12180,10 +12284,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '413': ErrorResponse(
         "`webhook-body-too-large`: past the trigger's `bodyLimitBytes` (or 1 MiB, before any lookup).",
       ),
-      '429': ErrorResponse(
-        "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
+      '429': RetryAfterResponse(
+        '`rate-limit-exceeded`: past the trigger\'s `rateLimitPerMinute`, or too many refused requests from this client, or, on a runtime that sets workspace limits (Kindgi Cloud), past this workspace\'s limit on webhook deliveries a minute (`details.limit: "webhook-receives"`); `Retry-After` says when.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the workspace's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
       ),
     },
@@ -12236,10 +12340,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '415': ErrorResponse(
         '`unsupported-media-type`: a body sent without a JSON content type (`application/json`).',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
       ),
     },
@@ -12284,10 +12388,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was stored. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was stored. `Retry-After` says when to store the file again.",
       ),
     },
@@ -12327,10 +12431,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended.',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
       ),
     },
@@ -12775,8 +12879,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '502': ErrorResponse(
         "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
       ),
-      '503': ErrorResponse(
-        "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      '503': RetryAfterResponse(
+        withTenantState(
+          "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+        ),
       ),
     },
   },
@@ -12893,8 +12999,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
       ),
-      '503': ErrorResponse(
-        "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      '503': RetryAfterResponse(
+        withTenantState(
+          "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+        ),
       ),
     },
   },
@@ -12917,7 +13025,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -13018,8 +13126,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No such project (`project-not-found`); the agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`); or a connection isn't a candidate, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `connectionId` or `connectionIds`).",
       ),
-      '503': ErrorResponse(
-        "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      '503': RetryAfterResponse(
+        withTenantState(
+          "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+        ),
       ),
     },
   },
@@ -13051,7 +13161,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No live choice with that id in this environment: unknown, already removed, in a project the caller can't read, or another person's (`connection-choice-not-found`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -13192,7 +13302,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         '`connection-notice-invalid`: the notice was not accepted (the same answer whatever the reason).',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many refused notices from this client; `Retry-After` says when.',
       ),
       '503': ErrorResponse(
@@ -13461,7 +13571,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The key was retired at this site, or at another site in the workspace at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
       ),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
-      '429': ErrorResponse('Too many failures from this client.'),
+      '429': RetryAfterResponse(
+        'Too many failures from this client; `Retry-After` says when to try again.',
+      ),
     },
   },
   {
@@ -13480,7 +13592,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("A malformed body, or a statement that isn't a compact JWS."),
       '401': ErrorResponse('The statement was refused (`site-sign-in-refused`, `details.reason`).'),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
-      '429': ErrorResponse('Too many requests from this client or for this site.'),
+      '429': RetryAfterResponse(
+        'Too many requests from this client or for this site; `Retry-After` says when to try again.',
+      ),
     },
   },
 ] as const;

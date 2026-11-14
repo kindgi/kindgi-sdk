@@ -9,11 +9,12 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import { OPERATIONS, generateOpenApiDocument, honoToOpenapiPath } from '../src/index.js';
+import { frozenTenantMay } from '../src/middleware/tenant-state-rules.js';
 import {
   READS_WITHOUT_STORAGE,
   answersAuthzUnavailable,
   answersDatabaseBusy,
-  answersIdempotencyStoreUnavailable,
+  takesIdempotencyKey,
 } from '../src/openapi/operations.js';
 import { RunEventSchema } from '../src/openapi/schemas.js';
 
@@ -173,9 +174,7 @@ describe('OpenAPI — generated document', () => {
         Record<string, { responses: Record<string, { description?: string }> }>
       >;
     };
-    const writes = OPERATIONS.filter(
-      (o) => o.unserved === undefined && answersIdempotencyStoreUnavailable(o),
-    );
+    const writes = OPERATIONS.filter((o) => o.unserved === undefined && takesIdempotencyKey(o));
     // Guard against a filter that selects nothing (which would pass vacuously):
     // well over a hundred writes take the key.
     expect(writes.length).toBeGreaterThan(100);
@@ -200,9 +199,7 @@ describe('OpenAPI — generated document', () => {
         Record<string, { responses: Record<string, { description?: string }> }>
       >;
     };
-    const others = OPERATIONS.filter(
-      (o) => o.unserved === undefined && !answersIdempotencyStoreUnavailable(o),
-    );
+    const others = OPERATIONS.filter((o) => o.unserved === undefined && !takesIdempotencyKey(o));
     // Both kinds are there, so neither half passes vacuously.
     expect(others.some((o) => o.method === 'get')).toBe(true);
     expect(others.some((o) => o.method === 'post')).toBe(true);
@@ -316,18 +313,18 @@ describe('OpenAPI — generated document', () => {
     expect(stream?.responses['200']?.content).toHaveProperty('text/event-stream');
   });
 
-  test('every $ref target exists under components.schemas', () => {
+  test('every $ref target exists under components.schemas or components.headers', () => {
     const doc = generateOpenApiDocument() as {
-      components: { schemas: Record<string, unknown> };
+      components: { schemas: Record<string, unknown>; headers: Record<string, unknown> };
       paths: Record<string, unknown>;
     };
-    const known = new Set(Object.keys(doc.components.schemas));
+    const known = new Set([
+      ...Object.keys(doc.components.schemas).map((name) => `#/components/schemas/${name}`),
+      ...Object.keys(doc.components.headers).map((name) => `#/components/headers/${name}`),
+    ]);
     const refs: string[] = [];
     collectRefs(doc.paths, refs);
-    for (const ref of refs) {
-      const name = ref.replace('#/components/schemas/', '');
-      expect(known.has(name), `dangling $ref: ${ref}`).toBe(true);
-    }
+    for (const ref of refs) expect(known.has(ref), `dangling $ref: ${ref}`).toBe(true);
   });
 
   // Without a `mapping`, a generator may take each member's schema name as
@@ -387,6 +384,185 @@ describe('OpenAPI — public route is reachable without auth', () => {
     const doc = (await res.json()) as { openapi: string; paths: Record<string, unknown> };
     expect(doc.openapi).toBe('3.1.0');
     expect(Object.keys(doc.paths)).toContain('/v1/runs');
+  });
+});
+
+interface SpecResponse {
+  readonly description?: string;
+  readonly content?: unknown;
+  readonly headers?: Readonly<Record<string, { readonly $ref?: string }>>;
+}
+
+interface SpecOperation {
+  readonly security?: readonly Readonly<Record<string, readonly string[]>>[];
+  readonly parameters?: readonly { readonly name?: string; readonly in?: string }[];
+  readonly responses: Readonly<Record<string, SpecResponse>>;
+}
+
+interface SpecEntry {
+  readonly method: string;
+  readonly path: string;
+  readonly op: SpecOperation;
+}
+
+const SPEC_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head']);
+
+function specEntries(): {
+  readonly doc: { readonly components: { readonly headers?: Record<string, unknown> } };
+  readonly entries: readonly SpecEntry[];
+} {
+  const doc = generateOpenApiDocument() as {
+    components: { headers?: Record<string, unknown> };
+    paths: Record<string, Record<string, SpecOperation>>;
+  };
+  const entries: SpecEntry[] = [];
+  for (const [path, item] of Object.entries(doc.paths)) {
+    for (const [method, op] of Object.entries(item)) {
+      if (SPEC_METHODS.has(method)) entries.push({ method, path, op });
+    }
+  }
+  return { doc, entries };
+}
+
+/**
+ * Called with a workspace's key or session: the limiter and the gate act
+ * when the request has a `tenantId` and no system principal. Only the
+ * bearer middleware (auth.ts) and SigV4 (sigv4.ts) set `tenantId`, so the
+ * spec's `bearerAuth` outside `/v1/system` stands in for that. A middleware
+ * that took `tenantId` from a path (the hooks' and connection notices'
+ * paths carry one) would show here as a spec gap.
+ */
+function workspaceCall({ path, op }: SpecEntry): boolean {
+  const bearer = (op.security ?? []).some((req) => Object.hasOwn(req, 'bearerAuth'));
+  return bearer && !/^\/v1\/system(?:\/|$)/.test(path);
+}
+
+const where = ({ method, path }: SpecEntry, status: string): string =>
+  `${method.toUpperCase()} ${path} ${status}`;
+
+describe('OpenAPI — Retry-After and the answers every call can get', () => {
+  test('the Retry-After header is one shared component: whole seconds, at least 1', () => {
+    const { doc } = specEntries();
+    expect(doc.components.headers?.RetryAfter).toMatchObject({
+      schema: { type: 'integer', minimum: 1 },
+    });
+  });
+
+  // A response's text says which of its codes send `Retry-After`; the header
+  // object is what a typed client reads. Each holds the other.
+  test('a response declares Retry-After exactly when its text names it', () => {
+    const { entries } = specEntries();
+    let declared = 0;
+    for (const entry of entries) {
+      for (const [status, response] of Object.entries(entry.op.responses)) {
+        const names = (response.description ?? '').includes('Retry-After');
+        const header = response.headers?.['Retry-After'];
+        expect(header !== undefined, `${where(entry, status)}: text and header disagree`).toBe(
+          names,
+        );
+        if (header === undefined) continue;
+        declared += 1;
+        expect(header, where(entry, status)).toEqual({ $ref: '#/components/headers/RetryAfter' });
+      }
+    }
+    expect(declared).toBeGreaterThan(400);
+  });
+
+  // A new 429 or 503 picks one: send `Retry-After` and say so, or join this
+  // list with why it sends none.
+  const SENDS_NO_RETRY_AFTER: Readonly<Record<string, string>> = {
+    // The app may send the notice again at once; there's no wait to give it.
+    'POST /v1/connection-notices/{tenantId}/{appId} 503': 'connection-notice-unavailable',
+  };
+
+  test('every 429 and 503 declares Retry-After, but the ones listed with why', () => {
+    const { entries } = specEntries();
+    const unmarked: string[] = [];
+    for (const entry of entries) {
+      for (const status of ['429', '503']) {
+        const response = entry.op.responses[status];
+        if (response !== undefined && response.headers?.['Retry-After'] === undefined) {
+          unmarked.push(where(entry, status));
+        }
+      }
+    }
+    expect(unmarked.sort()).toEqual(Object.keys(SENDS_NO_RETRY_AFTER).sort());
+  });
+
+  // Hono answers a HEAD with its GET route and sends no body, so the shared
+  // answers a HEAD gets declare none.
+  test('a HEAD declares no body on its 429 or 503', () => {
+    const { entries } = specEntries();
+    const heads = entries.filter(({ method }) => method === 'head');
+    expect(heads.length).toBeGreaterThan(0);
+    for (const entry of heads) {
+      for (const status of ['429', '503']) {
+        expect(entry.op.responses[status]?.content, where(entry, status)).toBeUndefined();
+      }
+    }
+  });
+
+  test('every write that takes an Idempotency-Key declares the 409 a same-key request in flight gets', () => {
+    const { entries } = specEntries();
+    const keyed = entries.filter(({ op }) =>
+      (op.parameters ?? []).some((p) => p.name === 'Idempotency-Key' && p.in === 'header'),
+    );
+    expect(keyed.length).toBeGreaterThan(100);
+    for (const entry of keyed) {
+      const response = entry.op.responses['409'];
+      expect(response?.description, where(entry, '409')).toContain('idempotency-key-in-flight');
+      expect(response?.headers?.['Retry-After'], where(entry, '409')).toBeDefined();
+    }
+    for (const entry of entries.filter((e) => !keyed.includes(e))) {
+      expect(
+        entry.op.responses['409']?.description ?? '',
+        `${where(entry, '409')} takes no Idempotency-Key`,
+      ).not.toContain('idempotency-key-in-flight');
+    }
+  });
+
+  test("every call a workspace's key or session makes declares the workspace's request limit, and no other does", () => {
+    const { entries } = specEntries();
+    const calls = entries.filter(workspaceCall);
+    // Both sides are there, and so is a call a public run token also takes.
+    expect(calls.length).toBeGreaterThan(300);
+    expect(calls.some(({ op }) => (op.security ?? []).length > 1)).toBe(true);
+    expect(entries.length).toBeGreaterThan(calls.length);
+    for (const entry of entries) {
+      const description = entry.op.responses['429']?.description ?? '';
+      expect(description.includes('"api-requests"'), where(entry, '429')).toBe(
+        workspaceCall(entry),
+      );
+    }
+  });
+
+  // These take a workspace from their path, not from a key, and answer the
+  // gate's refusal themselves.
+  const REFUSE_FOR_A_FROZEN_WORKSPACE_THEMSELVES = new Set([
+    'POST /v1/hooks/{tenantId}/{webhookId}',
+    'POST /v1/tool-files',
+    'POST /v1/wait-tokens/{token}/complete',
+  ]);
+
+  test('every write the frozen-workspace gate checks declares tenant-state-unavailable, and the ones it lets through do not', () => {
+    const { entries } = specEntries();
+    // The gate sees a real path, so each `{param}` is filled before matching.
+    const gated = (entry: SpecEntry): boolean =>
+      workspaceCall(entry) &&
+      !frozenTenantMay(entry.method.toUpperCase(), entry.path.replace(/\{[^}]+\}/g, 'p1'));
+    const checked = entries.filter(gated);
+    expect(checked.length).toBeGreaterThan(100);
+    // Some writes a workspace's key makes are let through: posts the gate allows.
+    expect(entries.some((e) => workspaceCall(e) && e.method === 'post' && !gated(e))).toBe(true);
+    for (const entry of entries) {
+      const names = (entry.op.responses['503']?.description ?? '').includes(
+        'tenant-state-unavailable',
+      );
+      const own = REFUSE_FOR_A_FROZEN_WORKSPACE_THEMSELVES.has(
+        `${entry.method.toUpperCase()} ${entry.path}`,
+      );
+      expect(names, where(entry, '503')).toBe(gated(entry) || own);
+    }
   });
 });
 
