@@ -107,15 +107,23 @@ so it can't name the run. Mark it `forRun`, and the runtime deletes it if no
 run that names it in its input starts in time:
 
 ```ts
+// scripts/upload-for-run.ts
+import { readFile } from 'node:fs/promises';
+
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
 const file = await kindgi.artifacts.upload({
   body: await readFile('contract.docx'),
   name: 'contract.docx',
   contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   forRun: true,
 });
+console.log(file.blobId);
 ```
 
-`readFile` is Node's, from `node:fs/promises`. The run's input names the
+The run's input names the
 file as a `kindgi.file` value whose `artifactId` is its `blobId`.
 
 - Its record has `expiresAt`, when it's deleted unless such a run has
