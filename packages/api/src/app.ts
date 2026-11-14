@@ -232,6 +232,7 @@ import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecondFactorBinding } from './second-factor-binding.js';
+import type { SecretLocate } from './secret-scope.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import { type ServedEnvRule, secretReferencesOf } from './served-env.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
@@ -1358,6 +1359,14 @@ export interface CreateAppInput {
    * hold (`listEnvNames`).
    */
   readonly secretsBinding?: SecretBinding;
+  /**
+   * Optional. Where `secretsBinding` would read a secret, revoked or not
+   * (`SecretLocate`); the runtime supplies its store's `locate`. With it, a
+   * deployment's values in its own project call a tool's secret `revoked`
+   * when it's revoked where its version recorded it. Absent: they read as
+   * `get` answers, which never answers a revoked one.
+   */
+  readonly secretLocate?: SecretLocate;
   /**
    * Optional. The order a tenant runs a project through on its way to live
    * — its "environments". When present, mounts `/v1/environment-orders`,
@@ -2743,6 +2752,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
           ...(secretsBinding !== undefined && { secretsBinding }),
+          ...(input.secretLocate !== undefined && { secretLocate: input.secretLocate }),
           ...(servedEnv !== undefined && { envName: servedEnv }),
           // A runtime running a pack service per deployment gives each the
           // env its pack declares, from the env store.
