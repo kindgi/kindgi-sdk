@@ -183,7 +183,7 @@ export interface CorrectedComparisonSummary {
   /**
    * Which corrections counted: `experts-only` weighs a correction not
    * recorded under an expert group 0 (a gate can require it). Absent
-   * from a summary recorded before T200: `as-recorded`.
+   * from a summary recorded before the field existed: `as-recorded`.
    */
   readonly groupWeights?: TestRunGroupWeights;
   /** The part of the test set it ran (absent: every case). */

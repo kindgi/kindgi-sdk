@@ -196,7 +196,7 @@ export function guardrailsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    // Only what the caller may read, as `GET …/:id` asks.
     const visible =
       authorizer === undefined
         ? page.data

@@ -14,8 +14,6 @@ import com.kindgi.pack.internal.Json;
 import com.kindgi.pack.internal.SchemaValidator;
 import java.io.EOFException;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -28,6 +26,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -210,6 +209,10 @@ final class PackService implements HttpServer.Handler {
     }
     for (Object g : (List<Object>) index.getOrDefault("guardrails", List.of())) {
       Map<String, Object> entry = (Map<String, Object>) g;
+      // A built-in's check (`checkBuiltIn`) is the runtime's: the pack has no code for it.
+      if (Boolean.TRUE.equals(entry.get("checkBuiltIn"))) {
+        continue;
+      }
       String checkId = String.valueOf(entry.get("checkId") != null ? entry.get("checkId") : entry.get("id"));
       String path = String.valueOf(entry.get("checkModulePath"));
       List<Object> primitives = load(path, loader, loaded, checkId, failures);
@@ -614,14 +617,14 @@ final class PackService implements HttpServer.Handler {
       if (cancellation.isCancelled()) {
         throw e;
       }
-      return error("handler-throw", "Handler for tool \"" + toolId + "\" threw: " + e, with(ids, "cause", cause(e)));
+      return handlerThrew(toolId, e, ctx, ids);
     } catch (Exception | LinkageError | AssertionError | StackOverflowError e) {
       ConnectionRejectedException rejected = rejectionOf(e);
       if (rejected != null) {
         return error(ConnectionRejectedException.CODE, "Tool \"" + toolId + "\": " + rejected.getMessage(),
             with(ids, "connection", rejected.connection()));
       }
-      return error("handler-throw", "Handler for tool \"" + toolId + "\" threw: " + e, with(ids, "cause", cause(e)));
+      return handlerThrew(toolId, e, ctx, ids);
     }
     Object output;
     try {
@@ -695,7 +698,9 @@ final class PackService implements HttpServer.Handler {
     } catch (InterruptedException e) {
       throw e;
     } catch (Exception | LinkageError | AssertionError | StackOverflowError e) {
-      return error("handler-throw", "Check \"" + checkId + "\" check() threw: " + e, with(ids, "cause", cause(e)));
+      UnaryOperator<String> none = UnaryOperator.identity();
+      return error("handler-throw", "Check \"" + checkId + "\" check() threw: " + ErrorText.said(e, none),
+          with(ids, "cause", ErrorText.cause(e, none)));
     }
     if (result == null) {
       return error("output-validation-failed", "Check \"" + checkId + "\" returned null; a check returns a CheckResult", ids);
@@ -836,14 +841,15 @@ final class PackService implements HttpServer.Handler {
     return out;
   }
 
-  static Map<String, Object> cause(Throwable e) {
-    StringWriter stack = new StringWriter();
-    e.printStackTrace(new PrintWriter(stack));
-    Map<String, Object> out = new LinkedHashMap<>();
-    out.put("name", e.getClass().getName());
-    out.put("message", String.valueOf(e.getMessage()));
-    out.put("stack", stack.toString());
-    return out;
+  /**
+   * A handler's error, with the call's connection tokens and secrets taken out before its message
+   * is made: its masking, its one-line causes and their cut could otherwise leave part of one where
+   * a match on the whole value no longer finds it.
+   */
+  private static Map<String, Object> handlerThrew(String toolId, Throwable e, ToolContext ctx, Map<String, Object> ids) {
+    UnaryOperator<String> withoutValues = ErrorText.withoutValues(ctx);
+    return error("handler-throw", "Handler for tool \"" + toolId + "\" threw: " + ErrorText.said(e, withoutValues),
+        with(ids, "cause", ErrorText.cause(e, withoutValues)));
   }
 
   /** For the shutdown: nothing left to run. */

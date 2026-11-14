@@ -100,7 +100,7 @@ function makeInMemoryBinding(): PolicyRegistryBinding {
   }
 
   const rowStore = new Map<string, Map<string, Row>>();
-  // T236: one policy per scope (`policyScope`; a retention policy's
+  // One policy per scope (`policyScope`; a retention policy's
   // domain), as `PolicyRegistryBinding.publish` / `reinstateVersion`
   // document it: the id's other versions keep their scope, and no other
   // id's active policy of the kind holds it.
@@ -781,7 +781,7 @@ describe('API — policies surface unmounted when no binding supplied', () => {
   });
 });
 
-describe('API — policies: retention specs, one policy per domain (T236)', () => {
+describe('API — policies: retention specs, one policy per domain', () => {
   const retention = (id: string, doc: Record<string, unknown>, version = '1.0.0') =>
     policySpec({
       id,

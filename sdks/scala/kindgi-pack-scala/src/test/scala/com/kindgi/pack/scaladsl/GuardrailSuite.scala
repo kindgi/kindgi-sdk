@@ -31,4 +31,40 @@ class GuardrailSuite extends munit.FunSuite {
       .onViolation("halt").check((_, _) => com.kindgi.pack.CheckResult.pass())
     assertEquals(judged.id(), "acme.tone")
   }
+
+  test("a built-in check is named with its config, and only the runtime runs it") {
+    val noGuarantees = Guardrail.json("acme.no-guarantees").onViolation("halt")
+      .builtInCheck("forbidden-substring", Map("patterns" -> List("guaranteed", "we promise")))
+    assert(noGuarantees.builtIn())
+    assertEquals(noGuarantees.checkId(), "forbidden-substring")
+    assert(noGuarantees.configSchema() == null)
+    val ran = intercept[UnsupportedOperationException](
+      noGuarantees.evaluate(Map.empty[String, Any], new com.kindgi.pack.RunTrace(java.util.Map.of())))
+    assert(ran.getMessage.contains("names the built-in check \"forbidden-substring\""), ran.getMessage)
+    val cites = Guardrail.json("acme.cites").onViolation("log-only").set("at", "final-answer").builtInCheck("must-cite")
+    assertEquals(cites.checkId(), "must-cite")
+  }
+
+  test("a built-in check refuses a typed config, and what Java's builtInCheck refuses") {
+    val typed = intercept[IllegalStateException](
+      Guardrail[GuardrailSuite.Words]("acme.g").onViolation("halt").builtInCheck("must-cite"))
+    assertEquals(typed.getMessage,
+      "guardrail acme.g: a built-in's config is the runtime's to check, so build it from Guardrail.json, with no"
+        + " configSchema")
+    val unknown = intercept[IllegalArgumentException](
+      Guardrail.json("acme.g").onViolation("halt").builtInCheck("acme.checks.mine"))
+    assert(unknown.getMessage.contains("\"acme.checks.mine\" isn't a built-in check"), unknown.getMessage)
+    val twice = intercept[IllegalStateException](
+      Guardrail.json("acme.g").onViolation("halt").set("config", Map("patterns" -> List("x")))
+        .builtInCheck("forbidden-substring", Map("patterns" -> List("y"))))
+    assert(twice.getMessage.contains("its config is given twice"), twice.getMessage)
+    val scoped = intercept[IllegalStateException](
+      Guardrail.json("acme.g").onViolation("halt").set("scope", Map("tools" -> List("acme.*")))
+        .builtInCheck("must-cite"))
+    assert(scoped.getMessage.contains("scope.tools is for \"before-tool\" and \"after-tool\""), scoped.getMessage)
+  }
+}
+
+object GuardrailSuite {
+  final case class Words(words: List[String])
 }

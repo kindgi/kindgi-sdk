@@ -2,7 +2,7 @@
 Contributors: <wordpress-org-username>
 Tags: ai, agents, approvals, woocommerce, staff
 Tested up to: 7.1
-Stable tag: 0.2.0
+Stable tag: 0.2.1
 License: Apache-2.0
 License URI: https://www.apache.org/licenses/LICENSE-2.0
 
@@ -66,7 +66,7 @@ Kindgi is told, for good. Deleting their user, removing them from the site on a 
 
 = What does deleting the plugin remove? =
 
-The Kindgi URL, the connection, the signing key it made, each person's cached session, its scheduled runs, and its record of when WooCommerce turned off each webhook to Kindgi. Each person's random id and Kindgi id stay, and so does the list of people Kindgi knows, with any change still waiting to reach Kindgi. They say who each person is, so the plugin installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. While the plugin is active, erasing a person's data under **Tools → Erase Personal Data** removes their ids here, and tells Kindgi they left.
+The Kindgi URL, the connection, the signing key it made, each person's cached session, its scheduled runs, its record of when WooCommerce turned off each webhook to Kindgi, and which agents the Ask page offers. Each person's random id and Kindgi id stay, and so does the list of people Kindgi knows, with any change still waiting to reach Kindgi. They say who each person is, so the plugin installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. While the plugin is active, erasing a person's data under **Tools → Erase Personal Data** removes their ids here, and tells Kindgi they left.
 
 = Does it need wp-cron? =
 
@@ -101,6 +101,17 @@ The agents send what they work on to the AI model provider they're set up with, 
 With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run the store's agents: see the [Kindgi Cloud terms](https://www.kindgi.com/legal/hosted-terms) and the [privacy policy](https://www.kindgi.com/privacy). With a Kindgi server the site's owner runs, the data goes to that server.
 
 == Changelog ==
+
+= 0.2.1 =
+
+* **A card about an order shows the order's money.** A tool call shows on its order when it names the order's ID as `orderId`, with amounts in the currency's whole units, and only when that order is on this store: the order chip, the order's Kindgi box, the Orders list column and the private order note. An amount shows in the order's currency and the store's price format, and the "Order ID" field drops, since the chip names the order. What the approval itself says it's about, when Kindgi sends it, wins.
+* **A decided card drops its deadline.** A decision removes the "Expires … if no one decides" line along with the buttons, wherever the card is.
+* **Cards and conversations link their runs.** A card's meta line ends with "See the run", and in Ask the last words of each run link that run on Activity, a live turn as it starts.
+* **Deleting the plugin removes the offered agents,** the list of agents staff see on the Ask page.
+* **Activity says which waiting runs need a person.** A run that waits for a decision is marked, so staff can tell it from one that is only working.
+* **A run's wait links to the Inbox, for reviewers only.** Whoever may decide the approval gets the link; others see the wait without it.
+* **A card reads a rejection that names its reviewer.** A rejected approval says who rejected it.
+* **The terms and privacy links name the published pages.** They point to the pages Kindgi publishes, and say so.
 
 = 0.2.0 =
 

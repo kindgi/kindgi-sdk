@@ -55,7 +55,7 @@ export function orgDeleteSlugConflictError(slugs: readonly string[]) {
 /**
  * `404 org-not-found`: the org a project or team would be in isn't the
  * tenant's (it never existed, or it was deleted). The code and message
- * `GET /v1/orgs/{id}` answers (T220).
+ * `GET /v1/orgs/{id}` answers.
  */
 export function orgNotFoundError(orgId: string) {
   return { code: 'org-not-found', message: `No org with id "${orgId}"`, orgId } as const;

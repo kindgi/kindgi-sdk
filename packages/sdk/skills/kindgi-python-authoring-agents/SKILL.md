@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.14"
+version: "0.1.15"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -179,7 +179,8 @@ brief_writer = Agent(
   tool call goes back to the model as the call's result so it can fix
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
   (nothing ran); add `tool-error` only when retrying the tool is safe.
-  Each retry costs a step.
+  The list replaces the default, so keep `invalid-arguments` and
+  `unknown-tool` in it. Each retry costs a step.
 - **`parallel_tool_calls`** — default on: when a model step asks for several
   calls at once, calls to read-only tools (`mutating=False`, no changing
   effect) that come one after another run at the same time, up to 8 of them,

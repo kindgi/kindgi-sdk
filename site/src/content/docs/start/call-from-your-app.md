@@ -25,6 +25,11 @@ app as `KINDGI_API_URL` and `KINDGI_API_TOKEN` in your env file (`.env` /
 token is `token` in the pack's `.kindgirc.json`: the banner shows only its
 last four characters, so a log you share doesn't give it away.
 
+Set both, or neither. With only the token set, the client never sends it to
+the URL in `.kindgirc.json`, and with only a URL other than `kindgi dev`'s,
+it never sends that file's token there. Either way the client takes nothing
+from the file, and its first use throws, naming the file and what to set.
+
 ```sh
 # .env.local
 KINDGI_API_URL=http://127.0.0.1:4000

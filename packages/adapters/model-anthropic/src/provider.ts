@@ -188,7 +188,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       // Turns this model answered with thinking go back with it (`fromAnthropicResponse`).
       const translated = toAnthropicMessages(input.messages, files, input.model);
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
-      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
+      // a model told to call `acme.lookup_order` calls a name it wasn't given.
       const toolNames = input.tools?.map((t) => t.name) ?? [];
       // A call names its tool by the name it was sent: back to the id by lookup.
       const toolIdOf = toolIdsBySentName(toolNames, encodeToolName, decodeToolName);

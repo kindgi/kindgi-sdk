@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * What a run waits for: the answer `kindgi runs resume` gives (T272).
+ * What a run waits for: the answer `kindgi runs resume` gives.
  *
  * A run resumes on its own once what it waits for happens, so the
  * command says what that is:

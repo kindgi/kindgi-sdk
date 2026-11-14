@@ -410,6 +410,19 @@ const PinScopeKindQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
 };
 
+/**
+ * `scopeKind` where it names what the answer is for, not a filter: a route
+ * that takes it answers `400` without one.
+ */
+const PinScopeKindRequiredQueryParam: ParameterSpec = {
+  name: 'scopeKind',
+  in: 'query',
+  required: true,
+  description:
+    'The scope a pin would be for: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`).',
+  schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
+};
+
 const PinChangeIdPathParam: ParameterSpec = {
   name: 'changeId',
   in: 'path',
@@ -1676,6 +1689,25 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
 };
 
 /**
+ * The authorization check's 503s, for an operation that declares a 503 of
+ * its own: the generator's shared one is added only when it declares none.
+ */
+const AUTHZ_CHECK_UNAVAILABLE =
+  "`authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.";
+
+/**
+ * The 503 of a secrets write that takes an `Idempotency-Key`: the secrets
+ * store's external provider, then the stores the request reads before it
+ * runs. `also` (from ", or") names what else answers
+ * `secret-provider-unavailable`.
+ */
+function secretWriteUnavailable(also: string): ResponseSpec {
+  return ErrorResponse(
+    `\`secret-provider-unavailable\`: the secrets store's external provider can't be reached${also}. \`idempotency-store-unavailable\` (with \`Retry-After\`): the \`Idempotency-Key\` store couldn't be read before the request ran, so nothing was changed. ${AUTHZ_CHECK_UNAVAILABLE}`,
+  );
+}
+
+/**
  * A secrets store's external provider (the router's), answering a read or a
  * write: each at its own status. Each operation that spreads it is a write
  * that takes an `Idempotency-Key`, so its 503 names that store's too.
@@ -1687,18 +1719,34 @@ const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '502': ErrorResponse(
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
-  '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
-  ),
+  '503': secretWriteUnavailable(''),
 };
 
-/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+/**
+ * A write a hard revoke overtook after it began (the router's): what it
+ * wrote isn't served.
+ */
+const SECRET_REVOKED_WHILE_WRITING =
+  "`secret-revoked`: a hard revoke of the secret overtook the write, so what it wrote isn't served; the message names the secret and says what becomes of the value it wrote.";
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), its provider's answer, or a hard revoke that overtook it. */
 const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
   '400': ErrorResponse(
     "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (a new name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
   ),
   ...SecretProviderErrors,
+  '404': ErrorResponse(SECRET_REVOKED_WHILE_WRITING),
+  '503': secretWriteUnavailable(
+    ', or, with a secret manager, a hard revoke of the secret is still erasing it there: write it again in a few minutes (a revoke whose runtime stopped partway holds writes off for up to 10 minutes)',
+  ),
 };
+
+/**
+ * What a revoke the secret manager failed left (the router's): a soft one
+ * wasn't made, and a hard one revoked the secret but may not have erased it.
+ */
+const REVOKE_NOT_ERASED =
+  "A soft revoke isn't made, so revoke it again. A hard one revoked the secret, so reads stop, but its value may still be in the secret manager: a hard revoke again erases it.";
 
 /**
  * `env-not-served` for a value: on a runtime that keeps every value under
@@ -4152,7 +4200,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/agents/{agentId}/test-set/cases',
     operationId: 'agents.testSet.addCase',
     summary: "Add a case to an agent's test set",
-    description: `A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
+    description: `A case by hand, from a correction's body on one of the agent's runs that completed with an output. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -4164,7 +4212,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output yet.'),
+      '409': ErrorResponse(
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).',
+      ),
       '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
     },
   },
@@ -4342,7 +4392,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the workspace), at its latest active version. `releaseGate: null` when none applies.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, PinScopeKindQueryParam, ScopeIdQueryParam, SegmentQueryParam],
+    parameters: [
+      AgentIdPathParam,
+      PinScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      SegmentQueryParam,
+    ],
     responses: {
       '200': { description: 'The release gate, or null.', schema: ref('ReleaseGateResolution') },
       ...CommonAuthErrors,
@@ -6267,7 +6322,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.create',
     summary: 'Correct a run',
     description:
-      "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+      "Records whether the decisions and answer of a run that completed with an output were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6282,7 +6337,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
+      '409': ErrorResponse(
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).',
+      ),
       '410': ErrorResponse(
         "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to correct.",
       ),
@@ -8564,7 +8621,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
       ),
       '404': ErrorResponse(
-        "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+        `No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist. Or ${SECRET_REVOKED_WHILE_WRITING}`,
       ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
@@ -10939,6 +10996,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:write` capability.')),
+      '404': ErrorResponse(
+        `The body's \`scope\` names an org or a project that doesn't exist (\`org-not-found\`, \`project-not-found\`). Or ${SECRET_REVOKED_WHILE_WRITING}`,
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -10975,7 +11035,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       ...SecretProviderErrors,
       '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:rotate` capability.')),
-      '404': ErrorResponse('Unknown secret.'),
+      '404': ErrorResponse(
+        "Unknown secret (`secret-not-found`). `secret-revoked`: the secret is revoked, so it can't be rotated. Or a hard revoke of it overtook the rotate, so what it wrote isn't served; the message says what becomes of that value.",
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
         "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
@@ -11079,8 +11141,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(withLimitedAbove('Bearer token missing revoke capability.')),
       '404': ErrorResponse('Unknown secret.'),
+      '429': ErrorResponse(
+        `\`secret-provider-rate-limited\`: the secret manager is limiting the runtime's requests. ${REVOKE_NOT_ERASED}`,
+      ),
+      '500': ErrorResponse(
+        `\`secret-store-error\`: the secrets store or the secret manager failed, so revoke it again. Or a hard revoke's erase in the secret manager didn't finish, as the message says. If writes to the secret kept landing while it erased, it stays revoked, so reads stop, and a hard revoke again finishes the erase. If the erase took over 10 minutes and a set or another hard revoke came in, the secret manager may still hold a value, or a set made since may have lost the value it wrote: set it again, or revoke it hard again. Or a hard revoke of a secret that another secret manager keeps, or whose stored name is no longer a valid one: it's revoked, but its value is left in that secret manager, to remove there.`,
+      ),
       '501': ErrorResponse(
         "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
+      ),
+      '502': ErrorResponse(
+        `\`secret-provider-unauthorized\`: the secret manager refused the runtime's credentials. ${REVOKE_NOT_ERASED}`,
+      ),
+      '503': ErrorResponse(
+        `\`secret-provider-unavailable\`: the secret manager can't be reached. ${REVOKE_NOT_ERASED} Or another hard revoke of the secret is still erasing it: revoke it again in a few minutes if it's still there (a revoke whose runtime stopped partway holds the next off for up to 10 minutes). ${AUTHZ_CHECK_UNAVAILABLE}`,
       ),
     },
   },
@@ -11352,7 +11426,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.register',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Register an event trigger',
     description:
       'Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.',
@@ -11370,7 +11444,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.list',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'List event triggers',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -11385,7 +11459,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.get',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Fetch an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -11401,7 +11475,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.update',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Update an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -11418,7 +11492,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/pause',
     openapiPath: '/v1/event-triggers/{triggerId}/pause',
     operationId: 'eventTriggers.pause',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Pause an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -11434,7 +11508,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/resume',
     openapiPath: '/v1/event-triggers/{triggerId}/resume',
     operationId: 'eventTriggers.resume',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Resume an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -11450,7 +11524,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/unregister',
     openapiPath: '/v1/event-triggers/{triggerId}/unregister',
     operationId: 'eventTriggers.unregister',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Soft-delete an event trigger (tombstone)',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -11465,7 +11539,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/versions',
     openapiPath: '/v1/event-triggers/{triggerId}/versions',
     operationId: 'eventTriggers.listVersions',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: "An event trigger's versions",
     description:
       "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). An event trigger from before versions has none until its next change or its first fire. The versions keep every input the event trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the event trigger can read its versions.",
@@ -11486,7 +11560,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/versions/:version',
     openapiPath: '/v1/event-triggers/{triggerId}/versions/{version}',
     operationId: 'eventTriggers.getVersion',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Fetch one version of an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',

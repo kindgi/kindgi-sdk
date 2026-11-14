@@ -18,7 +18,7 @@ description: >
   kindgi-scala-authoring-tools.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -43,7 +43,7 @@ named like its file, in a `guardrails` package. For an agent turn, the
 runtime evaluates every guardrail the agent lists once, on the final answer,
 before it is stored.
 
-`Guardrail[C](…)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Scala guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.6/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+`Guardrail[C](…)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a guardrail with its own check runs at the final answer only. One that names a built-in check takes `set("at", …)` (`builtInCheck`, below). The points are documented at https://docs.kindgi.com/v0.6/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
 
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.
@@ -181,6 +181,36 @@ object Citations {
   "structured-output")))`); `check(...)` refuses an llm-judge guardrail
   without it.
 - `set("sandbox" | "limits" | "network", …)` are recorded in the index.
+
+## A built-in check: `builtInCheck(...)`
+
+A rule a built-in checks needs no check of yours: name the built-in in
+place of `check(...)`.
+
+```scala
+val noGuarantees: Guardrail[Map[String, Any]] = Guardrail.json("acme.no-guarantees")
+  .onViolation("halt")
+  .builtInCheck("forbidden-substring", Map("patterns" -> List("guaranteed", "we promise")))
+```
+
+- Start from `Guardrail.json`: a built-in's config is the runtime's to
+  check, so it has no config type.
+- The first argument is a built-in's id (`com.kindgi.pack.Guardrail.RESERVED_CHECK_IDS`:
+  `must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
+  `tool-order`, `required-substring`, `forbidden-substring`). The map is
+  its settings, keyed as on the wire, which the runtime checks;
+  `builtInCheck("must-cite")` takes its defaults. Each built-in's settings
+  and points: https://docs.kindgi.com/v0.6/guides/guardrails/use-a-built-in-check/.
+- **`set("at", …)`:** `final-answer` (default), `before-tool`,
+  `after-tool` or `model-step`: one of the built-in's points. At
+  `before-tool`, `never-call-tool`, `max-tool-calls` and `tool-order` stop
+  a call before it runs.
+- `builtInCheck` refuses a config given twice, a config type or schema, a
+  `checkId`, a `kind` other than `zero-llm`, `judgeCapabilities`,
+  `sandbox`, `limits` or `network`; `scope.tools` away from `before-tool`
+  and `after-tool`; and `escalate` or `compensate` away from the final
+  answer.
+- `evaluate` throws: the runtime runs it.
 
 ## Testing
 

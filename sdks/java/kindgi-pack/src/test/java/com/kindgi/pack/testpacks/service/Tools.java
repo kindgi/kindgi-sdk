@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kindgi.pack.ConnectionRejectedException;
 import com.kindgi.pack.Tool;
 import com.kindgi.pack.ToolConnection;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -119,6 +120,13 @@ public final class Tools {
         ctx.log().info("looked up order", Map.of("orderId", "o-1"));
         ctx.log().info("the context is " + ctx, Map.of("ctx", ctx, "seen", ctx.secrets().keySet()));
         return Map.of("logged", 2);
+      });
+
+  /** Fails with a cause that quotes the call's secret, as a client's error can. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> FAILS_WITH_CAUSE = Tool.define("acme.failsWithCause")
+      .handler((input, ctx) -> {
+        throw new IllegalStateException("lookup failed",
+            new IOException("login refused for " + ctx.secrets().get("SHOP_KEY")));
       });
 
   private Tools() {}

@@ -8,6 +8,10 @@
  * contributions; "Improve this page with your coding agent" replaces it once
  * it does.
  *
+ * "Report a problem" opens the repository's Docs problem issue form
+ * (`.github/ISSUE_TEMPLATE/docs_problem.yml`) with the title and its `page`
+ * field filled in: a form takes its fields by id, never `body`.
+ *
  * `llms.txt` lists every page's Markdown version, for an agent to read.
  *
  * Search leaves the row out: it's the same on every page.
@@ -20,8 +24,9 @@ const route = Astro.locals.starlightRoute;
 
 const page = new URL(Astro.url.pathname, 'https://docs.kindgi.com').href;
 const issue = new URL(`${REPOSITORY}/issues/new`);
+issue.searchParams.set('template', 'docs_problem.yml');
 issue.searchParams.set('title', `Docs: ${route.entry.data.title}`);
-issue.searchParams.set('body', `Page: ${page}\n\nWhat's wrong or missing:\n`);
+issue.searchParams.set('page', page);
 
 const llms = `${import.meta.env.BASE_URL.replace(/\/?$/, '/')}llms.txt`;
 ---

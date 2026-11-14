@@ -417,7 +417,7 @@ function harness(
   return { app, call, code, mint, checked, changedBy, grantReads, batchReads };
 }
 
-describe('a new key and an Idempotency-Key (T392)', () => {
+describe('a new key and an Idempotency-Key', () => {
   test("a retry gets 409 replay-withheld, not the secret, and mints nothing; another person's same key mints their own", async () => {
     const h = harness();
     const send = (as: string) =>

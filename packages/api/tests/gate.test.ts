@@ -574,7 +574,7 @@ describe('the verdict', () => {
   });
 });
 
-describe('onlyExpertGroups (T200)', () => {
+describe('onlyExpertGroups', () => {
   test('needs a comparison weighted experts-only', () => {
     expect(gate({ onlyExpertGroups: true }, { summary: null }).checks).toEqual([
       expect.objectContaining({ name: 'comparison.required', passed: false }),

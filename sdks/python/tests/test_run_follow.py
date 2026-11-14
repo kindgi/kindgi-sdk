@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""`runs.follow` and `runs.follow_progress`: a run's stream through to its end (T328).
+"""`runs.follow` and `runs.follow_progress`: a run's stream through to its end.
 
 The server ends a run's stream after its terminal event, or after 5 minutes
 while the run goes on. `follow` reconnects with `Last-Event-Id` in the second

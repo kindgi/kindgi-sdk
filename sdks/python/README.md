@@ -195,6 +195,25 @@ until the guardrail has failed `maxAttempts` answers, and then the turn fails
 the same way. Any other action is recorded on the turn's violations and the
 turn completes; in 0.1 nothing escalates or calls a compensating tool.
 
+A rule one of Kindgi's built-in checks covers needs no function: name the
+built-in, with its settings keyed as on the wire.
+
+```python
+# guardrails/no_guarantees.py
+from kindgi import built_in_guardrail
+
+no_guarantees = built_in_guardrail(
+    id="acme.ledger.no-guarantees",
+    check="forbidden-substring",
+    config={"patterns": ["guaranteed", "we promise"]},
+    on_violation="halt",
+)
+```
+
+`check` is one of `kindgi.pack.define.RESERVED_CHECK_IDS`, and `at=` runs it
+at another of its points (`"before-tool"` for `never-call-tool`). The runtime
+runs it and checks its settings; calling it in Python raises.
+
 ### Agents and flows
 
 ```python
@@ -319,8 +338,12 @@ Without arguments, the client takes `KINDGI_API_URL` and `KINDGI_API_TOKEN`
 from the environment. In development, when they're unset, it uses the running
 `kindgi dev` (the nearest `.kindgirc.json` at or above the working directory)
 and warns once (`KindgiConfigWarning`) to put them in your env file (`.env` /
-`.env.local`). Production (`KINDGI_ENV` or `NODE_ENV` set to `production`)
-never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
+`.env.local`). The two go together: with only one of them set, it raises
+`ValueError`, naming the file and what to set, and takes nothing from
+`.kindgirc.json`. A URL that is that `kindgi dev`'s own is the exception: it
+takes the file's token. Production
+(`KINDGI_ENV` or `NODE_ENV` set to `production`) never reads
+`.kindgirc.json`. It's the same lookup as the TypeScript SDK's
 `createClient()`.
 
 - A request body is a model from `kindgi.client.models`, a mapping, or its

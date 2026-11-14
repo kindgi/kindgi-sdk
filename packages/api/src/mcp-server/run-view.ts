@@ -41,7 +41,7 @@ export interface RunViewState {
 
 // The view is one file, no library and nothing fetched: the chat app runs
 // it in a sandboxed frame, and it talks to the chat app by JSON-RPC over
-// postMessage (MCP Apps, protocol 2026-01-26). It writes text only through
+// postMessage (the 2026-01-26 MCP Apps protocol). It writes text only through
 // `textContent`, so nothing an agent answers becomes markup.
 export const RUN_VIEW_HTML = `<!doctype html>
 <html lang="en">

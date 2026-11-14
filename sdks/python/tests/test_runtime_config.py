@@ -74,14 +74,63 @@ def test_no_env_in_development_uses_the_running_kindgi_dev_with_one_warning(tmp_
     assert "your env file (.env / .env.local)" in messages[0]
 
 
-def test_only_the_missing_field_comes_from_kindgi_dev(tmp_path: Path) -> None:
+def test_a_url_that_is_the_running_kindgi_devs_own_takes_its_token(tmp_path: Path) -> None:
     sub = dev_pack(tmp_path)
+    own = DEV["apiUrl"] + "/"
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
-        url, token = resolve_settings(None, None, env={"KINDGI_API_URL": DEV["apiUrl"]}, cwd=sub)
-    assert (url, token) == (DEV["apiUrl"], DEV["token"])
+        url, token = resolve_settings(None, None, env={"KINDGI_API_URL": own}, cwd=sub)
+    assert (url, token) == (own, DEV["token"])
     [message] = config_warnings(record)
     assert "for KINDGI_API_TOKEN." in message
+
+
+def test_a_token_with_no_url_never_goes_to_the_running_kindgi_devs_url(tmp_path: Path) -> None:
+    sub = dev_pack(tmp_path)
+    rc = tmp_path / ".kindgirc.json"
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError) as raised:
+            resolve_settings(None, None, env={"KINDGI_API_TOKEN": "kgi_bt_prod"}, cwd=sub)
+        assert str(raised.value) == (
+            "Kindgi(): KINDGI_API_TOKEN is set, and KINDGI_API_URL isn't set. The client won't "
+            f"send that token to the URL in {rc}, the running kindgi dev's. Set KINDGI_API_URL "
+            "and KINDGI_API_TOKEN in your env file (.env / .env.local), or pass base_url= and "
+            "token=. To use the running kindgi dev, set neither."
+        )
+        with pytest.raises(
+            ValueError, match=r"^Kindgi\(\): `token=` is passed, and KINDGI_API_URL"
+        ):
+            resolve_settings(None, "kgi_bt_arg", env={}, cwd=sub)
+    assert config_warnings(record) == []
+
+
+def test_a_url_other_than_the_running_kindgi_devs_never_takes_its_token(tmp_path: Path) -> None:
+    sub = dev_pack(tmp_path)
+    rc = tmp_path / ".kindgirc.json"
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError) as raised:
+            resolve_settings(None, None, env={"KINDGI_API_URL": "https://kindgi.acme.dev"}, cwd=sub)
+        assert str(raised.value) == (
+            "Kindgi(): KINDGI_API_URL is set, and KINDGI_API_TOKEN isn't set. The token in "
+            f"{rc} is the running kindgi dev's, for {DEV['apiUrl']} only, so the client won't "
+            "send it to another URL. Set KINDGI_API_URL and KINDGI_API_TOKEN in your env file "
+            "(.env / .env.local), or pass base_url= and token=. To use the running kindgi dev, "
+            "set neither."
+        )
+        with pytest.raises(
+            ValueError, match=r"^Kindgi\(\): `base_url=` is passed, and KINDGI_API_TOKEN"
+        ):
+            resolve_settings("https://kindgi.acme.dev", None, env={}, cwd=sub)
+    assert config_warnings(record) == []
+
+
+def test_with_no_kindgi_dev_a_token_with_no_url_is_the_plain_missing_url_error(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=r"^Kindgi\(\): KINDGI_API_URL isn't set\. Set it in"):
+        resolve_settings(None, None, env={"KINDGI_API_TOKEN": "kgi_bt_prod"}, cwd=tmp_path)
 
 
 def test_production_never_reads_kindgirc(tmp_path: Path) -> None:

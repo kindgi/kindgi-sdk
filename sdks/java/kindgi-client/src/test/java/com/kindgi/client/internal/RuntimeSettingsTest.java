@@ -47,6 +47,50 @@ class RuntimeSettingsTest {
   }
 
   @Test
+  void aUrlThatIsTheRunningKindgiDevsOwnTakesItsToken() throws IOException {
+    devFile(dir);
+    assertThat(RuntimeSettings.resolve(null, null, Map.of("KINDGI_API_URL", "http://127.0.0.1:4000/"), dir))
+        .isEqualTo(new RuntimeSettings.Settings("http://127.0.0.1:4000/", "kgi_dev"));
+  }
+
+  @Test
+  void aTokenWithNoUrlNeverGoesToTheRunningKindgiDevsUrl() throws IOException {
+    devFile(dir);
+    assertThatThrownBy(() -> RuntimeSettings.resolve(null, null, Map.of("KINDGI_API_TOKEN", "kgi_prod"), dir))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage(
+            "Kindgi: KINDGI_API_TOKEN is set, and KINDGI_API_URL isn't set. The client won't send that token to the URL in "
+                + dir.resolve(".kindgirc.json") + ", the running kindgi dev's. Set KINDGI_API_URL and KINDGI_API_TOKEN in"
+                + " your env file (.env / .env.local), or pass baseUrl and token to the builder. To use the running kindgi"
+                + " dev, set neither.");
+    assertThatThrownBy(() -> RuntimeSettings.resolve(null, "kgi_prod", Map.of(), dir))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageStartingWith("Kindgi: the builder's token is passed, and KINDGI_API_URL isn't set.");
+  }
+
+  @Test
+  void aUrlOtherThanTheRunningKindgiDevsNeverTakesItsToken() throws IOException {
+    devFile(dir);
+    assertThatThrownBy(() -> RuntimeSettings.resolve(null, null, Map.of("KINDGI_API_URL", "https://kindgi.acme.dev"), dir))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage(
+            "Kindgi: KINDGI_API_URL is set, and KINDGI_API_TOKEN isn't set. The token in " + dir.resolve(".kindgirc.json")
+                + " is the running kindgi dev's, for http://127.0.0.1:4000 only, so the client won't send it to another"
+                + " URL. Set KINDGI_API_URL and KINDGI_API_TOKEN in your env file (.env / .env.local), or pass baseUrl and"
+                + " token to the builder. To use the running kindgi dev, set neither.");
+    assertThatThrownBy(() -> RuntimeSettings.resolve("https://kindgi.acme.dev", null, Map.of(), dir))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageStartingWith("Kindgi: the builder's baseUrl is passed, and KINDGI_API_TOKEN isn't set.");
+  }
+
+  @Test
+  void withNoKindgiDevATokenWithNoUrlIsThePlainMissingUrlError() {
+    assertThatThrownBy(() -> RuntimeSettings.resolve(null, null, Map.of("KINDGI_API_TOKEN", "kgi_prod"), dir))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageStartingWith("Kindgi: KINDGI_API_URL isn't set. Set it in");
+  }
+
+  @Test
   void productionNeverReadsTheDevFile() throws IOException {
     devFile(dir);
     assertThatThrownBy(() -> RuntimeSettings.resolve(null, null, Map.of("KINDGI_ENV", "production"), dir))

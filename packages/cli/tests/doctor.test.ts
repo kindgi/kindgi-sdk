@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
+/** `kindgi doctor`: each check, from fakes of the tools, Docker, the runtime and the client. */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -1224,7 +1224,7 @@ describe('a Scala project (kindgi.config.json, "language": "scala")', () => {
   });
 });
 
-describe('under kindgi-cli, the PyPI build (T127)', () => {
+describe('under kindgi-cli, the PyPI build', () => {
   const PYPI = { KINDGI_CLI_INSTALL: 'pypi' };
 
   test("Node is the wheel's and npm isn't needed: neither fails, with no node or npm on PATH", async () => {

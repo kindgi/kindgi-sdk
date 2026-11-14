@@ -120,7 +120,7 @@
     },
     {
       "name": "corrections",
-      "description": "Corrections: whether a finished run's decisions, answer and items were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
+      "description": "Corrections: whether the decisions, answer and items of a run that completed with an output were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
     },
     {
       "name": "corrector-groups",
@@ -39292,7 +39292,7 @@
             }
           },
           "409": {
-            "description": "`run-not-finished`: the run has no output yet.",
+            "description": "`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39342,7 +39342,7 @@
             }
           }
         },
-        "description": "A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.",
+        "description": "A case by hand, from a correction's body on one of the agent's runs that completed with an output. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.",
         "parameters": [
           {
             "name": "agentId",
@@ -40269,8 +40269,8 @@
                 "segment"
               ]
             },
-            "required": false,
-            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+            "required": true,
+            "description": "The scope a pin would be for: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
           },
           {
             "name": "scopeId",
@@ -50160,7 +50160,7 @@
             }
           },
           "409": {
-            "description": "`run-not-finished`: the run has no output to correct yet.",
+            "description": "`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50210,7 +50210,7 @@
             }
           }
         },
-        "description": "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+        "description": "Records whether the decisions and answer of a run that completed with an output were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -60687,7 +60687,7 @@
             }
           },
           "404": {
-            "description": "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+            "description": "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist. Or `secret-revoked`: a hard revoke of the secret overtook the write, so what it wrote isn't served; the message names the secret and says what becomes of the value it wrote.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60747,7 +60747,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached, or, with a secret manager, a hard revoke of the secret is still erasing it there: write it again in a few minutes (a revoke whose runtime stopped partway holds writes off for up to 10 minutes). `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -67250,6 +67250,16 @@
               }
             }
           },
+          "404": {
+            "description": "`secret-revoked`: a hard revoke of the secret overtook the write, so what it wrote isn't served; the message names the secret and says what becomes of the value it wrote.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`ifRevision` was set and did not match the stored revision.",
             "content": {
@@ -67301,7 +67311,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached, or, with a secret manager, a hard revoke of the secret is still erasing it there: write it again in a few minutes (a revoke whose runtime stopped partway holds writes off for up to 10 minutes). `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -68686,6 +68696,16 @@
               }
             }
           },
+          "404": {
+            "description": "The body's `scope` names an org or a project that doesn't exist (`org-not-found`, `project-not-found`). Or `secret-revoked`: a hard revoke of the secret overtook the write, so what it wrote isn't served; the message names the secret and says what becomes of the value it wrote.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.",
             "content": {
@@ -68737,7 +68757,7 @@
             }
           },
           "503": {
-            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached, or, with a secret manager, a hard revoke of the secret is still erasing it there: write it again in a few minutes (a revoke whose runtime stopped partway holds writes off for up to 10 minutes). `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -68949,6 +68969,26 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secret manager is limiting the runtime's requests. A soft revoke isn't made, so revoke it again. A hard one revoked the secret, so reads stop, but its value may still be in the secret manager: a hard revoke again erases it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`secret-store-error`: the secrets store or the secret manager failed, so revoke it again. Or a hard revoke's erase in the secret manager didn't finish, as the message says. If writes to the secret kept landing while it erased, it stays revoked, so reads stop, and a hard revoke again finishes the erase. If the erase took over 10 minutes and a set or another hard revoke came in, the secret manager may still hold a value, or a set made since may have lost the value it wrote: set it again, or revoke it hard again. Or a hard revoke of a secret that another secret manager keeps, or whose stored name is no longer a valid one: it's revoked, but its value is left in that secret manager, to remove there.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "501": {
             "description": "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
             "content": {
@@ -68959,8 +68999,18 @@
               }
             }
           },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secret manager refused the runtime's credentials. A soft revoke isn't made, so revoke it again. A hard one revoked the secret, so reads stop, but its value may still be in the secret manager: a hard revoke again erases it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "`secret-provider-unavailable`: the secret manager can't be reached. A soft revoke isn't made, so revoke it again. A hard one revoked the secret, so reads stop, but its value may still be in the secret manager: a hard revoke again erases it. Or another hard revoke of the secret is still erasing it: revoke it again in a few minutes if it's still there (a revoke whose runtime stopped partway holds the next off for up to 10 minutes). `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -69329,7 +69379,7 @@
             }
           },
           "404": {
-            "description": "Unknown secret.",
+            "description": "Unknown secret (`secret-not-found`). `secret-revoked`: the secret is revoked, so it can't be rotated. Or a hard revoke of it overtook the rotate, so what it wrote isn't served; the message says what becomes of that value.",
             "content": {
               "application/json": {
                 "schema": {
