@@ -23,6 +23,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 - **WordPress** 6.4 or later.
 - **PHP** 7.4 or later, with sodium. WordPress ships a fallback for PHP builds without ext/sodium.
+- **A Kindgi runtime at 0.4.0 or later.** For an older runtime, take the plugin from the Kindgi SDK release of the runtime's version.
 - **Kindgi with site sign-in on:** Kindgi Cloud's is coming. A runtime you run needs:
   - `KINDGI_SITE_SIGN_IN=true`;
   - authorization enforced (`KINDGI_OPENFGA_API_URL`);
@@ -31,7 +32,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 ## Install and connect
 
-1. **Install the plugin.** Download `kindgi-<version>.zip` from the Kindgi SDK's [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest) and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8); the `.sha256` file next to it checks the download (`sha256sum -c`). Or copy this folder to `wp-content/plugins/kindgi`. Then activate it. From a checkout, `node scripts/wordpress-plugin-zip.mjs <out dir>` builds the same zip.
+1. **Install the plugin.** Download `kindgi-<version>.zip` from the Kindgi SDK [release](https://github.com/kindgi/kindgi-sdk/releases) of your runtime's version and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8); the `.sha256` file next to it checks the download (`sha256sum -c`). Or copy this folder to `wp-content/plugins/kindgi`. Then activate it. From a checkout, `node scripts/wordpress-plugin-zip.mjs <out dir>` builds the same zip.
 2. **Read this site's two addresses** under **Kindgi → Settings**: its origin, and its approvals URL (`…/wp-admin/admin.php?page=kindgi&approval={approvalId}`).
 3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this (on Kindgi Cloud, with the CLI signed in there with an Admin key for every project it can reach):
 
