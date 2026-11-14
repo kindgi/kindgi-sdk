@@ -772,7 +772,7 @@ Turning it on is one-way: going back to shared isn't supported. What it
 isolates and what it doesn't is in
 [Serve many tenants](#serve-many-tenants).
 
-```hcl
+```hcl excerpt
 pack_accounts = "per-tenant"
 pack_tenants = [
   "8d3e5f1a-2b4c-4d6e-8f01-23456789abcd",
@@ -1122,7 +1122,7 @@ billed around the clock. With runtime 0.7.0 or later, it can run on Cloud
 Run's request-based billing instead: its CPU is allocated, and billed, only
 while a request is in flight, and it can scale to zero. In your var file:
 
-```hcl
+```hcl excerpt
 server_billing       = "request"
 server_min_instances = 0
 ```
