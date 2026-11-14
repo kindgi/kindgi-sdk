@@ -7,6 +7,7 @@
 
 - **Policies:** `policies.versions.list`, `versions.get`, `versions.unregister` and `versions.reinstate`, in place of calling `policies.versions(id)` directly, `getVersion`, `unregister` and `reinstateVersion`. `versions.unregister` answers `{ policyId, version, unregistered }`, where `policies.unregister` answers nothing.
 - **Schedules, webhooks and mail triggers:** `versions.list` and `versions.get`, in place of calling `versions(triggerId)` directly and `getVersion`. A trigger's version is still its number.
+- **Text triggers** have `versions.list` and `versions.get` from the start, with no old names to deprecate.
 - **Queue rules:** `projects.queueRules.versions.list`, in place of calling `projects.queueRules.versions(projectId, ruleId)` directly.
 - **Secrets:** `secrets.versions.list` and `secrets.versions.get`, in place of `listVersions` and `getVersion`. They take the same input objects, and `versions.get` still answers `null` for a version that isn't there.
 - **Each old `versions` you could call** still takes and answers what it did. Its deprecation sits on the call alone, so an editor strikes through `policies.versions(id)` and not `policies.versions.list`.

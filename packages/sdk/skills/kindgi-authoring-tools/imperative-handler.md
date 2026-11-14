@@ -6,6 +6,7 @@
 - A date and time tool
 - Schemas: zod 4 or a JSON Schema object
 - What the handler receives
+- Failing a call on purpose
 - Logging from the handler
 
 ```ts

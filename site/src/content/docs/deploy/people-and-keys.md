@@ -524,11 +524,11 @@ On a runtime serving one tenant, the runtime's API token acts as the seed
 user. It's a tenant admin, and it holds more than any person you make one:
 
 - **Every capability,** `secrets:reveal` among them. A person you make a
-  tenant admin holds none until one is given them. So their sign-in can't trust signing keys, store,
-  rotate or revoke secrets, or change environment variables, and the keys
-  they make carry none either. Such a request is refused with `403`, naming
-  the capability: "Bearer token is missing the `secrets:write` capability
-  required for this route."
+  tenant admin holds none until one is given them. So their sign-in can't
+  trust signing keys, store, rotate or revoke secrets, or change environment
+  variables, and the keys they make carry none either. Such a request is
+  refused with `403`, naming the capability: "Bearer token is missing the
+  `secrets:write` capability required for this route."
 - **Reading secret values** (`secrets:reveal`). No person is ever given it,
   so only a key that carries it does that.
 - **The system keys,** `/v1/system/keys`, such as the license renewal's

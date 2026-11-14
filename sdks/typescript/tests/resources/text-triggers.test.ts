@@ -140,7 +140,7 @@ describe('text triggers - wire round-trips', () => {
     expect(url).toMatch(/cursor=c1/);
   });
 
-  it('versions / getVersion: GET /v1/text-triggers/:triggerId/versions, paged, and one by number', async () => {
+  it('versions.list / versions.get: GET /v1/text-triggers/:triggerId/versions, paged, and one by number', async () => {
     const v2 = {
       triggerId: TRIGGER,
       version: 2,
