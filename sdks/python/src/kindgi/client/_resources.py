@@ -865,6 +865,20 @@ OPERATIONS: dict[str, Operation] = {
     "identity.users.ungrant": Operation(
         "identity.users.ungrant", "POST", "/v1/identity/users/{userId}/ungrant", "json", True
     ),
+    "identity.users.giveCapabilities": Operation(
+        "identity.users.giveCapabilities",
+        "POST",
+        "/v1/identity/users/{userId}/capabilities",
+        "json",
+        True,
+    ),
+    "identity.users.takeBackCapability": Operation(
+        "identity.users.takeBackCapability",
+        "DELETE",
+        "/v1/identity/users/{userId}/capabilities/{capability}",
+        "json",
+        True,
+    ),
     "identity.whoami": Operation("identity.whoami", "GET", "/v1/identity/whoami", "json", False),
     "deployments.list": Operation("deployments.list", "GET", "/v1/deployments", "json", False),
     "deployments.register": Operation(
@@ -7523,7 +7537,7 @@ class AuthResource:
     def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
         """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
 
-        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, one project, or reads only), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.
         """
         return self._client._request(
             _OPERATIONS["auth.tokenSignIn"],
@@ -7840,6 +7854,52 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def give_capabilities(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonCapabilitiesBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Give a tenant admin capabilities. `POST /v1/identity/users/{userId}/capabilities`
+
+        A tenant admin gives another tenant admin capabilities their own person holds now, such as `env:write` or `signing-keys:write`. What a key was minted with never counts, so a service account or a system key gives none. No person gives `secrets:reveal` or a system capability. Written before the call answers, so the person's next request holds them. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.giveCapabilities"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonCapabilitiesBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def take_back_capability(
+        self,
+        user_id: str | UUID,
+        capability: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PersonGrants:
+        """Take back a person's capability. `DELETE /v1/identity/users/{userId}/capabilities/{capability}`
+
+        A tenant admin whose own person holds the capability takes it back from someone. A person drops their own with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is a no-op.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.takeBackCapability"],
+            path={"userId": user_id, "capability": capability},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.PersonGrants,
             timeout=timeout,
         )
@@ -10363,17 +10423,24 @@ class SchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
+        Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -10407,6 +10474,7 @@ class SchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         upcoming: int | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleRecord:
@@ -10414,7 +10482,7 @@ class SchedulesResource:
         return self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={"upcoming": upcoming},
+            query={"includeUnregistered": include_unregistered, "upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -10496,7 +10564,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -10512,6 +10580,7 @@ class SchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -10523,7 +10592,7 @@ class SchedulesResource:
         return self._client._request(
             _OPERATIONS["schedules.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleFirePage,
             timeout=timeout,
@@ -10534,18 +10603,19 @@ class SchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleVersionPage:
         """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
 
-        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["schedules.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleVersionPage,
             timeout=timeout,
@@ -10554,7 +10624,10 @@ class SchedulesResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.ScheduleVersion:
-        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`
+
+        A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.
+        """
         return self._client._request(
             _OPERATIONS["schedules.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -10623,17 +10696,24 @@ class WebhooksResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerCollectionPage:
         """List webhook triggers. `GET /v1/webhooks`
 
-        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return self._client._request(
             _OPERATIONS["webhooks.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.WebhookTriggerCollectionPage,
             timeout=timeout,
@@ -10663,13 +10743,18 @@ class WebhooksResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
         """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["webhooks.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
@@ -10751,7 +10836,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
 
-        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return self._client._request(
             _OPERATIONS["webhooks.unregister"],
@@ -10767,6 +10852,7 @@ class WebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -10778,7 +10864,7 @@ class WebhooksResource:
         return self._client._request(
             _OPERATIONS["webhooks.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookFirePage,
             timeout=timeout,
@@ -10789,18 +10875,19 @@ class WebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerVersionPage:
         """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
 
-        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["webhooks.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookTriggerVersionPage,
             timeout=timeout,
@@ -10809,7 +10896,10 @@ class WebhooksResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.WebhookTriggerVersion:
-        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`
+
+        A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.
+        """
         return self._client._request(
             _OPERATIONS["webhooks.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -10857,17 +10947,24 @@ class MailTriggersResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerCollectionPage:
         """List mail triggers. `GET /v1/mail-triggers`
 
-        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.MailTriggerCollectionPage,
             timeout=timeout,
@@ -10897,13 +10994,18 @@ class MailTriggersResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.MailTriggerRecord:
         """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["mailTriggers.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.MailTriggerRecord,
             timeout=timeout,
@@ -10985,7 +11087,7 @@ class MailTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause.
+        Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.unregister"],
@@ -11001,6 +11103,7 @@ class MailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -11012,7 +11115,7 @@ class MailTriggersResource:
         return self._client._request(
             _OPERATIONS["mailTriggers.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
             timeout=timeout,
@@ -11023,18 +11126,19 @@ class MailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerVersionPage:
         """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
 
-        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailTriggerVersionPage,
             timeout=timeout,
@@ -11043,7 +11147,10 @@ class MailTriggersResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.MailTriggerVersion:
-        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`
+
+        A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.
+        """
         return self._client._request(
             _OPERATIONS["mailTriggers.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -11324,7 +11431,7 @@ class ConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Register an app. `POST /v1/connection-apps`
 
-        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes its registration itself (`via: 'kindgi'`), and refuses one here (`connection-app-invalid`, `details.field` `app`). Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.create"],
@@ -11359,7 +11466,7 @@ class ConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Update an app registration. `PATCH /v1/connection-apps/{appId}`
 
-        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. A registration `via: 'kindgi'` has no client of its own: only its label and projects change. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.update"],
@@ -11428,7 +11535,7 @@ class ConnectionsRequestsResource:
     ) -> _models.ConnectStart:
         """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
 
-        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. One through Kindgi's own app goes to Kindgi's connect step, and the finish connects the account picked with `accountId`, one of the request's `accounts`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.requests.start"],
@@ -11518,7 +11625,7 @@ class ConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; `state` with no `code` from Kindgi's connect step; or `error`, from any of them, when the connect didn't happen). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). An app through Kindgi's own app picks the account up from Kindgi's connect step instead of exchanging a code; when the business shared several accounts that fit and none was picked, it answers `kind: 'pick-account'`: the request stays `pending` with its `accounts` to pick from (start it again with `accountId`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return self._client._request(
             _OPERATIONS["connections.finish"],
@@ -17875,7 +17982,7 @@ class AsyncAuthResource:
     async def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
         """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
 
-        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, one project, or reads only), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.
         """
         return await self._client._request(
             _OPERATIONS["auth.tokenSignIn"],
@@ -18194,6 +18301,52 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def give_capabilities(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonCapabilitiesBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Give a tenant admin capabilities. `POST /v1/identity/users/{userId}/capabilities`
+
+        A tenant admin gives another tenant admin capabilities their own person holds now, such as `env:write` or `signing-keys:write`. What a key was minted with never counts, so a service account or a system key gives none. No person gives `secrets:reveal` or a system capability. Written before the call answers, so the person's next request holds them. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.giveCapabilities"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonCapabilitiesBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def take_back_capability(
+        self,
+        user_id: str | UUID,
+        capability: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PersonGrants:
+        """Take back a person's capability. `DELETE /v1/identity/users/{userId}/capabilities/{capability}`
+
+        A tenant admin whose own person holds the capability takes it back from someone. A person drops their own with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is a no-op.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.takeBackCapability"],
+            path={"userId": user_id, "capability": capability},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.PersonGrants,
             timeout=timeout,
         )
@@ -20719,17 +20872,24 @@ class AsyncSchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
+        Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return await self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -20763,6 +20923,7 @@ class AsyncSchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         upcoming: int | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleRecord:
@@ -20770,7 +20931,7 @@ class AsyncSchedulesResource:
         return await self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={"upcoming": upcoming},
+            query={"includeUnregistered": include_unregistered, "upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -20852,7 +21013,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -20868,6 +21029,7 @@ class AsyncSchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -20879,7 +21041,7 @@ class AsyncSchedulesResource:
         return await self._client._request(
             _OPERATIONS["schedules.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleFirePage,
             timeout=timeout,
@@ -20890,18 +21052,19 @@ class AsyncSchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleVersionPage:
         """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
 
-        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleVersionPage,
             timeout=timeout,
@@ -20910,7 +21073,10 @@ class AsyncSchedulesResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.ScheduleVersion:
-        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`
+
+        A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.
+        """
         return await self._client._request(
             _OPERATIONS["schedules.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -20979,17 +21145,24 @@ class AsyncWebhooksResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerCollectionPage:
         """List webhook triggers. `GET /v1/webhooks`
 
-        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.WebhookTriggerCollectionPage,
             timeout=timeout,
@@ -21019,13 +21192,18 @@ class AsyncWebhooksResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
         """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["webhooks.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
@@ -21107,7 +21285,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
 
-        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.unregister"],
@@ -21123,6 +21301,7 @@ class AsyncWebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -21134,7 +21313,7 @@ class AsyncWebhooksResource:
         return await self._client._request(
             _OPERATIONS["webhooks.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookFirePage,
             timeout=timeout,
@@ -21145,18 +21324,19 @@ class AsyncWebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerVersionPage:
         """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
 
-        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookTriggerVersionPage,
             timeout=timeout,
@@ -21165,7 +21345,10 @@ class AsyncWebhooksResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.WebhookTriggerVersion:
-        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`
+
+        A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.
+        """
         return await self._client._request(
             _OPERATIONS["webhooks.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -21213,17 +21396,24 @@ class AsyncMailTriggersResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerCollectionPage:
         """List mail triggers. `GET /v1/mail-triggers`
 
-        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.MailTriggerCollectionPage,
             timeout=timeout,
@@ -21253,13 +21443,18 @@ class AsyncMailTriggersResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.MailTriggerRecord:
         """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["mailTriggers.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.MailTriggerRecord,
             timeout=timeout,
@@ -21341,7 +21536,7 @@ class AsyncMailTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause.
+        Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.unregister"],
@@ -21357,6 +21552,7 @@ class AsyncMailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -21368,7 +21564,7 @@ class AsyncMailTriggersResource:
         return await self._client._request(
             _OPERATIONS["mailTriggers.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
             timeout=timeout,
@@ -21379,18 +21575,19 @@ class AsyncMailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerVersionPage:
         """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
 
-        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailTriggerVersionPage,
             timeout=timeout,
@@ -21399,7 +21596,10 @@ class AsyncMailTriggersResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.MailTriggerVersion:
-        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`
+
+        A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.
+        """
         return await self._client._request(
             _OPERATIONS["mailTriggers.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -21682,7 +21882,7 @@ class AsyncConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Register an app. `POST /v1/connection-apps`
 
-        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes its registration itself (`via: 'kindgi'`), and refuses one here (`connection-app-invalid`, `details.field` `app`). Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.create"],
@@ -21719,7 +21919,7 @@ class AsyncConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Update an app registration. `PATCH /v1/connection-apps/{appId}`
 
-        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. A registration `via: 'kindgi'` has no client of its own: only its label and projects change. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.update"],
@@ -21788,7 +21988,7 @@ class AsyncConnectionsRequestsResource:
     ) -> _models.ConnectStart:
         """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
 
-        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. One through Kindgi's own app goes to Kindgi's connect step, and the finish connects the account picked with `accountId`, one of the request's `accounts`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.requests.start"],
@@ -21878,7 +22078,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; `state` with no `code` from Kindgi's connect step; or `error`, from any of them, when the connect didn't happen). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). An app through Kindgi's own app picks the account up from Kindgi's connect step instead of exchanging a code; when the business shared several accounts that fit and none was picked, it answers `kind: 'pick-account'`: the request stays `pending` with its `accounts` to pick from (start it again with `accountId`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.
         """
         return await self._client._request(
             _OPERATIONS["connections.finish"],

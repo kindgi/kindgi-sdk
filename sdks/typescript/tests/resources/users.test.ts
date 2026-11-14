@@ -69,6 +69,25 @@ describe('users.get / me / list — /v1/identity mapping', () => {
     expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/whoami');
   });
 
+  it("whoami says whether the caller's API key only reads", async () => {
+    const stub = jsonFetch({
+      tenantId: TENANT,
+      scopes: [],
+      tokenId: 'tok-1',
+      role: 'member',
+      readOnly: true,
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const whoami = await client.users.me();
+    expect(whoami.tokenId).toBe('tok-1');
+    expect(whoami.readOnly).toBe(true);
+  });
+
   it('GETs /v1/identity/users with query filter', async () => {
     const stub = jsonFetch({ data: [WIRE_USER], hasMore: false });
     const client = createClient({

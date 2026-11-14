@@ -142,14 +142,14 @@ export function eventTriggersRouter(
   r.get('/:triggerId/versions', async (c) => {
     const found = await readable(c);
     if (found instanceof Response) return found;
-    return versionsPage(c, binding, found, 'event', versionsJson);
+    return versionsPage(c, binding, { triggerId: found }, 'event', versionsJson);
   });
 
   // ---------- GET /:triggerId/versions/:version ----------
   r.get('/:triggerId/versions/:version', async (c) => {
     const found = await readable(c);
     if (found instanceof Response) return found;
-    return versionOne(c, binding, found, 'event', versionsJson);
+    return versionOne(c, binding, { triggerId: found }, 'event', versionsJson);
   });
 
   // ---------- PATCH /:triggerId (update) ----------

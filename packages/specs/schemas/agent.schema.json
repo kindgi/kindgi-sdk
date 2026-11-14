@@ -317,8 +317,88 @@
       "additionalProperties": false,
       "properties": {
         "historyLimit": { "type": "integer", "minimum": 1 },
-        "hitlAfterTurns": { "type": "integer", "minimum": 1 }
+        "hitlAfterTurns": { "type": "integer", "minimum": 1 },
+        "hitl": { "$ref": "#/$defs/ConversationHitlPolicy" }
       }
+    },
+    "ConversationHitlPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "When the agent's turns and tool calls wait for a person's approval: its tool gates, the reviewer role their approvals need, four eyes, how long an approval waits, and the session gate. The workspace's approval rules can only make them stricter.",
+      "properties": {
+        "afterTurns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Once the conversation has this many completed turns, each new turn waits for an approval before it runs. Takes precedence over `hitlAfterTurns`."
+        },
+        "tools": { "$ref": "#/$defs/ToolHitlPolicy" },
+        "defaultReviewerRole": { "$ref": "#/$defs/ReviewerRole" },
+        "separateApprover": {
+          "oneOf": [{ "type": "boolean" }, { "$ref": "#/$defs/SeparateApproverPolicy" }],
+          "description": "Four eyes: whether an approval needs someone other than the person who asked for the call. `true` or `false` for every gated tool, or per tool. Default `false`."
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How long an approval waits for a decision, in milliseconds. Default 24 hours. The workspace's approval rules may cap it."
+        },
+        "onTimeout": {
+          "type": "string",
+          "enum": ["escalate"],
+          "description": "What an approval does when its time runs out: it goes to the next reviewer role, and at `admin` it expires and the turn fails. The only behavior, and the default."
+        }
+      }
+    },
+    "ToolHitlPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The agent's tool gates. A tool `overrides` doesn't name takes `default`. Without `default`, a read-only tool (`mutating: false`) runs without asking and any other tool asks on first use. Without `tools`, the agent's own rules gate no tool.",
+      "properties": {
+        "default": { "$ref": "#/$defs/ToolHitlMode" },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [{ "$ref": "#/$defs/ToolHitlMode" }, { "$ref": "#/$defs/ToolHitlRule" }]
+          },
+          "description": "By tool id: a mode, or a mode and the reviewer role its approvals need."
+        }
+      }
+    },
+    "ToolHitlMode": {
+      "type": "string",
+      "enum": ["never_ask", "ask_on_first_use", "always_ask"],
+      "description": "A tool's gate. `never_ask`: its calls run without asking. `ask_on_first_use`: a call asks the first time the conversation makes it with those arguments, and once approved, the same call runs without asking. `always_ask`: every call asks."
+    },
+    "ToolHitlRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "description": "A tool's gate, and the reviewer role its approvals need. Without `requiredRole`, the agent's `defaultReviewerRole`.",
+      "properties": {
+        "mode": { "$ref": "#/$defs/ToolHitlMode" },
+        "requiredRole": { "$ref": "#/$defs/ReviewerRole" }
+      }
+    },
+    "SeparateApproverPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Four eyes per tool.",
+      "properties": {
+        "default": {
+          "type": "boolean",
+          "description": "For every gated tool `overrides` doesn't name. Default `false`."
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": { "type": "boolean" },
+          "description": "By tool id. Each names one of the agent's tools."
+        }
+      }
+    },
+    "ReviewerRole": {
+      "type": "string",
+      "enum": ["standard", "senior", "admin"],
+      "description": "Reviewer role class. Hierarchy: standard < senior < admin."
     },
     "TurnBudget": {
       "type": "object",

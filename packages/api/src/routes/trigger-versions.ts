@@ -22,24 +22,33 @@ export function versionField(record: { readonly version?: number }): { readonly 
 /** The version record of one kind. */
 type VersionOf<K extends TriggerVersionRecord['kind']> = Extract<TriggerVersionRecord, { kind: K }>;
 
+/** The trigger a route found: a removed one carries `unregisteredAt`. */
+interface FoundTrigger {
+  readonly triggerId: TriggerId;
+  readonly unregisteredAt?: string;
+}
+
 /**
  * A trigger's versions on the wire, for each kind's routes: `GET
  * …/:triggerId/versions` (a page, newest first) and `GET
  * …/:triggerId/versions/:version`. The route has found the trigger, of
  * its own kind, and checked the caller may read it, as reading the trigger
  * does; `json` writes each version as that kind's routes name its fields.
+ * A removed trigger's are read as removed (`includeUnregistered`), each
+ * with `unregisteredAt`.
  */
 export async function versionsPage<K extends TriggerVersionRecord['kind']>(
   c: Context<AppEnv>,
   binding: TriggerRegistryBinding,
-  triggerId: TriggerId,
+  trigger: FoundTrigger,
   kind: K,
   json: (versions: readonly VersionOf<K>[]) => Promise<readonly Record<string, unknown>[]>,
 ): Promise<Response> {
   const cursorRaw = c.req.query('cursor');
   const page = await binding.listVersions({
     tenantId: c.get('tenantId') as TenantId,
-    triggerId,
+    triggerId: trigger.triggerId,
+    ...(trigger.unregisteredAt !== undefined && { includeUnregistered: true }),
     limit: clampLimit(c.req.query('limit')),
     ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
   });
@@ -54,11 +63,12 @@ export async function versionsPage<K extends TriggerVersionRecord['kind']>(
 export async function versionOne<K extends TriggerVersionRecord['kind']>(
   c: Context<AppEnv>,
   binding: TriggerRegistryBinding,
-  triggerId: TriggerId,
+  trigger: FoundTrigger,
   kind: K,
   json: (versions: readonly VersionOf<K>[]) => Promise<readonly Record<string, unknown>[]>,
 ): Promise<Response> {
   const requestId = c.get('requestId');
+  const { triggerId } = trigger;
   const raw = c.req.param('version') ?? '';
   const version = /^[1-9][0-9]*$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(version)) {
@@ -74,6 +84,7 @@ export async function versionOne<K extends TriggerVersionRecord['kind']>(
     tenantId: c.get('tenantId') as TenantId,
     triggerId,
     version,
+    ...(trigger.unregisteredAt !== undefined && { includeUnregistered: true }),
   });
   if (found === null || found.kind !== kind) {
     c.status(statusFor('trigger-version-not-found') as never);
@@ -100,5 +111,6 @@ export function versionFields(v: TriggerVersionRecord): Record<string, unknown> 
     createdAt: v.createdAt,
     ...(v.createdBy !== undefined && { createdBy: v.createdBy }),
     cause: v.cause,
+    ...(v.unregisteredAt !== undefined && { unregisteredAt: v.unregisteredAt }),
   };
 }

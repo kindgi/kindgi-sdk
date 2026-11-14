@@ -72,6 +72,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { refuseWritesForReadOnlyKey } from './middleware/key-read-only.js';
 import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
@@ -251,6 +252,7 @@ import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
+import type { VersionLocksBinding } from './version-locks-binding.js';
 import type { WaitTokenBinding } from './wait-token-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
@@ -448,6 +450,9 @@ export interface CreateAppInput {
    * writes that need one, and for the keys they mint (`POST /v1/tokens`
    * grants only what the minter holds). Read on each session request.
    * Without it a session carries none, and only API keys hold capabilities.
+   * Its optional `give` and `takeBack` serve `POST` and `DELETE
+   * /v1/identity/users/:userId/capabilities`, which also need
+   * `personGrants`.
    */
   readonly personCapabilities?: PersonCapabilitiesBinding;
   /**
@@ -994,6 +999,12 @@ export interface CreateAppInput {
    * Absent: it isn't checked so.
    */
   readonly blockUse?: BlockUseBinding;
+  /**
+   * What can still run a tool or agent version (a deployment's registries
+   * answer it): the unregister answers of both list it as `lockedBy`.
+   * Absent: they answer without `lockedBy`.
+   */
+  readonly versionLocks?: VersionLocksBinding;
   /**
    * The pull requests opened to bring block versions back into a pack's
    * files: `GET /v1/blocks/:blockId/runs-in` reads them for each row's
@@ -1691,8 +1702,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // And its work is the tenant's: a schema it compiles again counts
   // against the tenant's compile budget.
   v1.use('*', tenantScopeMiddleware());
+  // A key limited to a project reads its project's own org: the authorizer
+  // looks the project up once per request.
   const authorizer: Authorizer | undefined =
-    input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+    input.authz !== undefined
+      ? createAuthorizer(input.authz.authzCheckBinding, {
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        })
+      : undefined;
   // Rights on an item more than one project serves (`item-rights.ts`).
   const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
   // With no authorizer, which projects serve an item still decides what
@@ -1735,6 +1752,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', refuseDeepJson(ownBodyLimits));
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer, ownBodyLimits));
+  // A key that only reads makes no request but a read, with or without an
+  // authorization store.
+  v1.use('*', refuseWritesForReadOnlyKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
@@ -1884,6 +1904,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
+        input.versionLocks,
       ),
     );
   }
@@ -1982,6 +2003,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(itemServing !== undefined && { itemServing }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
+        ...(input.versionLocks !== undefined && { versionLocks: input.versionLocks }),
       }),
     );
   }
@@ -2251,6 +2273,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.personCapabilities !== undefined && {
+        personCapabilities: input.personCapabilities,
+      }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
       ...(input.license !== undefined && { license: input.license }),

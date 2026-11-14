@@ -60,6 +60,7 @@ const CHAT: Record<string, () => TokenResolution> = {
   'chat-for-a-machine': () => ({ ...reading(), serviceAccountId: 'ci' }),
   'chat-keys-operator': () => ({ ...reading(), systemKeysOperator: { keyId: 'boot' } }),
   'chat-one-project': () => ({ ...reading(), tokenProjectId: 'project-1' }),
+  'chat-read-only': () => ({ ...reading(), tokenReadOnly: true }),
   'chat-reviewer': () => ({ ...reading(), reviewerRole: 'admin' }),
   'chat-idle-limit': () => ({ ...reading(), lastActiveAt: new Date() }),
   'chat-no-scope': () => ({
@@ -205,7 +206,7 @@ describe('/mcp: signing in', () => {
   );
 
   // Served without its limit, the token would reach more than it was given.
-  test.each(['chat-one-project', 'chat-reviewer', 'chat-idle-limit'])(
+  test.each(['chat-one-project', 'chat-read-only', 'chat-reviewer', 'chat-idle-limit'])(
     '%s, a person with a limit the tools can not keep: 403',
     async (token) => {
       const { rpc, asked } = harness();

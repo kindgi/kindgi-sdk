@@ -53,7 +53,9 @@ import { sameJson } from '../canonical-json.js';
  * to read (`webhookEvents`, `webhookAudit`). Versions as a runtime makes
  * them: register makes version 1, an update that changes the definition
  * and every take-ownership the next; pause, resume and unregister none.
- * A version is frozen once made.
+ * A version is frozen once made. A removed trigger stays, with
+ * `unregisteredAt`, and its versions and fires with it: a read answers
+ * them only when it asks (`includeUnregistered`).
  */
 export interface InMemoryTriggerRegistry extends TriggerRegistryBinding {
   /** Add a fire to a trigger's history, as a scheduler would. */
@@ -82,7 +84,7 @@ export function createInMemoryTriggerRegistry(
     readonly now?: () => Date;
   } = {},
 ): InMemoryTriggerRegistry {
-  const rows = new Map<string, TriggerRecord & { unregistered?: boolean }>();
+  const rows = new Map<string, TriggerRecord>();
   const fires: TriggerFire[] = [];
   /** Each trigger's versions, oldest first, by trigger id. */
   const versions = new Map<string, TriggerVersionRecord[]>();
@@ -96,12 +98,19 @@ export function createInMemoryTriggerRegistry(
   const defaultProject =
     options.defaultProjectId ?? ('00000000-0000-4000-8000-000000000000' as ProjectId);
 
-  const live = (tenantId: TenantId, triggerId: TriggerId) => {
+  /** The tenant's trigger, a removed one only with `includeUnregistered`. */
+  const known = (tenantId: TenantId, triggerId: TriggerId, includeUnregistered?: boolean) => {
     const row = rows.get(triggerId as unknown as string);
-    return row !== undefined && row.tenantId === tenantId && row.unregistered !== true
+    return row !== undefined &&
+      row.tenantId === tenantId &&
+      (row.unregisteredAt === undefined || includeUnregistered === true)
       ? row
       : undefined;
   };
+  const live = (tenantId: TenantId, triggerId: TriggerId) => known(tenantId, triggerId);
+  /** A version as its trigger reads now: a removed trigger's carries when it was removed. */
+  const asOfTrigger = (v: TriggerVersionRecord, row: TriggerRecord): TriggerVersionRecord =>
+    row.unregisteredAt === undefined ? v : { ...v, unregisteredAt: row.unregisteredAt };
   const notFound = (triggerId: TriggerId) => ({
     kind: 'err' as const,
     error: {
@@ -113,10 +122,6 @@ export function createInMemoryTriggerRegistry(
   const save = (row: TriggerRecord): TriggerRecord => {
     rows.set(row.triggerId as unknown as string, row);
     return row;
-  };
-  const strip = (row: TriggerRecord & { unregistered?: boolean }): TriggerRecord => {
-    const { unregistered: _, ...rest } = row;
-    return rest as TriggerRecord;
   };
   /** `row` as its next version, which is recorded. */
   const versioned = <R extends TriggerRecord>(
@@ -243,17 +248,15 @@ export function createInMemoryTriggerRegistry(
     },
 
     async list(input) {
-      const all = [...rows.values()]
-        .filter(
-          (r) =>
-            r.tenantId === input.tenantId &&
-            r.unregistered !== true &&
-            (input.kind === undefined || r.kind === input.kind) &&
-            (input.status === undefined || r.status === input.status) &&
-            (input.projectId === undefined ||
-              (r.kind !== 'event' && r.projectId === input.projectId)),
-        )
-        .map(strip);
+      const all = [...rows.values()].filter(
+        (r) =>
+          r.tenantId === input.tenantId &&
+          (r.unregisteredAt === undefined || input.includeUnregistered === true) &&
+          (input.kind === undefined || r.kind === input.kind) &&
+          (input.status === undefined || r.status === input.status) &&
+          (input.projectId === undefined ||
+            (r.kind !== 'event' && r.projectId === input.projectId)),
+      );
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
       const limit = input.limit ?? 50;
       const data = all.slice(start, start + limit);
@@ -264,15 +267,17 @@ export function createInMemoryTriggerRegistry(
     },
 
     async get(input) {
-      const row = live(input.tenantId, input.triggerId);
-      return row === undefined ? null : strip(row);
+      return known(input.tenantId, input.triggerId, input.includeUnregistered) ?? null;
     },
 
     async listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage> {
+      const row = known(input.tenantId, input.triggerId, input.includeUnregistered);
       const mine =
-        live(input.tenantId, input.triggerId) === undefined
+        row === undefined
           ? []
-          : [...(versions.get(input.triggerId as unknown as string) ?? [])].reverse();
+          : [...(versions.get(input.triggerId as unknown as string) ?? [])]
+              .reverse()
+              .map((v) => asOfTrigger(v, row));
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
       const limit = input.limit ?? 50;
       return {
@@ -282,9 +287,11 @@ export function createInMemoryTriggerRegistry(
     },
 
     async getVersion(input: GetTriggerVersionInput) {
-      if (live(input.tenantId, input.triggerId) === undefined) return null;
+      const row = known(input.tenantId, input.triggerId, input.includeUnregistered);
+      if (row === undefined) return null;
       const mine = versions.get(input.triggerId as unknown as string) ?? [];
-      return mine.find((v) => v.version === input.version) ?? null;
+      const found = mine.find((v) => v.version === input.version);
+      return found === undefined ? null : asOfTrigger(found, row);
     },
 
     async pause(input: TriggerLifecycleInput) {
@@ -298,7 +305,7 @@ export function createInMemoryTriggerRegistry(
     async unregister(input) {
       const row = live(input.tenantId, input.triggerId);
       if (row === undefined) return { triggerId: input.triggerId, unregistered: false };
-      rows.set(input.triggerId as unknown as string, { ...row, unregistered: true });
+      rows.set(input.triggerId as unknown as string, { ...row, unregisteredAt: now() });
       return { triggerId: input.triggerId, unregistered: true };
     },
 
@@ -308,7 +315,7 @@ export function createInMemoryTriggerRegistry(
           r.kind === 'webhook' && r.tenantId === input.tenantId && r.webhookId === input.webhookId,
       );
       if (row?.kind !== 'webhook') return null;
-      return { ...(strip(row) as WebhookTriggerRecord), unregistered: row.unregistered === true };
+      return { ...row, unregistered: row.unregisteredAt !== undefined };
     },
 
     async fireWebhook(input: FireWebhookInput) {
@@ -374,7 +381,11 @@ export function createInMemoryTriggerRegistry(
 
     async listFires(input: ListTriggerFiresInput): Promise<TriggerFirePage> {
       const mine = fires
-        .filter((f) => f.triggerId === input.triggerId && live(input.tenantId, f.triggerId))
+        .filter(
+          (f) =>
+            f.triggerId === input.triggerId &&
+            known(input.tenantId, f.triggerId, input.includeUnregistered),
+        )
         .reverse();
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
       const limit = input.limit ?? 50;

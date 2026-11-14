@@ -76,6 +76,7 @@ interface UsersAnswers {
   readonly revoke?: unknown;
   readonly unregister?: unknown;
   readonly create?: unknown;
+  readonly grants?: unknown;
   readonly list?: unknown;
   readonly resendInvite?: unknown;
   readonly removeSecondFactor?: unknown;
@@ -143,7 +144,7 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
             'users.removeSecondFactor',
             answers.removeSecondFactor ?? { removed: true },
           ),
-          grants: rec('users.grants', GRANTS),
+          grants: rec('users.grants', answers.grants ?? GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
           ungrant: rec('users.ungrant', GRANTS),
           unregister: rec(
@@ -531,6 +532,17 @@ describe("kindgi people: a person's grants", () => {
     expect(out.stdout).toContain('reviewer roster');
     expect(out.stdout).toMatch(/tenant\s+member \(reads its settings\)/);
     expect(out.stdout).not.toMatch(/tenant\s+admin/);
+  });
+
+  test('the capabilities they hold are rows too, when the runtime reports them', async () => {
+    const { out } = await run(['people', 'grants', 'u-9', '--table'], {
+      grants: { ...GRANTS, capabilities: ['env:write', 'signing-keys:write'] },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toMatch(/tenant\s+capability env:write/);
+    expect(out.stdout).toMatch(/tenant\s+capability signing-keys:write/);
+    const without = await run(['people', 'grants', 'u-9', '--table']);
+    expect(without.out.stdout).not.toContain('capability');
   });
 
   test('grant and ungrant tenant admin; nothing else is granted here', async () => {

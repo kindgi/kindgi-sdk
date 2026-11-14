@@ -212,6 +212,29 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'read-only-key': {
+    description:
+      "The API key making the request only reads: it was minted with `readOnly: true`. Every request it makes but a `GET` or a `HEAD` is refused, before any route runs, apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys, its own included. Use a key that can write, or ask someone who can.",
+    details: [
+      {
+        key: 'action',
+        meaning: '`write`: what a key that only reads may not do',
+      },
+      {
+        key: 'resource',
+        meaning: "the key's workspace, as `tenant:<id>`",
+      },
+      {
+        key: 'reason',
+        meaning: 'why the check refused it',
+      },
+    ],
+  },
+  'read-only-unsupported': {
+    description:
+      "A key was asked to only read (`readOnly: true` on `POST /v1/tokens`), but this server's key store can't keep that limit, so no key was made: the one minted is revoked at once, and the answer carries no secret. Ask whoever runs the deployment to update it.",
+    details: [],
+  },
   'second-factor-required': {
     description:
       "The workspace requires a second factor at sign-in. Signing in to the console with an API token is refused, since a token can't give one: sign in another way, with your second factor. Taking your own second factor off is refused too: replace it (`POST /v1/identity/me/second-factor` with a code), or ask a tenant admin to remove it.",
@@ -2309,6 +2332,21 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['POST /v1/tokens', 'POST /v1/system/keys'],
   },
+  'caller-not-a-person': {
+    description:
+      "Only a person gives or takes back a person's capabilities: what their own person holds now is what bounds it, and a service account or a system key holds none. Ask with a person's API key or session.",
+    details: [],
+  },
+  'capability-not-givable': {
+    description:
+      'No person gives `secrets:reveal` or a system capability (`kindgi:system`, `system:*`). Nothing changed. Give the rest without them.',
+    details: [],
+  },
+  'capability-not-held': {
+    description:
+      'A tenant admin gives, and takes back, only what their own person holds now; what their key was minted with never counts. The message names the ones they lack. Nothing changed. Ask a tenant admin who holds them.',
+    details: [],
+  },
   'system-key-on-tenant-route': {
     description:
       "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*`, `GET /v1/license` and `GET /v1/license/usage` only: use one of the tenant's keys.",
@@ -2639,6 +2677,11 @@ export const ERROR_ENTRIES = {
     description: "The person was removed from the workspace, so they can't be granted anything.",
     details: [],
   },
+  'receiver-not-tenant-admin': {
+    description:
+      'Only a tenant admin is given capabilities, and this person is not one now. Make them a tenant admin first (`POST /v1/identity/users/{userId}/grant`), then give them the capabilities.',
+    details: [],
+  },
   'identity-user-not-invited': {
     description:
       'The person has no invitation to send again: they have signed in already, were added before invitations, or have no email. Nothing changed.',
@@ -2652,6 +2695,11 @@ export const ERROR_ENTRIES = {
   'person-grants-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
+    details: [],
+  },
+  'person-capabilities-unsupported': {
+    description:
+      "The runtime doesn't give or take back a person's capabilities. Nothing changed. Its operator can still change what a person holds in the runtime's own store.",
     details: [],
   },
   'agent-owner-unsupported': {

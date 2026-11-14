@@ -11,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.kindgi.client.models.Checks;
 import com.kindgi.client.models.FactScope;
 import com.kindgi.client.models.TestRunBaseline;
+import com.kindgi.client.models.ToolHitlPolicyOverridesValue;
 import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.Model;
 import com.kindgi.client.models.OpenEnum;
@@ -229,8 +230,11 @@ class OpenValuesTest {
       }
       for (Class<?> variant : type.getDeclaredClasses()) {
         RecordComponent[] components = variant.getRecordComponents();
-        // The text variant: one text, written as it is.
-        if (components == null || components.length != 1 || components[0].getAccessor().getAnnotation(JsonValue.class) == null) {
+        // The text variant: one text, written as it is (a plain value's variant is a boolean or a number).
+        if (components == null
+            || components.length != 1
+            || components[0].getType() != String.class
+            || components[0].getAccessor().getAnnotation(JsonValue.class) == null) {
           continue;
         }
         Object read = KindgiJson.read("\"" + UNKNOWN + "\"", type);
@@ -242,6 +246,6 @@ class OpenValuesTest {
         }
       }
     }
-    assertThat(refused).containsExactly(TestRunBaseline.class.getSimpleName());
+    assertThat(refused).containsExactlyInAnyOrder(TestRunBaseline.class.getSimpleName(), ToolHitlPolicyOverridesValue.class.getSimpleName());
   }
 }

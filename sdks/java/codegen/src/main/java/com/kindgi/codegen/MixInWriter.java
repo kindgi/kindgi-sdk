@@ -106,7 +106,7 @@ final class MixInWriter {
   private TypeSpec recordMixIn(Ir.RecordDecl r, String name, MethodSpec.Builder register) {
     ClassName mixIn = current.nestedClass(name);
     TypeSpec.Builder tb = TypeSpec.classBuilder(name).addModifiers(Modifier.ABSTRACT, Modifier.STATIC);
-    if (inTextUnion(r.interfaces)) {
+    if (inTokenUnion(r.interfaces)) {
       tb.addAnnotation(readAsItself());
     }
     List<ParameterSpec> known = new ArrayList<>();
@@ -176,7 +176,7 @@ final class MixInWriter {
       ClassName codec = current.nestedClass(String.join("", cn.simpleNames()) + "Codec");
       mixIn.addAnnotation(AnnotationSpec.builder(ModelWriter.JSON_DESERIALIZE).addMember("using", "$T.class", codec).build());
       file.addType(codec(u, codec));
-      Ir.Variant text = u.textVariant();
+      Ir.Variant text = u.textVariant() != null ? u.textVariant() : u.scalarVariant();
       String textName = mixInName(text.type(), names);
       file.addType(
           TypeSpec.classBuilder(textName)
@@ -184,7 +184,7 @@ final class MixInWriter {
               .addMethod(
                   MethodSpec.methodBuilder("value")
                       .addModifiers(Modifier.ABSTRACT)
-                      .returns(ModelPlanner.STRING)
+                      .returns(text.text() ? ModelPlanner.STRING : text.scalar())
                       .addAnnotation(ModelWriter.JSON_VALUE)
                       .build())
               .build());
@@ -199,7 +199,7 @@ final class MixInWriter {
 
   private TypeSpec unrecognizedMixIn(Ir.UnionDecl u, String name, MethodSpec.Builder register) {
     TypeSpec.Builder tb = TypeSpec.classBuilder(name).addModifiers(Modifier.ABSTRACT, Modifier.STATIC);
-    if (u.kind == Ir.UnionKind.TEXT_OR_OBJECT) {
+    if (u.readByToken()) {
       tb.addAnnotation(readAsItself());
     }
     List<ParameterSpec> known = new ArrayList<>();
@@ -251,20 +251,49 @@ final class MixInWriter {
             .build());
   }
 
-  /** The deserializer of a text-or-object union: a string is the text variant, an object the rest. */
+  /**
+   * The deserializer of a text-or-object or a scalar-or-object union: a string is the text variant,
+   * a boolean or a number the plain-value variant, an object the rest.
+   */
   private TypeSpec codec(Ir.UnionDecl u, ClassName codec) {
     ClassName cn = u.name;
     Ir.Variant text = u.textVariant();
+    Ir.Variant scalar = u.scalarVariant();
     List<Ir.Variant> objects = new ArrayList<>();
     for (Ir.Variant v : u.variants) {
-      if (!v.text()) {
+      if (!v.text() && v.scalar() == null) {
         objects.add(v);
       }
     }
     CodeBlock.Builder body = CodeBlock.builder();
-    body.beginControlFlow("if (p.currentToken() == $T.VALUE_STRING)", ModelWriter.JSON_TOKEN)
-        .addStatement("return new $T(p.getString())", text.type())
-        .endControlFlow();
+    String read;
+    if (text != null) {
+      body.beginControlFlow("if (p.currentToken() == $T.VALUE_STRING)", ModelWriter.JSON_TOKEN)
+          .addStatement("return new $T(p.getString())", text.type())
+          .endControlFlow();
+      read = "a string is its text";
+    } else if (scalar.scalar().equals(TypeName.BOOLEAN)) {
+      body.beginControlFlow(
+              "if (p.currentToken() == $T.VALUE_TRUE || p.currentToken() == $T.VALUE_FALSE)",
+              ModelWriter.JSON_TOKEN,
+              ModelWriter.JSON_TOKEN)
+          .addStatement("return new $T(p.getBooleanValue())", scalar.type())
+          .endControlFlow();
+      read = "a boolean is its plain value";
+    } else if (scalar.scalar().equals(TypeName.LONG)) {
+      body.beginControlFlow("if (p.currentToken() == $T.VALUE_NUMBER_INT)", ModelWriter.JSON_TOKEN)
+          .addStatement("return new $T(p.getLongValue())", scalar.type())
+          .endControlFlow();
+      read = "an integer is its plain value";
+    } else {
+      body.beginControlFlow(
+              "if (p.currentToken() == $T.VALUE_NUMBER_INT || p.currentToken() == $T.VALUE_NUMBER_FLOAT)",
+              ModelWriter.JSON_TOKEN,
+              ModelWriter.JSON_TOKEN)
+          .addStatement("return new $T(p.getDoubleValue())", scalar.type())
+          .endControlFlow();
+      read = "a number is its plain value";
+    }
     body.beginControlFlow("if (p.currentToken() != $T.START_OBJECT)", ModelWriter.JSON_TOKEN)
         .addStatement("return ($T) ctxt.handleUnexpectedToken($T.class, p)", cn, cn)
         .endControlFlow();
@@ -296,7 +325,7 @@ final class MixInWriter {
     return TypeSpec.classBuilder(codec)
         .addModifiers(Modifier.STATIC, Modifier.FINAL)
         .superclass(ParameterizedTypeName.get(ModelWriter.VALUE_DESERIALIZER, cn))
-        .addJavadoc("Reads a {@link $T}: a string is its text, an object one of its object variants.\n", cn)
+        .addJavadoc("Reads a {@link $T}: $L, an object one of its object variants.\n", cn, read)
         .addMethod(
             MethodSpec.methodBuilder("deserialize")
                 .addAnnotation(Override.class)
@@ -309,10 +338,10 @@ final class MixInWriter {
         .build();
   }
 
-  private boolean inTextUnion(Set<ClassName> interfaces) {
+  private boolean inTokenUnion(Set<ClassName> interfaces) {
     for (ClassName i : interfaces) {
       Ir.Decl u = planner.index.get(i);
-      if (u instanceof Ir.UnionDecl && ((Ir.UnionDecl) u).kind == Ir.UnionKind.TEXT_OR_OBJECT) {
+      if (u instanceof Ir.UnionDecl && ((Ir.UnionDecl) u).readByToken()) {
         return true;
       }
     }
@@ -320,8 +349,8 @@ final class MixInWriter {
   }
 
   /**
-   * A variant of a text-or-object union is read as itself; it would otherwise inherit the union's
-   * codec, which reads the variant: a loop.
+   * A variant of a text-or-object or a scalar-or-object union is read as itself; it would
+   * otherwise inherit the union's codec, which reads the variant: a loop.
    */
   private static AnnotationSpec readAsItself() {
     return AnnotationSpec.builder(ModelWriter.JSON_DESERIALIZE).addMember("using", "$T.None.class", ModelWriter.VALUE_DESERIALIZER).build();
