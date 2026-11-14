@@ -116,8 +116,8 @@ export interface InvokeAgentInput {
   /**
    * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
    * this turn though no person started its run: the
-   * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
-   * started it, recorded with the run (`RunFlowInput.toolsAllowedUnattended`).
+   * `toolsAllowedUnattended` of the webhook, schedule, mail or text trigger
+   * that started it, recorded with the run (`RunFlowInput.toolsAllowedUnattended`).
    * Only that wait is lifted: the workspace's floor and the agent's own rules
    * still apply. Set by the runtime from the run, never from a request.
    */

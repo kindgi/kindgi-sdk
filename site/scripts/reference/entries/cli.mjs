@@ -765,6 +765,48 @@ export const CLI_DEFAULTS = {
   'mail-triggers take-ownership': {
     'run-as': 'none (you own the trigger)',
   },
+  'text-triggers list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+    status: 'none (both active and paused)',
+  },
+  'text-triggers create': {
+    agent: 'none',
+    'agent-version': 'none (its pinned version, else the latest)',
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
+    connection: 'required',
+    flow: 'none',
+    'flow-version': 'required with `--flow`',
+    label: 'none',
+    'per-sender-per-hour': '`10`',
+    project: "the workspace's default project",
+    'run-as': 'none (you own the trigger)',
+    'runs-per-hour': '`60`',
+  },
+  'text-triggers update': {
+    agent: 'unchanged',
+    'agent-version': 'unchanged',
+    'allow-unattended':
+      'unchanged; a trigger that has a list and moves to another flow, agent or connection must name it again, or `none`',
+    connection: 'unchanged',
+    flow: 'unchanged',
+    'flow-version': 'unchanged',
+    label: 'unchanged',
+    'per-sender-per-hour': 'unchanged',
+    'runs-per-hour': 'unchanged',
+  },
+  'text-triggers fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'text-triggers versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'text-triggers take-ownership': {
+    'run-as': 'none (you own the trigger)',
+  },
   'sites register': {
     'allowed-role': '`administrator` and `shop_manager`',
     'approvals-url': 'required',
@@ -1115,6 +1157,7 @@ export const CLI_DEFAULTS = {
   'connections connect': {
     'app-id': "none: the app's one registration",
     label: "none: named by its account's label",
+    number: 'none (required for `texts`)',
     permissions:
       "none picked: at a terminal it asks about each one the app's entry offers; required without one",
     project: 'none',
@@ -1147,11 +1190,14 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
   },
   'connection-apps add': {
-    'client-id': 'required',
-    'client-secret-ref': 'required',
+    'api-key-ref': 'required for `texts`',
+    'client-id': 'required, except for `texts`',
+    'client-secret-ref': 'required, except for `texts`',
     'github-app-id': 'required for `github`',
     'private-key-ref': 'required for `github`',
     projects: 'none: every project',
+    provider: 'required for `texts`',
+    'public-key': 'required for `texts`',
     slug: 'required for `github`',
     tenant: "none: required where the app's entry names no default (`microsoft`)",
     'webhook-secret-ref': 'required for `github`',
@@ -2040,6 +2086,85 @@ export const CLI_EXAMPLES = {
       line: 'kindgi mail-triggers unregister <trigger-id>',
     },
   ],
+  'text-triggers list': [
+    {
+      purpose: 'List the text triggers in a project.',
+      line: 'kindgi text-triggers list --project=<project-id>',
+    },
+    {
+      purpose: 'List only the paused ones, as a table, with why each is paused.',
+      line: 'kindgi text-triggers list --status=paused --table',
+    },
+  ],
+  'text-triggers get': [
+    {
+      purpose: 'Fetch a text trigger: what it runs, the number it answers, and its status.',
+      line: 'kindgi text-triggers get <trigger-id>',
+    },
+    {
+      purpose: 'Fetch version 2 of a text trigger: what it ran, and which number it answered.',
+      line: 'kindgi text-triggers get <trigger-id> 2',
+    },
+  ],
+  'text-triggers versions': [
+    {
+      purpose: "List a text trigger's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi text-triggers versions <trigger-id> --table',
+    },
+  ],
+  'text-triggers create': [
+    {
+      purpose:
+        "Run an agent for each text to the company's number, through the company connection named `support-line`.",
+      line: 'kindgi text-triggers create --agent=acme.order-desk --connection=support-line',
+    },
+    {
+      purpose:
+        "Run a flow for each text, at most 120 runs an hour and 5 for any one sender, whose ticket tool needn't wait for a yes.",
+      line: 'kindgi text-triggers create --flow=acme.triage --flow-version=1.0.0 --connection=support-line --runs-per-hour=120 --per-sender-per-hour=5 --allow-unattended=acme.create-ticket',
+    },
+  ],
+  'text-triggers update': [
+    {
+      purpose: 'Start at most 30 runs an hour, and 3 for any one sender.',
+      line: 'kindgi text-triggers update <trigger-id> --runs-per-hour=30 --per-sender-per-hour=3',
+    },
+    {
+      purpose: 'Answer another of the company numbers, keeping no unattended tools.',
+      line: 'kindgi text-triggers update <trigger-id> --connection=sales-line --allow-unattended=none',
+    },
+  ],
+  'text-triggers pause': [
+    {
+      purpose: "Pause a text trigger: texts that come while it's paused never start runs.",
+      line: 'kindgi text-triggers pause <trigger-id>',
+    },
+  ],
+  'text-triggers resume': [
+    {
+      purpose:
+        'Resume a paused text trigger; texts that came while it was paused never start runs.',
+      line: 'kindgi text-triggers resume <trigger-id>',
+    },
+  ],
+  'text-triggers fires': [
+    {
+      purpose: 'See the run each text started, or why it was refused, as a table.',
+      line: 'kindgi text-triggers fires <trigger-id> --table',
+    },
+  ],
+  'text-triggers take-ownership': [
+    {
+      purpose: 'Take over a trigger whose owner left, so its runs act as you.',
+      line: 'kindgi text-triggers take-ownership <trigger-id>',
+    },
+  ],
+  'text-triggers unregister': [
+    {
+      purpose: 'Remove a text trigger: it answers no more texts, and frees its connection.',
+      line: 'kindgi text-triggers unregister <trigger-id>',
+    },
+  ],
   'sites register': [
     {
       purpose:
@@ -2509,6 +2634,11 @@ export const CLI_EXAMPLES = {
       purpose: 'Reconnect the connection named `support`, signing in again.',
       line: 'kindgi connections connect google --permissions=gmail.readonly --for-company --reconnect=support',
     },
+    {
+      purpose:
+        "Connect the company's number for texts: it's connected at once, with no link to open.",
+      line: 'kindgi connections connect texts --permissions=texts.reply,texts.send --for-company --number=+15551234567',
+    },
   ],
   'connections update': [
     {
@@ -2530,6 +2660,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Disconnect a connection without being asked (for scripts).',
       line: 'kindgi connections disconnect <connection-id> --yes',
+    },
+    {
+      purpose:
+        "Disconnect a number you've already pointed elsewhere, without putting its old inbound back.",
+      line: 'kindgi connections disconnect <connection-id> --skip-inbound-restore --yes',
     },
   ],
   'connection-apps list': [
@@ -2566,6 +2701,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: "Register the company's LinkedIn app.",
       line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
+    },
+    {
+      purpose:
+        "Register the company's Telnyx account for texts, its API key stored first with `kindgi secrets set`.",
+      line: 'kindgi connection-apps add texts --provider=telnyx --api-key-ref=production/ACME_TELNYX_API_KEY --public-key=<base64>',
     },
   ],
   'connection-apps remove': [
@@ -2800,6 +2940,7 @@ export const CLI_GROUP_SEE_ALSO = {
   connections: ['deploy/people-and-keys'],
   'connection-choices': ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
+  'text-triggers': ['guides/approvals/ask-before-a-tool-runs', 'guides/connections/index'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],

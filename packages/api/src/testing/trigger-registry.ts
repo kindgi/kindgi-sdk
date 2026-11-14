@@ -16,9 +16,13 @@ import {
   type MailTriggerDefinition,
   type MailTriggerRecord,
   type RegisterMailTriggerInput,
+  type RegisterTextTriggerInput,
   type RegisterTriggerInput,
   type RegisterWebhookTriggerInput,
   SCHEDULE_DEFAULTS,
+  TEXT_TRIGGER_LIMITS,
+  type TextTriggerDefinition,
+  type TextTriggerRecord,
   type TriggerFire,
   type TriggerFirePage,
   type TriggerLifecycleInput,
@@ -29,6 +33,7 @@ import {
   type TriggerVersionPage,
   type TriggerVersionRecord,
   type UpdateMailTriggerInput,
+  type UpdateTextTriggerInput,
   type UpdateTriggerInput,
   WEBHOOK_BODY_LIMITS,
   WEBHOOK_RATE_LIMITS,
@@ -53,7 +58,9 @@ import { sameJson } from '../canonical-json.js';
  * to read (`webhookEvents`, `webhookAudit`). Versions as a runtime makes
  * them: register makes version 1, an update that changes the definition
  * and every take-ownership the next; pause, resume and unregister none.
- * A version is frozen once made.
+ * A version is frozen once made. One live text trigger answers a
+ * connection, paused or not: a register or an update onto another's is
+ * refused (`trigger-connection-taken`).
  */
 export interface InMemoryTriggerRegistry extends TriggerRegistryBinding {
   /** Add a fire to a trigger's history, as a scheduler would. */
@@ -101,6 +108,45 @@ export function createInMemoryTriggerRegistry(
     return row !== undefined && row.tenantId === tenantId && row.unregistered !== true
       ? row
       : undefined;
+  };
+  /** The live text trigger, other than `except`, that answers `connectionId`. */
+  const answering = (tenantId: TenantId, connectionId: string, except?: TriggerId) =>
+    [...rows.values()].find(
+      (r): r is TextTriggerRecord =>
+        r.kind === 'text' &&
+        r.tenantId === tenantId &&
+        r.unregistered !== true &&
+        r.triggerId !== except &&
+        r.config.connectionId === connectionId,
+    );
+  const takenMessage = (connectionId: string, holder: TextTriggerRecord) =>
+    `Text trigger "${holder.triggerId as unknown as string}" already answers connection "${connectionId}"`;
+  /** A register onto a connection another live text trigger answers; nothing while it's free. */
+  const connectionTaken = (tenantId: TenantId, connectionId: string) => {
+    const holder = answering(tenantId, connectionId);
+    if (holder === undefined) return undefined;
+    return {
+      kind: 'err' as const,
+      error: {
+        code: 'trigger-connection-taken' as const,
+        message: takenMessage(connectionId, holder),
+        heldBy: holder.triggerId,
+      },
+    };
+  };
+  /** An update of `row` onto a connection another live text trigger answers; nothing while it's free. */
+  const connectionTakenFor = (row: TriggerRecord, connectionId: string) => {
+    const holder = answering(row.tenantId, connectionId, row.triggerId);
+    if (holder === undefined) return undefined;
+    return {
+      kind: 'err' as const,
+      error: {
+        code: 'trigger-connection-taken' as const,
+        message: takenMessage(connectionId, holder),
+        heldBy: holder.triggerId,
+        triggerId: row.triggerId,
+      },
+    };
   };
   const notFound = (triggerId: TriggerId) => ({
     kind: 'err' as const,
@@ -172,6 +218,14 @@ export function createInMemoryTriggerRegistry(
       if (input.kind === 'mail') {
         return { kind: 'ok', value: registered(mailRecord(base, input, defaultProject)) };
       }
+      if (input.kind === 'text') {
+        return (
+          connectionTaken(input.tenantId, input.config.connectionId) ?? {
+            kind: 'ok',
+            value: registered(textRecord(base, input, defaultProject)),
+          }
+        );
+      }
       if (input.kind === 'event') {
         const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
         return {
@@ -231,6 +285,17 @@ export function createInMemoryTriggerRegistry(
           kind: 'ok',
           value: save(changed(row, updatedMail(row, input, common), 'edit', input.by)),
         };
+      }
+      if (row.kind === 'text' && input.kind === 'text') {
+        const connectionId = input.config?.connectionId;
+        const taken =
+          connectionId === undefined ? undefined : connectionTakenFor(row, connectionId);
+        return (
+          taken ?? {
+            kind: 'ok',
+            value: save(changed(row, updatedText(row, input, common), 'edit', input.by)),
+          }
+        );
       }
       const next = {
         ...row,
@@ -512,6 +577,15 @@ const MAIL_DEFINITION: DefinitionFields<MailTriggerDefinition> = {
   toolsAllowedUnattended: true,
 };
 
+const TEXT_DEFINITION: DefinitionFields<TextTriggerDefinition> = {
+  target: true,
+  projectId: true,
+  owner: true,
+  config: true,
+  label: true,
+  toolsAllowedUnattended: true,
+};
+
 /** `row`'s definition fields it sets, copied and frozen: nothing later reaches them. */
 function pick<D>(row: D, fields: DefinitionFields<D>): D {
   const out: Record<string, unknown> = {};
@@ -532,6 +606,8 @@ function definitionOf(row: TriggerRecord): TriggerVersionRecord['definition'] {
       return pick<WebhookTriggerDefinition>(row, WEBHOOK_DEFINITION);
     case 'mail':
       return pick<MailTriggerDefinition>(row, MAIL_DEFINITION);
+    case 'text':
+      return pick<TextTriggerDefinition>(row, TEXT_DEFINITION);
   }
 }
 
@@ -573,6 +649,12 @@ function versionOf(
         ...base,
         kind: 'mail',
         definition: pick<MailTriggerDefinition>(row, MAIL_DEFINITION),
+      });
+    case 'text':
+      return frozen({
+        ...base,
+        kind: 'text',
+        definition: pick<TextTriggerDefinition>(row, TEXT_DEFINITION),
       });
   }
 }
@@ -701,4 +783,40 @@ function mailConfigAfter(
   if (!moved || edit?.folder !== undefined) return merged;
   const { folder: _, ...inbox } = merged;
   return inbox;
+}
+
+/** A text trigger as registered, its pace filled in. */
+function textRecord(
+  base: Omit<TextTriggerRecord, 'kind' | 'target' | 'projectId' | 'owner' | 'config'>,
+  input: RegisterTextTriggerInput,
+  defaultProject: ProjectId,
+): TextTriggerRecord {
+  const { runsPerHour, perSenderPerHour } = TEXT_TRIGGER_LIMITS;
+  return {
+    ...base,
+    kind: 'text',
+    target: input.target,
+    projectId: input.projectId ?? defaultProject,
+    owner: input.owner,
+    config: {
+      ...input.config,
+      runsPerHour: input.config.runsPerHour ?? runsPerHour.default,
+      perSenderPerHour: input.config.perSenderPerHour ?? perSenderPerHour.default,
+    },
+    ...toolsAllowed(input.toolsAllowedUnattended),
+  };
+}
+
+/** A text trigger after an update: the config fields given replace its own. */
+function updatedText(
+  row: TextTriggerRecord,
+  input: UpdateTextTriggerInput,
+  common: { readonly updatedAt: string; readonly label?: string | null },
+): TextTriggerRecord {
+  return {
+    ...withToolsAllowed(row, input.toolsAllowedUnattended),
+    ...common,
+    config: { ...row.config, ...input.config },
+    ...(input.target !== undefined && { target: input.target }),
+  };
 }

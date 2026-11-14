@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { PrincipalRef } from '@kindgi/authz';
-import type { AppEntry } from '@kindgi/connections';
+import type { AppEntry, TokenProvider } from '@kindgi/connections';
 import type { ConnectionAccount } from '@kindgi/tools';
 import type { Cursor, EnvName, ProjectId, Result, TenantId } from '@kindgi/types';
 
@@ -16,7 +16,8 @@ import type { Cursor, EnvName, ProjectId, Result, TenantId } from '@kindgi/types
  *   registration in one env: a member's own, or the company's.
  * - **A connect request** sends a person to the app's consent page and
  *   finishes when they come back. A run that needs a connection it lacks
- *   can wait for one.
+ *   can wait for one. An app no person signs in to (`texts`, a `token`
+ *   sign-in) is connected at once: the request comes back `connected`.
  *
  * Caller-plugged: the runtime owns storage, the token store, the sign-in
  * flows and the app's notices. This package defines the contract and the
@@ -48,6 +49,8 @@ export type ConnectionRemovedReason =
 /**
  * What a removal did at the app:
  * - `at-app`: access was withdrawn there (by Kindgi, or the app already had);
+ *   for a number (`texts`), its inbound was put back, or what Kindgi set was
+ *   cleared, or the admin had pointed it elsewhere (`skipInboundRestore`);
  * - `app-failed`: the app's revoke failed; the token is gone here all the same;
  * - `kept-for-other-connection`: the app's revoke is grant-wide and another
  *   live connection uses the grant, so it wasn't called;
@@ -85,6 +88,18 @@ export interface ConnectionAppRecord {
     readonly clientSecret: SecretRefInput;
     readonly privateKey: SecretRefInput;
     readonly webhookSecret: SecretRefInput;
+  };
+  /**
+   * A `token` sign-in's (`texts`): the provider account's credential, by
+   * reference, and the key its texts are signed with.
+   */
+  readonly token?: {
+    /** One of the entry's `signIn.providers`. */
+    readonly provider: TokenProvider;
+    /** The provider account's API key. */
+    readonly apiKey: SecretRefInput;
+    /** The account's Ed25519 public key, base64 of its 32 bytes. */
+    readonly publicKey: string;
   };
   /** The projects whose runs may use its connections. Absent: every project. */
   readonly projects?: readonly ProjectId[];
@@ -132,8 +147,10 @@ export interface ConnectionRecord {
    * permissions from the installation), `'suspended'` (the installation was
    * suspended), `'sessions-revoked'` (Google revoked the person's sessions),
    * `'access-expired'` (the app gave no refresh token, and its access token
-   * ends within a minute, or has ended). Other values may be added; `state`
-   * says what to do.
+   * ends within a minute, or has ended), `'credential-refused'` (the
+   * provider refused the registration's credential: update the
+   * registration's secret, then reconnect). Other values may be added;
+   * `state` says what to do.
    */
   readonly stateReason?: string;
   readonly installationId?: string;
@@ -148,6 +165,13 @@ export interface ConnectionRecord {
   readonly connectedAt: string;
   /** When a run last used it, to the hour. */
   readonly lastUsedAt?: string;
+  /**
+   * A number's (`texts`): when a text last arrived for it with a good
+   * signature. Absent for other apps, and until one has.
+   */
+  readonly lastProvenInboundAt?: string;
+  /** A number's (`texts`): its texts this month. Absent for other apps. */
+  readonly textsThisMonth?: ConnectionTextsCount;
   readonly createdAt: string;
   readonly createdBy: string;
   readonly updatedAt: string;
@@ -155,6 +179,14 @@ export interface ConnectionRecord {
   readonly removedBy?: string;
   readonly removedReason?: ConnectionRemovedReason;
   readonly withdrawn?: ConnectionWithdrawn;
+}
+
+/** A number's texts in the current month, by UTC. */
+export interface ConnectionTextsCount {
+  readonly received: number;
+  readonly sent: number;
+  /** The texts received with nothing to answer them. */
+  readonly unanswered: number;
 }
 
 export type ConnectRequestState = 'pending' | 'connected' | 'declined' | 'expired' | 'failed';
@@ -166,7 +198,11 @@ export interface ConnectRequestInstallation {
   readonly account: ConnectionAccount;
 }
 
-/** A connect: the owner goes to `connectUrl`, consents at the app, and comes back. */
+/**
+ * A connect: the owner goes to `connectUrl`, consents at the app, and
+ * comes back. An app connected without a browser (`texts`) has no such
+ * step: its request is `connected` from the start.
+ */
 export interface ConnectRequestRecord {
   readonly requestId: string;
   readonly tenantId: TenantId;
@@ -207,8 +243,14 @@ export interface ConnectRequestRecord {
    */
   readonly installations?: readonly ConnectRequestInstallation[];
   readonly connectionId?: string;
-  /** Absolute: the server's public URL. */
+  /**
+   * Absolute: the server's public URL. For an app connected without a
+   * browser (`texts`), the request comes back `connected`, with
+   * `connectionId`, and its page only shows it connected: there is
+   * nothing to open.
+   */
   readonly connectUrl: string;
+  /** When a `pending` request expires; it ends no other. */
   readonly expiresAt: string;
   readonly createdAt: string;
   readonly createdBy: string;
@@ -325,6 +367,11 @@ export type ConnectionErrorCode =
   | 'connection-app-refused'
   | 'connection-notice-invalid'
   | 'connection-notice-unavailable'
+  | 'texts-inbound-refused'
+  | 'texts-inbound-unavailable'
+  | 'inbound-in-use'
+  | 'number-in-use'
+  | 'inbound-restore-failed'
   | 'connection-store-failed'
   | 'bad-input';
 
@@ -339,6 +386,21 @@ export interface ConnectionError {
    * `newInstallation`).
    */
   readonly connectRequestId?: string;
+  /**
+   * Where a number's inbound texts go, when they go to a webhook: its
+   * host (`inbound-in-use`, `inbound-restore-failed`). Exactly one of
+   * `host` and `profile` is set.
+   */
+  readonly host?: string;
+  /**
+   * Where a number's inbound texts go, when they go to no webhook: the
+   * name of the business's messaging profile the number is on.
+   */
+  readonly profile?: string;
+  /** The registration a number is live through (`number-in-use`), with `envName`. */
+  readonly appId?: string;
+  /** The env a number is live in (`number-in-use`), with `appId`. */
+  readonly envName?: EnvName;
 }
 
 export interface ConnectionPage<T> {
@@ -352,6 +414,7 @@ export interface ConnectionAppCreateInput {
   readonly label?: string;
   readonly oauth2?: ConnectionAppRecord['oauth2'];
   readonly githubApp?: ConnectionAppRecord['githubApp'];
+  readonly token?: ConnectionAppRecord['token'];
   readonly projects?: readonly ProjectId[];
   readonly by: PrincipalRef;
 }
@@ -451,6 +514,17 @@ export interface ConnectRequestCreateInput {
    * required at the finish.
    */
   readonly reconnects?: string;
+  /**
+   * A `token` entry's (`texts`), and required there: the number to
+   * connect, in E.164 (`+15551234567`). `bad-input` for any other entry.
+   */
+  readonly number?: string;
+  /**
+   * A `token` entry's: connect even though the number's inbound texts go
+   * somewhere else today (`inbound-in-use`). `bad-input` for any other
+   * entry.
+   */
+  readonly replaceInbound?: true;
   readonly by: PrincipalRef;
 }
 
@@ -508,6 +582,43 @@ export type ConnectFinishOutcome =
   | { readonly kind: 'pick-installation'; readonly request: ConnectRequestRecord };
 
 /**
+ * What a texting provider sent to a texts registration
+ * (`/v1/texts-inbound/{tenantId}/{appId}`): what its signature covers.
+ */
+export interface TextsInboundInput {
+  readonly tenantId: TenantId;
+  /** The texts registration's id. */
+  readonly appId: string;
+  /** `POST`: an inbound text or a delivery status. `GET`: a handshake. */
+  readonly method: 'GET' | 'POST';
+  /**
+   * The request's own path and query string, as it arrived
+   * (`/v1/texts-inbound/<tenantId>/<appId>?<query>`). The URL the provider
+   * signed is the server's public URL with this after it, never one built
+   * from the `Host` header.
+   */
+  readonly pathAndQuery: string;
+  /**
+   * The request's headers, their names in lower case, but
+   * `authorization`, `cookie` and `proxy-authorization`: a credential, if
+   * sent, is never passed on.
+   */
+  readonly headers: Readonly<Record<string, string>>;
+  /** The body's exact bytes: empty for a `GET`. */
+  readonly rawBody: Uint8Array;
+}
+
+/**
+ * What the provider is answered, with `200`: the body as it expects it,
+ * such as Twilio's empty `<Response></Response>` (`text/xml`), or Meta's
+ * challenge echoed back (`text/plain`).
+ */
+export interface TextsInboundAnswer {
+  readonly contentType: 'text/xml' | 'text/plain' | 'application/json';
+  readonly body: string;
+}
+
+/**
  * The store behind the connections routes. A runtime implements it; an
  * in-memory one is for development and tests. The routes mount only when
  * one is given.
@@ -535,12 +646,19 @@ export interface ConnectionBinding {
   /**
    * As `createApp` for `projects`. A change of the client its connections
    * were granted to (`oauth2.clientId`, `oauth2.tenant` as the sign-in uses
-   * it, `githubApp.appNumber` or `githubApp.clientId`) while it has live
-   * connections is refused (`connection-app-invalid`, that field): disconnect
-   * them first, then change it and connect again.
+   * it, `githubApp.appNumber` or `githubApp.clientId`, `token.provider`)
+   * while it has live connections is refused (`connection-app-invalid`,
+   * that field): disconnect them first, then change it and connect again.
    */
   updateApp(input: ConnectionAppUpdateInput): Promise<Result<ConnectionAppRecord, ConnectionError>>;
-  /** With `withConnections: false`, a registration that still has live connections is refused (`connection-app-in-use`). */
+  /**
+   * With `withConnections: false`, a registration that still has live
+   * connections is refused (`connection-app-in-use`). With it, each is
+   * removed as `disconnect` removes it. A number (`texts`) whose old
+   * inbound can't be put back stays `removing`, and so does the
+   * registration's removal: the answer is `inbound-restore-failed` with
+   * that number's `host` or `profile`, and removing it again retries.
+   */
   removeApp(input: {
     readonly tenantId: TenantId;
     readonly appId: string;
@@ -557,10 +675,23 @@ export interface ConnectionBinding {
    * Withdraws access at the app where it can, destroys the token, and
    * removes the connection. Idempotent: on a connection still `removing`,
    * it carries on from the withdrawal.
+   *
+   * A number's (`texts`, `removal.revoke` `restore-inbound`) withdrawal
+   * puts the number's inbound back where it was before the connect, or
+   * clears what Kindgi set. When that fails, the connection stays
+   * `removing`, keeps the old inbound, and the answer is
+   * `inbound-restore-failed` with its `host` or `profile`: disconnecting
+   * again retries.
    */
   disconnect(input: {
     readonly tenantId: TenantId;
     readonly connectionId: string;
+    /**
+     * A number's: don't put its old inbound back; what was kept of it is
+     * destroyed with the rest. For an admin who has pointed the number
+     * elsewhere by hand. Ignored for a connection of any other app.
+     */
+    readonly skipInboundRestore?: true;
     readonly by: PrincipalRef;
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
   /**
@@ -688,6 +819,33 @@ export interface ConnectionBinding {
    * env has, by `comparableName`, is `connection-label-taken`, unless the
    * request reconnects: a reconnect keeps the connection's label and
    * doesn't check the one asked.
+   *
+   * A `token` entry's (`texts`) has no browser step: the connect names the
+   * `number`, the server looks it up at the provider with the
+   * registration's credential, and the request comes back `connected`,
+   * with its `connectionId` and the permissions asked granted. Its
+   * `connectUrl` and `expiresAt` are as for any request; its page only
+   * shows it connected. The number's id at the provider is the account,
+   * so a connect of a number the company already has connected lands on
+   * that connection. Refusals:
+   * - `number` missing is `bad-input` (`number`); `number` or
+   *   `replaceInbound` on any other entry is `bad-input`, naming it;
+   * - the provider refusing the credential or the lookup is
+   *   `connection-app-refused`, with the provider's code in the message
+   *   and never its headers;
+   * - the number's inbound texts going somewhere else today is
+   *   `inbound-in-use`, with `host` or `profile`, unless `replaceInbound`;
+   *   connecting moves the number onto Kindgi's messaging profile, whose
+   *   outbound settings then apply, and keeps the old inbound for the
+   *   removal to put back;
+   * - the number live through another of the tenant's token registrations,
+   *   or in another env of this one, is `number-in-use`, with that
+   *   registration's `appId` and its `envName`;
+   * - a reconnect names the connection's own number, else
+   *   `connection-account-mismatch`. It looks the number up again with
+   *   the registration's current credential and makes the connection
+   *   working: how a `credential-refused` one comes back once the
+   *   registration's secret is updated.
    */
   createRequest(
     input: ConnectRequestCreateInput,
@@ -773,4 +931,26 @@ export interface ConnectionBinding {
     readonly headers: Readonly<Record<string, string>>;
     readonly rawBody: Uint8Array;
   }): Promise<Result<{ readonly handled: string; readonly connections: number }, ConnectionError>>;
+
+  /**
+   * Texts a provider delivers to a texts registration
+   * (`/v1/texts-inbound`): an inbound text, a delivery status, or Meta's
+   * GET handshake. The provider's own signature is what this checks, with
+   * the registration's credential, before anything is written: anything
+   * that doesn't prove its sender (an unknown workspace or registration,
+   * a bad or missing signature, a handshake that doesn't match) is
+   * `texts-inbound-refused`, and nothing is written.
+   *
+   * Behind a proven request, the runtime routes each text by the number
+   * it was sent to, records a sender's STOP and START, records when the
+   * number last had a proven inbound text, and drops a text whose
+   * provider message id it has already taken. Each text fires once, on
+   * the thread of its connection, channel and sender.
+   *
+   * `texts-inbound-unavailable` (the registration's credential or the
+   * store couldn't be read, or the texts couldn't be taken) is the
+   * server's, and the provider may send them again. The routes mount
+   * `/v1/texts-inbound` only when a binding has this.
+   */
+  receiveTexts?(input: TextsInboundInput): Promise<Result<TextsInboundAnswer, ConnectionError>>;
 }

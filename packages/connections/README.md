@@ -6,13 +6,14 @@ then acts with that account, and the server keeps its tokens.
 
 An entry is data. It says:
 
-- **how a person signs in** at the app (`signIn`): OAuth 2.0 with PKCE, or a
-  GitHub App's installation;
+- **how a person signs in** at the app (`signIn`): OAuth 2.0 with PKCE, a
+  GitHub App's installation, or an account's credential that the
+  registration keeps, with no one signing in (the texts entry's number);
 - **who may own a connection** (`owners`): a member, the company, or either;
 - **what each permission allows,** in plain words for the person asked
   (`permissions`), and whether it changes anything;
-- **whose account it is** (`account`), learned from an ID token or the
-  installation;
+- **whose account it is** (`account`), learned from an ID token, the
+  installation, or the number a connect names;
 - **how access is withdrawn** on a disconnect, and how the app reports a
   removal made at the app (`removal`);
 - **the app's rate limit,** per connection (`rateLimits`);

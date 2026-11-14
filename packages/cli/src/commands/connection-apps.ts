@@ -21,9 +21,9 @@ import type { Command, LeafCommand } from './types.js';
 
 /**
  * `kindgi connection-apps`: the tenant's registrations at other apps (its
- * Google client, its GitHub App) that connections go through. Tenant
- * admins only. A registration names its secrets by reference: store the
- * values first with `kindgi secrets set`.
+ * Google client, its GitHub App, its texting provider account) that
+ * connections go through. Tenant admins only. A registration names its
+ * secrets by reference: store the values first with `kindgi secrets set`.
  */
 
 type SecretRef = { readonly envName: string; readonly name: string };
@@ -89,6 +89,41 @@ function projectsFlag(ctx: CommandContext): string[] | undefined {
 /** A GitHub App's flags, which no other app takes. */
 const GITHUB_ONLY = ['github-app-id', 'slug', 'private-key-ref', 'webhook-secret-ref'] as const;
 
+/** A texts registration's flags, which no other app takes. */
+const TEXTS_ONLY = ['provider', 'api-key-ref', 'public-key'] as const;
+
+/** The flags of an app that signs in with a client of its own: a texts registration takes none. */
+const CLIENT_FLAGS = ['client-id', 'client-secret-ref', 'tenant', ...GITHUB_ONLY] as const;
+
+type TokenInput = NonNullable<CreateConnectionAppInput['token']>;
+
+/** A texts registration's provider account, from its flags. */
+async function tokenFor(
+  ctx: CommandContext,
+  served: () => Promise<string | undefined>,
+): Promise<TokenInput> {
+  const given = CLIENT_FLAGS.filter((f) => ctx.options[f] !== undefined);
+  if (given.length > 0) {
+    throw new UsageError(
+      `${given.map((f) => `--${f}`).join(', ')}: a texts registration takes none; it takes --provider, --api-key-ref and --public-key`,
+    );
+  }
+  const provider = stringFlag(ctx, 'provider');
+  if (provider === undefined) throw new UsageError('Missing required flag: --provider=telnyx');
+  const publicKey = stringFlag(ctx, 'public-key');
+  if (publicKey === undefined) {
+    throw new UsageError(
+      "Missing required flag: --public-key=<base64>, the account's public key as the provider shows it",
+    );
+  }
+  return {
+    // The server names the providers it serves, and refuses any other.
+    provider: provider as TokenInput['provider'],
+    apiKey: await secretRef(ctx, 'api-key-ref', served),
+    publicKey,
+  };
+}
+
 /** The registration `add` makes, from its flags. */
 async function registrationFor(
   ctx: CommandContext,
@@ -99,10 +134,17 @@ async function registrationFor(
     servedEnv ??= servedEnvOf(ctx.client).then((s) => s?.envName);
     return servedEnv;
   };
-  const clientId = stringFlag(ctx, 'client-id');
-  if (clientId === undefined) throw new UsageError('Missing required flag: --client-id=<id>');
   const projects = projectsFlag(ctx);
   const common = { app, ...(projects !== undefined && { projects }) };
+  if (app === 'texts') return { ...common, token: await tokenFor(ctx, served) };
+  const texts = TEXTS_ONLY.filter((f) => ctx.options[f] !== undefined);
+  if (texts.length > 0) {
+    throw new UsageError(
+      `${texts.map((f) => `--${f}`).join(', ')}: only a texts registration takes`,
+    );
+  }
+  const clientId = stringFlag(ctx, 'client-id');
+  if (clientId === undefined) throw new UsageError('Missing required flag: --client-id=<id>');
   if (app !== 'github') {
     const given = GITHUB_ONLY.filter((f) => ctx.options[f] !== undefined);
     if (given.length > 0) {
@@ -214,9 +256,9 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Register the workspace's app at Google (`google`), Microsoft (`microsoft`, with `--tenant`), GitHub (`github`, with its four GitHub flags) or LinkedIn (`linkedin`), by its client id and the secrets you stored with `kindgi secrets set`. Prints the registration, with the redirect and notices addresses to give the app.",
+    "Register the workspace's app at Google (`google`), Microsoft (`microsoft`, with `--tenant`), GitHub (`github`, with its four GitHub flags) or LinkedIn (`linkedin`), by its client id and the secrets you stored with `kindgi secrets set`; or the texting provider account a number connects through (`texts`, with --provider, --api-key-ref and --public-key). Prints the registration, with the redirect and notices addresses to give the app.",
   usage:
-    'kindgi connection-apps add <app> --client-id=<id> --client-secret-ref=<env>/<name> [--tenant=<directory>] [--projects=<id>,…] [--github-app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>]',
+    'kindgi connection-apps add <app> (--client-id=<id> --client-secret-ref=<env>/<name> [--tenant=<directory>] [--github-app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>] | --provider=telnyx --api-key-ref=<env>/<name> --public-key=<base64>) [--projects=<id>,…]',
   optionSpec: {
     'client-id': { type: 'string', description: "The app's OAuth client id." },
     'client-secret-ref': {
@@ -249,6 +291,20 @@ const add: LeafCommand = {
       type: 'string',
       description:
         "GitHub: the secret holding the GitHub App's webhook secret, as --client-secret-ref.",
+    },
+    provider: {
+      type: 'string',
+      description: 'Texts: the texting provider the account is at (`telnyx`).',
+    },
+    'api-key-ref': {
+      type: 'string',
+      description:
+        "Texts: the secret holding the provider account's API key, as --client-secret-ref. The key is used by this registration only: no tool, endpoint, webhook trigger, model provider or other registration may name the same secret.",
+    },
+    'public-key': {
+      type: 'string',
+      description:
+        "Texts: the account's public key for signed texts, base64 of 32 bytes, as the provider shows it.",
     },
   },
   run: (ctx) =>

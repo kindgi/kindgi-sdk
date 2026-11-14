@@ -78,7 +78,7 @@ class OtherItem(BaseModel):
 
 class RunTrigger(BaseModel):
     """
-    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).
+    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook), `mail` (new mail in a mailbox) or `text` (a text to a business number).
     """
 
     model_config = ConfigDict(
@@ -86,7 +86,7 @@ class RunTrigger(BaseModel):
         populate_by_name=True,
     )
     trigger_id: Annotated[UUID, Field(alias="triggerId")]
-    kind: Annotated[Literal["schedule", "event", "webhook", "mail"] | str, _open.OPEN]
+    kind: Annotated[Literal["schedule", "event", "webhook", "mail", "text"] | str, _open.OPEN]
     fire_id: Annotated[str, Field(alias="fireId")]
     """
     The fire that started the run: one entry of the trigger's fire history.
@@ -12032,6 +12032,247 @@ class MailTriggerCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class TextTriggerRecord(BaseModel):
+    """
+    A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int, Field(alias="perSenderPerHour", ge=1, le=60)]
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why it isn't answering as it should: `connection-missing` (its connection is gone or lapsed; it answers again once it's back), `owner-refused` (its owner was removed or may no longer run the target; its texts are refused until that changes or an admin takes it over), or why the runtime paused it.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class RegisterTextTriggerBodyConfig(BaseModel):
+    """
+    A new text trigger's connection and pace.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int | None, Field(alias="perSenderPerHour", ge=1, le=60)] = None
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+
+
+class PatchTextTriggerBodyConfig(BaseModel):
+    """
+    A text trigger's connection or pace, to change. An absent field keeps its value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int | None, Field(alias="perSenderPerHour", ge=1, le=60)] = None
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+
+
+class RegisterTextTriggerBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the text, so it takes none. The number is the company's: it needs `admin` on the project, and `execute` on what it runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project. Absent: the workspace's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Not with `runAsServiceAccountId`, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
+    """
+    config: RegisterTextTriggerBodyConfig
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class PatchTextTriggerBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its connection, pace or label. Every change takes `admin` on the trigger's project. The owner stays.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    config: PatchTextTriggerBodyConfig | None = None
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class TextFire(BaseModel):
+    """
+    One text a text trigger was given and what came of it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Annotated[
+        Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
+    ]
+    """
+    `pending` while its run starts. `skipped`: no run started, as `detail` says. `refused`: over the trigger's `runsPerHour` or `perSenderPerHour` (`over-limit:`), or its connection missing or lapsed (`connection-missing:` and why); a refused text doesn't run later. `failed`: the run couldn't start.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run it started.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's version its run started with: the newest when it started. Absent until the run starts.
+    """
+    detail: str | None = None
+    """
+    Why it was skipped, refused or failed. It never names the sender's number.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends a missing connection. Skips never count.
+    """
+
+
+class TextFirePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextFire]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class TextTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class MailTriggerDefinition(BaseModel):
     """
     What a mail trigger's version runs, as whom, and which mailbox it reads at what pace, as its record names them, and never its state (status, next or last fire).
@@ -12121,6 +12362,98 @@ class MailTriggerVersionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[MailTriggerVersion]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class TextTriggerDefinition(BaseModel):
+    """
+    What a text trigger's version runs, as whom, and which number it answers at what pace, as its record names them, and never its state (status, next or last fire).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int, Field(alias="perSenderPerHour", ge=1, le=60)]
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    label: str | None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class TextTriggerVersion(BaseModel):
+    """
+    One version of a text trigger: what it was from `createdAt` until the next. A text's run uses the newest when it starts, and keeps it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    version: Annotated[int, Field(ge=1)]
+    """
+    Counts from 1, one more for each version.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).
+    """
+    cause: Annotated[
+        Literal["register", "edit", "owner", "first-fire", "unversioned-edit", "pin"] | str,
+        _open.OPEN,
+    ]
+    """
+    What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
+    """
+    definition: TextTriggerDefinition
+
+
+class TextTriggerVersionPage(BaseModel):
+    """
+    Newest first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextTriggerVersion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -12314,10 +12647,14 @@ class Removal(BaseModel):
         populate_by_name=True,
     )
     revoke: (
-        Annotated[Literal["oauth2-revoke", "github-installation-token"] | str, _open.OPEN] | None
+        Annotated[
+            Literal["oauth2-revoke", "github-installation-token", "restore-inbound"] | str,
+            _open.OPEN,
+        ]
+        | None
     ) = None
     """
-    How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).
+    How a disconnect withdraws access at the app: an OAuth revoke, revoking the GitHub App's installation tokens (the app stays installed), or putting a number's inbound back where it was before the connect, or clearing what Kindgi set (`restore-inbound`).
     """
     revoke_is_grant_wide: Annotated[bool | None, Field(alias="revokeIsGrantWide")] = None
     """
@@ -12358,6 +12695,29 @@ class ConnectionGitHubApp(BaseModel):
     webhook_secret: Annotated[ConnectionSecretRef, Field(alias="webhookSecret")]
 
 
+class ConnectionTokenApp(BaseModel):
+    """
+    A texts registration's provider account: its API key, by reference, and the key its texts are signed with.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider: Annotated[Literal["telnyx"] | str, _open.OPEN]
+    """
+    One of the entry's `signIn.providers`.
+    """
+    api_key: Annotated[ConnectionSecretRef, Field(alias="apiKey")]
+    """
+    The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`).
+    """
+    public_key: Annotated[str, Field(alias="publicKey", pattern="^[A-Za-z0-9+/]{43}=$")]
+    """
+    The account's Ed25519 public key, base64 of its 32 bytes, as the provider shows it. Anything else is `400 bad-input` (`token.publicKey`).
+    """
+
+
 class ConnectionApp(BaseModel):
     """
     A workspace's registration of its own client at an app. Secrets are references, never values.
@@ -12375,6 +12735,7 @@ class ConnectionApp(BaseModel):
     label: str | None = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: list[str] | None = None
     """
     The projects whose runs may use its connections. Absent: every project.
@@ -12404,7 +12765,7 @@ class ConnectionAppPage(BaseModel):
 
 class CreateConnectionAppBody(BaseModel):
     """
-    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.
+    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App, `token` for an app whose sign-in is an account's credential (`texts`).
     """
 
     model_config = ConfigDict(
@@ -12418,6 +12779,7 @@ class CreateConnectionAppBody(BaseModel):
     label: Annotated[str | None, Field(max_length=200)] = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
     """
     The projects whose runs may use its connections. Leave out for every project.
@@ -12436,6 +12798,7 @@ class UpdateConnectionAppBody(BaseModel):
     label: Annotated[str | None, Field(max_length=200)] = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
     """
     `null` allows every project.
@@ -12453,98 +12816,20 @@ class ConnectionAppRemoved(BaseModel):
     """
 
 
-class Connection(BaseModel):
+class ConnectionTextsCount(BaseModel):
     """
-    One owner's account at an app, through a registration, in one env. Never its token.
+    A number's (`texts`) texts in the current month, by UTC. Absent for other apps.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    connection_id: Annotated[UUID, Field(alias="connectionId")]
-    env_name: Annotated[str, Field(alias="envName")]
-    app_id: Annotated[UUID, Field(alias="appId")]
+    received: Annotated[int, Field(ge=0)]
+    sent: Annotated[int, Field(ge=0)]
+    unanswered: Annotated[int, Field(ge=0)]
     """
-    The registration it goes through.
-    """
-    app: str
-    """
-    The app's entry id.
-    """
-    owner: ConnectionOwner
-    account: ConnectionAccount
-    label: str | None = None
-    """
-    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
-    """
-    main: bool | None = None
-    """
-    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
-    """
-    permissions: list[str]
-    """
-    The entry's permission keys the app granted.
-    """
-    state: Annotated[
-        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
-    ]
-    """
-    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
-    """
-    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
-    """
-    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.
-    """
-    installation_id: Annotated[str | None, Field(alias="installationId")] = None
-    """
-    A GitHub App's installation.
-    """
-    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
-    """
-    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
-    """
-    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
-    """
-    When its current grant was stored: the connect, or the last reconnect.
-    """
-    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
-    """
-    When a run last used it, to the hour.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    created_by: Annotated[str, Field(alias="createdBy")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
-    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
-    removed_reason: Annotated[
-        Annotated[
-            Literal[
-                "disconnected",
-                "revoked-at-app",
-                "uninstalled",
-                "registration-removed",
-                "replaced",
-                "owner-removed",
-            ]
-            | str,
-            _open.OPEN,
-        ]
-        | None,
-        Field(alias="removedReason"),
-    ] = None
-    """
-    Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).
-    """
-    withdrawn: (
-        Annotated[
-            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
-            _open.OPEN,
-        ]
-        | None
-    ) = None
-    """
-    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    The texts received with nothing to answer them.
     """
 
 
@@ -12565,16 +12850,6 @@ class UpdateConnectionBody(BaseModel):
     """
     The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.
     """
-
-
-class ConnectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Connection]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ConnectionChoicePerson(BaseModel):
@@ -12734,7 +13009,15 @@ class CreateConnectRequestBody(BaseModel):
     """
     reconnects: UUID | None = None
     """
-    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one. For a number (`texts`), a reconnect names the connection's own number (any other is `409 connection-account-mismatch`), looks it up again with the registration's current credential, and makes the connection working.
+    """
+    number: Annotated[str | None, Field(pattern="^\\+[1-9][0-9]{6,14}$")] = None
+    """
+    A `texts` connect's, and required there: the number to connect, in E.164 (`+15551234567`). `400 bad-input` for any other app.
+    """
+    replace_inbound: Annotated[Literal[True] | None, Field(alias="replaceInbound")] = None
+    """
+    A `texts` connect's: `true` connects even though the number's inbound texts go somewhere else today (`409 inbound-in-use` without it). Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply; the removal puts the old inbound back. Only `true`; `400 bad-input` for any other app.
     """
 
 
@@ -18875,14 +19158,20 @@ class WebhookEndpointCollectionPage(BaseModel):
 
 class SignIn(BaseModel):
     """
-    How a person signs in at the app.
+    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
+    kind: Annotated[Literal["oauth2", "github-app", "token"] | str, _open.OPEN]
+    providers: Annotated[
+        list[Annotated[Literal["telnyx"] | str, _open.OPEN]] | None, Field(min_length=1)
+    ] = None
+    """
+    A `token` sign-in's: the providers a registration may name (`token.provider`), each once.
+    """
     tenant: ConnectionEntrySignInTenant | None = None
     """
     Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
@@ -18912,7 +19201,7 @@ class ConnectionEntry(BaseModel):
     """
     sign_in: Annotated[SignIn, Field(alias="signIn")]
     """
-    How a person signs in at the app.
+    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
     permissions: dict[str, ConnectionEntryPermission]
     """
@@ -18934,6 +19223,118 @@ class ConnectionEntryList(BaseModel):
         populate_by_name=True,
     )
     data: list[ConnectionEntry]
+
+
+class Connection(BaseModel):
+    """
+    One owner's account at an app, through a registration, in one env. Never its token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    app_id: Annotated[UUID, Field(alias="appId")]
+    """
+    The registration it goes through.
+    """
+    app: str
+    """
+    The app's entry id.
+    """
+    owner: ConnectionOwner
+    account: ConnectionAccount
+    label: str | None = None
+    """
+    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
+    """
+    main: bool | None = None
+    """
+    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
+    """
+    permissions: list[str]
+    """
+    The entry's permission keys the app granted.
+    """
+    state: Annotated[
+        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
+    ]
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
+    """
+    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended), `credential-refused` (the provider refused the registration's credential: update the registration's secret, then reconnect). Other values may be added; `state` says what to do.
+    """
+    installation_id: Annotated[str | None, Field(alias="installationId")] = None
+    """
+    A GitHub App's installation.
+    """
+    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
+    """
+    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
+    """
+    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
+    """
+    When its current grant was stored: the connect, or the last reconnect.
+    """
+    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
+    """
+    When a run last used it, to the hour.
+    """
+    last_proven_inbound_at: Annotated[AwareDatetime | None, Field(alias="lastProvenInboundAt")] = (
+        None
+    )
+    """
+    A number's (`texts`): when a text last arrived for it with a good signature. Absent for other apps, and until one has.
+    """
+    texts_this_month: Annotated[ConnectionTextsCount | None, Field(alias="textsThisMonth")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+    removed_reason: Annotated[
+        Annotated[
+            Literal[
+                "disconnected",
+                "revoked-at-app",
+                "uninstalled",
+                "registration-removed",
+                "replaced",
+                "owner-removed",
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="removedReason"),
+    ] = None
+    """
+    Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).
+    """
+    withdrawn: (
+        Annotated[
+            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    """
+
+
+class ConnectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Connection]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ConnectionChoice(BaseModel):
@@ -19042,7 +19443,7 @@ class ConnectionChoiceNeeds(BaseModel):
 
 class ConnectRequest(BaseModel):
     """
-    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
+    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one. An app connected without a browser (`texts`) has no such step: its request is `connected` from the start.
     """
 
     model_config = ConfigDict(
@@ -19106,9 +19507,12 @@ class ConnectRequest(BaseModel):
     """
     connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
     """
-    Where the owner starts.
+    Where the owner starts. For an app connected without a browser (`texts`), the request comes back `connected`, with `connectionId`, and its page only shows it connected: there is nothing to open.
     """
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    When a `pending` request expires; it ends no other.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     created_by: Annotated[str, Field(alias="createdBy")]
 
@@ -19401,17 +19805,18 @@ class Run(BaseModel):
     trigger: RunTrigger | None = None
     started_by: Annotated[
         Annotated[
-            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+            Literal["person", "key", "schedule", "webhook", "event", "mail", "text"] | str,
+            _open.OPEN,
         ]
         | None,
         Field(alias="startedBy"),
     ] = None
     """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event`, `mail` or `text`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook, a mail or a text trigger fired (`startedBy` `schedule`, `webhook`, `mail` or `text`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -19516,17 +19921,18 @@ class Datum(BaseModel):
     trigger: RunTrigger | None = None
     started_by: Annotated[
         Annotated[
-            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+            Literal["person", "key", "schedule", "webhook", "event", "mail", "text"] | str,
+            _open.OPEN,
         ]
         | None,
         Field(alias="startedBy"),
     ] = None
     """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event`, `mail` or `text`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook, a mail or a text trigger fired (`startedBy` `schedule`, `webhook`, `mail` or `text`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None

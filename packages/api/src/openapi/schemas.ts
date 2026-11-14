@@ -212,7 +212,7 @@ export const RunTriggerSchema: JsonSchema = {
   additionalProperties: false,
   required: ['triggerId', 'kind', 'fireId'],
   description:
-    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).",
+    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook), `mail` (new mail in a mailbox) or `text` (a text to a business number).",
   properties: {
     triggerId: { type: 'string', format: 'uuid' },
     kind: { type: 'string', enum: [...RUN_TRIGGER_KINDS] },
@@ -1281,12 +1281,12 @@ export const RunSchema: JsonSchema = {
       type: 'string',
       enum: [...RUN_STARTED_BY],
       description:
-        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event`, `mail` or `text`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
     },
     actsFor: {
       type: 'string',
       description:
-        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook, a mail or a text trigger fired (`startedBy` `schedule`, `webhook`, `mail` or `text`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -16677,6 +16677,205 @@ export const MailTriggerCollectionPageSchema: JsonSchema = {
   },
 };
 
+// ---------- text triggers (texts to a business number start runs) ----------
+
+const TEXT_TRIGGER_CONFIG_PROPERTIES: Record<string, JsonSchema> = {
+  connectionId: {
+    type: 'string',
+    format: 'uuid',
+    description:
+      "The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).",
+  },
+  runsPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 600,
+    description:
+      "The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.",
+  },
+  perSenderPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 60,
+    description:
+      "The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.",
+  },
+};
+
+export const TextTriggerRecordSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.",
+  required: [
+    'triggerId',
+    'projectId',
+    'owner',
+    'connectionId',
+    'runsPerHour',
+    'perSenderPerHour',
+    'label',
+    'status',
+    'lastFiredAt',
+    'createdAt',
+    'updatedAt',
+  ],
+  properties: {
+    triggerId: { type: 'string' },
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        "Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.",
+    },
+    ...TEXT_TRIGGER_CONFIG_PROPERTIES,
+    label: { type: ['string', 'null'] },
+    status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        "Why it isn't answering as it should: `connection-missing` (its connection is gone or lapsed; it answers again once it's back), `owner-refused` (its owner was removed or may no longer run the target; its texts are refused until that changes or an admin takes it over), or why the runtime paused it.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version.",
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none.",
+    ),
+    lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+/** A new text trigger's connection and pace. */
+export const RegisterTextTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A new text trigger's connection and pace.",
+  required: ['connectionId'],
+  properties: TEXT_TRIGGER_CONFIG_PROPERTIES,
+};
+
+/** A text trigger's connection or pace, to change; an absent field keeps its value. */
+export const PatchTextTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A text trigger's connection or pace, to change. An absent field keeps its value.",
+  properties: TEXT_TRIGGER_CONFIG_PROPERTIES,
+};
+
+export const RegisterTextTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the text, so it takes none. The number is the company's: it needs `admin` on the project, and `execute` on what it runs.",
+  required: ['config'],
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project. Absent: the workspace's default project.",
+    },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Not with `runAsServiceAccountId`, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+    },
+    config: { $ref: '#/components/schemas/RegisterTextTriggerBodyConfig' },
+    label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits.",
+    ),
+  },
+};
+
+export const PatchTextTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its connection, pace or label. Every change takes `admin` on the trigger's project. The owner stays.",
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    config: { $ref: '#/components/schemas/PatchTextTriggerBodyConfig' },
+    label: { type: ['string', 'null'] },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      'Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`.',
+    ),
+  },
+};
+
+export const TextFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'One text a text trigger was given and what came of it.',
+  required: ['fireId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    triggerId: { type: 'string' },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
+      description:
+        "`pending` while its run starts. `skipped`: no run started, as `detail` says. `refused`: over the trigger's `runsPerHour` or `perSenderPerHour` (`over-limit:`), or its connection missing or lapsed (`connection-missing:` and why); a refused text doesn't run later. `failed`: the run couldn't start.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
+    detail: {
+      type: 'string',
+      description: "Why it was skipped, refused or failed. It never names the sender's number.",
+    },
+    countsTowardPause: {
+      type: 'boolean',
+      description:
+        "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends a missing connection. Skips never count.",
+    },
+  },
+};
+
+export const TextFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TextFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const TextTriggerCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TextTriggerRecord' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 // ---------- trigger versions (every kind) ----------
 
 export const TriggerVersionCauseSchema: JsonSchema = {
@@ -16889,6 +17088,34 @@ export const MailTriggerVersionSchema: JsonSchema = triggerVersionSchema(
 
 export const MailTriggerVersionPageSchema: JsonSchema =
   triggerVersionPageSchema('MailTriggerVersion');
+
+export const TextTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  TextTriggerRecordSchema,
+  `What a text trigger's version runs, as whom, and which number it answers at what pace, as its record names them, ${VERSION_DEFINITION}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'projectId',
+    'owner',
+    'connectionId',
+    'runsPerHour',
+    'perSenderPerHour',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  ['projectId', 'owner', 'connectionId', 'runsPerHour', 'perSenderPerHour', 'label'],
+);
+
+export const TextTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'TextTriggerDefinition',
+  "One version of a text trigger: what it was from `createdAt` until the next. A text's run uses the newest when it starts, and keeps it.",
+);
+
+export const TextTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('TextTriggerVersion');
 
 // ---------- outbound webhook endpoints ----------
 
@@ -17108,9 +17335,17 @@ export const ConnectionEntrySchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['kind'],
-      description: 'How a person signs in at the app.',
+      description:
+        "How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.",
       properties: {
-        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        kind: { type: 'string', enum: ['oauth2', 'github-app', 'token'] },
+        providers: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', enum: ['telnyx'] },
+          description:
+            "A `token` sign-in's: the providers a registration may name (`token.provider`), each once.",
+        },
         tenant: {
           type: 'object',
           additionalProperties: false,
@@ -17138,9 +17373,9 @@ export const ConnectionEntrySchema: JsonSchema = {
       properties: {
         revoke: {
           type: 'string',
-          enum: ['oauth2-revoke', 'github-installation-token'],
+          enum: ['oauth2-revoke', 'github-installation-token', 'restore-inbound'],
           description:
-            "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).",
+            "How a disconnect withdraws access at the app: an OAuth revoke, revoking the GitHub App's installation tokens (the app stays installed), or putting a number's inbound back where it was before the connect, or clearing what Kindgi set (`restore-inbound`).",
         },
         revokeIsGrantWide: {
           type: 'boolean',
@@ -17201,6 +17436,32 @@ export const ConnectionGitHubAppSchema: JsonSchema = {
   },
 };
 
+export const ConnectionTokenAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['provider', 'apiKey', 'publicKey'],
+  description:
+    "A texts registration's provider account: its API key, by reference, and the key its texts are signed with.",
+  properties: {
+    provider: {
+      type: 'string',
+      enum: ['telnyx'],
+      description: "One of the entry's `signIn.providers`.",
+    },
+    apiKey: {
+      $ref: '#/components/schemas/ConnectionSecretRef',
+      description:
+        "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`).",
+    },
+    publicKey: {
+      type: 'string',
+      pattern: '^[A-Za-z0-9+/]{43}=$',
+      description:
+        "The account's Ed25519 public key, base64 of its 32 bytes, as the provider shows it. Anything else is `400 bad-input` (`token.publicKey`).",
+    },
+  },
+};
+
 export const ConnectionAppSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17213,6 +17474,7 @@ export const ConnectionAppSchema: JsonSchema = {
     label: { type: 'string' },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    token: { $ref: '#/components/schemas/ConnectionTokenApp' },
     projects: {
       type: 'array',
       items: { type: 'string' },
@@ -17250,12 +17512,14 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['app'],
-  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  description:
+    "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App, `token` for an app whose sign-in is an account's credential (`texts`).",
   properties: {
     app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
     label: { type: 'string', maxLength: 200 },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    token: { $ref: '#/components/schemas/ConnectionTokenApp' },
     projects: {
       type: 'array',
       minItems: 1,
@@ -17274,6 +17538,7 @@ export const UpdateConnectionAppBodySchema: JsonSchema = {
     label: { type: 'string', maxLength: 200 },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    token: { $ref: '#/components/schemas/ConnectionTokenApp' },
     projects: {
       type: ['array', 'null'],
       minItems: 1,
@@ -17342,7 +17607,7 @@ export const ConnectionSchema: JsonSchema = {
     stateReason: {
       type: 'string',
       description:
-        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.",
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended), `credential-refused` (the provider refused the registration's credential: update the registration's secret, then reconnect). Other values may be added; `state` says what to do.",
     },
     installationId: { type: 'string', description: "A GitHub App's installation." },
     accessEndsAt: {
@@ -17361,6 +17626,13 @@ export const ConnectionSchema: JsonSchema = {
       format: 'date-time',
       description: 'When a run last used it, to the hour.',
     },
+    lastProvenInboundAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A number's (`texts`): when a text last arrived for it with a good signature. Absent for other apps, and until one has.",
+    },
+    textsThisMonth: { $ref: '#/components/schemas/ConnectionTextsCount' },
     createdAt: { type: 'string', format: 'date-time' },
     createdBy: { type: 'string' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -17384,6 +17656,22 @@ export const ConnectionSchema: JsonSchema = {
       enum: ['at-app', 'app-failed', 'kept-for-other-connection', 'not-supported'],
       description:
         'What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.',
+    },
+  },
+};
+
+export const ConnectionTextsCountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['received', 'sent', 'unanswered'],
+  description: "A number's (`texts`) texts in the current month, by UTC. Absent for other apps.",
+  properties: {
+    received: { type: 'integer', minimum: 0 },
+    sent: { type: 'integer', minimum: 0 },
+    unanswered: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The texts received with nothing to answer them.',
     },
   },
 };
@@ -17654,7 +17942,7 @@ export const ConnectRequestSchema: JsonSchema = {
     'createdBy',
   ],
   description:
-    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.',
+    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one. An app connected without a browser (`texts`) has no such step: its request is `connected` from the start.',
   properties: {
     requestId: { type: 'string', format: 'uuid' },
     envName: { type: 'string' },
@@ -17712,8 +18000,17 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         'The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.',
     },
-    connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
-    expiresAt: { type: 'string', format: 'date-time' },
+    connectUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'Where the owner starts. For an app connected without a browser (`texts`), the request comes back `connected`, with `connectionId`, and its page only shows it connected: there is nothing to open.',
+    },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a `pending` request expires; it ends no other.',
+    },
     createdAt: { type: 'string', format: 'date-time' },
     createdBy: { type: 'string' },
   },
@@ -17760,7 +18057,19 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.",
+        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one. For a number (`texts`), a reconnect names the connection's own number (any other is `409 connection-account-mismatch`), looks it up again with the registration's current credential, and makes the connection working.",
+    },
+    number: {
+      type: 'string',
+      pattern: '^\\+[1-9][0-9]{6,14}$',
+      description:
+        "A `texts` connect's, and required there: the number to connect, in E.164 (`+15551234567`). `400 bad-input` for any other app.",
+    },
+    replaceInbound: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        "A `texts` connect's: `true` connects even though the number's inbound texts go somewhere else today (`409 inbound-in-use` without it). Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply; the removal puts the old inbound back. Only `true`; `400 bad-input` for any other app.",
     },
   },
 };
@@ -19049,6 +19358,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailFire', MailFireSchema],
   ['MailFirePage', MailFirePageSchema],
   ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
+  ['TextTriggerRecord', TextTriggerRecordSchema],
+  ['RegisterTextTriggerBodyConfig', RegisterTextTriggerBodyConfigSchema],
+  ['PatchTextTriggerBodyConfig', PatchTextTriggerBodyConfigSchema],
+  ['RegisterTextTriggerBody', RegisterTextTriggerBodySchema],
+  ['PatchTextTriggerBody', PatchTextTriggerBodySchema],
+  ['TextFire', TextFireSchema],
+  ['TextFirePage', TextFirePageSchema],
+  ['TextTriggerCollectionPage', TextTriggerCollectionPageSchema],
   ['TriggerVersionCause', TriggerVersionCauseSchema],
   ['ScheduleDefinition', ScheduleDefinitionSchema],
   ['ScheduleVersion', ScheduleVersionSchema],
@@ -19062,6 +19379,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailTriggerDefinition', MailTriggerDefinitionSchema],
   ['MailTriggerVersion', MailTriggerVersionSchema],
   ['MailTriggerVersionPage', MailTriggerVersionPageSchema],
+  ['TextTriggerDefinition', TextTriggerDefinitionSchema],
+  ['TextTriggerVersion', TextTriggerVersionSchema],
+  ['TextTriggerVersionPage', TextTriggerVersionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],
@@ -19082,12 +19402,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ConnectionEntryList', ConnectionEntryListSchema],
   ['ConnectionOAuth2App', ConnectionOAuth2AppSchema],
   ['ConnectionGitHubApp', ConnectionGitHubAppSchema],
+  ['ConnectionTokenApp', ConnectionTokenAppSchema],
   ['ConnectionApp', ConnectionAppSchema],
   ['ConnectionAppPage', ConnectionAppPageSchema],
   ['CreateConnectionAppBody', CreateConnectionAppBodySchema],
   ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
   ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
   ['Connection', ConnectionSchema],
+  ['ConnectionTextsCount', ConnectionTextsCountSchema],
   ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectionChoice', ConnectionChoiceSchema],

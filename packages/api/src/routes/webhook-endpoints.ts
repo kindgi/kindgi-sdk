@@ -16,7 +16,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import {
@@ -52,6 +52,11 @@ export function webhookEndpointsRouter(
   options: {
     readonly providerKeys?: ProviderKeys;
     /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
+    /**
      * On a runtime that refuses other envs: a `secretRef` under another env
      * answers `409 env-not-served` (`refuseUnservedReference`). Absent: any env.
      */
@@ -59,9 +64,9 @@ export function webhookEndpointsRouter(
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  // A reserved `kindgi.` name or a model provider's key is never a webhook
-  // endpoint's signing secret, and on a runtime that refuses other envs the
-  // secret is named under its env.
+  // A reserved `kindgi.` name, a model provider's key or a texts
+  // registration's account key is never a webhook endpoint's signing secret,
+  // and on a runtime that refuses other envs the secret is named under its env.
   const providerKey = async (
     tenantId: TenantId,
     secretRef: WebhookSecretRef | undefined,
@@ -74,6 +79,7 @@ export function webhookEndpointsRouter(
       tenantId,
       secretRef === undefined ? [] : [secretRef.name],
       'a webhook endpoint',
+      { keys: options.connectionKeys },
     );
   // Deliveries carry every project's runs: all of it is an admin's.
   r.use('*', tenantAdminAccess(authorizer));

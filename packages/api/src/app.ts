@@ -108,7 +108,7 @@ import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
-import { providerKeysOf, usersOfSecret } from './provider-keys.js';
+import { connectionKeysOf, providerKeysOf, usersOfSecret } from './provider-keys.js';
 import {
   type PublicRunTokenConfig,
   mintPublicRunToken,
@@ -142,6 +142,7 @@ import {
   connectionEntriesRouter,
   connectionNoticesRouter,
   connectionsRouter,
+  textsInboundRouter,
 } from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
@@ -222,6 +223,7 @@ import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { testRunsRouters } from './routes/test-runs.js';
 import { testSetsRouter } from './routes/test-sets.js';
+import { textTriggersRouter } from './routes/text-triggers.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolFilesRouter } from './routes/tool-files.js';
@@ -919,7 +921,8 @@ export interface CreateAppInput {
   readonly adapterFactories?: AdapterFactoryRegistry;
   /**
    * Optional. When present, mounts the trigger admin surfaces at
-   * `/v1/schedules/*`, `/v1/event-triggers/*`, and `/v1/webhooks/*`.
+   * `/v1/schedules/*`, `/v1/event-triggers/*`, `/v1/webhooks/*`,
+   * `/v1/mail-triggers/*` and `/v1/text-triggers/*`.
    * Kernel runtime primitives (cron/event/webhook schedulers) do the
    * firing; this binding satisfies the CRUD surface over the stored
    * triggers.
@@ -931,14 +934,14 @@ export interface CreateAppInput {
   /**
    * The trigger kinds whose admin surface mounts with `triggerRegistry`:
    * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
-   * `/v1/webhooks`, `mail` → `/v1/mail-triggers`. Absent: all four. A
-   * runtime that fires only some kinds lists those, so nobody registers a
-   * trigger that would never fire.
+   * `/v1/webhooks`, `mail` → `/v1/mail-triggers`, and `text` at
+   * `/v1/text-triggers`. Absent: all five. A runtime that fires only some
+   * kinds lists those, so nobody registers a trigger that would never fire.
    */
   readonly triggerKinds?: readonly TriggerKind[];
   /**
    * Optional. Tells a person when a project admin changes, pauses,
-   * resumes, fires, deletes or takes over a schedule, webhook or mail
+   * resumes, fires, deletes or takes over a schedule, webhook, mail or text
    * trigger they own (the runtime emails them). Called once the change is made,
    * never awaited; a failure is logged. Absent: the change is only
    * audited (`trigger-changed-for-owner`).
@@ -959,9 +962,10 @@ export interface CreateAppInput {
    * `/v1/connection-apps/*` (the tenant's registrations, an admin's),
    * `/v1/connections/*` (connections and connect requests), and, outside
    * the bearer chain, `/v1/connection-notices/*` (removals the app
-   * reports, rate-limited as `webhookReceiver` says). Needs `envName`: a
-   * connection is made under the env this runtime serves. See
-   * `ConnectionBinding`.
+   * reports) and, when the binding has `receiveTexts`,
+   * `/v1/texts-inbound/*` (texts a provider delivers), both rate-limited as
+   * `webhookReceiver` says. Needs `envName`: a connection is made under the
+   * env this runtime serves. See `ConnectionBinding`.
    */
   readonly connections?: ConnectionBinding;
   /**
@@ -1945,6 +1949,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // write a tool, an endpoint, an identity provider or a model provider
   // check names against it.
   const providerKeys = providerKeysOf(input.providerRegistry);
+  // A texts registration's account key is used by its registration only:
+  // the same routes, and a model provider's, check names against it.
+  const connectionKeys = connectionKeysOf(input.connections);
   const receiveUrl =
     input.publicUrl === undefined
       ? undefined
@@ -1988,6 +1995,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/tools',
       toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, {
         providerKeys,
+        connectionKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
@@ -2248,6 +2256,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         {
           secretUsers,
+          connectionKeys,
           ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
@@ -2260,6 +2269,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       mcpRouter(input.mcpEndpointRegistry, input.mcpClientProbe, authorizer, {
         hostAccess: input.tenantHostAccess ?? 'deployed',
         providerKeys,
+        connectionKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
@@ -2305,7 +2315,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       adaptersRouter(input.adapterRegistry, input.adapterFactories, authorizer),
     );
   }
-  // Trigger admin surfaces. Four sibling routers over the same
+  // Trigger admin surfaces. Sibling routers over the same
   // `TriggerRegistryBinding` — each pins its own kind. The inbound
   // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
@@ -2360,6 +2370,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           providerKeys,
+          connectionKeys,
           ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
           targetTools,
@@ -2398,12 +2409,41 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
       );
     }
+    if (kinds.has('text')) {
+      v1.route(
+        '/text-triggers',
+        textTriggersRouter(input.triggerRegistry, {
+          ...(authorizer !== undefined && { authorizer }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          names: {
+            ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+            ...(input.serviceAccountBinding !== undefined && {
+              serviceAccounts: input.serviceAccountBinding,
+            }),
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(itemRights !== undefined && { itemRights }),
+          targetTools,
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
+          // The company connection of app `texts` the texts come in on,
+          // checked against the project's candidates, as mail's is.
+          ...(input.connections !== undefined &&
+            servedEnv !== undefined && {
+              connections: { binding: input.connections, envName: servedEnv },
+            }),
+        }),
+      );
+    }
   }
   if (input.webhookEndpoints !== undefined) {
     v1.route(
       '/webhook-endpoints',
       webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
         providerKeys,
+        connectionKeys,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
@@ -2419,6 +2459,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/connection-apps',
       connectionAppsRouter(input.connections, authorizer, {
         providerKeys,
+        connectionKeys,
+        secretUsers,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
@@ -2717,6 +2759,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
+          connectionKeys,
           imageRegistry: input.imageRegistry,
           // A runtime routing pack calls per deployment sends each check call
           // by its id: a pack check must carry its pack's id.
@@ -2922,6 +2965,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     app.route(
       '/v1/connection-notices',
       connectionNoticesRouter(input.connections, {
+        ...(input.webhookReceiver?.clientAddress !== undefined && {
+          clientAddress: input.webhookReceiver.clientAddress,
+        }),
+        ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+          rateLimitStore: input.webhookReceiver.rateLimitStore,
+        }),
+      }),
+    );
+  }
+  // Texts a provider delivers to a texts registration: outside the bearer
+  // chain (mounted ahead of `/v1`), checked by the provider's own
+  // signature. Only where the binding takes them.
+  if (input.connections?.receiveTexts !== undefined) {
+    app.route(
+      '/v1/texts-inbound',
+      textsInboundRouter(input.connections, {
         ...(input.webhookReceiver?.clientAddress !== undefined && {
           clientAddress: input.webhookReceiver.clientAddress,
         }),

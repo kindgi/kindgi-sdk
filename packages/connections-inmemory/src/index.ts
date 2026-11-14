@@ -10,6 +10,10 @@
  * A connect finishes without a browser: start the request, read `state`
  * from its `authorizeUrl`, and finish with `code: 'ok'` (or
  * `error: 'access_denied'`). Tokens are `fake-<connectionId>-<n>`.
+ *
+ * A number (`texts`) needs no finish: `createRequest` with `number` looks
+ * it up at the fake provider and comes back `connected`. Its texts come in
+ * only on a Kindgi server.
  */
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -47,7 +51,12 @@ import type {
   ConnectionWithdrawn,
 } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
-import { type AppEntry, SIGN_IN_TENANT_PATTERN } from '@kindgi/connections';
+import {
+  type AppEntry,
+  SIGN_IN_TENANT_PATTERN,
+  TOKEN_PROVIDERS,
+  type TokenProvider,
+} from '@kindgi/connections';
 import {
   type ConnectionAccount,
   type ConnectionAccountChoices,
@@ -86,6 +95,13 @@ const MAX_LABEL_LENGTH = 100;
 const LIVE: ReadonlySet<ConnectionState> = new Set(['working', 'needs-reconnecting']);
 /** How many connections a set holds, as a server's. */
 const SET_SIZE = { min: 2, max: 10 } as const;
+/** A number, as a connect names it. */
+const E164 = /^\+[1-9][0-9]{6,14}$/;
+/** An Ed25519 public key: base64 of its 32 bytes. */
+const PUBLIC_KEY = /^[A-Za-z0-9+/]{43}=$/;
+/** The registration body each sign-in kind takes. */
+const BODY_OF = { oauth2: 'oauth2', 'github-app': 'githubApp', token: 'token' } as const;
+const PROVIDER_NAMES: Readonly<Record<TokenProvider, string>> = { telnyx: 'Telnyx' };
 const COMPANY: ConnectionOwner = { kind: 'company' };
 
 /** Why a tool keeps one connection, by `connectionSetRefusal`'s answer. */
@@ -136,6 +152,17 @@ export interface FakeNotice {
 }
 
 /**
+ * Where a number's inbound texts go at the fake provider, outside Kindgi:
+ * a webhook's host, or the name of a messaging profile of the business.
+ */
+export type FakeInbound =
+  | { readonly host: string; readonly profile?: never }
+  | { readonly profile: string; readonly host?: never };
+
+/** A number's inbound before any connect (`seed.inbound`). */
+export type SeedInboundInput = { readonly number: string } & FakeInbound;
+
+/**
  * The fake app: how it answers each call. Absent hooks answer as an app
  * where everything works.
  */
@@ -158,6 +185,24 @@ export interface FakeApp {
   /** A revoke, at a disconnect. Default `'ok'`. */
   withdraw?(input: { readonly connectionId: string }): 'ok' | 'failed';
   /**
+   * A number's lookup at a connect, with the registration's credential.
+   * Default `'ok'`. `'refused'`: the provider refused the credential
+   * (`connection-app-refused`), and nothing is stored.
+   */
+  lookUp?(input: {
+    readonly tenantId: TenantId;
+    readonly appId: string;
+    readonly number: string;
+  }): 'ok' | 'refused';
+  /**
+   * Putting a number's inbound back, at its removal. Default `'ok'`.
+   * `'failed'` leaves the connection `removing`, with the old inbound kept
+   * (`inbound-restore-failed`); removing it again retries.
+   */
+  restoreInbound?(input: { readonly connectionId: string; readonly number: string }):
+    | 'ok'
+    | 'failed';
+  /**
    * A GitHub App's installations the person reaches. Default: one,
    * `'1'` on the account `acme`. None: a start goes to the install page.
    */
@@ -178,9 +223,11 @@ export interface FakeApp {
 
 /** One call to the fake app, in order. Never a token. */
 export interface FakeAppCall {
-  readonly op: 'exchange' | 'renew' | 'withdraw' | 'notice';
+  readonly op: 'exchange' | 'renew' | 'withdraw' | 'notice' | 'lookup' | 'restore-inbound';
   readonly connectionId?: string;
   readonly requestId?: string;
+  /** A lookup's number. */
+  readonly number?: string;
   readonly outcome: string;
 }
 
@@ -269,6 +316,23 @@ export interface InMemoryConnections {
   readonly seed: {
     app(input: ConnectionAppCreateInput): ConnectionAppRecord;
     connection(input: SeedConnectionInput): ConnectionRecord;
+    /**
+     * Where a number's texts go today, outside Kindgi. A connect of it
+     * without `replaceInbound` is then `inbound-in-use`, with this `host`
+     * or `profile`; with it, the connect goes ahead and keeps it for the
+     * removal to put back.
+     */
+    inbound(input: SeedInboundInput): void;
+    /**
+     * Marks a number's live connection `needs-reconnecting`, `stateReason`
+     * `credential-refused`, as a server does when the provider refuses the
+     * registration's credential. A reconnect of the same number makes it
+     * work again.
+     */
+    credentialRefused(input: {
+      readonly tenantId: TenantId;
+      readonly connectionId: string;
+    }): ConnectionRecord;
   };
   /** Every call to the fake app, in order. */
   readonly calls: readonly FakeAppCall[];
@@ -279,6 +343,8 @@ interface StoredConnection {
   token?: { readonly n: number; readonly expiresAtMs: number } | undefined;
   /** It has no refresh token: its token is all it has, until it ends. */
   noRefresh?: true | undefined;
+  /** A number's inbound before the connect, which its removal puts back. */
+  previousInbound?: FakeInbound | undefined;
 }
 
 interface StoredRequest {
@@ -394,9 +460,26 @@ function otherOwnersNeed(
 function refuse(
   code: ConnectionErrorCode,
   message: string,
-  more: { readonly field?: string; readonly connectRequestId?: string } = {},
+  more: Omit<ConnectionError, 'code' | 'message'> = {},
 ): Outcome<never> {
   return { kind: 'err', error: { code, message, ...more } };
+}
+
+/** How the entry's sign-in reads in a refusal of another kind's body. */
+function signsInWith(entry: AppEntry): string {
+  switch (entry.signIn.kind) {
+    case 'oauth2':
+      return 'signs in with OAuth 2.0';
+    case 'github-app':
+      return 'is a GitHub App';
+    case 'token':
+      return "connects with a provider account's API key";
+  }
+}
+
+/** Where a number's texts go, in a message. */
+function inboundAt(where: FakeInbound): string {
+  return where.host !== undefined ? where.host : `the messaging profile "${where.profile}"`;
 }
 
 function principalKey(p: PrincipalRef): string {
@@ -537,38 +620,62 @@ export function createInMemoryConnections(
   const requests = new Map<string, StoredRequest>();
   const choices = new Map<string, ConnectionChoiceRecord>();
   const calls: FakeAppCall[] = [];
+  /** Numbers whose texts go somewhere outside Kindgi, by number. */
+  const inbound = new Map<string, FakeInbound>();
 
   // ---------------- registrations ----------------
 
   function checkSignIn(
     entry: AppEntry,
-    input: Pick<ConnectionAppCreateInput, 'oauth2' | 'githubApp'>,
+    input: Pick<ConnectionAppCreateInput, 'oauth2' | 'githubApp' | 'token'>,
     mode: 'create' | 'update',
   ): Outcome<true> {
-    const oauth2 = entry.signIn.kind === 'oauth2';
-    if (oauth2 && input.githubApp !== undefined) {
+    const body = BODY_OF[entry.signIn.kind];
+    const other = (['oauth2', 'githubApp', 'token'] as const).find(
+      (field) => field !== body && input[field] !== undefined,
+    );
+    if (other !== undefined) {
       return refuse(
         'connection-app-invalid',
-        `${entry.name} signs in with OAuth 2.0: give \`oauth2\``,
-        { field: 'githubApp' },
+        `${entry.name} ${signsInWith(entry)}: give \`${body}\``,
+        { field: other },
       );
     }
-    if (!oauth2 && input.oauth2 !== undefined) {
-      return refuse('connection-app-invalid', `${entry.name} is a GitHub App: give \`githubApp\``, {
-        field: 'oauth2',
-      });
+    if (mode === 'create' && input[body] === undefined) {
+      return refuse('connection-app-invalid', `${entry.name} needs \`${body}\``, { field: body });
     }
-    if (mode === 'create' && oauth2 && input.oauth2 === undefined) {
-      return refuse('connection-app-invalid', `${entry.name} needs \`oauth2\``, {
-        field: 'oauth2',
-      });
-    }
-    if (mode === 'create' && !oauth2 && input.githubApp === undefined) {
-      return refuse('connection-app-invalid', `${entry.name} needs \`githubApp\``, {
-        field: 'githubApp',
-      });
-    }
+    if (input.token !== undefined) return checkToken(entry, input.token);
     return input.oauth2 === undefined ? ok(true) : checkTenant(entry, input.oauth2.tenant);
+  }
+
+  /**
+   * A `token` body, as the route checks it: a provider the server serves
+   * and the entry takes, and the account's Ed25519 public key.
+   */
+  function checkToken(
+    entry: AppEntry,
+    token: NonNullable<ConnectionAppCreateInput['token']>,
+  ): Outcome<true> {
+    const field = { field: 'token.provider' };
+    if (!TOKEN_PROVIDERS.includes(token.provider)) {
+      const known = TOKEN_PROVIDERS.map((p) => `\`${p}\``).join(', ');
+      return refuse('bad-input', `\`token.provider\` must be one of ${known}`, field);
+    }
+    if (entry.signIn.kind === 'token' && !entry.signIn.providers.includes(token.provider)) {
+      const taken = entry.signIn.providers.map((p) => `"${p}"`).join(' or ');
+      return refuse(
+        'connection-app-invalid',
+        `${entry.name} takes ${taken} as \`token.provider\``,
+        field,
+      );
+    }
+    return PUBLIC_KEY.test(token.publicKey)
+      ? ok(true)
+      : refuse(
+          'bad-input',
+          "`token.publicKey` must be the account's Ed25519 public key: base64 of its 32 bytes",
+          { field: 'token.publicKey' },
+        );
   }
 
   /**
@@ -625,6 +732,7 @@ export function createInMemoryConnections(
       ...(input.label !== undefined && { label: input.label }),
       ...(input.oauth2 !== undefined && { oauth2: input.oauth2 }),
       ...(input.githubApp !== undefined && { githubApp: input.githubApp }),
+      ...(input.token !== undefined && { token: input.token }),
       ...(input.projects !== undefined && { projects: [...input.projects] }),
       redirectUrl: `${publicUrl}/console/connect/callback`,
       noticesUrl: `${publicUrl}/v1/connection-notices/${input.tenantId}/${appId}`,
@@ -961,9 +1069,22 @@ export function createInMemoryConnections(
     if (app.oauth2 !== undefined && input.oauth2 !== undefined) {
       return changedOAuth2Field(app.app, app.oauth2, input.oauth2);
     }
-    if (app.githubApp === undefined || input.githubApp === undefined) return undefined;
-    if (app.githubApp.appNumber !== input.githubApp.appNumber) return 'githubApp.appNumber';
-    if (app.githubApp.clientId !== input.githubApp.clientId) return 'githubApp.clientId';
+    if (app.token !== undefined && input.token !== undefined) {
+      return app.token.provider === input.token.provider ? undefined : 'token.provider';
+    }
+    if (app.githubApp !== undefined && input.githubApp !== undefined) {
+      return changedGitHubAppField(app.githubApp, input.githubApp);
+    }
+    return undefined;
+  }
+
+  /** The GitHub App is the client: its number and its client id. */
+  function changedGitHubAppField(
+    was: NonNullable<ConnectionAppRecord['githubApp']>,
+    now: NonNullable<ConnectionAppUpdateInput['githubApp']>,
+  ): string | undefined {
+    if (was.appNumber !== now.appNumber) return 'githubApp.appNumber';
+    if (was.clientId !== now.clientId) return 'githubApp.clientId';
     return undefined;
   }
 
@@ -981,6 +1102,17 @@ export function createInMemoryConnections(
     const entry = entries.get(app);
     const fallback = entry?.signIn.kind === 'oauth2' ? entry.signIn.tenant?.default : undefined;
     return (was.tenant ?? fallback) === (now.tenant ?? fallback) ? undefined : 'oauth2.tenant';
+  }
+
+  /** The client an update gives, each in full: the OAuth 2.0 client, the GitHub App or the provider account. */
+  function givenClient(
+    input: ConnectionAppUpdateInput,
+  ): Partial<Pick<ConnectionAppRecord, 'oauth2' | 'githubApp' | 'token'>> {
+    return {
+      ...(input.oauth2 !== undefined && { oauth2: input.oauth2 }),
+      ...(input.githubApp !== undefined && { githubApp: input.githubApp }),
+      ...(input.token !== undefined && { token: input.token }),
+    };
   }
 
   /** A change of the client while connections granted to it live: they're disconnected first. */
@@ -1001,6 +1133,7 @@ export function createInMemoryConnections(
   /** What the connections were granted to, named by the changed field, for the refusal. */
   function grantedTo(field: string): string {
     if (field === 'githubApp.appNumber') return 'GitHub App';
+    if (field === 'token.provider') return 'provider';
     return field === 'oauth2.tenant' ? 'directory' : 'client';
   }
 
@@ -1323,7 +1456,31 @@ export function createInMemoryConnections(
         field: 'permissions',
       });
     }
-    return ok(true);
+    return checkNumber(entry, input);
+  }
+
+  /** A number's connect names it; any other connect names none, nor `replaceInbound`. */
+  function checkNumber(entry: AppEntry, input: ConnectRequestCreateInput): Outcome<true> {
+    if (entry.signIn.kind !== 'token') {
+      const field = (['number', 'replaceInbound'] as const).find((f) => input[f] !== undefined);
+      return field === undefined
+        ? ok(true)
+        : refuse('bad-input', `${entry.name} connects no number: leave out \`${field}\``, {
+            field,
+          });
+    }
+    if (input.number === undefined) {
+      return refuse(
+        'bad-input',
+        `${entry.name} needs \`number\`: the number to connect, in E.164 (\`+15551234567\`)`,
+        { field: 'number' },
+      );
+    }
+    return E164.test(input.number)
+      ? ok(true)
+      : refuse('bad-input', '`number` must be a phone number in E.164: `+15551234567`', {
+          field: 'number',
+        });
   }
 
   /** The registration a connect goes through: the one named, or the tenant's only one. */
@@ -1388,20 +1545,185 @@ export function createInMemoryConnections(
         field: 'label',
       });
     }
-    return ok(
-      newRequest({
-        tenantId: input.tenantId,
-        envName: input.envName,
-        app: app.value,
-        entry,
-        owner: input.owner,
-        permissions: union(input.permissions, existing?.record.permissions ?? []),
-        ...(existing !== undefined && { reconnects: existing.record.connectionId }),
-        ...(input.label !== undefined && { label: input.label }),
-        expiresAtMs: now() + REQUEST_LIFE_MS,
-        createdBy: principalKey(input.by),
-      }),
-    );
+    if (entry.signIn.kind === 'token') {
+      return connectNumber(entry, app.value, input, input.number as string, existing);
+    }
+    return ok(requestFrom(entry, app.value, input, existing, existing));
+  }
+
+  /**
+   * The request a connect makes: what it asks, granted beside what the
+   * connection it lands on (`kept`, when known) already has.
+   */
+  function requestFrom(
+    entry: AppEntry,
+    app: ConnectionAppRecord,
+    input: ConnectRequestCreateInput,
+    reconnected: StoredConnection | undefined,
+    kept: StoredConnection | undefined,
+  ): ConnectRequestRecord {
+    return newRequest({
+      tenantId: input.tenantId,
+      envName: input.envName,
+      app,
+      entry,
+      owner: input.owner,
+      permissions: union(input.permissions, kept?.record.permissions ?? []),
+      ...(reconnected !== undefined && { reconnects: reconnected.record.connectionId }),
+      ...(input.label !== undefined && { label: input.label }),
+      expiresAtMs: now() + REQUEST_LIFE_MS,
+      createdBy: principalKey(input.by),
+    });
+  }
+
+  /**
+   * A number's connect, with no browser: the fake provider looks it up with
+   * the registration's credential, and the request comes back `connected`,
+   * keeping its `connectUrl` and `expiresAt`. It lands on the owner's
+   * connection of the number, or the one it reconnects (which must be of
+   * the same number), and makes it working. The number's inbound outside
+   * Kindgi, if any, is kept for the removal to put back.
+   */
+  function connectNumber(
+    entry: AppEntry,
+    app: ConnectionAppRecord,
+    input: ConnectRequestCreateInput,
+    number: string,
+    existing: StoredConnection | undefined,
+  ): Outcome<ConnectRequestRecord> {
+    const account: ConnectionAccount = { id: `num-${number.slice(1)}`, label: number };
+    if (existing !== undefined && existing.record.account.id !== account.id) {
+      return refuse(
+        'connection-account-mismatch',
+        `That's another number: reconnect ${existing.record.account.label}`,
+        { field: 'number' },
+      );
+    }
+    const at = { tenantId: input.tenantId, appId: app.appId, envName: input.envName };
+    const elsewhere = numberElsewhere(at, account.id);
+    if (elsewhere !== undefined) {
+      return refuse(
+        'number-in-use',
+        `${number} is connected through registration ${elsewhere.appId} in env ${elsewhere.envName}, and a number is live in one place: remove that connection first`,
+        { appId: elsewhere.appId, envName: elsewhere.envName },
+      );
+    }
+    const live = existing ?? accountConnection(at, input.owner, account.id);
+    if (live?.record.state === 'removing') {
+      return refuse(
+        'connection-removing',
+        `The connection of ${number} is still being removed: remove it again to finish, then connect`,
+      );
+    }
+    const looked = lookUpNumber(app, input, number);
+    if (looked.kind === 'err') return looked;
+    const outside = looked.value;
+    const request = requestFrom(entry, app, input, existing, live);
+    const { stored: connection } = storeConnection(request, live, {
+      account,
+      installationId: undefined,
+      granted: request.permissions,
+    });
+    if (outside !== undefined) {
+      connection.previousInbound = outside;
+      inbound.delete(number);
+    }
+    issueFirstToken(connection, true);
+    const stored = requests.get(request.requestId) as StoredRequest;
+    stored.record = {
+      ...request,
+      state: 'connected',
+      connectionId: connection.record.connectionId,
+    };
+    return ok(stored.record);
+  }
+
+  /**
+   * The fake provider's lookup of the number with the registration's
+   * credential, then the number's inbound outside Kindgi, if any, which a
+   * connect moves only with `replaceInbound`.
+   */
+  function lookUpNumber(
+    app: ConnectionAppRecord,
+    input: ConnectRequestCreateInput,
+    number: string,
+  ): Outcome<FakeInbound | undefined> {
+    const looked = fake.lookUp?.({ tenantId: input.tenantId, appId: app.appId, number }) ?? 'ok';
+    calls.push({ op: 'lookup', number, outcome: looked });
+    if (looked === 'refused') {
+      const provider =
+        app.token === undefined ? 'The provider' : PROVIDER_NAMES[app.token.provider];
+      return refuse(
+        'connection-app-refused',
+        `${provider} refused the registration's credential (401): update the registration's secret, then connect again`,
+      );
+    }
+    const outside = inbound.get(number);
+    if (outside !== undefined && input.replaceInbound !== true) {
+      return refuse(
+        'inbound-in-use',
+        `${number}'s texts go to ${inboundAt(outside)} today. Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply, and its texts come here; removing the connection puts them back. To go ahead, connect again with \`replaceInbound: true\``,
+        outside,
+      );
+    }
+    return ok(outside);
+  }
+
+  /** The tenant's connection of the number through another registration or env, if one isn't removed. */
+  function numberElsewhere(
+    at: { readonly tenantId: TenantId; readonly appId: string; readonly envName: EnvName },
+    accountId: string,
+  ): ConnectionRecord | undefined {
+    for (const { record: c } of connections.values()) {
+      if (
+        c.tenantId === at.tenantId &&
+        c.state !== 'removed' &&
+        c.account.id === accountId &&
+        entries.get(c.app)?.signIn.kind === 'token' &&
+        (c.appId !== at.appId || c.envName !== at.envName)
+      ) {
+        return c;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * A number's removal: its old inbound is put back first, or what Kindgi
+   * set is cleared, and only then is the connection removed. A failed
+   * restore leaves it `removing`, with the old inbound kept, for a retry.
+   * With `skip`, the kept inbound is dropped unrestored: the admin pointed
+   * the number elsewhere by hand.
+   */
+  function removeNumber(
+    stored: StoredConnection,
+    by: string,
+    reason: ConnectionRemovedReason,
+    skip: boolean,
+  ): Outcome<ConnectionRecord> {
+    const c = stored.record;
+    const number = c.account.label;
+    const previous = stored.previousInbound;
+    if (!skip) {
+      const answer = fake.restoreInbound?.({ connectionId: c.connectionId, number }) ?? 'ok';
+      calls.push({ op: 'restore-inbound', connectionId: c.connectionId, outcome: answer });
+      if (answer === 'failed') {
+        stored.record = { ...c, state: 'removing', updatedAt: iso() };
+        stored.token = undefined;
+        const back =
+          previous === undefined
+            ? `${number} couldn't be taken off Kindgi's messaging profile`
+            : `${number}'s texts couldn't be put back to ${inboundAt(previous)}`;
+        return refuse(
+          'inbound-restore-failed',
+          `${back}, so the connection stays removing: remove it again to retry, or with skipInboundRestore if the number already points where it should`,
+          previous ?? {},
+        );
+      }
+      if (previous !== undefined) inbound.set(number, previous);
+    }
+    stored.previousInbound = undefined;
+    return ok(remove(stored, by, reason, 'at-app'));
   }
 
   function installationsOf(
@@ -1462,7 +1784,9 @@ export function createInMemoryConnections(
     );
     const scopes = new Set([
       ...(signIn.scopes ?? []),
-      ...(entry.account.kind === 'github-installation' ? [] : entry.account.scopes),
+      ...(entry.account.kind === 'openid' || entry.account.kind === 'profile'
+        ? entry.account.scopes
+        : []),
       ...request.permissions.map((p) => entry.permissions[p]?.grants ?? p),
     ]);
     url.searchParams.set('response_type', 'code');
@@ -1982,8 +2306,7 @@ export function createInMemoryConnections(
       const updated: ConnectionAppRecord = {
         ...rest,
         ...(input.label !== undefined && { label: input.label }),
-        ...(input.oauth2 !== undefined && { oauth2: input.oauth2 }),
-        ...(input.githubApp !== undefined && { githubApp: input.githubApp }),
+        ...givenClient(input),
         ...(projects !== undefined && { projects: [...projects] }),
         updatedAt: iso(),
       };
@@ -2001,8 +2324,25 @@ export function createInMemoryConnections(
           `${live.length} connection(s) still use the registration: remove them with it, or first`,
         );
       }
+      const by = principalKey(input.by);
+      const numbers = entries.get(app.app)?.removal?.revoke === 'restore-inbound';
+      const failed: ConnectionError[] = [];
       for (const stored of live) {
-        remove(stored, principalKey(input.by), 'registration-removed', withdrawAtApp(stored));
+        if (!numbers) {
+          remove(stored, by, 'registration-removed', withdrawAtApp(stored));
+          continue;
+        }
+        const removed = removeNumber(stored, by, 'registration-removed', false);
+        if (removed.kind === 'err') failed.push(removed.error);
+      }
+      const [first] = failed;
+      if (first !== undefined) {
+        const { code: _code, message: _message, ...where } = first;
+        return refuse(
+          'inbound-restore-failed',
+          `${failed.length} number(s) couldn't be put back where their texts went before the connect, so the registration stays, and they stay removing: remove it again to retry, or first disconnect each with skipInboundRestore`,
+          where,
+        );
       }
       const at = iso();
       apps.set(app.appId, { ...app, removedAt: at, updatedAt: at });
@@ -2033,7 +2373,11 @@ export function createInMemoryConnections(
         return refuse('connection-not-found', 'No such connection');
       }
       if (stored.record.state === 'removed') return ok(stored.record);
-      return ok(remove(stored, principalKey(input.by), 'disconnected', withdrawAtApp(stored)));
+      const by = principalKey(input.by);
+      if (entries.get(stored.record.app)?.removal?.revoke === 'restore-inbound') {
+        return removeNumber(stored, by, 'disconnected', input.skipInboundRestore === true);
+      }
+      return ok(remove(stored, by, 'disconnected', withdrawAtApp(stored)));
     },
 
     async update(input) {
@@ -2910,6 +3254,26 @@ export function createInMemoryConnections(
       }
       if (stored.record.state === 'working') issueFirstToken(stored, stored.noRefresh !== true);
       connections.set(stored.record.connectionId, stored);
+      return stored.record;
+    },
+    inbound(input: SeedInboundInput): void {
+      const { number, ...where } = input;
+      if (!E164.test(number)) throw new TypeError('`number` must be a phone number in E.164');
+      inbound.set(number, where as FakeInbound);
+    },
+    credentialRefused(input: {
+      readonly tenantId: TenantId;
+      readonly connectionId: string;
+    }): ConnectionRecord {
+      const stored = connections.get(input.connectionId);
+      if (stored === undefined || stored.record.tenantId !== input.tenantId) {
+        throw new TypeError('No such connection');
+      }
+      if (entries.get(stored.record.app)?.signIn.kind !== 'token') {
+        throw new TypeError(`${stored.record.app} connects with no credential of its registration`);
+      }
+      if (!LIVE.has(stored.record.state)) throw new TypeError('The connection is not live');
+      needsReconnecting(stored, 'credential-refused');
       return stored.record;
     },
   };

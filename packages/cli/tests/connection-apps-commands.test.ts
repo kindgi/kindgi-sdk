@@ -331,6 +331,75 @@ describe('kindgi connection-apps add', () => {
     expect(calls).toEqual([]);
   });
 
+  test("texts: the provider, its API key by <env>/<name>, and the account's public key", async () => {
+    const publicKey = Buffer.alloc(32, 7).toString('base64');
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'connection-apps',
+        'add',
+        'texts',
+        '--provider=telnyx',
+        '--api-key-ref=prod/TELNYX_API_KEY',
+        `--public-key=${publicKey}`,
+        `--projects=${P1}`,
+      ],
+      { connectionApps: { create: rec('create', { ...GOOGLE, app: 'texts' }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'create',
+        {
+          app: 'texts',
+          projects: [P1],
+          token: {
+            provider: 'telnyx',
+            apiKey: { envName: 'prod', name: 'TELNYX_API_KEY' },
+            publicKey,
+          },
+        },
+      ],
+    ]);
+  });
+
+  test.each([
+    [['--api-key-ref=prod/K', '--public-key=k'], 'Missing required flag: --provider=telnyx'],
+    [['--provider=telnyx', '--api-key-ref=prod/K'], 'Missing required flag: --public-key=<base64>'],
+    [['--provider=telnyx', '--public-key=k'], 'Missing required flag: --api-key-ref=<env>/<name>'],
+    [
+      ['--provider=telnyx', '--api-key-ref=prod/K', '--public-key=k', '--client-id=cid'],
+      '--client-id: a texts registration takes none; it takes --provider, --api-key-ref and --public-key',
+    ],
+  ] as const)('texts with %j is refused', async (flags, said) => {
+    const { calls, rec } = recorder();
+    const out = await run(['connection-apps', 'add', 'texts', ...flags], {
+      connectionApps: { create: rec('create', GOOGLE) },
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
+    expect(calls).toEqual([]);
+  });
+
+  test("google refuses a texts registration's flags", async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'connection-apps',
+        'add',
+        'google',
+        '--client-id=cid',
+        '--client-secret-ref=prod/S',
+        '--provider=telnyx',
+        '--public-key=k',
+      ],
+      { connectionApps: { create: rec('create', GOOGLE) } },
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('--provider, --public-key: only a texts registration takes');
+    expect(calls).toEqual([]);
+  });
+
   // `--projects=$P` with `P` unset would otherwise register the app for every project.
   test.each([
     ['--projects=', '--projects takes a value'],

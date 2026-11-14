@@ -17,15 +17,17 @@ export const EVENT_DATA_RULE =
 
 /**
  * Whether a turn reads its message as outside data: when a webhook, an
- * event or a mail started its run (`InvokeAgentInput.startedBy`).
+ * event, a mail or a text started its run (`InvokeAgentInput.startedBy`).
  */
 export function messageIsEvent(startedBy: RunStartedBy | undefined): boolean {
-  return startedBy === 'webhook' || startedBy === 'event' || startedBy === 'mail';
+  return (
+    startedBy === 'webhook' || startedBy === 'event' || startedBy === 'mail' || startedBy === 'text'
+  );
 }
 
 /**
- * Whether the turn's own message is outside data: a webhook, an event or
- * a mail started its run (`startedBy`), or the turn's input says its message is
+ * Whether the turn's own message is outside data: a webhook, an event, a
+ * mail or a text started its run (`startedBy`), or the turn's input says its message is
  * an event's (`messageFromEvent`), as a replay of such a turn does while
  * recording no start of its own.
  */
@@ -38,7 +40,7 @@ export function turnMessageIsEvent(input: {
 
 /**
  * The turn's message as the data block the model reads, in a run a
- * webhook, an event or a mail started: the text as it came, with every `<` written as
+ * webhook, an event, a mail or a text started: the text as it came, with every `<` written as
  * `\u003c`, so nothing in it can close the block or open another. A JSON
  * message stays JSON and parses the same.
  *

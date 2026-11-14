@@ -32,6 +32,17 @@ const acme: AppEntry = {
   setupGuide: '/guides/connections/acme/',
 };
 
+/** The fields that make `acme` a `token` entry, as the texts entry is. */
+const token = {
+  signIn: { kind: 'token', providers: ['telnyx'] },
+  permissions: {
+    'notes.read': { grants: 'notes.read', says: 'Read your notes', changes: false },
+    'notes.write': { grants: 'notes.write', says: 'Write notes as you', changes: true },
+  },
+  account: { kind: 'number' },
+  removal: { revoke: 'restore-inbound' },
+};
+
 /** `acme` with `patch` laid over it, one level deep. */
 function withAcme(patch: Record<string, unknown>): AppEntry {
   return { ...acme, ...patch } as AppEntry;
@@ -57,6 +68,15 @@ describe('defineApp', () => {
       }),
     );
     expect(entry.signIn.kind).toBe('github-app');
+  });
+
+  it('takes a token entry, with a number lookup, its inbound restored on removal, and each permission granted by its own key', () => {
+    const entry = defineApp(withAcme(token));
+    expect(entry.signIn).toEqual({ kind: 'token', providers: ['telnyx'] });
+    expect(entry.account).toEqual({ kind: 'number' });
+    expect(entry.removal).toEqual({ revoke: 'restore-inbound' });
+    expect(entry.permissions).toEqual(token.permissions);
+    expect(Object.isFrozen(entry.signIn)).toBe(true);
   });
 
   it("takes a sign-in in the app's own directory, a profile lookup, and a limit a call costs 0 in", () => {
@@ -138,6 +158,41 @@ describe('defineApp', () => {
         removal: { revoke: 'github-installation-token', notices: 'github-webhooks' },
       },
       /signIn.refreshToken is for an "oauth2" sign-in/,
+    ],
+    [
+      'a token sign-in with no providers',
+      { ...token, signIn: { kind: 'token', providers: [] } },
+      /signIn.providers must list at least one of "telnyx"/,
+    ],
+    [
+      'a token sign-in with no providers list',
+      { ...token, signIn: { kind: 'token' } },
+      /signIn.providers must list at least one of "telnyx"/,
+    ],
+    [
+      'a token sign-in with a provider listed twice',
+      { ...token, signIn: { kind: 'token', providers: ['telnyx', 'telnyx'] } },
+      /signIn.providers lists "telnyx" twice/,
+    ],
+    [
+      'a token sign-in with an unknown provider',
+      { ...token, signIn: { kind: 'token', providers: ['telnyx', 'carrier-pigeon'] } },
+      /signIn.providers has "carrier-pigeon"; each is one of "telnyx"/,
+    ],
+    [
+      "a token sign-in's permission that grants a scope, not its own key",
+      { ...token, permissions: acme.permissions },
+      /permissions\["notes.read"\].grants must be "notes.read": a "token" sign-in grants each permission by its own key/,
+    ],
+    [
+      'a refreshToken on a token sign-in',
+      { ...token, signIn: { kind: 'token', providers: ['telnyx'], refreshToken: 'optional' } },
+      /signIn.refreshToken is for an "oauth2" sign-in/,
+    ],
+    [
+      'an unknown sign-in kind',
+      { signIn: { kind: 'password' } },
+      /signIn.kind must be "oauth2", "github-app" or "token"/,
     ],
     [
       'an authorize param that is not a string',
@@ -237,6 +292,26 @@ describe('defineApp', () => {
     ],
     ['an unknown account kind', { account: { kind: 'saml' } }, /account.kind must be/],
     [
+      'a number lookup on oauth2',
+      { account: { kind: 'number' }, removal: {} },
+      /account.kind "number" needs a "token" sign-in/,
+    ],
+    [
+      'a number lookup on a github-app sign-in',
+      { signIn: { kind: 'github-app' }, account: { kind: 'number' }, removal: {} },
+      /account.kind "number" needs a "token" sign-in/,
+    ],
+    [
+      'a token sign-in with an openid lookup',
+      { ...token, account: acme.account },
+      /a "token" sign-in needs account.kind "number"/,
+    ],
+    [
+      'a token sign-in with an installation lookup',
+      { ...token, account: { kind: 'github-installation' } },
+      /a "token" sign-in needs account.kind "number"/,
+    ],
+    [
       'an oauth2 revoke without a revoke URL',
       { signIn: { ...acme.signIn, revokeUrl: undefined } },
       /removal.revoke "oauth2-revoke" needs an "oauth2" sign-in with a revokeUrl/,
@@ -245,6 +320,25 @@ describe('defineApp', () => {
       'an installation-token revoke on oauth2',
       { removal: { revoke: 'github-installation-token' } },
       /needs a "github-app" sign-in/,
+    ],
+    [
+      'an inbound-restoring revoke on oauth2',
+      { removal: { revoke: 'restore-inbound' } },
+      /removal.revoke "restore-inbound" needs a "token" sign-in/,
+    ],
+    [
+      'an inbound-restoring revoke on a github-app sign-in',
+      {
+        signIn: { kind: 'github-app' },
+        account: { kind: 'github-installation' },
+        removal: { revoke: 'restore-inbound' },
+      },
+      /removal.revoke "restore-inbound" needs a "token" sign-in/,
+    ],
+    [
+      'an oauth2 revoke on a token sign-in',
+      { ...token, removal: { revoke: 'oauth2-revoke' } },
+      /removal.revoke "oauth2-revoke" needs an "oauth2" sign-in with a revokeUrl/,
     ],
     ['an unknown revoke', { removal: { revoke: 'delete' } }, /removal.revoke must be/],
     ['an unknown notice kind', { removal: { notices: 'email' } }, /removal.notices must be/],

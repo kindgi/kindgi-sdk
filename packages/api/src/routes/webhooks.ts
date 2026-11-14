@@ -25,7 +25,7 @@ import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -101,6 +101,11 @@ export interface WebhooksRouterOptions {
   /** A model provider's key is never a webhook trigger's secret. */
   readonly providerKeys?: ProviderKeys;
   /**
+   * A texts registration's account key is never named here
+   * (`connection-key-refused`); absent, not checked.
+   */
+  readonly connectionKeys?: ConnectionKeys;
+  /**
    * A trigger's receive URL (`POST /v1/hooks/{tenantId}/{webhookId}`), made
    * from the deployment's configured public URL; never from a request's
    * `Host`, which the caller writes. Absent when the deployment has none:
@@ -166,6 +171,7 @@ export function webhooksRouter(
     projects,
     names,
     providerKeys,
+    connectionKeys,
     receiveUrl,
     secrets,
     envName,
@@ -297,7 +303,10 @@ export function webhooksRouter(
     );
   }
 
-  /** A reserved `kindgi.` name or a model provider's key named as the signing secret: the refusal. */
+  /**
+   * A reserved `kindgi.` name, a model provider's key or a texts
+   * registration's account key named as the signing secret: the refusal.
+   */
   async function signingSecretRefused(
     c: Context<AppEnv>,
     name: string,
@@ -307,6 +316,7 @@ export function webhooksRouter(
       c.get('tenantId') as TenantId,
       [name],
       'a webhook trigger',
+      { keys: connectionKeys },
     );
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);

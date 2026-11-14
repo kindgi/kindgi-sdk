@@ -84,6 +84,7 @@ import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TestRunsClient, makeTestRunsClient } from './resources/test-runs.js';
 import { type TestSetsClient, makeTestSetsClient } from './resources/test-sets.js';
+import { type TextTriggersClient, makeTextTriggersClient } from './resources/text-triggers.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
 import {
@@ -213,6 +214,8 @@ export interface KindgiClient {
   readonly webhooks: WebhooksClient;
   /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
   readonly mailTriggers: MailTriggersClient;
+  /** Text triggers: texts to a business number start runs of an agent or a flow. */
+  readonly textTriggers: TextTriggersClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -296,6 +299,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     connectionChoices: makeConnectionChoicesClient(transport),
     webhooks: makeWebhooksClient(transport),
     mailTriggers: makeMailTriggersClient(transport),
+    textTriggers: makeTextTriggersClient(transport),
     packs: makePacksClient(transport),
   };
 }
