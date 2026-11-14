@@ -138,6 +138,8 @@ export const ENV_DEFAULTS = {
   KINDGI_KEPT_REPOS:
     '`off`: no kept repos, and `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses (`kept-repos-off`)',
   KINDGI_PASSIVE: '`off`',
+  KINDGI_TICK_CALLER: "none: no tick; the background work runs on the server's own timers",
+  KINDGI_SERVICE_URL: 'none (with `KINDGI_TICK_CALLER` unset)',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
   KINDGI_PAGINATION_KEY: 'none: same as `KINDGI_PAGINATION_KEY_PATH`',

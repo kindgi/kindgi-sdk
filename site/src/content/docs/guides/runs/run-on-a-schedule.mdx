@@ -228,6 +228,11 @@ each time still fires once.
   latest of them. It says how many it stood in for, as `missedCount`.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
+- **The runtime scales to zero** (runtime 0.7.0 or later,
+  [on Cloud Run](../../../deploy/self-hosted/cloud-run/#scale-the-server-to-zero)):
+  between requests, a schedule's times are checked once a minute, so a fire
+  can start up to about a minute late. With `--catch-up=skip`, a
+  `--starting-deadline` under 90 seconds can drop it; the default doesn't.
 - **Its owner may no longer run it,** such as when they lost their role on
   the project, or were removed from the workspace, or it's a service account
   that was unregistered (runtime 0.1.9 or later).
