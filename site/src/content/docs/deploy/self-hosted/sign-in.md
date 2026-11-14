@@ -443,6 +443,33 @@ machine:
   ⚠ Emailed sign-in link without a captcha on a console others can reach: Turnstile is recommended (KINDGI_AUTH_TURNSTILE_SECRET, KINDGI_AUTH_TURNSTILE_SITE_KEY).
 ```
 
+### The heads-up before a connection's access ends
+
+The runtime sends one more email through this SMTP service. Some apps give
+no way to renew a sign-in, LinkedIn among them
+([LinkedIn](../../../guides/connections/linkedin/#when-linkedin-ends-access)).
+Seven days before such a connection's access ends, the runtime emails
+whoever can reconnect it, once for that end (runtime 0.7.0 or later):
+
+- **A person's own connection:** that person.
+- **The company's:** each workspace admin. Without authorization there are
+  no admins to look up, so no one gets it
+  ([Without authorization](../../people-and-keys/#without-authorization)).
+
+The email links to the connection in the console. It has no setting of its
+own: it goes out whenever the SMTP service is set. Without it, the start
+log says the email is off:
+
+```text
+17:36:46.102 INFO  [connections] the heads-up email before a connection's access ends is off: it needs the emailed sign-in link's server (KINDGI_AUTH_EMAIL_SMTP_URL and KINDGI_AUTH_EMAIL_FROM). The console still shows it on the connection.
+```
+
+With or without the email, the console shows it from those seven days on.
+On **Connections** and on the connection's own page it reads "Ends on
+*date*. Connect it again to keep posting.", with **Reconnect** for whoever
+can reconnect it. A reconnect gives the connection a new end, and a new
+heads-up seven days before that.
+
 ## A second factor
 
 A person can add a second factor to signing in (runtime 0.1.9 or later):
