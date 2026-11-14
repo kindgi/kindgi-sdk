@@ -397,6 +397,30 @@ What's left after that follows where the values were:
     disabled, then writes the new value. The old versions stay in the vault,
     disabled, until the secret is deleted again. Kindgi never reads them.
 
+With a secret manager, `--hard` revokes the secret first, then erases its
+values there:
+
+- **While it erases,** setting the name again answers
+  `secret-provider-unavailable` ("set it again in a few minutes"), and so
+  does another `--hard` revoke of it. A set that was already writing when
+  the revoke began, and finishes while it erases or after the erase is
+  done, answers `secret-revoked`: what it wrote isn't served, and the
+  error says what becomes of it.
+- **If the erase doesn't finish,** because the secret manager answers an
+  error or writes to the secret keep landing while it erases, the revoke
+  answers an error that says so. The secret stays revoked, so no read
+  shows it, but a value may still be in the secret manager: revoke it with
+  `--hard` again to erase it.
+- **If the erase takes over 10 minutes,** sets of the name and other
+  `--hard` revokes are no longer held off. If one comes in, the revoke
+  answers an error that says so: the secret manager may still hold a
+  value, or a set made since may have lost the value it wrote. Set it
+  again, or revoke it with `--hard` again, to settle it.
+- **If the revoke gets no answer** because the runtime stopped partway
+  through the erase, sets of the name and another `--hard` revoke answer
+  `secret-provider-unavailable` for up to 10 minutes. Then revoke it with
+  `--hard` again to finish the erase, before you set the name again.
+
 ## Next
 
 - [The environment variable reference](../../../reference/env-vars/#kindgi_secrets_manager):
