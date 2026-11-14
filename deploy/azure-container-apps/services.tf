@@ -346,7 +346,7 @@ resource "azurerm_container_app" "server" {
     }
     precondition {
       condition     = contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", ""))) && !contains(keys(var.server_secret_env), "KINDGI_PACK_ROUTING")
-      error_message = "This module runs one tenant, with one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\", and server_secret_env doesn't set it. The server refuses \"per-deployment\" at boot: it needs KINDGI_TENANCY = \"multi\", which this module doesn't run."
+      error_message = "This module runs one tenant, with one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\", and server_secret_env doesn't set it. With \"per-deployment\", the server calls a pack service of each deployment's own, at the endpoint recorded for it through the system API, never the one this module makes: that needs a container app for each deployment's pack service, run by an orchestrator of your own."
     }
   }
 
