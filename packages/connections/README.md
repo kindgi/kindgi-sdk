@@ -77,11 +77,12 @@ Ready-made tools that act with a connection, one subpath per app:
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
-- `@kindgi/connections/linkedin/tools`: `linkedinPost` posts text on
-  LinkedIn as the person whose LinkedIn connection the call has, to anyone
-  or to their connections only. The text is posted as written: a `#` that
-  starts a word is a hashtag, and LinkedIn's markup is escaped, so a post
-  mentions no one.
+- `@kindgi/connections/linkedin/tools`: `linkedinPost` posts on LinkedIn
+  as the person whose LinkedIn connection the call has, to anyone or to
+  their connections only, with 1 to 20 of the run's images or a link card
+  when asked. `linkedinDeletePost` deletes a post they made. The text is
+  posted as written: a `#` that starts a word is a hashtag, and LinkedIn's
+  markup is escaped, so a post mentions no one.
 
 Each is a factory: a pack includes one under an id it names, in a tool
 folder whose `index.ts` is one line.
