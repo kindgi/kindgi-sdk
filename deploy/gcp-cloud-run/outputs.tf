@@ -31,10 +31,11 @@ output "secrets_to_fill" {
 }
 
 output "service_accounts" {
-  description = "The server's, the one every pack service runs as, and the pack orchestrator's."
+  description = "The server's, the pack account (null once pack_shared_account is false), each tenant's own by tenant id (pack_accounts = \"per-tenant\"; empty with \"shared\"), and the pack orchestrator's."
   value = {
     server       = google_service_account.server.email
-    pack         = google_service_account.pack.email
+    pack         = var.pack_shared_account ? google_service_account.pack[0].email : null
+    tenants      = local.tenant_accounts
     orchestrator = google_service_account.orchestrator.email
   }
 }

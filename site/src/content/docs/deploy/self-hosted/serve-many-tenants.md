@@ -261,12 +261,32 @@ or a script, with a `system:deployments` key. The runtime records where each
 service is, and checks it. It never creates or deletes one.
 
 A pack's code may read whatever its service's account may. On
-[Cloud Run](../cloud-run/#serve-many-tenants), every tenant's pack services
-run as the module's one pack account, `$N-pack`. So each tenant's pack code
-can read every `kp-` secret, other tenants' pack service tokens and secret
-env values among them, and every secret in `pack_secret_readers`. One such
-installation is for tenants that trust one another's pack code. Give tenants
-that don't an installation each
+[Cloud Run](../cloud-run/#serve-many-tenants), by default
+(`pack_accounts = "shared"`), every tenant's pack services run as the
+module's one pack account, `$N-pack`. So each tenant's pack code can read
+every `kp-` secret, other tenants' pack service tokens and secret env values
+among them, and every secret in `pack_secret_readers`. Such an installation
+is for tenants that trust one another's pack code.
+
+With `pack_accounts = "per-tenant"`, each tenant listed in `pack_tenants`
+gets an account of its own
+([A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)).
+Turning it on is one-way: going back to shared isn't supported. A tenant
+leaves `pack_tenants` only after its deployments are retired. Once its pack
+services have moved to its account and `pack_shared_account` is `false`
+(step 3 in
+[A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)),
+its pack code can read only its own `kp-` secrets and the
+`pack_secret_readers` secrets listed for it. Until then, a pack service
+still on `$N-pack` reads every `kp-` secret. Other things stay shared:
+every tenant's pack code can
+connect to each instance in `pack_cloud_sql_instances`, read each bucket in
+`pack_bucket_readers`, and call each service in `pack_run_invokers`. So list
+there only what every tenant may reach. The pack orchestrator acts as every
+tenant's account and gives each service its values, so it's trusted with
+every tenant, as the runtime is. Tenants that don't trust one another's pack
+code can share an installation only on those terms. Otherwise, give them an
+installation each
 ([Your tools' code](../../../concepts/security/#your-tools-code)).
 
 1. **List the deployments that need a service:**
