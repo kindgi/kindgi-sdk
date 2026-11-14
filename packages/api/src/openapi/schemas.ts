@@ -8827,6 +8827,15 @@ export const MCPEndpointSchema: JsonSchema = {
       description:
         "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
+    readOnlyTools: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 256,
+      uniqueItems: true,
+      items: { type: 'string', minLength: 1, maxLength: 128 },
+      description:
+        "The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing.",
+    },
     secretScopes: SecretScopesProperty,
   },
 };
