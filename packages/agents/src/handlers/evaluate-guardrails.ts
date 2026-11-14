@@ -27,6 +27,7 @@ import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
 import { type PointWhere, guardrailsAt, pointFaultOutcome } from './guardrail-points.js';
 import { answerNotes, isRetryGuardrail, judgedInLoop, turnRetryNotes } from './guardrail-retry.js';
+import { addModelWarnings } from './model-call.js';
 import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
 
@@ -256,6 +257,25 @@ export function violationsOf(categorized: Categorized): readonly EvaluationResul
 }
 
 /**
+ * Keep what each judge's model call warned about (`CheckResult.warnings`)
+ * for the turn's result, as its own calls' are: once per code, each
+ * naming the guardrail whose judge it was.
+ */
+export function addJudgeWarnings(ctx: TurnContext, outcomes: readonly EvaluationOutcome[]): void {
+  for (const outcome of outcomes) {
+    if (outcome.kind !== 'ok') continue;
+    const { guardrailId, result } = outcome.value;
+    addModelWarnings(
+      ctx,
+      result.warnings?.map((w) => ({
+        code: w.code,
+        message: `Guardrail "${guardrailId}"'s judge: ${w.message}`,
+      })),
+    );
+  }
+}
+
+/**
  * Judges `answer` on `guardrails`: the turn's trace with it as the
  * response, as it would be stored, through the gate. Shared by this
  * node and the loop's `budget-check`, which judges each finished answer
@@ -301,6 +321,7 @@ export async function judgeAnswer(
     judgeUsageSink(ctx, kctx),
   );
   throwIfJudgeCallsUnrecorded(ran);
+  addJudgeWarnings(ctx, ran);
   let next = 0;
   const outcomes = guardrails.map((g) => {
     const fault = faults?.get(g.id as string);

@@ -132,7 +132,16 @@ export async function invokeJudge(
   }
 
   const text = result.message.content.trim();
-  return parseJudgeResponse(text, responseFormat, config.threshold);
+  return withWarnings(parseJudgeResponse(text, responseFormat, config.threshold), result.warnings);
+}
+
+/**
+ * `judged`, with what the judge's call warned about (a temperature its
+ * model doesn't take, say), so the turn can say it too. As it is when the
+ * call warned about nothing.
+ */
+function withWarnings(judged: CheckResult, warnings: ModelCallResult['warnings']): CheckResult {
+  return warnings !== undefined && warnings.length > 0 ? { ...judged, warnings } : judged;
 }
 
 /** What a judge call came to, for `recordJudgeCall`. */

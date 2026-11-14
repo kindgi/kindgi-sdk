@@ -30,6 +30,7 @@ import {
 import type { ConversationMessage } from '../types.js';
 import type { TurnContext } from './context.js';
 import {
+  addJudgeWarnings,
   emitGateEvents,
   failTurn,
   judgeUsageSink,
@@ -90,6 +91,8 @@ async function evaluateAtPoint(
       }),
     ),
   );
+  // Fresh or replayed from the journal: a resumed turn says them too.
+  addJudgeWarnings(ctx, outcomes);
   return { outcomes, fresh };
 }
 

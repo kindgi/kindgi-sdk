@@ -430,6 +430,10 @@ model-settings block asking for `0.2`:
 ⚠ llama3.1 doesn't take a temperature, so the call went without one (it asked for 0.2).
 ```
 
+A guardrail's judge on such a model warns the same way, on the turn's
+warnings, its message naming the guardrail
+([Have a model judge](../guardrails/write-a-guardrail/#have-a-model-judge)).
+
 Some models think before they answer. A model's `thinking` says how:
 
 - **`"mode"`** is `"adaptive"`, on unless turned down, or `"always"`.
