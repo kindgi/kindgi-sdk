@@ -89,28 +89,28 @@ With `halt`, starting a run fails with the check's reason:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+uv run kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+./kindgiw runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+./kindgiw runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
 ```
 
 </TabItem>
@@ -189,7 +189,7 @@ With `log-only`, the turn completes, and its output lists the violation:
     …
     "response": {
       "role": "agent",
-      "actor": "my-pack.echo-agent",
+      "actor": "my-pack.greeter",
       "content": "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.\n\nTool responded: {\"echo\":\"hi\",\"echoedAt\":\"2026-10-07T13:20:06.619Z\",\"characterCount\":2}",
       …
     },
@@ -461,14 +461,14 @@ can be `critical`.
 
 A guardrail checks the turns of every agent that lists it. `scope` narrows
 that. Ask your coding agent, for example: "Check answer length only on my
-echo agent." For reference, it sets the scope like this:
+greeter agent." For reference, it sets the scope like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts excerpt
 // in guardrails/answer-length/index.ts
-scope: { when: 'always', agents: ['my-pack.echo-agent'] },
+scope: { when: 'always', agents: ['my-pack.greeter'] },
 ```
 
 </TabItem>
@@ -476,7 +476,7 @@ scope: { when: 'always', agents: ['my-pack.echo-agent'] },
 
 ```python excerpt
 # in guardrails/answer_length.py
-scope={"when": "always", "agents": ["my-pack.echo-agent"]},
+scope={"when": "always", "agents": ["my-pack.greeter"]},
 ```
 
 </TabItem>
@@ -484,7 +484,7 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 
 ```java excerpt
 // in src/main/java/mypack/guardrails/AnswerLength.java
-      .set("scope", Map.of("when", "always", "agents", List.of("my-pack.echo-agent")))
+      .set("scope", Map.of("when", "always", "agents", List.of("my-pack.greeter")))
 ```
 
 </TabItem>
@@ -492,7 +492,7 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 
 ```scala excerpt
 // in src/main/scala/mypack/guardrails/AnswerLength.scala
-    .set("scope", Map("when" -> "always", "agents" -> Seq("my-pack.echo-agent")))
+    .set("scope", Map("when" -> "always", "agents" -> Seq("my-pack.greeter")))
 ```
 
 </TabItem>

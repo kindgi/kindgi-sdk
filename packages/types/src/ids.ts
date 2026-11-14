@@ -106,7 +106,7 @@ export type AgentId = Brand<string, 'AgentId'>;
 /**
  * Tool definition id. Convention: `<pack-id>.<tool-name>`
  * (kebab-case, dot-namespaced) — e.g. `acme.verify-citation`,
- * `demo.echo`. The `<pack-id>` prefix scopes the tool to its pack;
+ * `acme.fetch-order`. The `<pack-id>` prefix scopes the tool to its pack;
  * `<tool-name>` names the operation. `defineTool` checks only that
  * the id isn't empty and doesn't start with `kindgi_`, which is kept for
  * tools built into Kindgi.
@@ -116,7 +116,7 @@ export type ToolId = Brand<string, 'ToolId'>;
 /**
  * Guardrail declaration id. Convention: `<pack-id>.<guardrail-name>`
  * (kebab-case, dot-namespaced) — e.g. `acme.no-fabricated-quotes`,
- * `demo.response-not-empty`. `<guardrail-name>` describes the
+ * `acme.response-not-empty`. `<guardrail-name>` describes the
  * property being asserted (usually a positive rule the agent turn
  * must satisfy). `validateGuardrail` checks only that the id isn't
  * empty.

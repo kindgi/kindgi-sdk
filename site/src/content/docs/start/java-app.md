@@ -18,7 +18,7 @@ still change in a later release without the usual deprecation period.
 
 **Before you start:** a pack running under `kindgi dev`, such as the one
 from the [TypeScript quickstart](../quickstart-typescript/) (`my-pack`,
-with its `echo-agent`). The client finds that runtime by itself.
+with its `greeter`). The client finds that runtime by itself.
 
 ## 1. Get the client
 
@@ -47,7 +47,7 @@ To try it, make a small app in a folder inside the pack:
 your coding agent to make it:
 
 ```text
-I want a small Java app in my pack that runs the echo agent and prints its events and its answer.
+I want a small Java app in my pack that runs the greeter agent and prints its events and its answer.
 ```
 
 For reference, this guide makes it in `my-pack/hello-java`, with this
@@ -92,7 +92,7 @@ public final class StartRun {
     Kindgi client = Kindgi.create();
 
     Run run = client.runs().start(StartRunBody.WithAgent.builder()
-        .agent("my-pack.echo-agent")
+        .agent("my-pack.greeter")
         .input(Map.of("userMessage", "hi"))
         .build());
     System.out.println("started " + run.id());

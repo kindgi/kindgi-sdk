@@ -503,7 +503,7 @@ provider from the file, `--flow` is the flow, and `--input` its input:
 
 ```sh
 npx --yes @kindgi/cli@0.6 providers register --spec=@ollama.json --url http://localhost:4000
-npx --yes @kindgi/cli@0.6 runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' --url http://localhost:4000
+npx --yes @kindgi/cli@0.6 runs start --flow=acme-pack.greet-person --input='{"name":"Ada"}' --url http://localhost:4000
 ```
 
 `register` prints the provider's id, as JSON. The run ends:

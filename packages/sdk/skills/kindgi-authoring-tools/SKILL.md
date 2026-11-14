@@ -85,7 +85,7 @@ answer elsewhere), and don't raise the deadline for it: read
 prefix scopes the tool to its pack; `<tool-name>` names the operation.
 `defineTool` checks only that the id isn't empty and doesn't start
 with `kindgi_`, which is kept for built-in tools. Examples:
-`acme.verify-citation`, `shop.fetch-order`, `demo.echo`.
+`acme.verify-citation`, `acme.fetch-order`.
 
 ## Wiring the tool onto an agent
 

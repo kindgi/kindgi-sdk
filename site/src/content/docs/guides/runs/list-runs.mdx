@@ -569,7 +569,7 @@ import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-const turns = await kindgi.runs.list({ agentId: 'acme.desk-agent' });
+const turns = await kindgi.runs.list({ agentId: 'acme.support-desk' });
 for (const run of turns.data) {
   console.log(run.id, run.agent?.version, run.agent?.conversationId, run.parentRunId ?? '-');
 }
@@ -590,7 +590,7 @@ from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
-turns = kindgi.runs.list(agent_id="acme.desk-agent")
+turns = kindgi.runs.list(agent_id="acme.support-desk")
 for run in turns.data:
     if run.agent is not None:
         print(run.id, run.agent.version, run.agent.conversation_id, run.parent_run_id or "-")
@@ -618,7 +618,7 @@ public final class ListTurns {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    RunCollectionPage turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build());
+    RunCollectionPage turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.support-desk").build());
     for (RunCollectionPage.DataItem run : turns.data()) {
       System.out.println(run.id() + " " + run.agent().version() + " " + run.agent().conversationId() + " "
           + Objects.toString(run.parentRunId(), "-"));
@@ -647,7 +647,7 @@ object ListTurns {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    val turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build())
+    val turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.support-desk").build())
     for (run <- turns.data.asScala) {
       println(s"${run.id} ${run.agent.version} ${run.agent.conversationId} ${Option(run.parentRunId).getOrElse("-")}")
     }
