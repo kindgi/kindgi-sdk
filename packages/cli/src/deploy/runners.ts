@@ -27,6 +27,7 @@
 import type { DeployEnvelope } from '../build/envelope.js';
 import type { PackEnvNameRecord } from '../env/pack-env-hint.js';
 import type { ServedEnv } from '../value-target.js';
+import type { PlanWarningRecord } from './plan-warning.js';
 import type { DeploySource } from './source.js';
 
 // ---------------------------------------------------------------------
@@ -106,6 +107,11 @@ export interface DeploymentRecord {
    * (Kindgi hosted): `DeploymentEndpoint` in `@kindgi/api`.
    */
   readonly endpoint?: DeploymentEndpointRecord;
+  /**
+   * From a runtime that counts the flows and agents in production against
+   * its license key's plan: each count at its plan or past it.
+   */
+  readonly planWarning?: PlanWarningRecord;
 }
 
 /** A deployment's pack service, as the tenant sees it: its status, never its URL. */

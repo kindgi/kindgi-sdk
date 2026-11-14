@@ -38,7 +38,13 @@ runProjectBindingConformance(
     };
   },
   'InMemoryProjectBinding',
-  { production: true, productionLimit: true, promoteOnlyBuilds: true, repoConnection: true },
+  {
+    production: true,
+    productionLimit: true,
+    promoteOnlyBuilds: true,
+    repoConnection: true,
+    restore: true,
+  },
 );
 // With an org check: every org but the missing one is the tenant's.
 runProjectBindingConformance(

@@ -264,7 +264,10 @@ describe("an agent's test set", () => {
       [SET, 'projectId is required'],
       [`${SET}/cases`, 'projectId is required'],
       [`${SET}?projectId=support`, 'not a project id'],
-      [`${SET}/cases?projectId=${projectA}&include=removed`, 'include takes only retired'],
+      [
+        `${SET}/cases?projectId=${projectA}&include=removed`,
+        'Unknown `include` value(s): removed. Expected one or more of: retired',
+      ],
       [`${SET}/cases?projectId=${projectA}&kind=correction,manual`, 'not "manual"'],
     ] as const) {
       const res = await h.call('GET', path);
@@ -403,6 +406,16 @@ describe('retiring a case', () => {
     expect(active.body.data).toEqual([]);
     const all = await h.call('GET', `${SET}/cases?projectId=${projectA}&include=retired`);
     expect(all.body.data.map((k: { id: string }) => k.id)).toEqual([id]);
+    // The comma form and repeated keys read like one value; `include=` adds nothing.
+    for (const query of ['include=retired,retired', 'include=&include=retired']) {
+      const listed = await h.call('GET', `${SET}/cases?projectId=${projectA}&${query}`);
+      expect(
+        listed.body.data.map((k: { id: string }) => k.id),
+        query,
+      ).toEqual([id]);
+    }
+    const none = await h.call('GET', `${SET}/cases?projectId=${projectA}&include=`);
+    expect(none.body.data).toEqual([]);
     const set = await h.call('GET', `${SET}?projectId=${projectA}`);
     expect(set.body.cases).toEqual({ active: 0, retired: 1 });
     const correction = await h.call('GET', `/v1/corrections/${id}`);

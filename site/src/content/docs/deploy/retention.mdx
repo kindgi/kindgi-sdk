@@ -55,6 +55,10 @@ each one by the name in the second column.
 `memory` and `conversation` hold people's words, so their retention is
 opt-in. A `*` policy doesn't reach them. Only a policy that names them does.
 
+No domain covers deleted projects: Kindgi keeps a deleted project's record,
+so a workspace admin can restore it
+([Delete and restore a project](../../guides/projects/organize-by-org-and-project/#delete-and-restore-a-project)).
+
 :::caution[`run` and `*` purge finished runs]
 Runs aren't deleted first. A policy on `run`, or a `*` policy, purges every
 finished run once its grace has passed since the run finished. To keep runs

@@ -15,9 +15,11 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { REMEMBER_TOOL_ID } from '@kindgi/agents';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { HAND_TO_PERSON_TOOL_ID, REPLY_TO_TEXT_TOOL_ID } from '@kindgi/runtime';
 import type { ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
@@ -78,9 +80,17 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 // Latest in PROJECT (`agentPins`), doesn't. `acme.daily@1.0.0` runs
 // `acme.digest` at no version: no step names one, and it pins none.
 // `acme.daily@2.0.0` runs it too, and `acme.weekly` (Latest nowhere) inside
-// the subflow `acme.weekly-sub`, neither at a version.
+// the subflow `acme.weekly-sub`, neither at a version. `acme.remembering`
+// runs `acme.rememberer`, which declares what it remembers.
 const tool = (id: string) => ({ id });
-const AGENTS: Record<string, Record<string, { tools: { id: string }[] }>> = {
+const AGENTS: Record<string, Record<string, { tools: { id: string }[]; memory?: unknown }>> = {
+  // It declares what it remembers, so it is offered the remember tool.
+  'acme.rememberer': {
+    latest: {
+      tools: [tool('acme.send')],
+      memory: { remember: { types: ['preference'], scope: 'same-user' } },
+    },
+  },
   'acme.weekly': { latest: { tools: [tool('acme.send')] } },
   'acme.helper': {
     '2.0.0': { tools: [tool('acme.lookup')] },
@@ -119,6 +129,7 @@ const FLOWS: Record<string, Record<string, unknown>> = {
     pins: { tools: {}, agents: {} },
     nodes: [leaf('weekly', 'agent', 'acme.weekly')],
   },
+  'acme.remembering@1.0.0': { nodes: [leaf('note', 'agent', 'acme.rememberer')] },
   'acme.sub@1.0.0': {
     nodes: [
       leaf('subtool', 'tool', 'acme.sub-tool'),
@@ -247,6 +258,7 @@ describe('which tools a target calls', () => {
         flowId: 'acme.orders',
         flowVersion: '1.0.0',
       } as never,
+      'cron',
     );
     expect(tools?.nothingRuns.size).toBe(0);
     expect([...(tools?.tools ?? [])].sort()).toEqual([
@@ -261,7 +273,7 @@ describe('which tools a target calls', () => {
   test('an agent: at its version, else its highest with no pins or Latest wired; an Improve run: none; unreadable: undefined', async () => {
     const deps = { agents: agentRegistry, flows: flowRegistry };
     const at = (target: Record<string, unknown>) =>
-      toolsTargetCanCall(deps, { tenantId }, target as never).then((s) =>
+      toolsTargetCanCall(deps, { tenantId }, target as never, 'cron').then((s) =>
         s === undefined ? undefined : [...s.tools].sort(),
       );
     expect(await at({ kind: 'agent', agentId: 'acme.digest', agentVersion: '1.0.0' })).toEqual([
@@ -274,21 +286,74 @@ describe('which tools a target calls', () => {
     expect(await at({ kind: 'improve', agentId: 'acme.digest', projectId: PROJECT })).toEqual([]);
     expect(await at({ kind: 'agent', agentId: 'acme.nobody' })).toBeUndefined();
     expect(
-      await toolsTargetCanCall(undefined, { tenantId }, {
-        kind: 'flow',
-        flowId: 'acme.orders',
-        flowVersion: '1.0.0',
-      } as never),
+      await toolsTargetCanCall(
+        undefined,
+        { tenantId },
+        { kind: 'flow', flowId: 'acme.orders', flowVersion: '1.0.0' } as never,
+        'cron',
+      ),
     ).toBeUndefined();
+  });
+
+  test('an agent that declares what it remembers is offered the remember tool, on any trigger kind', async () => {
+    const h = harness();
+    const schedule = await h.call('POST', '/v1/schedules', {
+      agentId: 'acme.rememberer',
+      projectId: PROJECT,
+      config: { cronExpression: '0 7 * * 1-5', input: { userMessage: 'The digest.' } },
+      toolsAllowedUnattended: [REMEMBER_TOOL_ID],
+    });
+    expect(schedule.status, JSON.stringify(schedule.body)).toBe(201);
+    expect(schedule.body.toolsAllowedUnattended).toEqual([REMEMBER_TOOL_ID]);
+    // A webhook runs a flow: its agent step's.
+    const hook = await h.call(
+      'POST',
+      '/v1/webhooks',
+      webhook({ flowId: 'acme.remembering', toolsAllowedUnattended: [REMEMBER_TOOL_ID] }),
+    );
+    expect(hook.status, JSON.stringify(hook.body)).toBe(201);
+    // An agent that declares none isn't offered it.
+    const none = await h.call(
+      'POST',
+      '/v1/schedules',
+      agentSchedule({ agentVersion: '1.0.0', toolsAllowedUnattended: [REMEMBER_TOOL_ID] }),
+    );
+    expect(none.status).toBe(400);
+  });
+
+  test("the texts tools are a text trigger's only: a schedule or a webhook is refused each", async () => {
+    const h = harness();
+    for (const id of [REPLY_TO_TEXT_TOOL_ID, HAND_TO_PERSON_TOOL_ID]) {
+      const schedule = await h.call('POST', '/v1/schedules', {
+        agentId: 'acme.rememberer',
+        projectId: PROJECT,
+        config: { cronExpression: '0 7 * * 1-5', input: { userMessage: 'The digest.' } },
+        toolsAllowedUnattended: [id],
+      });
+      expect(schedule.status, id).toBe(400);
+      expect(schedule.body.error.message).toBe(
+        `\`toolsAllowedUnattended\`: agent "acme.rememberer" doesn't call "${id}"`,
+      );
+      const hook = await h.call(
+        'POST',
+        '/v1/webhooks',
+        webhook({ flowId: 'acme.remembering', toolsAllowedUnattended: [id] }),
+      );
+      expect(hook.status, id).toBe(400);
+      expect(hook.body.error.message).toBe(
+        `\`toolsAllowedUnattended\`: flow "acme.remembering" at 1.0.0 doesn't call "${id}"`,
+      );
+    }
   });
 
   test("with pins and Latest wired, an agent that names no version: what runs in the trigger's project, not its highest", async () => {
     const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
     const at = (projectId: ProjectId | undefined, target: Record<string, unknown>) =>
-      toolsTargetCanCall(deps, triggerScope(tenantId, projectId), target as never).then((s) =>
-        s === undefined
-          ? undefined
-          : { tools: [...s.tools].sort(), nothingRuns: [...s.nothingRuns] },
+      toolsTargetCanCall(deps, triggerScope(tenantId, projectId), target as never, 'cron').then(
+        (s) =>
+          s === undefined
+            ? undefined
+            : { tools: [...s.tools].sort(), nothingRuns: [...s.nothingRuns] },
       );
     const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' };
     expect(await at(PROJECT, { kind: 'agent', agentId: 'acme.digest' })).toEqual({
@@ -319,7 +384,7 @@ describe('which tools a target calls', () => {
     const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
     const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' } as never;
     const problem = (projectId: ProjectId, tools: string[]) =>
-      toolsAllowedUnattendedProblem(deps, triggerScope(tenantId, projectId), daily, tools);
+      toolsAllowedUnattendedProblem(deps, triggerScope(tenantId, projectId), daily, tools, 'cron');
     expect(await problem(ELSEWHERE, ['acme.refund'])).toBeUndefined();
     const why = await problem(ELSEWHERE, ['acme.refund', 'acme.send']);
     expect(why).toContain(
@@ -345,6 +410,7 @@ describe('which tools a target calls', () => {
       triggerScope(tenantId, ELSEWHERE),
       daily,
       ['acme.send'],
+      'cron',
     );
     expect(why).toContain(`can't check "acme.send": flow "acme.daily" at 2.0.0 runs agents `);
     expect(why).toContain('"acme.digest"');

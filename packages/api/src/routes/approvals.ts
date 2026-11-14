@@ -41,6 +41,7 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import { type ResumeReport, resumeAnswer, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
@@ -176,6 +177,23 @@ export function approvalsRouter(
       },
       (t, runId) => runBinding.getRun(t, runId as never),
     );
+  /**
+   * Without a store, the refusal of a project-limited key's or session's
+   * act on an approval beyond its limit, where a store's `mayRead` finds
+   * no such approval: another project's, or (for a session) the tenant's.
+   */
+  const limitedRefusal = async (
+    c: Context<AppEnv>,
+    approval: Approval,
+  ): Promise<Response | undefined> =>
+    authorizer === undefined && c.get('tokenProjectId') !== undefined
+      ? limitedCallerRefusal(
+          c,
+          'read',
+          await approvalRef(c.get('tenantId') as TenantId, approval),
+          'the approval',
+        )
+      : undefined;
   /** Whether the caller may read the approval's project (always, without an authorizer). */
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||
@@ -647,6 +665,8 @@ export function approvalsRouter(
         ),
       );
     }
+    const held = await limitedRefusal(c, approval);
+    if (held !== undefined) return held;
     // The tenant's admin reads it, but only its approver decides it.
     if (!decidesAddressed(c, approval)) {
       const account =
@@ -840,6 +860,9 @@ export function approvalsRouter(
         ),
       );
     }
+
+    const held = await limitedRefusal(c, approval);
+    if (held !== undefined) return held;
 
     // 2. Refuse to sign a bundle for a still-pending approval — bundles
     //    are only meaningful post-decision.

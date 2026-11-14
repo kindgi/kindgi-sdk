@@ -17,7 +17,13 @@ import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { CreateAppInput, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  CreateAppInput,
+  PlanLimitsBinding,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
+import { planLimits } from './support/plan-limits.js';
 
 /**
  * `PUT /v1/projects/:projectId/production`: a project in production, or
@@ -44,6 +50,7 @@ interface Setup {
   readonly production?: CreateAppInput['production'];
   readonly projects?: ProjectBinding;
   readonly authz?: AuthzCheckBinding;
+  readonly plan?: PlanLimitsBinding;
 }
 
 function makeApp(setup: Setup = {}) {
@@ -71,6 +78,7 @@ function makeApp(setup: Setup = {}) {
     projectBinding: setup.projects ?? trio.projects,
     projectMembershipBinding: trio.memberships,
     ...(setup.production !== undefined && { production: setup.production }),
+    ...(setup.plan !== undefined && { planLimits: setup.plan }),
     ...(setup.authz !== undefined && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: setup.authz },
     }),
@@ -470,5 +478,123 @@ describe('GET /v1/tenant', () => {
     const { app } = makeApp({ tenant: { limits } });
     const { body } = await getJson(app, '/v1/tenant');
     expect(body.limits).toEqual(limits);
+  });
+});
+
+describe('going live through the plan limits', () => {
+  /** A project binding that says `set production` in `order` as it writes. */
+  function recording(trio: ReturnType<typeof makeInMemoryProjectBinding>, order: string[]) {
+    const setProduction = trio.projects.setProduction;
+    if (setProduction === undefined) throw new Error('the in-memory projects set production');
+    const projects: ProjectBinding = {
+      ...trio.projects,
+      setProduction: async (...args) => {
+        order.push('set production');
+        return setProduction(...args);
+      },
+    };
+    return projects;
+  }
+
+  test('going live asks admit with the whole project, and goes live inside', async () => {
+    const order: string[] = [];
+    const plan = planLimits({ kind: 'done' }, order);
+    const trio = makeInMemoryProjectBinding();
+    const { app } = makeApp({ projects: recording(trio, order), plan: plan.binding });
+    const id = await newProject(trio);
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(200);
+    expect(plan.admitted).toEqual([{ tenantId, projectId: id, adding: 'whole-project' }]);
+    expect(order).toEqual(['plan: admit', 'set production', 'plan: admitted']);
+    expect(await res.json()).not.toHaveProperty('planWarning');
+  });
+
+  test('refused: 403 plan-limit-reached in the words of going live, and the project stays out', async () => {
+    const plan = planLimits({
+      kind: 'refused',
+      over: [{ limit: 'agents', adding: 2, numbers: { plan: 10, most: 12, inUse: 11 } }],
+      newIds: { flows: [], agents: ['acme.drafting', 'acme.review'] },
+    });
+    const { app, trio } = makeApp({ plan: plan.binding, production: { next: NEXT } });
+    const id = await newProject(trio);
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(403);
+    const { error } = (await res.json()) as {
+      error: { code: string; message: string; details: Record<string, unknown> };
+    };
+    expect(error.code).toBe('plan-limit-reached');
+    expect(error.message).toBe(
+      `Putting this project in production adds 2 agents, and this runtime's license key runs at most 12: its plan's 10, and a margin. 11 run in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or get a larger plan: ${NEXT}.`,
+    );
+    expect(error.details).toEqual({
+      projectId: id,
+      limit: 'agents',
+      adding: 2,
+      plan: 10,
+      most: 12,
+      inUse: 11,
+      over: [{ limit: 'agents', adding: 2, plan: 10, most: 12, inUse: 11 }],
+      newIds: { flows: [], agents: ['acme.drafting', 'acme.review'] },
+      next: NEXT,
+    });
+    expect((await getJson(app, `/v1/projects/${id}`)).body).not.toHaveProperty('productionSince');
+  });
+
+  test('busy: 503 plan-count-busy, and the project stays out', async () => {
+    const { app, trio } = makeApp({ plan: planLimits({ kind: 'busy' }).binding });
+    const id = await newProject(trio);
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    expect((await getJson(app, `/v1/projects/${id}`)).body).not.toHaveProperty('productionSince');
+  });
+
+  test('at its plan: the answer carries planWarning', async () => {
+    const warning = { flows: { plan: 3, most: 4, inUse: 3 } };
+    const { app, trio } = makeApp({ plan: planLimits({ kind: 'done', warning }).binding });
+    const id = await newProject(trio);
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Record<string, unknown>).planWarning).toEqual(warning);
+  });
+
+  test('a repeat asks too, as the count decides what a project already in adds; taking one out never asks', async () => {
+    const plan = planLimits({ kind: 'done' });
+    const { app, trio } = makeApp({ plan: plan.binding });
+    const id = await newProject(trio);
+    expect((await put(app, id, { production: true })).status).toBe(200);
+    expect((await put(app, id, { production: true })).status).toBe(200);
+    expect((await put(app, id, { production: false })).status).toBe(200);
+    const asked = { tenantId, projectId: id, adding: 'whole-project' };
+    expect(plan.admitted).toEqual([asked, asked]);
+  });
+
+  test('a repeat the count refuses is refused: after a racing take-out, it counts as going in', async () => {
+    const plan = planLimits({ kind: 'done' });
+    const { app, trio } = makeApp({ plan: plan.binding });
+    const id = await newProject(trio);
+    expect((await put(app, id, { production: true })).status).toBe(200);
+    plan.answer({
+      kind: 'refused',
+      over: [{ limit: 'agents', adding: 2 }],
+      newIds: { flows: [], agents: ['acme.drafting', 'acme.review'] },
+    });
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'plan-limit-reached',
+    );
+  });
+
+  test('the gate refuses first: admit is never asked', async () => {
+    const plan = planLimits({ kind: 'done' });
+    const { app, trio } = makeApp({
+      tenant: { productionAllowed: false },
+      production: { gate: true, next: NEXT },
+      plan: plan.binding,
+    });
+    const id = await newProject(trio);
+    expect((await put(app, id, { production: true })).status).toBe(403);
+    expect(plan.admitted).toEqual([]);
   });
 });

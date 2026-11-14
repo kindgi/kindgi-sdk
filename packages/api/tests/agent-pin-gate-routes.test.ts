@@ -135,6 +135,7 @@ function setup(
     /** Latest in every scope, `null` for none; absent: the highest version. */
     latest?: LatestAnswer | null;
     suspended: boolean;
+    deleted: boolean;
   } = {
     resolved: null,
     releaseGate: null,
@@ -143,6 +144,7 @@ function setup(
     projectOrg: undefined,
     pins: [],
     suspended: false,
+    deleted: false,
   };
   const record = (method: string, input: unknown) => calls.push({ method, input });
   const pinOf = (input: PinRequestInput): Pin => ({
@@ -283,6 +285,10 @@ function setup(
         },
       } as never,
     }),
+    projectDeleted: async (_t: TenantId, projectId: ProjectId) => {
+      record('projectDeleted', projectId);
+      return state.deleted;
+    },
     projectSuspended: async (_t: TenantId, projectId: ProjectId) => {
       record('projectSuspended', projectId);
       return state.suspended;
@@ -985,6 +991,21 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     const { error } = (await res.json()) as { error: { code: string } };
     expect(error.code).toBe('project-suspended');
     expect(calls.find((c) => c.method === 'projectSuspended')?.input).toBe(PROJECT);
+    expect(methods(calls)).not.toContain('request');
+  });
+
+  test("a pin or check whose scope's project is deleted: 404 project-not-found, before the suspended check", async () => {
+    const { app, calls, state } = setup();
+    state.deleted = true;
+    state.suspended = true;
+    for (const path of ['pin', 'check']) {
+      const res = await app.request(`/v1/agents/${AGENT}/pinned/${path}`, pinBody());
+      expect(res.status).toBe(404);
+      const { error } = (await res.json()) as { error: { code: string } };
+      expect(error.code).toBe('project-not-found');
+    }
+    expect(calls.find((c) => c.method === 'projectDeleted')?.input).toBe(PROJECT);
+    expect(methods(calls)).not.toContain('projectSuspended');
     expect(methods(calls)).not.toContain('request');
   });
 });

@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { jsonFetch } from '../support/recording-fetch.js';
+import { errorFetch, jsonFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -43,5 +43,40 @@ describe('license — wire round-trip', () => {
     expect(`${call.method} ${call.url}`).toBe(
       `GET ${API}/v1/license/usage?since=2026-10-05T12%3A00%3A00.000Z`,
     );
+  });
+
+  it('replace: PUT /v1/license with the key, the status with the new key', async () => {
+    const status = {
+      mode: 'licensed',
+      name: 'acme.example',
+      use: 'production',
+      expiresAt: '2026-12-20T00:00:00.000Z',
+      daysLeft: 46,
+      standing: 'valid',
+      limits: { flows: { plan: 3, most: 4, inUse: 2 } },
+    };
+    const stub = jsonFetch(status);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.license.replace({ key: 'kgi_lk_next' })).toEqual(status);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`PUT ${API}/v1/license`);
+    expect(JSON.parse(call.body!)).toEqual({ key: 'kgi_lk_next' });
+  });
+
+  it('replace: a key the server refuses is a conflict, with its code and reason', async () => {
+    const stub = errorFetch(409, {
+      code: 'license-key-refused',
+      message: 'The key is for another licensee.',
+      details: { reason: 'other-licensee' },
+    });
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    await expect(client.license.replace({ key: 'kgi_lk_other' })).rejects.toMatchObject({
+      error: {
+        code: 'conflict',
+        reason: 'license-key-refused',
+        serverCode: 'license-key-refused',
+        fields: { reason: 'other-licensee' },
+      },
+    });
   });
 });

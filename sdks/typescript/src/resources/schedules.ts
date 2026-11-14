@@ -22,6 +22,8 @@
  */
 
 import type {
+  DestinationDeliveryCollectionPage,
+  DestinationDelivery as DestinationDeliveryWire,
   PatchScheduleBody,
   RegisterScheduleBody,
   ScheduleCollectionPage,
@@ -46,6 +48,7 @@ export type ScheduleFirePage = ScheduleFirePageWire;
 export type ScheduleVersion = ScheduleVersionWire;
 export type ScheduleVersionPage = ScheduleVersionPageWire;
 export type TakeTriggerOwnerInput = TakeTriggerOwnerBody;
+export type ScheduleDeliveryPage = DestinationDeliveryCollectionPage;
 
 export interface ListScheduleFiresFilter {
   readonly limit?: number;
@@ -55,6 +58,13 @@ export interface ListScheduleFiresFilter {
 export interface ListScheduleVersionsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+export interface ListScheduleDeliveriesFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+  /** Only the deliveries in this status. */
+  readonly status?: DestinationDeliveryWire['status'];
 }
 
 export interface ListSchedulesFilter {
@@ -136,6 +146,18 @@ export interface SchedulesClient {
    * @wire GET /v1/schedules/:triggerId/fires
    */
   fires(triggerId: string, filter?: ListScheduleFiresFilter): Promise<ScheduleFirePage>;
+
+  /**
+   * Where the schedule's results went (`sendResultsTo`), newest first: each
+   * message to a destination or to `me`, delivered, pending, or skipped or
+   * failed with the reason. A runtime before Kindgi 0.7.0 doesn't serve it.
+   *
+   * @wire GET /v1/schedules/:triggerId/deliveries
+   */
+  listDeliveries(
+    triggerId: string,
+    filter?: ListScheduleDeliveriesFilter,
+  ): Promise<ScheduleDeliveryPage>;
 
   /**
    * The schedule's versions, newest first: what it was from each version's
@@ -249,6 +271,17 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
+    async listDeliveries(triggerId, filter) {
+      return transport.request<ScheduleDeliveryPage>({
+        method: 'GET',
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/deliveries`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.status !== undefined && { status: filter.status }),
         },
       });
     },

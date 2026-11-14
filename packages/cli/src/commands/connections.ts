@@ -3,7 +3,13 @@
 
 import { createInterface } from 'node:readline';
 
-import type { ConnectRequest, Connection, ConnectionEntry, ConnectionPage } from '@kindgi/client';
+import type {
+  ConnectInput,
+  ConnectRequest,
+  Connection,
+  ConnectionEntry,
+  ConnectionPage,
+} from '@kindgi/client';
 
 import {
   type ConnectionRow,
@@ -15,7 +21,7 @@ import {
   resolveConnectionRef,
 } from '../connection-ref.js';
 import type { CommandContext } from '../context.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError, formatThrown } from '../errors.js';
 import { type Rendered, renderJson, successNote } from '../output.js';
 import {
   type TableSpec,
@@ -405,9 +411,9 @@ const connect: LeafCommand = {
   kind: 'leaf',
   name: 'connect',
   description:
-    "Connect your account at an app (the company's with --for-company): prints the link to open, and at a terminal waits until the connect finishes and says whose account it is. --quiet prints the link alone, and still waits.",
+    "Connect your account at an app (the company's with --for-company): prints the link to open, and at a terminal waits until the connect finishes and says whose account it is. --quiet prints the link alone, and still waits. A number (`texts --for-company --number=<E.164>`) has no link: it's connected at once, and the connection is printed (--quiet: its id).",
   usage:
-    'kindgi connections connect <app> [--label=<name>] [--reconnect=<connection>] [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company]',
+    'kindgi connections connect <app> [--label=<name>] [--reconnect=<connection>] [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company] [--number=<E.164> [--replace-inbound]]',
   optionSpec: {
     'app-id': {
       type: 'string',
@@ -436,35 +442,21 @@ const connect: LeafCommand = {
       description:
         "Connect this connection again, by id or name, so it's granted more or works again: the same account is required. Its owner's own (the company's with --for-company), at <app>.",
     },
+    number: {
+      type: 'string',
+      description:
+        'Texts: the number to connect, in E.164 (`+15551234567`). Required there; a reconnect names the same number. No other app takes it.',
+    },
+    'replace-inbound': {
+      type: 'boolean',
+      description:
+        "Texts: connect even though the number's texts go somewhere else today. They come to Kindgi instead, Kindgi's messaging profile's outbound settings apply, and disconnecting puts the old inbound back.",
+    },
   },
   run: (ctx) =>
     runSdkRendered(ctx, 'connections connect', async () => {
       const app = requiredPositional(ctx, 0, 'app');
-      const appId = givenFlag(ctx, 'app-id');
-      const projectId = givenFlag(ctx, 'project');
-      const label = givenFlag(ctx, 'label');
-      const again = givenFlag(ctx, 'reconnect');
-      const forCompany = ctx.options['for-company'] === true;
-      if (label !== undefined && again !== undefined) {
-        throw new UsageError(
-          '--label names a new connection; a reconnect keeps its name (`kindgi connections update` renames it)',
-        );
-      }
-      const reconnects =
-        again === undefined
-          ? undefined
-          : (
-              await resolveConnectionRef(again, {
-                rows: () =>
-                  listConnectionRows(ctx.client(), {
-                    app,
-                    ...(forCompany ? { ownerKind: 'company' as const } : { owner: 'me' as const }),
-                  }),
-                app,
-                appNarrows: false,
-                listed: connectionsListed(app),
-              })
-            ).id;
+      const asked = await connectAsked(ctx, app);
       const permissions = await permissionsFor(ctx, app);
       if (permissions === undefined) {
         return {
@@ -473,26 +465,103 @@ const connect: LeafCommand = {
           exitCode: 1,
         };
       }
-      const request = await ctx
-        .client()
-        .connections.connect({
-          app,
-          permissions,
-          ...(appId !== undefined && { appId }),
-          ...(projectId !== undefined && { projectId }),
-          ...(forCompany && { for: 'company' as const }),
-          ...(label !== undefined && { label }),
-          ...(reconnects !== undefined && { reconnects }),
-        })
-        .catch((err: unknown) => {
-          throw namedBy(err, 'reconnect');
-        });
-      if (ctx.globals.formatRequested && ctx.globals.format !== 'quiet') {
-        return renderJson(request, ctx.globals.format);
+      let request: ConnectRequest;
+      try {
+        request = await ctx.client().connections.connect({ app, permissions, ...asked });
+      } catch (err) {
+        const wire = extractKindgiError(err);
+        if (wire?.code === 'conflict' && wire.serverCode === 'inbound-in-use') {
+          return inboundInUse(ctx, err);
+        }
+        throw namedBy(err, 'reconnect');
       }
-      return await linkThenWait(ctx, app, request);
+      return await connectAnswer(ctx, app, request);
     }),
 };
+
+/**
+ * A made connect's answer: the request as JSON when a format is asked
+ * for, a number's connection (it has no link: it comes back connected;
+ * --quiet prints its id), or else the link and the wait.
+ */
+async function connectAnswer(
+  ctx: CommandContext,
+  app: string,
+  request: ConnectRequest,
+): Promise<Rendered & { readonly exitCode?: number }> {
+  if (ctx.globals.formatRequested && ctx.globals.format !== 'quiet') {
+    return renderJson(request, ctx.globals.format);
+  }
+  if (request.state === 'connected') {
+    if (ctx.globals.format === 'quiet') {
+      return { stdout: `${request.connectionId ?? ''}\n`, stderr: '' };
+    }
+    return await connected(ctx, request);
+  }
+  return await linkThenWait(ctx, app, request);
+}
+
+/**
+ * What the flags ask of a connect besides the app and its permissions:
+ * the registration, project, owner, name, the connection it reconnects
+ * (named by id or name, read as the owner's own at the app) and a number.
+ */
+async function connectAsked(
+  ctx: CommandContext,
+  app: string,
+): Promise<Omit<ConnectInput, 'app' | 'permissions'>> {
+  const appId = givenFlag(ctx, 'app-id');
+  const projectId = givenFlag(ctx, 'project');
+  const label = givenFlag(ctx, 'label');
+  const again = givenFlag(ctx, 'reconnect');
+  const forCompany = ctx.options['for-company'] === true;
+  const number = givenFlag(ctx, 'number');
+  if (label !== undefined && again !== undefined) {
+    throw new UsageError(
+      '--label names a new connection; a reconnect keeps its name (`kindgi connections update` renames it)',
+    );
+  }
+  const reconnects =
+    again === undefined
+      ? undefined
+      : (
+          await resolveConnectionRef(again, {
+            rows: () =>
+              listConnectionRows(ctx.client(), {
+                app,
+                ...(forCompany ? { ownerKind: 'company' as const } : { owner: 'me' as const }),
+              }),
+            app,
+            appNarrows: false,
+            listed: connectionsListed(app),
+          })
+        ).id;
+  return {
+    ...(appId !== undefined && { appId }),
+    ...(projectId !== undefined && { projectId }),
+    ...(forCompany && { for: 'company' as const }),
+    ...(label !== undefined && { label }),
+    ...(reconnects !== undefined && { reconnects }),
+    ...(number !== undefined && { number }),
+    ...(ctx.options['replace-inbound'] === true && { replaceInbound: true as const }),
+  };
+}
+
+/**
+ * A number whose texts go somewhere else today: the server's words, which
+ * say what connecting changes, and the flag that goes ahead.
+ */
+function inboundInUse(ctx: CommandContext, err: unknown): Rendered & { readonly exitCode: number } {
+  const said = formatThrown(err, {
+    commandLabel: 'connections connect',
+    verbose: ctx.globals.verbose,
+  });
+  return {
+    stdout: '',
+    stderr: `${said.stderr}To go ahead, run it again with --replace-inbound.\n`,
+    exitCode: said.exitCode,
+  };
+}
 
 /**
  * What a made connect says: its link, and at a terminal the wait's end.
@@ -626,9 +695,14 @@ const disconnect: LeafCommand = {
   kind: 'leaf',
   name: 'disconnect',
   description:
-    'Disconnect: withdraws the access at the app where it can, destroys the token, and prints what was done. Asks first, unless --yes.',
-  usage: 'kindgi connections disconnect <connection-id> [--yes]',
+    'Disconnect: withdraws the access at the app where it can, destroys the token, and prints what was done. A number (`texts`) gets its old inbound back first; if that fails, it stays removing, and disconnecting again retries. Asks first, unless --yes.',
+  usage: 'kindgi connections disconnect <connection-id> [--skip-inbound-restore] [--yes]',
   optionSpec: {
+    'skip-inbound-restore': {
+      type: 'boolean',
+      description:
+        "Texts: don't put the number's old inbound back, when you've pointed the number elsewhere yourself; what Kindgi kept of it is destroyed. Ignored for a connection of any other app, which disconnects as usual.",
+    },
     yes: { type: 'boolean', description: "Don't ask first (for scripts)." },
   },
   run: (ctx) =>
@@ -641,7 +715,10 @@ const disconnect: LeafCommand = {
         return `Disconnect ${c.account.label} at ${c.app} (${whose})? Tools that use it stop working until it's connected again.`;
       });
       if (ok.kind === 'refused') return { stdout: '', stderr: ok.stderr, exitCode: 1 };
-      const c = await client.connections.disconnect(id);
+      const c =
+        ctx.options['skip-inbound-restore'] === true
+          ? await client.connections.disconnect(id, { skipInboundRestore: true })
+          : await client.connections.disconnect(id);
       const said = `Disconnected ${c.account.label} at ${c.app}: ${withdrawnWords(c.withdrawn)}.\n`;
       if (ctx.globals.format === 'quiet') {
         // --quiet still says what's left to do at the app: a warning.

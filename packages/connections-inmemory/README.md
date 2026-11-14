@@ -40,13 +40,28 @@ hook says otherwise:
 - `installations`: the GitHub App installations the person reaches (one by
   default; none sends the start to the install page);
 - `notice`: what a notice from the app does. Without it, every notice is
-  refused.
+  refused;
+- `lookUp`: a number's lookup at a texts connect, `'ok'` or `'refused'` (the
+  provider refused the registration's credential: `connection-app-refused`);
+- `restoreInbound`: putting a number's inbound back at its removal, `'ok'` or
+  `'failed'` (the connection stays `removing`: `inbound-restore-failed`).
 
 `seed.app` and `seed.connection` put a registration or a connection in
 place directly; `seed.connection` with `refreshToken: false` is one
 without a refresh token (only for an `'optional'` app). `calls` lists every
 call to the fake app, never a token. `onConnectComplete` is told when a
 run's connect finishes, as a server completes the run's wait.
+
+**Texts.** Register the `texts` entry with `token` (the provider, the API
+key's secret by reference, the account's public key), then connect with
+`number`: the fake provider looks it up, and the request comes back
+`connected` at once, with the account `num-<the number's digits>`.
+`seed.inbound` says where a number's texts go today: a connect without
+`replaceInbound: true` is then `inbound-in-use`, and with it the old inbound
+is kept, for the removal to put back. `seed.credentialRefused` marks a
+number's connection as a server does when the provider refuses the key; a
+reconnect of the same number makes it work again. Connecting and removing
+work here; texts come in only on a Kindgi server.
 
 **Connection choices.** `setChoice` needs to know a project's agents and
 flows: pass `inProject`, which says whether an agent or a flow is one of a

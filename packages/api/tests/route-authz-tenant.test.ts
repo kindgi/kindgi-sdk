@@ -8,7 +8,8 @@
  * `read` on the tenant to read and `admin` to change (a deployment's
  * secrets sync asks `admin` where it writes them instead, and a
  * deployment's own reads ask its project too:
- * deployment-reads-in-project.test.ts); webhook endpoints
+ * deployment-reads-in-project.test.ts); webhook endpoints, destinations
+ * (but for one project's list: destinations-routes.test.ts)
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
  * every pair asked is one the authorization model defines
@@ -106,6 +107,7 @@ function harness(
     providerRegistry: unreached(),
     adapterRegistry: unreached(),
     webhookEndpoints: unreached(),
+    destinations: unreached(),
     policyRegistry: unreached(),
     signingKeyRegistry: unreached(),
     deploymentRegistry: unreached(),
@@ -166,6 +168,14 @@ const ROUTES: readonly (readonly [string, string, string])[] = [
   ['GET', '/v1/webhook-endpoints/e/deliveries', ADMIN],
   ['POST', '/v1/webhook-endpoints/e/deliveries/d/redeliver', ADMIN],
   ['POST', '/v1/webhook-endpoints/e/test', ADMIN],
+  ['GET', '/v1/destinations', ADMIN],
+  ['GET', '/v1/destinations/d', ADMIN],
+  ['POST', '/v1/destinations', ADMIN],
+  ['PATCH', '/v1/destinations/d', ADMIN],
+  ['DELETE', '/v1/destinations/d', ADMIN],
+  ['GET', '/v1/destinations/d/deliveries', ADMIN],
+  ['POST', '/v1/destinations/d/deliveries/x/redeliver', ADMIN],
+  ['POST', '/v1/destinations/d/test', ADMIN],
   ['GET', '/v1/auth/providers', READ],
   ['POST', '/v1/auth/providers', ADMIN],
   ['GET', '/v1/auth/providers/p', READ],

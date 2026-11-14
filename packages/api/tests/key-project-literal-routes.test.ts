@@ -118,13 +118,21 @@ function namesProject(text: string, { own, named, who, action = 'read' }: Named)
   });
 }
 
+/**
+ * The routes with a fixed word where a project id goes that a limited
+ * caller is refused on, since the path names the word as a project: kept
+ * out of `PROJECT_LITERAL_READS` on purpose. `GET /v1/projects/deleted` is
+ * a workspace admin's list (key-project-no-store.test.ts holds its refusal).
+ */
+const REFUSED_LITERALS = ['GET /v1/projects/deleted'];
+
 describe('the routes with a fixed word where a project id goes', () => {
-  test('are the reads PROJECT_LITERAL_READS names, and no other route the app mounts', () => {
+  test('are the reads PROJECT_LITERAL_READS names and the ones refused on purpose, and no other route the app mounts', () => {
     const literal = createApp(fullAppInput())
       .routes.filter((r) => r.method !== 'ALL' && /\/projects\/[^/:]/.test(r.path))
       .map((r) => `${r.method} ${r.path}`);
     expect([...new Set(literal)].sort()).toEqual(
-      PROJECT_LITERAL_READS.map((path) => `GET ${path}`).sort(),
+      [...PROJECT_LITERAL_READS.map((path) => `GET ${path}`), ...REFUSED_LITERALS].sort(),
     );
   });
 });

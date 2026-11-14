@@ -45,6 +45,7 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { includeListOf } from './include-list.js';
 import { type LicenseStatusBinding, licenseOperatorOnlyFor } from './license.js';
 import { clampLimit } from './pagination.js';
 import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
@@ -226,7 +227,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const queryRaw = c.req.query('query');
     const includeUnregistered = c.req.query('includeUnregistered') === 'true';
     const pending = c.req.query('pending') === 'true';
-    const include = parseUsersInclude(c.req.query('include'));
+    const include = parseUsersInclude(c.req.queries('include'));
     if (typeof include === 'string') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: include }, c.get('requestId')));
@@ -917,12 +918,13 @@ function grantError(c: Context<AppEnv>, error: PersonGrantError) {
 /** How many people's grants the users list reads at once, without `readMany`. */
 const GRANTS_READ_AT_ONCE = 8;
 
-/** The users list's `include`: comma-separated extras (`grants`), or why not. */
-function parseUsersInclude(raw: string | undefined): { readonly grants: boolean } | string {
-  const includes = raw === undefined ? [] : raw.split(',').map((i) => i.trim());
-  const unknown = includes.filter((i) => i !== 'grants');
-  if (unknown.length > 0) return `Unknown \`include\` value(s): ${unknown.join(', ')}`;
-  return { grants: includes.includes('grants') };
+/** The users list's `include`: its extras (`grants`), or why not. */
+function parseUsersInclude(
+  raw: readonly string[] | undefined,
+): { readonly grants: boolean } | string {
+  const includes = includeListOf(raw, ['grants']);
+  if (includes.kind === 'err') return includes.message;
+  return { grants: includes.value.has('grants') };
 }
 
 /**
@@ -995,6 +997,7 @@ export function serializeUser(u: UserRecord): Record<string, unknown> {
     ...(u.firstSignedInAt !== undefined && {
       firstSignedInAt: u.firstSignedInAt as unknown as string,
     }),
+    ...(u.createdBy !== undefined && { createdBy: u.createdBy }),
     ...(u.metadata !== undefined && { metadata: u.metadata }),
   };
 }

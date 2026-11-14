@@ -92,6 +92,23 @@ describe('renderResponse: a refused deploy', () => {
     expect(text.replaceAll(/\s+/g, ' ')).toContain('The wire body was malformed');
   });
 
+  test('a busy plan count (503 plan-count-busy) says to deploy again, not to read the logs', () => {
+    const text = banner({
+      kind: 'wire-error',
+      status: 503,
+      retryAfterSeconds: 5,
+      error: {
+        code: 'plan-count-busy',
+        message:
+          'Counting the agents and flows in production took too long, so none were added. Try again after Retry-After.',
+      },
+    });
+    expect(text.replaceAll(/\s+/g, ' ')).toContain(
+      'Nothing was deployed: run the same command again in a few seconds.',
+    );
+    expect(text).not.toContain('This is a server error');
+  });
+
   test("a validation refusal's issues are listed", () => {
     const text = banner(
       refused({
@@ -147,6 +164,37 @@ describe('renderResponse: a deploy that landed', () => {
       expect(text).not.toContain('pinned image');
       expect(text).not.toContain('With one pack service');
     }
+  });
+
+  test("at its plan's flows or agents, a deploy warns, a line for each, flows first; below them it doesn't", () => {
+    const warned: DeploymentRecord = {
+      ...record,
+      planWarning: {
+        agents: { plan: 10, most: 12, inUse: 10 },
+        flows: { plan: 1, most: 2, inUse: 2 },
+      },
+    };
+    for (const kind of ['created', 'replayed'] as const) {
+      expect(banner(landed(kind, warned))).toContain(
+        [
+          '',
+          '  ⚠ 2 flows run in production; your plan has 1. Past 2, new ones are refused.',
+          '  ⚠ 10 agents run in production; your plan has 10. Past 12, new ones are refused.',
+          '',
+        ].join('\n'),
+      );
+      expect(banner(landed(kind, record))).not.toContain('⚠');
+    }
+  });
+
+  test('one in production reads in the singular', () => {
+    const warned: DeploymentRecord = {
+      ...record,
+      planWarning: { flows: { plan: 1, most: 2, inUse: 1 } },
+    };
+    expect(banner(landed('created', warned))).toContain(
+      '  ⚠ 1 flow runs in production; your plan has 1. Past 2, new ones are refused.',
+    );
   });
 
   test('a new deployment says what new runs use; a same-image deploy names the digest deployed before', () => {

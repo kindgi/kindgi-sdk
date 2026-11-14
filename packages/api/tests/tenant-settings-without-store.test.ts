@@ -8,9 +8,9 @@
  * (`isTenantAdmin`: the `tenant-admin` scope, on a key that's neither a
  * `member` key nor limited to a project). Reading providers, policies,
  * adapters, capabilities, signing keys and the sign-in provider catalog
- * stays anyone's; webhook endpoints and compliance evidence, every call
- * a tenant admin's. Deployments are project work, which such a runtime
- * leaves to every caller.
+ * stays anyone's; webhook endpoints, destinations (but one project's list)
+ * and compliance evidence, every call a tenant admin's. Deployments are
+ * project work, which such a runtime leaves to every caller.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -77,6 +77,7 @@ const app = createApp({
   providerRegistry: unreached(),
   adapterRegistry: unreached(),
   webhookEndpoints: unreached(),
+  destinations: unreached(),
   policyRegistry: unreached(),
   signingKeyRegistry: unreached(),
   deploymentRegistry: unreached(),
@@ -143,6 +144,14 @@ const ADMIN_ONLY: readonly (readonly [string, string])[] = [
   ['GET', '/v1/webhook-endpoints/e/deliveries'],
   ['POST', '/v1/webhook-endpoints/e/deliveries/d/redeliver'],
   ['POST', '/v1/webhook-endpoints/e/test'],
+  ['GET', '/v1/destinations'],
+  ['GET', '/v1/destinations/d'],
+  ['POST', '/v1/destinations'],
+  ['PATCH', '/v1/destinations/d'],
+  ['DELETE', '/v1/destinations/d'],
+  ['GET', '/v1/destinations/d/deliveries'],
+  ['POST', '/v1/destinations/d/deliveries/x/redeliver'],
+  ['POST', '/v1/destinations/d/test'],
   ['GET', '/v1/compliance/evidence'],
   ['GET', '/v1/compliance/evidence/x'],
   ['POST', '/v1/compliance/evidence/export'],
@@ -187,6 +196,13 @@ describe('without an authorization store, the tenant settings are a tenant admin
         await call(caller, method, path),
         'Only a tenant admin reads or changes this workspace-wide setting.',
       );
+    }
+  });
+
+  test("one project's destinations are any member's to list (`?projectId=`)", async () => {
+    const path = `/v1/destinations?projectId=${randomUUID()}`;
+    for (const caller of ['admin', 'member', 'member key']) {
+      expect((await call(caller, 'GET', path)).status, caller).not.toBe(403);
     }
   });
 });

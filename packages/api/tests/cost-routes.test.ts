@@ -15,6 +15,7 @@ import { createApp } from '../src/index.js';
 import type {
   CostAggregateGroup,
   CostBinding,
+  CostGetRecordInput,
   CostGroupDimension,
   CostListRecordsInput,
   CostRecord,
@@ -918,6 +919,47 @@ describe("API — a model call's cost record (T135)", () => {
     expect(seen.map((s) => s.includeRawUsage)).toEqual([undefined, true]);
     const bad = await app.request('/v1/cost/records?include=prompts', auth);
     expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { message: string } }).error.message).toBe(
+      'Unknown `include` value(s): prompts. Expected one or more of: rawUsage',
+    );
+  });
+
+  test('`include` reads repeated keys and empty items like the comma form', async () => {
+    const seen: CostListRecordsInput[] = [];
+    const { app } = makeApp([call()], seen);
+    for (const query of ['include=rawUsage&include=rawUsage', 'include=,rawUsage', 'include=']) {
+      expect((await app.request(`/v1/cost/records?${query}`, auth)).status, query).toBe(200);
+    }
+    expect(seen.map((s) => s.includeRawUsage)).toEqual([true, true, undefined]);
+  });
+
+  test('one record reads `include` the same way', async () => {
+    const rec = call();
+    const seen: CostGetRecordInput[] = [];
+    const binding = makeInMemoryBinding([rec]);
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      cost: {
+        ...binding,
+        getRecord: async (input) => {
+          seen.push(input);
+          return binding.getRecord(input);
+        },
+      },
+    });
+    const path = `/v1/cost/records/${rec.id}`;
+    for (const query of ['', '?include=rawUsage', '?include=,rawUsage']) {
+      expect((await app.request(`${path}${query}`, auth)).status, query).toBe(200);
+    }
+    expect(seen.map((s) => s.includeRawUsage)).toEqual([undefined, true, true]);
+    const bad = await app.request(`${path}?include=prompts`, auth);
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { message: string } }).error.message).toBe(
+      'Unknown `include` value(s): prompts. Expected one or more of: rawUsage',
+    );
+    expect(seen).toHaveLength(3);
   });
 
   test('filters by model and root run; includeDescendants needs a runId', async () => {

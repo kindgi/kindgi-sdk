@@ -63,6 +63,12 @@ export type ApiTokenId = Brand<string, 'ApiTokenId'>;
 /** An outbound webhook endpoint id (`client.webhookEndpoints`). */
 export type WebhookEndpointId = Brand<string, 'WebhookEndpointId'>;
 
+/** A destination id: where schedules send their results (`client.destinations`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** A delivery to a destination (`client.destinations.listDeliveries`). */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
+
 /** @unwired SDK-defined id for a pack installation. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 
@@ -2031,7 +2037,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, createdBy?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -2052,6 +2058,13 @@ export interface User {
   readonly invite?: UserInvite;
   /** Their first sign-in; absent before it, and for people added before the runtime kept it. */
   readonly firstSignedInAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Who added them: `user:<id>` or `service_account:<id>`;
+   * `identity_provider:<providerId>` or `email_domain:<domain>` for someone
+   * who joined by domain; `site:<siteId>` for a person a site signs in.
+   * Absent for the seed user, and from a runtime that doesn't keep it.
+   */
+  readonly createdBy?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
   /**
    * The person's grants: only from `users.list({ includeGrants: true })`,
@@ -2485,6 +2498,11 @@ export interface PersonGrants {
   readonly tenantAdmin?: boolean;
   /** A tenant member: reads the workspace's settings, not its projects. Absent when not reported. */
   readonly tenantMember?: boolean;
+  /**
+   * The server's `KINDGI_ADMIN_EMAILS` names them: demote and removal answer
+   * `409 listed-admin`. Absent when not reported.
+   */
+  readonly tenantAdminFromSetting?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
     readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';

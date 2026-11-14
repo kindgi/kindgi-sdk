@@ -43,7 +43,7 @@ from ._errors import KindgiApiError, NetworkError, from_wire
 from ._open import SEND
 from ._sse import SseParser
 
-__all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body", "_segments"]
+__all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body", "_csv", "_segments"]
 
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 2
@@ -83,6 +83,16 @@ def _segments(path: Sequence[BaseModel | Mapping[str, Any]] | None) -> list[str]
         return None
     steps = [step.model_dump() if isinstance(step, BaseModel) else step for step in path]
     return [f"{step['key']}:{step['value']}" for step in steps]
+
+
+def _csv(value: str | Sequence[str] | None) -> str | None:
+    """A list as one query value, comma-separated (`include=output,waitingFor`).
+
+    One value passes as it is. `None` or an empty list leaves the parameter out.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    return ",".join(value) or None
 
 
 def _body(model: Any, body: Any, fields: Mapping[str, Any]) -> Any:

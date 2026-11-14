@@ -53,6 +53,9 @@ export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
 /** Email domains the operator verified, each for one tenant: `domain:tenant,…`. */
 export const AUTH_VERIFIED_DOMAINS_VAR = 'KINDGI_AUTH_VERIFIED_DOMAINS';
 
+/** The people who are tenant admins by setting, by email: `a@acme.com,…`. */
+export const ADMIN_EMAILS_VAR = 'KINDGI_ADMIN_EMAILS';
+
 /** "Continue with Google": the deployment's own app's client id. */
 export const AUTH_GOOGLE_CLIENT_ID_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_ID';
 
