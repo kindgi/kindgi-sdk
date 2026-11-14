@@ -30,6 +30,9 @@ whatever its projects' databases.
   once a day.
 - A key that doesn't report never reports ([below](#a-key-that-doesnt-report)).
 - Reporting needs runtime 0.7.0 or later: an older runtime never reports.
+- A server started with `KINDGI_PASSIVE=on`, such as a standby or a copy
+  restored from a backup, sends none
+  ([Back up and restore](../back-up-and-restore/#look-at-a-restored-copy-before-it-serves-kindgi_passive)).
 - A server that [serves many tenants](../serve-many-tenants/) reports like
   any other.
 - Kindgi Cloud's runtime doesn't send one: its key is one that doesn't
@@ -105,7 +108,8 @@ details and the date they start.
   through a company proxy.
 - If your network admits only known hosts, admit `access.kindgi.com` on
   port 443.
-- No setting turns reports off. Only a key that doesn't report does.
+- Besides `KINDGI_PASSIVE=on` ([above](#when-it-reports)), no setting turns
+  reports off. Only a key that doesn't report does.
 
 ## What the log shows
 
@@ -115,15 +119,20 @@ Under `license` ([Logs](../logs/)):
   `License reports: daily to access.kindgi.com; a renewed key is kept sealed under KINDGI_LICENSE_KEY.`
   (or the host `KINDGI_LICENSE_REPORT_URL` names), or
   `License reports: off: this key is marked offline.`;
-- for each report, one line naming what it sent:
-  `License report sent: runs 120, people 4, projects in production 2, since 2027-01-04; key renewed to 2027-03-05.`
-  When there's no new key, the line ends `key unchanged (to 2027-02-18).`;
+- for each report, one line with everything it sent but the key, its times
+  as sent:
+  `License report sent: server id 5b0e7c2a-9d41-4f63-8a1e-3c7f2d9b6e05, mode deployed, runtime version 0.7.0, runs 120, people 4, projects in production 2, since 2027-01-04T09:00:00.000Z, until 2027-02-03T10:15:00.000Z; key renewed to 2027-03-05.`
+  The projects count is there when the report carries it. When there's no
+  new key, the line ends `key unchanged (to 2027-02-18).` A report that
+  Kindgi refused, or that had no answer in time, is logged with the same
+  fields: the line ends `; not taken (<status> <error code>)`, or reads
+  `License report may have been sent: …; no answer in time`;
 - when Kindgi won't renew the key, a warning with access.kindgi.com's
   message;
 - when a renewed key is one that doesn't report, one line:
   `License reports: off from now: the renewed key is marked offline.`;
-- when a report fails, a warning at the first failure and at the first on
-  each later day:
+- when a report can't be sent, a warning at the first failure and at the
+  first on each later day:
   `License report not sent (<why>); tried again each hour. A server that can't reach Kindgi can ask for a key that doesn't report.`
   where `<why>` is a word naming the cause. The server tries again each
   hour.
