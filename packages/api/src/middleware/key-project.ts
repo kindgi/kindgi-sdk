@@ -15,11 +15,23 @@ const PROJECT_PATH_RE = /\/projects\/([^/]+)/;
 const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
 
 /**
+ * The routes with a fixed word where a project id goes: `GET
+ * /v1/projects/default`. A read of one (GET or HEAD, on exactly its path)
+ * names no project in its path, so `refuseOtherProjectForKey` doesn't read
+ * one there, and the route holds a limited caller itself
+ * (`literalProjectRefusal`). Any other request, `/v1/projects/default/…` or
+ * a write to `/v1/projects/default`, names the project `default`, as it
+ * would any id. A test holds this list to the routes the app mounts.
+ */
+export const PROJECT_LITERAL_READS: readonly string[] = ['/v1/projects/default'];
+
+/**
  * A key limited to a project (`projectId` at mint) is refused, `403
  * key-project-mismatch`, on a request that names another project in any
  * of the places a request names one:
  *
- * - the path: `/projects/<id>/…`;
+ * - the path: `/projects/<id>/…`, except a read of a route in
+ *   `PROJECT_LITERAL_READS`;
  * - the query: `?projectId=<id>`, or `?scopeKind=project&scopeId=<id>`;
  * - a JSON write body: `projectId`, `scope.projectId`, `improve.projectId`
  *   (an Improve schedule's), or `scopeKind: 'project'` with `scopeId`, as
@@ -45,19 +57,46 @@ export function refuseOtherProjectForKey(
       !takesUpload(c, ownLimits) &&
       mayBeJsonObject(c.get('requestBody'));
     for (const named of await projectsNamed(c.req, jsonBody)) {
-      if (named !== keyProject) {
-        return refused(c, authorizer, {
-          action: c.req.method === 'GET' || c.req.method === 'HEAD' ? 'read' : 'write',
-          resource: ref('project', named),
-          message: `${limitedCaller(c)} is limited to project ${keyProject}; the request names project ${named}`,
-          failing: 'scope',
-          code: 'key-project-mismatch',
-          details: { keyProjectId: keyProject, projectId: named },
-        });
-      }
+      if (named !== keyProject) return otherProjectRefusal(c, authorizer, keyProject, named);
     }
     return next();
   };
+}
+
+/**
+ * For a route in `PROJECT_LITERAL_READS`: the 403 a key or session limited
+ * to a project gets when the project the route answers for (`answers`, or
+ * `undefined` when there is none) isn't its own. It's
+ * `refuseOtherProjectForKey`'s refusal, naming what the path names
+ * (`literal`), store or not, so the answer never says which project that
+ * is. `undefined` for any other caller, and for the key's own project.
+ */
+export function literalProjectRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  literal: string,
+  answers: string | undefined,
+): Response | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined || answers === keyProject) return undefined;
+  return otherProjectRefusal(c, authorizer, keyProject, literal);
+}
+
+/** The 403 for a limited caller on a request that names project `named`, recorded. */
+function otherProjectRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  keyProject: string,
+  named: string,
+): Response {
+  return refused(c, authorizer, {
+    action: c.req.method === 'GET' || c.req.method === 'HEAD' ? 'read' : 'write',
+    resource: ref('project', named),
+    message: `${limitedCaller(c)} is limited to project ${keyProject}; the request names project ${named}`,
+    failing: 'scope',
+    code: 'key-project-mismatch',
+    details: { keyProjectId: keyProject, projectId: named },
+  });
 }
 
 /** What a refusal names as limited: the caller's session, or its API key. */
@@ -167,7 +206,7 @@ type RequestLike = {
 /** Every project id the request names, in path, query and (when `jsonBody`) body. */
 async function projectsNamed(req: RequestLike, jsonBody: boolean): Promise<string[]> {
   const named: string[] = [];
-  const inPath = PROJECT_PATH_RE.exec(req.path)?.[1];
+  const inPath = readsLiteral(req) ? undefined : PROJECT_PATH_RE.exec(req.path)?.[1];
   if (inPath !== undefined) named.push(decodeURIComponent(inPath));
   const inQuery = req.query('projectId');
   if (inQuery !== undefined && inQuery !== '') named.push(inQuery);
@@ -175,6 +214,11 @@ async function projectsNamed(req: RequestLike, jsonBody: boolean): Promise<strin
   if (req.query('scopeKind') === 'project' && scopeId !== undefined) named.push(scopeId);
   if (jsonBody) named.push(...(await projectsInBody(req)));
   return named;
+}
+
+/** Whether the request reads a route in `PROJECT_LITERAL_READS`: GET or HEAD, on exactly its path. */
+function readsLiteral(req: RequestLike): boolean {
+  return isReadMethod(req.method) && PROJECT_LITERAL_READS.includes(req.path);
 }
 
 /**

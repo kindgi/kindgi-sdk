@@ -22,7 +22,11 @@ import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { holdLimitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
+import {
+  holdLimitedCaller,
+  limitedCallerRefusal,
+  literalProjectRefusal,
+} from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
@@ -200,19 +204,23 @@ export function projectsRouter(
   }
 
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
-  // Read on the default project, or `run` there, as `GET /:projectId`
-  // checks it: someone with a role on another project only gets 403, not
-  // its settings.
-  if (authorizer !== undefined) {
-    r.use('/default', async (c, next) => {
-      if (!isReadMethod(c.req.method)) return next();
-      const proj = await binding.getDefault(c.get('tenantId') as TenantId);
-      // None: the handler answers 404.
-      if (proj === undefined) return next();
-      const id = proj.id as unknown as string;
-      return (await actionOrRunRefusal(authorizer, c, 'read', ref('project', id), id)) ?? next();
-    });
-  }
+  // A key or session limited to a project reads the default project only
+  // when it's that project; otherwise it's refused as a request naming the
+  // project `default` is (`literalProjectRefusal`), with a store or without
+  // one. With a store, read on the default project, or `run` there, as `GET
+  // /:projectId` checks it: someone with a role on another project only
+  // gets 403, not its settings.
+  r.use('/default', async (c, next) => {
+    if (!isReadMethod(c.req.method)) return next();
+    if (authorizer === undefined && c.get('tokenProjectId') === undefined) return next();
+    const proj = await binding.getDefault(c.get('tenantId') as TenantId);
+    const id = proj?.id as unknown as string | undefined;
+    const held = literalProjectRefusal(c, authorizer, 'default', id);
+    if (held !== undefined) return held;
+    // None: the handler answers 404.
+    if (id === undefined || authorizer === undefined) return next();
+    return (await actionOrRunRefusal(authorizer, c, 'read', ref('project', id), id)) ?? next();
+  });
   r.get('/default', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;

@@ -9753,7 +9753,7 @@ class ProjectsResource:
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the workspace's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.
+        Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none. An API key or session limited to a project gets the default project only when it's that project; otherwise, and when the workspace has none, it gets 403 `key-project-mismatch`, naming `default`.
         """
         return self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -20226,7 +20226,7 @@ class AsyncProjectsResource:
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the workspace's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.
+        Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none. An API key or session limited to a project gets the default project only when it's that project; otherwise, and when the workspace has none, it gets 403 `key-project-mismatch`, naming `default`.
         """
         return await self._client._request(
             _OPERATIONS["projects.getDefault"],
