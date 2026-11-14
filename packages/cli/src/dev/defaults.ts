@@ -39,6 +39,7 @@ import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { judgeFlowGraphs, writeIndexFile } from './flow-graphs.js';
+import { idShapeWarnings } from './id-shape.js';
 import { createJavaPackBuilder } from './java-builder.js';
 import { DEV_LICENSE_KEY_VAR, resolveDevLicenseKey } from './license-key.js';
 import { lineReader } from './lines.js';
@@ -909,6 +910,7 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
         ...(w.filePath !== undefined && { filePath: w.filePath }),
       })),
       ...graphs.warnings,
+      ...idShapeWarnings(report.packId, graphs.index),
     ],
     index: graphs.index,
   };

@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.15"
+version: "0.4.16"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -87,8 +87,9 @@ export default defined.value;
 
 ## Field-by-field
 
-- **`id`** — `<pack-id>.<agent-name>` (kebab-case, dot-namespaced).
-  Enforced.
+- **`id`** — `<pack-id>.<agent-name>`: the pack's own id, a dot, and a
+  kebab-case name with no dot. `kindgi dev` and `kindgi build` warn
+  about any other shape.
 - **`version`** — Semver. Runs pin to a specific version; upgrading
   the agent doesn't retroactively rewrite in-flight conversations.
 - **`instructions`** — LiquidJS template. `{{ variable }}` substitutes

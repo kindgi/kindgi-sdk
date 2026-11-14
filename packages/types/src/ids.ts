@@ -79,10 +79,12 @@ export type SessionId = Brand<string, 'SessionId'>;
 export type RunId = Brand<string, 'RunId'>;
 
 /**
- * Task flow definition id. Convention: `<pack-id>.<flow-name>`
- * (kebab-case, dot-namespaced) — e.g. `acme.brief-review-flow`,
- * `demo.echo-flow`. The framework's built-in agent-turn flow is
- * `agent.turn` (`AGENT_TURN_FLOW_ID` in `@kindgi/agents`).
+ * Task flow definition id: `<pack-id>.<flow-name>`, the pack's own id, a
+ * dot, and a kebab-case name with no dot. The name says the flow's job,
+ * the verb first — e.g. `acme.review-order`. `defineFlow` checks only that
+ * the id isn't empty; `kindgi dev` and `kindgi build` warn about any other
+ * shape. The framework's built-in agent-turn flow is `agent.turn`
+ * (`AGENT_TURN_FLOW_ID` in `@kindgi/agents`).
  */
 export type FlowId = Brand<string, 'FlowId'>;
 
@@ -93,11 +95,11 @@ export type NodeId = Brand<string, 'NodeId'>;
 export type EdgeId = Brand<string, 'EdgeId'>;
 
 /**
- * Agent definition id. Convention: `<pack-id>.<agent-name>`
- * (kebab-case, dot-namespaced) — e.g. `acme.brief-writer`,
- * `demo.echo-agent`. The `<pack-id>` prefix scopes the agent to
- * its pack; `<agent-name>` describes the agent's role. Enforced by
- * `defineAgent` at author time.
+ * Agent definition id: `<pack-id>.<agent-name>`, the pack's own id, a
+ * dot, and a kebab-case name with no dot. The `<pack-id>` prefix scopes
+ * the agent to its pack; `<agent-name>` names the agent's role — e.g.
+ * `acme.brief-writer`. `defineAgent` checks only that the id isn't empty;
+ * `kindgi dev` and `kindgi build` warn about any other shape.
  */
 export type AgentId = Brand<string, 'AgentId'>;
 
@@ -105,8 +107,9 @@ export type AgentId = Brand<string, 'AgentId'>;
  * Tool definition id. Convention: `<pack-id>.<tool-name>`
  * (kebab-case, dot-namespaced) — e.g. `acme.verify-citation`,
  * `demo.echo`. The `<pack-id>` prefix scopes the tool to its pack;
- * `<tool-name>` names the operation. Enforced by `defineTool` at
- * author time.
+ * `<tool-name>` names the operation. `defineTool` checks only that
+ * the id isn't empty and doesn't start with `kindgi_`, which is kept for
+ * tools built into Kindgi.
  */
 export type ToolId = Brand<string, 'ToolId'>;
 
@@ -115,7 +118,8 @@ export type ToolId = Brand<string, 'ToolId'>;
  * (kebab-case, dot-namespaced) — e.g. `acme.no-fabricated-quotes`,
  * `demo.response-not-empty`. `<guardrail-name>` describes the
  * property being asserted (usually a positive rule the agent turn
- * must satisfy). Enforced by `validateGuardrail` at author time.
+ * must satisfy). `validateGuardrail` checks only that the id isn't
+ * empty.
  */
 export type GuardrailId = Brand<string, 'GuardrailId'>;
 
