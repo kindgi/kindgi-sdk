@@ -108,10 +108,10 @@ With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run th
 * **A decided card drops its deadline.** A decision removes the "Expires … if no one decides" line along with the buttons, wherever the card is.
 * **Cards and conversations link their runs.** A card's meta line ends with "See the run", and in Ask the last words of each run link that run on Activity, a live turn as it starts.
 * **Deleting the plugin removes the offered agents,** the list of agents staff see on the Ask page.
-* **Activity says which waiting runs need a person.** A run that waits for a decision is marked, so staff can tell it from one that is only working.
-* **A run's wait links to the Inbox, for reviewers only.** Whoever may decide the approval gets the link; others see the wait without it.
-* **A card reads a rejection that names its reviewer.** A rejected approval says who rejected it.
-* **The terms and privacy links name the published pages.** They point to the pages Kindgi publishes, and say so.
+* **Activity says which waiting runs need a person.** A run waiting for an approval of its own reads as "Needs a person"; a run waiting on a run it started still reads as waiting.
+* **A run's wait links to the Inbox, for reviewers only.** Activity links each approval to its card in the Inbox for a reviewer; anyone else reads what the run waits for in words.
+* **A card reads a rejection that says a reviewer decided.** When Kindgi's rejected result carries `by: "reviewer"`, the card still shows the call as rejected, not as used.
+* **The terms and privacy links name the published pages.** External services and the wp-admin privacy guide link the Kindgi Cloud terms and the privacy policy at their published addresses, in place of placeholders.
 
 = 0.2.0 =
 
