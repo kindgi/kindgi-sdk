@@ -336,23 +336,19 @@ The run didn't end within 60 s, the client's timeout (timeout). A waited start a
 </TabItem>
 <TabItem label="Java">
 
-A `ConflictException`, just after 60 seconds. The client sends a start again
-after a timeout, with the same idempotency key, and the server answers that
-the first one is still running:
+A `NetworkException`, after 60 seconds:
 
 ```text
-com.kindgi.client.ConflictException: A request with this Idempotency-Key is still running. Retry after it answers (Retry-After), and you'll get its answer.
+The run didn't end within 60 s, the client's timeout (timeout). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `wait_(false)` in its options: the answer carries its id at once. Then follow it with `runs().follow(runId)` or `runs().get(runId)`. Or raise `timeout`.
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
-The Java client's `ConflictException`, just after 60 seconds. The client sends
-a start again after a timeout, with the same idempotency key, and the server
-answers that the first one is still running:
+The Java client's `NetworkException`, after 60 seconds:
 
 ```text
-com.kindgi.client.ConflictException: A request with this Idempotency-Key is still running. Retry after it answers (Retry-After), and you'll get its answer.
+The run didn't end within 60 s, the client's timeout (timeout). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `wait_(false)` in its options: the answer carries its id at once. Then follow it with `runs().follow(runId)` or `runs().get(runId)`. Or raise `timeout`.
 ```
 
 </TabItem>

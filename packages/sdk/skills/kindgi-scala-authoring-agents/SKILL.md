@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.10"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -110,8 +110,8 @@ object BriefWriter {
 ## Field by field
 
 - **`id`:** `<pack-id>.<agent-name>`, kebab-case, dot-namespaced.
-- **`version`:** an exact semver. Conversations pin the version they started
-  on.
+- **`version`:** an exact semver with no build metadata (`1.2.3`,
+  `1.2.3-rc.1`). Conversations pin the version they started on.
 - **`name`, `description`**, and `set("tags", List(…))`: for people and
   listings. The model never sees the description.
 - **`instructions`:** a LiquidJS template. `{{ variable }}` comes from

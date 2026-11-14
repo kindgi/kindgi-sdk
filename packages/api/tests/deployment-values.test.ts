@@ -71,6 +71,16 @@ const tools: Record<string, object> = {
       authorization: { kind: 'bearer', secretRef: { envName: 'prod', name: 'ACME_BEARER' } },
     },
   },
+  'acme.fetch@1.0.0': {
+    id: 'acme.fetch',
+    version: '1.0.0',
+    spec: {
+      kind: 'http',
+      method: 'GET',
+      urlTemplate: 'https://fetch.acme.example',
+      authorization: { kind: 'bearer', secretRef: { name: 'FETCH_KEY' } },
+    },
+  },
 };
 
 /** Providers registered in the tenant, by id: its key's name, or none (a keyless one). */
@@ -273,6 +283,21 @@ describe('a tool version: its secrets and the env it has no default for', () => 
       { name: 'ACME_TOKEN', kind: 'secret', neededBy: search },
       { name: 'ACME_REGION', kind: 'env', neededBy: search },
       { name: 'RELAY_KEY', kind: 'secret', neededBy: relay, foundAt: 'tenant' },
+    ]);
+  });
+
+  test("a secretRef that names no env: read in the runtime's env; without one, listed unread", async () => {
+    const fetchTool = { type: 'tool', id: 'acme.fetch', version: '1.0.0' } as const;
+    const d = deployment({ tools: [{ id: 'acme.fetch', version: '1.0.0' }] });
+    const stored = { 'org:prod:FETCH_KEY': {}, 'tenant:shared:FETCH_KEY': {} };
+    expect(await values(world({ stored }), d)).toEqual([
+      { name: 'FETCH_KEY', kind: 'secret', neededBy: fetchTool, foundAt: 'org' },
+    ]);
+    expect(await values(world({}), d)).toEqual([
+      { name: 'FETCH_KEY', kind: 'secret', neededBy: fetchTool, problem: 'missing' },
+    ]);
+    expect(await values(world({ noEnvName: true, stored }), d)).toEqual([
+      { name: 'FETCH_KEY', kind: 'secret', neededBy: fetchTool },
     ]);
   });
 

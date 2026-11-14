@@ -530,8 +530,8 @@ mcp={"expose": True, "readOnly": True},
 
 In a Python pack, `uv run python -m kindgi.pack index --pack-dir .` reports
 a file that fails to load without the runtime: a bare-string tool (above), or
-a version that isn't an exact semver (`version must be an exact semver, got
-'0.1'`).
+an agent version that isn't an exact semver (`version must be an exact semver
+with no build metadata (e.g. 1.2.3 or 1.2.3-rc.1), got '0.1'`).
 
 In a Java or Scala pack, the compiler finds most mistakes first: `kindgi dev`
 shows its error with the file and line, and keeps the last good code running.

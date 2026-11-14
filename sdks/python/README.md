@@ -92,7 +92,7 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   Field aliases are the names on the wire.
   The input is an object: a model calls a tool with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
-  pack's (or `version=`, an exact semver).
+  pack's (or `version=`), `MAJOR.MINOR.PATCH` such as `1.2.0`.
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an
   agent with tool approval gates on (and no override or `default` for it)
   doesn't ask before it. Without it a tool may change something (as with
@@ -149,7 +149,7 @@ lookup_vendor = http_tool(
     output=Vendor,
     method="GET",
     url_template="https://vendors.example.com/v1/{vendor_id}",
-    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "VENDORS_TOKEN"}},
+    authorization={"kind": "bearer", "secretRef": {"name": "VENDORS_TOKEN"}},
 )
 ```
 
@@ -265,6 +265,13 @@ are two commands you can run yourself:
 python -m kindgi.pack index --pack-dir .                         # → index.json
 KINDGI_PACK_SERVICE_TOKEN=… python -m kindgi.pack serve --index index.json
 ```
+
+`index` writes the index even when a file fails to index (a module that
+won't import, or defines nothing), and lists those file errors in what it
+prints. With `--strict` it then exits 1, printing each one; a pack image's
+build runs it that way. A helper module (`tools/_db.py`) that won't import
+doesn't make it exit 1 on its own: a module that imports it fails too. If the
+helper defines tools itself, it says they're left out of the index.
 
 `serve` has the Node pack service's process contract: `--index`,
 `--module-root` and `--host`; `KINDGI_PACK_SERVICE_TOKEN`, `PORT`,

@@ -243,7 +243,13 @@ export interface ToolContext {
  * api-layer dep.
  */
 export interface ToolSecretRef {
-  readonly envName: string;
+  /**
+   * The env the secret is read in. Left out, it's the env the runtime
+   * serves (`KINDGI_ENV`; `local` under `kindgi dev`), read at each call,
+   * as for the secrets a tool's code declares (`needsSpec.secrets`). So a
+   * pack deployed to several envs reads each one's own secret.
+   */
+  readonly envName?: string;
   readonly name: string;
 }
 

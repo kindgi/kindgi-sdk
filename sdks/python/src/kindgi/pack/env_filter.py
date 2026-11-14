@@ -99,6 +99,12 @@ PLATFORM_ENV_NAMES: frozenset[str] = frozenset(
 # Container Apps' metadata. `KINDGI_*` is kept too.
 PLATFORM_ENV_PREFIXES: tuple[str, ...] = ("LC_", "PYTHON", "OTEL_", "CLOUD_RUN_", "CONTAINER_APP_")
 
+# Dropped like any other undeclared name, but left out of the names the service
+# logs (`env-dropped`): a base image sets them in every pack's image (Python's
+# sets `GPG_KEY`, the fingerprint of the key Python's releases are signed with).
+# A pack that reads one declares it.
+QUIETLY_DROPPED_ENV_NAMES: frozenset[str] = frozenset({"GPG_KEY"})
+
 
 def undeclared_pack_env(
     declaration: Mapping[str, Any] | None, environment: Mapping[str, str]

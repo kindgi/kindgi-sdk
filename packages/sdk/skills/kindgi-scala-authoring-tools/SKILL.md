@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -112,11 +112,13 @@ object Citator {
 - **Id:** `<pack-id>.<tool-name>`, kebab-case, dot-namespaced.
 - **Description:** what it does and returns. The model reads it to decide
   when to call the tool. It isn't enforced, so never leave it out.
-- **Version:** the pack's (`pack.version`), or `.version("1.2.0")` (an exact
-  semver).
+- **Version:** the pack's (`pack.version`), or `.version("1.2.0")`
+  (`MAJOR.MINOR.PATCH`).
 - **Schemas:** from the case classes `Tool[Input, Output]` names. A
   parameter is a property, by its Jackson name
-  (`@JsonProperty("canonical_cite")` renames one). The input must be an
+  (`@JsonProperty("canonical_cite")` renames one). Unknown properties are
+  refused unless the case class says
+  `@JsonIgnoreProperties(ignoreUnknown = true)`. The input must be an
   **object**: a model calls a tool with an object of arguments.
 
   | In Scala | In the schema |
@@ -319,7 +321,7 @@ object FetchOrder {
       HttpToolSpec.builder()
         .method(HttpMethod.GET)
         .urlTemplate("https://api.shop.example/orders/{orderId}")
-        .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("production", "shop-api-token")))
+        .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("shop-api-token")))
         .successStatus(200, 299)
         .build())
 }
@@ -329,7 +331,7 @@ Every `{placeholder}` in the URL — in the path and query only, never in the
 host or port — is a field of the input, and so is one in a
 `HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. Authorization
 is a `secretRef` (`HttpAuthSpec.Bearer` or `HttpAuthSpec.Header`), named for the
-runtime to resolve, never a literal credential. A request body is
+runtime to resolve in the env it serves, never a literal credential. A request body is
 `HttpRequestBodySpec.JsonInput` (the input as JSON), `InputPassthrough` or
 `Text`. `timeoutMs` (default 30 seconds) covers the whole call, the response
 read included, and a run's cancel does too; a response body over 10 MiB,

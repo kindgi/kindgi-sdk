@@ -20,7 +20,15 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.Authenticator;
+import java.net.ConnectException;
+import java.net.CookieHandler;
 import java.net.InetSocketAddress;
+import java.net.ProxySelector;
+import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -29,16 +37,25 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** The client against a local HTTP server: what it sends, retries, and reads. */
 class TransportTest {
@@ -75,6 +92,8 @@ class TransportTest {
   private final AtomicInteger calls = new AtomicInteger();
   private volatile Handler handler;
   private Kindgi client;
+  /** Released when the test ends: a handler waiting on it answers no call in time. */
+  private final CountDownLatch held = new CountDownLatch(1);
 
   @BeforeEach
   void start() throws IOException {
@@ -104,6 +123,7 @@ class TransportTest {
 
   @AfterEach
   void stop() {
+    held.countDown();
     server.stop(0);
   }
 
@@ -194,6 +214,188 @@ class TransportTest {
     handler = (ex, n) -> answer(ex, 503, "{\"error\":{\"code\":\"unavailable\",\"message\":\"busy\"}}", "Retry-After", "0");
     assertThatThrownBy(() -> client.runs().get(RUN_ID)).isInstanceOf(ServerException.class);
     assertThat(seen).hasSize(3);
+  }
+
+  private static final String WAITED_START_TIMEOUT =
+      "The run didn't end within 0.5 s, the client's timeout (timeout). A waited start answers only when the run ends, so the"
+          + " run may still be going, and its id didn't arrive. Start a run that can take longer with `wait_(false)` in its"
+          + " options: the answer carries its id at once. Then follow it with `runs().follow(runId)` or `runs().get(runId)`."
+          + " Or raise `timeout`.";
+
+  /** A client with a 0.5 s timeout, against a server that answers only when the test ends. */
+  private Kindgi noAnswerInTime() {
+    handler = (ex, n) -> {
+      try {
+        held.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      answer(ex, 201, RUN);
+    };
+    return Kindgi.builder()
+        .baseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/")
+        .token("kgi_test")
+        .timeout(Duration.ofMillis(500))
+        .build();
+  }
+
+  private static StartRunBody waitedStart() {
+    return StartRunBody.WithFlow.builder().flow("acme.f").input(Map.of()).build();
+  }
+
+  @Test
+  void aWaitedStartIsntSentAgainAfterATimeout() {
+    // It may be running on the server: a repeat is refused while it runs (a 409), and the run's
+    // id never arrives.
+    Kindgi slow = noAnswerInTime();
+    assertThatThrownBy(() -> slow.runs().start(waitedStart())).isInstanceOf(NetworkException.class).hasMessage(WAITED_START_TIMEOUT);
+    assertThat(seen).hasSize(1);
+  }
+
+  @Test
+  void anAsyncWaitedStartIsntSentAgainAfterATimeout() {
+    Kindgi slow = noAnswerInTime();
+    assertThatThrownBy(() -> slow.async().runs().start(waitedStart()).join())
+        .isInstanceOf(CompletionException.class)
+        .cause()
+        .isInstanceOf(NetworkException.class)
+        .hasMessage(WAITED_START_TIMEOUT);
+    assertThat(seen).hasSize(1);
+  }
+
+  @Test
+  void aStartWithoutWaitingGetsThePlainTimeoutError() {
+    Kindgi slow = noAnswerInTime();
+    StartRunBody background = StartRunBody.WithFlow.builder()
+        .flow("acme.f")
+        .input(Map.of())
+        .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+        .build();
+    assertThatThrownBy(() -> slow.runs().start(background))
+        .isInstanceOf(NetworkException.class)
+        .hasMessage("runs.start: no answer within 0.5 s, the client's timeout (timeout).");
+    assertThat(seen).hasSize(1);
+  }
+
+  @Test
+  void aGetIsStillRetriedAfterATimeout() {
+    Kindgi slow = noAnswerInTime();
+    assertThatThrownBy(() -> slow.runs().get(RUN_ID))
+        .isInstanceOf(NetworkException.class)
+        .hasMessage("runs.get: no answer within 0.5 s, the client's timeout (timeout).");
+    assertThat(seen).hasSize(3);
+  }
+
+  @Test
+  void aStartIsRetriedWhenItNeverReachedTheServer() {
+    handler = (ex, n) -> answer(ex, 201, RUN);
+    Kindgi refusing = Kindgi.builder()
+        .baseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/")
+        .token("kgi_test")
+        .httpClient(new FailsToConnect(new ConnectException("refused"), new HttpConnectTimeoutException("no connect")))
+        .build();
+    assertThat(refusing.runs().start(waitedStart()).id()).isEqualTo(RUN_ID);
+    assertThat(seen).hasSize(1);
+    Kindgi refusingAsync = Kindgi.builder()
+        .baseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/")
+        .token("kgi_test")
+        .httpClient(new FailsToConnect(new ConnectException("refused"), new HttpConnectTimeoutException("no connect")))
+        .build();
+    assertThat(refusingAsync.async().runs().start(waitedStart()).join().id()).isEqualTo(RUN_ID);
+    assertThat(seen).hasSize(2);
+  }
+
+  @Test
+  void aStartIsntSentAgainAfterADroppedConnection() {
+    handler = (ex, n) -> {
+      throw new Drop();
+    };
+    assertThatThrownBy(() -> client.runs().start(waitedStart())).isInstanceOf(NetworkException.class);
+    assertThat(seen).hasSize(1);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {502, 504})
+  void aStartIsntSentAgainAfterAProxysAnswerThatItMayBeRunning(int status) {
+    handler = (ex, n) -> answer(ex, status, "");
+    assertThatThrownBy(() -> client.runs().start(waitedStart())).isInstanceOf(ServerException.class);
+    assertThat(seen).hasSize(1);
+  }
+
+  /** A client whose first sends fail before they reach the server, one per failure given. */
+  static final class FailsToConnect extends HttpClient {
+    private final HttpClient real = HttpClient.newHttpClient();
+    private final Queue<IOException> failures;
+
+    FailsToConnect(IOException... failures) {
+      this.failures = new ConcurrentLinkedQueue<>(List.of(failures));
+    }
+
+    @Override
+    public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> handler) throws IOException, InterruptedException {
+      IOException failure = failures.poll();
+      if (failure != null) {
+        throw failure;
+      }
+      return real.send(request, handler);
+    }
+
+    @Override
+    public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> handler) {
+      IOException failure = failures.poll();
+      return failure != null ? CompletableFuture.failedFuture(failure) : real.sendAsync(request, handler);
+    }
+
+    @Override
+    public <T> CompletableFuture<HttpResponse<T>> sendAsync(
+        HttpRequest request, HttpResponse.BodyHandler<T> handler, HttpResponse.PushPromiseHandler<T> push) {
+      return sendAsync(request, handler);
+    }
+
+    @Override
+    public Optional<CookieHandler> cookieHandler() {
+      return real.cookieHandler();
+    }
+
+    @Override
+    public Optional<Duration> connectTimeout() {
+      return real.connectTimeout();
+    }
+
+    @Override
+    public Redirect followRedirects() {
+      return real.followRedirects();
+    }
+
+    @Override
+    public Optional<ProxySelector> proxy() {
+      return real.proxy();
+    }
+
+    @Override
+    public SSLContext sslContext() {
+      return real.sslContext();
+    }
+
+    @Override
+    public SSLParameters sslParameters() {
+      return real.sslParameters();
+    }
+
+    @Override
+    public Optional<Authenticator> authenticator() {
+      return real.authenticator();
+    }
+
+    @Override
+    public Version version() {
+      return real.version();
+    }
+
+    @Override
+    public Optional<Executor> executor() {
+      return real.executor();
+    }
   }
 
   @Test

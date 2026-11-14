@@ -21,10 +21,51 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `sp_signing_key_ref` and `sp_decryption_key_ref` name, published in the
   service provider's metadata. Each needs its key. Both are optional and
   default to `None`.
+- `kindgi`: **a Python pack's service no longer names `GPG_KEY` when it
+  starts.** Python's base image sets it in every pack's image, so the
+  `env-dropped` line warned at every start. The service still drops it like
+  any name the pack doesn't declare: a pack that reads it declares it.
+- `kindgi`: **an HTTP tool's `secretRef` can leave its env out.**
+  `http_tool(authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}})`
+  is read in the env the runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`), as the secrets a tool's code declares are. A ref that names
+  its env still reads there, and an empty `envName` is refused. The client's
+  `ToolSecretRef.env_name` is optional: `None` when a tool's ref names no env.
+  An older `kindgi` fails to read such a tool, or a page of tools that holds
+  one, so upgrade it with the runtime.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
   read doesn't change.
+- `kindgi`: **`http_tool` refuses a placeholder in the URL's host or port.**
+  There, a run's input or a model's arguments would choose where the runtime
+  sends the request. The URL must also start with `http://` or `https://` and
+  a host. TypeScript's `defineTool` and Java's `Tool.Builder.http` already
+  refused these with the same messages, and so did a deployment of the pack.
+  Python now refuses them when the tool is defined, with a `DefinitionError`.
+- `kindgi`: **a tool's schema with a name holding a lone surrogate is refused
+  as the runtime refuses it.** Under `properties`, `patternProperties`,
+  `dependentSchemas` or `dependencies`, such a name over a subschema the
+  runtime compiles now fails the definition with the runtime's "URI
+  malformed", where checking it raised `UnicodeEncodeError` before. The
+  runtime writes the name into that subschema's path, URI encoded, and a lone
+  surrogate can't be encoded. Over a subschema any data passes, such as `{}`,
+  the schema compiles, as it does in the runtime.
+- `kindgi`: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.**
+  A tool that sets no version takes the pack's, and a deploy takes no other
+  tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or
+  `"1.0.0-rc.1"` no longer loads: `python -m kindgi.pack index`, and
+  `kindgi build`, `deploy`, `env`, `dev` and `mcp`, stop with
+  `config-parse-failed`, naming `pack.version`, as they do when it's missing.
+  Write `1.0.0`.
+- `kindgi`: **each kind's version is checked where it's declared, by the
+  deploy's rule.** A tool's (`@tool(version=...)`, `http_tool`) is
+  `MAJOR.MINOR.PATCH`, so a prerelease or build metadata is refused. An
+  agent's is an exact semver with no build metadata, and so is a flow's,
+  which wasn't checked. Each of those was refused only at deploy before. The
+  messages are `version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got '...'`
+  and `version must be an exact semver with no build metadata (e.g. 1.2.3 or
+  1.2.3-rc.1), got '...'`.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's
@@ -44,6 +85,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
+- `kindgi`: **`python -m kindgi.pack index --strict` exits 1 when a file
+  fails to index**, printing each file error, as `kindgi-index --strict`
+  does for a TypeScript pack. When a module imports a package that isn't
+  installed, it also says that a pack's image installs the main dependencies
+  only, so a package that only a dev group lists belongs in
+  `[project].dependencies`. A helper module (`tools/_db.py`) that won't
+  import doesn't count on its own: a module that imports it fails too. If it
+  defines tools itself, it says they're left out of the index. A pack image's
+  build runs it with `--strict`. Without the flag, nothing changes.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the

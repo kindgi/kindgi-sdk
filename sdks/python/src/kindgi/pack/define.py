@@ -82,11 +82,16 @@ __all__ = [
 P = ParamSpec("P")
 R = TypeVar("R")
 
-SEMVER = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
-    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
-)
+_CORE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+_PRERELEASE = r"(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+
+VERSION = re.compile(_CORE + rf"(?:-{_PRERELEASE}(?:\.{_PRERELEASE})*)?")
+"""An agent's or a flow's version, matched in full: an exact semver with no
+build metadata (`1.2.3`, `1.2.3-rc.1`). A deploy takes no build metadata."""
+
+TOOL_VERSION = re.compile(_CORE)
+"""A tool's version, matched in full: MAJOR.MINOR.PATCH only (`1.2.3`). A
+deploy's tool manifest takes no more."""
 
 
 class DefinitionError(ValueError):
@@ -306,10 +311,12 @@ def http_tool(
     The Python counterpart of `defineTool({ spec: { kind: 'http', ... } })`;
     the pack's index carries the spec. `{name}` placeholders in `url_template`
     (and in a `text` request body's `template`) are filled from the input's
-    fields, URL-encoded. `authorization` and `request_body` take the spec's
-    JSON shape:
+    fields, URL-encoded. The URL starts with `http://` or `https://` and a
+    host, and its placeholders go in the path and query only, never in the
+    host or port. `authorization` and `request_body` take the spec's JSON
+    shape:
 
-        authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "ACME_TOKEN"}}
+        authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}}
         request_body={"kind": "json-input"}
 
     The runtime resolves the secret on every call (`local`: the pack's `.env`
@@ -343,6 +350,9 @@ def http_tool(
     if issues:
         found = "; ".join(f"{i['instancePath'] or '/'} {i['message']}" for i in issues)
         raise DefinitionError(f"{where}: not a valid HTTP tool spec: {found}")
+    bad_url = _url_template_problem(url_template)
+    if bad_url is not None:
+        raise DefinitionError(f"{where} spec.urlTemplate {bad_url}")
     templates = [url_template]
     if request_body is not None and request_body.get("kind") == "text":
         templates.append(str(request_body.get("template", "")))
@@ -384,6 +394,25 @@ def http_tool(
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 """A `{name}` placeholder, as the runtime's HTTP tool fills it."""
+
+_URL_ORIGIN = re.compile(r"(https?)://([^/?#]*)", re.IGNORECASE | re.ASCII)
+"""A URL's scheme and its host and port, as `defineTool` reads them: the scheme
+in any case, of ASCII letters only, as JavaScript's `i` flag compares them."""
+
+
+def _url_template_problem(url_template: str) -> str | None:
+    """What is wrong with an HTTP tool's URL, as `defineTool` says it; `None` when it starts
+    with `http://` or `https://` and a host, and fills placeholders in its path and query
+    only. In the host or port, a run's input (or a model's arguments) would choose where the
+    runtime sends the request."""
+    origin = _URL_ORIGIN.match(url_template)
+    if origin is None:
+        return "must start with http:// or https:// and a host"
+    if "{" in origin[2] or "}" in origin[2]:
+        return "fills {placeholders} in its path and query only, never in its host or port"
+    if origin[2] == "":
+        return "must name a host"
+    return None
 
 
 @cache
@@ -648,8 +677,7 @@ class Agent:
             self.module = _defined_in(2)
         where = f'Agent "{self.id}"'
         _require_id(self.id, where)
-        if not SEMVER.match(self.version):
-            raise DefinitionError(f"{where}: version must be an exact semver, got {self.version!r}")
+        _check_exact_version(self.version, where)
         if not isinstance(self.instructions, str):
             ref: Mapping[str, Any] = self.instructions
             if not isinstance(ref.get("prompt"), str) or not isinstance(ref.get("version"), str):
@@ -688,6 +716,7 @@ class Flow:
             self.module = _defined_in(2)
         where = f'Flow "{self.id}"'
         _require_id(self.id, where)
+        _check_exact_version(self.version, where)
         _check_mcp(self.mcp, self.id, "flow", where)
 
 
@@ -700,9 +729,19 @@ Primitive = Tool[..., Any] | Guardrail | Agent | Flow
 
 
 def _check_version(version: str | None, where: str) -> None:
-    if version is not None and not SEMVER.match(version):
+    """A tool's own version, when it sets one (else it takes the pack's)."""
+    if version is not None and not TOOL_VERSION.fullmatch(version):
         raise DefinitionError(
-            f"{where}: version must be an exact semver (e.g. 1.2.3), got {version!r}"
+            f"{where}: version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got {version!r}"
+        )
+
+
+def _check_exact_version(version: str, where: str) -> None:
+    """An agent's or a flow's version."""
+    if not VERSION.fullmatch(version):
+        raise DefinitionError(
+            f"{where}: version must be an exact semver with no build metadata"
+            f" (e.g. 1.2.3 or 1.2.3-rc.1), got {version!r}"
         )
 
 

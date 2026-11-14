@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -76,7 +76,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - **Id** — `<pack-id>.<tool-name>`, kebab-case, dot-namespaced.
 - **Description** — the docstring, or `description=`. The model reads
   it to decide when to call the tool: say what it does and returns.
-- **Version** — the pack's version, or `version=` (an exact semver).
+- **Version** — the pack's version, or `version=` (`MAJOR.MINOR.PATCH`).
 - **Schemas** — from the annotations: the first parameter is the input,
   the return annotation the output. A pydantic model, a `TypedDict`, a
   dataclass — anything pydantic understands — or `input=` / `output=`
@@ -372,18 +372,21 @@ lookup_case = http_tool(
     method="GET",
     url_template="https://citator.example.com/{court}/{case_number}",
     headers={"Accept": "application/json"},
-    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "CITATOR_KEY"}},
+    authorization={"kind": "bearer", "secretRef": {"name": "CITATOR_KEY"}},
 )
 ```
 
 - `{name}` placeholders in `url_template` are filled from the input's
-  fields, URL-encoded; each must be a field of the input model, or the
-  indexer reports it.
+  fields, URL-encoded. The URL starts with `http://` or `https://` and a
+  host, and its placeholders go in the path and query only, never in the
+  host or port: there, the input would choose where the request goes.
+  Each placeholder must be a field of the input model. `http_tool` raises
+  `DefinitionError` when any of this doesn't hold.
 - `authorization`: `{"kind": "bearer", "secretRef": …}` or
   `{"kind": "header", "headerName": "X-Api-Key", "secretRef": …}`. The
-  runtime resolves the secret on every call — `envName` `local` is the
-  pack's `.env` under `kindgi dev` — and fails the call, naming it, when
-  it's missing.
+  runtime resolves the secret on every call, in the env it serves (the
+  pack's `.env` under `kindgi dev`; `envName` pins one), and fails the
+  call, naming it, when it's missing.
 - `request_body`: `{"kind": "json-input"}` (the input's fields the URL
   didn't use, as JSON — the default for POST, PUT and PATCH),
   `{"kind": "input-passthrough"}` (the whole input), or

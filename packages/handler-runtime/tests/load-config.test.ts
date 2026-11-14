@@ -89,17 +89,23 @@ describe('loadKindgiConfig', () => {
     expect(KINDGI_CONFIG_FILENAMES.indexOf('kindgi.config.mjs')).toBeLessThan(
       KINDGI_CONFIG_FILENAMES.indexOf('kindgi.config.js'),
     );
-    await write('kindgi.config.js', "export default { pack: { id: 'from-js', version: '1' } };");
-    await write('kindgi.config.mjs', "export default { pack: { id: 'from-mjs', version: '1' } };");
+    await write(
+      'kindgi.config.js',
+      "export default { pack: { id: 'from-js', version: '1.0.0' } };",
+    );
+    await write(
+      'kindgi.config.mjs',
+      "export default { pack: { id: 'from-mjs', version: '1.0.0' } };",
+    );
     await fs.writeFile(path.join(dir, 'package.json'), '{"type":"module"}');
     const r = await loadKindgiConfig(dir);
     expect(r.kind === 'ok' && r.value.pack.id).toBe('from-mjs');
   });
 
   test('an edited config is re-read (cache-busted by mtime)', async () => {
-    await write('kindgi.config.mjs', "export default { pack: { id: 'v1', version: '1' } };");
+    await write('kindgi.config.mjs', "export default { pack: { id: 'v1', version: '1.0.0' } };");
     expect((await loadKindgiConfig(dir)).kind === 'ok').toBe(true);
-    await write('kindgi.config.mjs', "export default { pack: { id: 'v2', version: '1' } };");
+    await write('kindgi.config.mjs', "export default { pack: { id: 'v2', version: '1.0.0' } };");
     const later = new Date(Date.now() + 5000);
     await fs.utimes(path.join(dir, 'kindgi.config.mjs'), later, later);
     const r = await loadKindgiConfig(dir);
@@ -268,11 +274,11 @@ describe('a Java pack: kindgi.config.json', () => {
 
   test.each([
     [
-      '{"pack": {"id": "a", "version": "1"}}',
+      '{"pack": {"id": "a", "version": "1.0.0"}}',
       /is a JVM pack's config; it says "language": "java" or "scala"/,
     ],
     [
-      '{"language": "node", "pack": {"id": "a", "version": "1"}}',
+      '{"language": "node", "pack": {"id": "a", "version": "1.0.0"}}',
       /it says "language": "java" or "scala"/,
     ],
     ['{"language": "java", "pack": {"id": "a"}}', /'pack.version' is missing/],
@@ -284,6 +290,27 @@ describe('a Java pack: kindgi.config.json', () => {
     expect(r.kind === 'err' && r.error.code).toBe('config-parse-failed');
     expect(r.kind === 'err' && r.error.message).toMatch(message);
   });
+
+  test.each([
+    ['kindgi.config.mjs', "export default { pack: { id: 'a', version: '1' } };", '1'],
+    ['kindgi.config.mjs', "export default { pack: { id: 'a', version: '1.0' } };", '1.0'],
+    ['pyproject.toml', '[tool.kindgi.pack]\nid = "a"\nversion = "1.0.0-rc.1"\n', '1.0.0-rc.1'],
+    [
+      'kindgi.config.json',
+      '{"language": "java", "pack": {"id": "a", "version": "01.0.0"}}',
+      '01.0.0',
+    ],
+  ])(
+    "%s: a pack.version of '%s' isn't MAJOR.MINOR.PATCH, so it's config-parse-failed",
+    async (name, text, version) => {
+      await write(name, text);
+      const r = await loadKindgiConfig(dir);
+      expect(r.kind === 'err' && r.error.code).toBe('config-parse-failed');
+      expect(r.kind === 'err' && r.error.message).toContain(
+        `'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '${version}'`,
+      );
+    },
+  );
 
   test('"java" belongs to kindgi.config.json, not a module', async () => {
     await write(
