@@ -2213,10 +2213,10 @@ assert_file_has "$OUT" "  check identity-provider-keys isn't run: the 0.4.0 runt
 if [[ $(grep -c -- "--args=check," "$STUB_JOBS_LOG") -eq 3 ]]; then pass; else fail "the run didn't make exactly 3 check jobs"; fi
 if grep -q -e "-ipk " -e "--args=check,identity-provider-keys" "$STUB_JOBS_LOG"; then fail "a job for identity-provider-keys was made"; else pass; fi
 
-# 85. The same script knowing 0.6.0 and 0.7.0, which this copy doesn't list
-# yet, so no real run reaches them: a target of 0.7.0 or its rc makes the
-# identity-provider-keys job too, and its dry run lists 4 jobs and leaves
-# nothing out.
+# 85. The script from a copy whose releases end at 0.7.0, as this one's do
+# now, so the row holds when a later release is added: a target of 0.7.0 or
+# its rc makes the identity-provider-keys job too, and its dry run lists 4
+# jobs and leaves nothing out.
 IPK_SCRIPT="$TMP/upgrade-ipk.sh"
 sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")/' "$SCRIPT" >"$IPK_SCRIPT"
 chmod +x "$IPK_SCRIPT"
@@ -2556,13 +2556,14 @@ SCRIPT="$REAL_SCRIPT"
 # --- the server's startup probe ---------------------------------------------
 
 # 105. The server's startup probe at 10 minutes, 120 tries 5 s apart (from
-# 24), passes the check when the run crosses 0.7.0, the release that ships
-# it, and stops it when it doesn't.
+# 24), passes the check on a run from before 0.7.0, the release that ships
+# it, since the module makes 0.7.0's changes on any such run. It stops a
+# server fix of 0.7.0, which crosses no release.
 SERVER_PROBE='{"before":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":24},"after":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":120}}'
-case_start "the server's 10-minute startup probe, on a run that doesn't cross its release"
-reset_env; export STUB_TAGS="0.4.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
-run "yes" --to 0.5.0
-assert_rc 1 "the probe change stops a run to 0.5.0"
+case_start "the server's 10-minute startup probe, on a server fix of 0.7.0"
+reset_env; export STUB_TAGS="0.7.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.7.0.1
+assert_rc 1 "the probe change stops a server fix"
 assert_out "PLAN CHECK: the plan changes more than this upgrade does"
 assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.startup_probe.failure_threshold" "the threshold named"
 assert_absent "$STUB_MARKER_APPLY" "apply"
