@@ -27,6 +27,7 @@ import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
 import { type PointWhere, guardrailsAt, pointFaultOutcome } from './guardrail-points.js';
 import { answerNotes, isRetryGuardrail, judgedInLoop, turnRetryNotes } from './guardrail-retry.js';
+import { turnHistory } from './history.js';
 import { addModelWarnings } from './model-call.js';
 import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
@@ -339,7 +340,9 @@ export async function judgeAnswer(
 /**
  * The trace fields every gate of the turn shares: who, where, the turn's
  * input and its usage so far, and, when one of `guardrails` is scoped to
- * flows, the flow whose step started the turn (`flowOfTurn`).
+ * flows, the flow whose step started the turn (`flowOfTurn`). When one of
+ * them sees the conversation (`Guardrail.sees`), the earlier messages the
+ * model was given (`turnHistory`): the engine gives them to that one only.
  */
 export async function traceBaseOf(
   ctx: TurnContext,
@@ -356,6 +359,7 @@ export async function traceBaseOf(
   readonly flowId?: FlowId;
   readonly userMessage: string;
   readonly stepInput?: unknown;
+  readonly earlier?: readonly ConversationMessage[];
   readonly usage: {
     readonly steps: number;
     readonly promptTokens: number;
@@ -365,6 +369,9 @@ export async function traceBaseOf(
   };
 }> {
   const flowId = await flowOfTurn(ctx, kctx, guardrails);
+  const earlier = guardrails.some((g) => g.sees === 'conversation')
+    ? await turnHistory(ctx)
+    : undefined;
   return {
     runId: kctx.runId,
     tenantId: ctx.input.tenantId,
@@ -376,6 +383,7 @@ export async function traceBaseOf(
     ...(flowId !== undefined && { flowId }),
     userMessage: ctx.input.userMessage,
     ...(ctx.input.input !== undefined && { stepInput: ctx.input.input }),
+    ...(earlier !== undefined && { earlier }),
     usage: {
       steps: ctx.usage.steps,
       promptTokens: ctx.usage.promptTokens,

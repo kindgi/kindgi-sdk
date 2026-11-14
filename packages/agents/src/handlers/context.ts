@@ -142,6 +142,14 @@ export interface TurnContext {
    */
   initialMessageCount?: number;
   /**
+   * The earlier messages the model is given for this turn (`readHistory`),
+   * read once and kept (`turnHistory`), for the checks of a guardrail that
+   * sees the conversation too. In memory only: a turn resumed in another
+   * process reads them again, the same window, since it ends before the
+   * turn's own message.
+   */
+  history?: readonly ConversationMessage[];
+  /**
    * Populated by `run-retrievals` — facts pulled by declared intents.
    */
   retrieved?: readonly RetrievedFact[];
