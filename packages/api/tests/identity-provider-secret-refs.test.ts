@@ -1,0 +1,338 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * An identity provider's secret references are checked as every other
+ * registration's are: a reference never names a model provider's key, nor a
+ * name under the reserved `kindgi.` prefix, nor a texts registration's
+ * account key where the runtime has connections. `POST /v1/auth/providers`
+ * and `PATCH /v1/auth/providers/:providerId` answer 400 with the shared
+ * codes and words, and nothing is registered or changed. A secret that
+ * something else already uses, a connection app registration among them,
+ * answers 409 `identity-provider-key-in-use`, naming what uses it.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { describe, expect, test } from 'vitest';
+
+import type { EnvName, TenantId } from '@kindgi/types';
+
+import { createStubAppBindings } from '../src/testing/index.js';
+
+import { createApp } from '../src/index.js';
+import type {
+  IdentityProviderBinding,
+  ProviderConfig,
+  RunHandlerBinding,
+  SessionStoreBinding,
+  TokenResolver,
+} from '../src/index.js';
+
+const tenantId = randomUUID() as TenantId;
+const BEARER = 'idp-secret-refs-bearer';
+const resolveToken: TokenResolver = async (t) =>
+  t === BEARER ? { tenantId, scopes: ['tenant-admin'] } : null;
+
+const noSessions: SessionStoreBinding = {
+  create: async () => {
+    throw new Error('not used');
+  },
+  get: async () => null,
+  list: async () => ({ data: [] }),
+  revoke: async () => ({ revoked: false }),
+  revokeAllForUser: async () => ({ revokedCount: 0 }),
+};
+
+const MODEL_KEY = 'ANTHROPIC_API_KEY';
+const REFUSED = `\`${MODEL_KEY}\` is the key of model provider "anthropic-main": an identity provider never gets a model provider's key. Store the identity provider's own secret under its own name and use that name`;
+const TEXTS_KEY = 'ACME_TELNYX_KEY';
+const TEXTS_APP = randomUUID();
+const TEXTS_REFUSED = `\`${TEXTS_KEY}\` is the account key of connection app registration "${TEXTS_APP}": an identity provider never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`;
+const HELD = 'kindgi.connection-token';
+const RESERVED = `\`${HELD}\` uses the reserved "kindgi." prefix: an identity provider never names one. Those names are Kindgi's own; store the secret under a name of its own and use that`;
+const SHARED = 'ACME_GOOGLE_SECRET';
+const GOOGLE_APP = randomUUID();
+const IN_USE = `\`${SHARED}\` is used by webhook-endpoint "whe-1", connection-app "${GOOGLE_APP}": an identity provider's secret is sign-in's only, so none of them could read it from then on. Store the identity provider's own secret under a name of its own and name that. If one app registration serves both, give it a second client secret`;
+
+const OKTA = {
+  providerId: 'acme-okta',
+  kind: 'oidc',
+  displayName: 'Acme Okta',
+  issuer: 'https://acme.okta.example',
+  clientId: 'client-1',
+  clientSecretRef: 'ACME_OKTA_SECRET',
+  domains: ['acme.com'],
+};
+
+const ADFS = {
+  providerId: 'acme-adfs',
+  kind: 'saml',
+  displayName: 'Acme ADFS',
+  idpEntityId: 'https://adfs.acme.example/adfs/services/trust',
+  idpSsoUrl: 'https://adfs.acme.example/adfs/ls',
+  idpCertificates: ['-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----'],
+  spSigningKeyRef: 'ACME_SP_SIGNING_KEY',
+  domains: ['acme.com'],
+};
+
+/**
+ * `texts`: the runtime has connections, with a live texts registration whose
+ * key is `TEXTS_KEY`. `inUse`: a webhook endpoint and a Google connection app
+ * registration already use `SHARED`.
+ */
+function makeApp(opts: { readonly texts?: boolean; readonly inUse?: boolean } = {}) {
+  const stored = new Map<string, ProviderConfig>();
+  const registered: ProviderConfig[] = [];
+  const updated: ProviderConfig[] = [];
+  const identityProvider: IdentityProviderBinding = {
+    list: async () => ({ data: [...stored.values()] }),
+    get: async ({ providerId }) => stored.get(providerId) ?? null,
+    register: async ({ config }) => {
+      registered.push(config);
+      stored.set(config.providerId, config);
+      return { kind: 'ok', providerId: config.providerId, provider: config };
+    },
+    unregister: async ({ providerId }) => ({ unregistered: stored.delete(providerId) }),
+    update: async ({ config }) => {
+      updated.push(config);
+      stored.set(config.providerId, config);
+      return { kind: 'ok', provider: config };
+    },
+  };
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken,
+    runHandler: {} as RunHandlerBinding,
+    sessionStore: noSessions,
+    identityProvider,
+    providerRegistry: {
+      resolveForRuntime: async () => [
+        {
+          metadata: { id: 'anthropic-main' },
+          adapterId: '@kindgi/adapter-model-anthropic',
+          secretRef: { envName: 'local', name: MODEL_KEY },
+        },
+      ],
+      register: async () => {
+        throw new Error('not used');
+      },
+      list: async () => ({ data: [] }),
+      get: async () => null,
+    } as never,
+    ...((opts.texts === true || opts.inUse === true) && {
+      envName: 'local' as EnvName,
+      connections: {
+        entries: () => [],
+        listApps: async () => ({
+          data: [
+            ...(opts.texts === true
+              ? [
+                  {
+                    appId: TEXTS_APP,
+                    tenantId,
+                    app: 'texts',
+                    token: {
+                      provider: 'telnyx',
+                      apiKey: { envName: 'local', name: TEXTS_KEY },
+                      publicKey: `${'A'.repeat(43)}=`,
+                    },
+                  },
+                ]
+              : []),
+            ...(opts.inUse === true
+              ? [
+                  {
+                    appId: GOOGLE_APP,
+                    tenantId,
+                    app: 'google',
+                    oauth2: {
+                      clientId: 'client-1',
+                      clientSecret: { envName: 'local', name: SHARED },
+                    },
+                  },
+                ]
+              : []),
+          ],
+        }),
+      } as never,
+    }),
+    ...(opts.inUse === true && {
+      webhookEndpoints: {
+        list: async () => ({
+          data: [
+            {
+              endpointId: 'whe-1',
+              url: 'https://app.acme.example/hooks',
+              events: ['run.finished'],
+              filter: {},
+              description: null,
+              secretRef: { envName: 'local', name: SHARED },
+            },
+          ],
+        }),
+      } as never,
+    }),
+  });
+  return { app, stored, registered, updated };
+}
+
+type App = ReturnType<typeof makeApp>['app'];
+const headers = { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' };
+const register = (app: App, body: unknown) =>
+  app.request('/v1/auth/providers', { method: 'POST', headers, body: JSON.stringify(body) });
+const patch = (app: App, providerId: string, body: unknown) =>
+  app.request(`/v1/auth/providers/${providerId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(body),
+  });
+const answerOf = async (res: Response) => [
+  res.status,
+  ((await res.json()) as { error?: unknown }).error,
+];
+
+describe('POST /v1/auth/providers', () => {
+  test("an OIDC client secret that's a model provider's key: 400, naming it, and nothing is registered", async () => {
+    const h = makeApp();
+    for (const clientSecretRef of [MODEL_KEY, `production/${MODEL_KEY}`, ` ${MODEL_KEY} `]) {
+      const res = await register(h.app, { ...OKTA, clientSecretRef });
+      expect(await answerOf(res)).toEqual([
+        400,
+        expect.objectContaining({
+          code: 'provider-key-refused',
+          message: REFUSED,
+          details: { secret: MODEL_KEY, providerId: 'anthropic-main' },
+        }),
+      ]);
+    }
+    expect(h.registered).toEqual([]);
+  });
+
+  test('a SAML key under the reserved `kindgi.` prefix: 400, naming it, and nothing is registered', async () => {
+    const h = makeApp();
+    for (const body of [
+      { ...ADFS, spSigningKeyRef: HELD },
+      { ...ADFS, spDecryptionKeyRef: `local/${HELD}` },
+    ]) {
+      const res = await register(h.app, body);
+      expect(await answerOf(res)).toEqual([
+        400,
+        expect.objectContaining({
+          code: 'reserved-name-prefix',
+          message: RESERVED,
+          details: { secret: HELD },
+        }),
+      ]);
+    }
+    expect(h.registered).toEqual([]);
+  });
+
+  test("an OIDC client secret that's a texts registration's account key: 400, naming it, and nothing is registered", async () => {
+    const h = makeApp({ texts: true });
+    const res = await register(h.app, { ...OKTA, clientSecretRef: `production/${TEXTS_KEY}` });
+    expect(await answerOf(res)).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'connection-key-refused',
+        message: TEXTS_REFUSED,
+        details: { secret: TEXTS_KEY, appId: TEXTS_APP },
+      }),
+    ]);
+    expect(h.registered).toEqual([]);
+  });
+
+  test('a client secret a webhook endpoint and a connection app already use: 409, naming each, and nothing is registered', async () => {
+    const h = makeApp({ inUse: true });
+    const res = await register(h.app, { ...OKTA, clientSecretRef: `production/${SHARED}` });
+    expect(await answerOf(res)).toEqual([
+      409,
+      expect.objectContaining({
+        code: 'identity-provider-key-in-use',
+        message: IN_USE,
+        details: {
+          secret: SHARED,
+          usedBy: [
+            { kind: 'webhook-endpoint', id: 'whe-1' },
+            { kind: 'connection-app', id: GOOGLE_APP },
+          ],
+        },
+      }),
+    ]);
+    expect(h.registered).toEqual([]);
+  });
+
+  test("a secret another identity provider references is sign-in's too: registered", async () => {
+    const h = makeApp();
+    expect((await register(h.app, OKTA)).status).toBe(201);
+    const second = await register(h.app, { ...OKTA, providerId: 'acme-okta-staff' });
+    expect(second.status).toBe(201);
+    expect(h.registered.map((p) => p.providerId)).toEqual(['acme-okta', 'acme-okta-staff']);
+  });
+
+  test('secrets of their own: registered as before', async () => {
+    const h = makeApp();
+    const oidc = await register(h.app, { ...OKTA, clientSecretRef: 'production/ACME_OKTA_SECRET' });
+    expect(oidc.status).toBe(201);
+    const saml = await register(h.app, { ...ADFS, spDecryptionKeyRef: 'ACME_SP_DECRYPTION_KEY' });
+    expect(saml.status).toBe(201);
+    expect(h.registered.map((p) => p.providerId)).toEqual(['acme-okta', 'acme-adfs']);
+  });
+});
+
+describe('PATCH /v1/auth/providers/:providerId', () => {
+  test("a new client secret that's a model provider's key: 400, and the provider is unchanged", async () => {
+    const h = makeApp();
+    expect((await register(h.app, OKTA)).status).toBe(201);
+    const res = await patch(h.app, 'acme-okta', { clientSecretRef: MODEL_KEY });
+    expect(await answerOf(res)).toEqual([
+      400,
+      expect.objectContaining({ code: 'provider-key-refused', message: REFUSED }),
+    ]);
+    expect(h.updated).toEqual([]);
+    expect(h.stored.get('acme-okta')).toEqual(
+      expect.objectContaining({ clientSecretRef: 'ACME_OKTA_SECRET' }),
+    );
+  });
+
+  test('a provider that already names one is refused on any change, until it names its own', async () => {
+    const h = makeApp();
+    // Written before the check, as a provider registered on an earlier version may be.
+    h.stored.set('acme-okta', { ...OKTA, clientSecretRef: MODEL_KEY } as ProviderConfig);
+    const renamed = await patch(h.app, 'acme-okta', { displayName: 'Acme sign-in' });
+    expect(await answerOf(renamed)).toEqual([
+      400,
+      expect.objectContaining({ code: 'provider-key-refused', message: REFUSED }),
+    ]);
+    expect(h.updated).toEqual([]);
+
+    const repointed = await patch(h.app, 'acme-okta', { clientSecretRef: 'ACME_OKTA_SECRET' });
+    expect(repointed.status).toBe(200);
+    expect(h.updated.map((p) => (p.kind === 'oidc' ? p.clientSecretRef : undefined))).toEqual([
+      'ACME_OKTA_SECRET',
+    ]);
+  });
+
+  test('a SAML key moved to a secret that something else uses: 409, and the provider is unchanged', async () => {
+    const h = makeApp({ inUse: true });
+    expect((await register(h.app, ADFS)).status).toBe(201);
+    const res = await patch(h.app, 'acme-adfs', { spDecryptionKeyRef: SHARED });
+    expect(await answerOf(res)).toEqual([
+      409,
+      expect.objectContaining({ code: 'identity-provider-key-in-use', message: IN_USE }),
+    ]);
+    expect(h.updated).toEqual([]);
+    expect(h.stored.get('acme-adfs')).toEqual(ADFS);
+  });
+
+  test('a SAML key moved under the reserved prefix: 400 `reserved-name-prefix`', async () => {
+    const h = makeApp();
+    expect((await register(h.app, ADFS)).status).toBe(201);
+    const res = await patch(h.app, 'acme-adfs', { spDecryptionKeyRef: HELD });
+    expect(await answerOf(res)).toEqual([
+      400,
+      expect.objectContaining({ code: 'reserved-name-prefix', message: RESERVED }),
+    ]);
+    expect(h.updated).toEqual([]);
+  });
+});

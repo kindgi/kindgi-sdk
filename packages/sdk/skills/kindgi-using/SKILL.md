@@ -15,7 +15,7 @@ description: >
   with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -89,6 +89,7 @@ decided one opens its own page.
 |---|---|---|
 | Dashboard | *(empty)* | how the project is doing |
 | Agents | `agents`, one: `agents/<agentId>`, `…/runs`, `…/corrections` | the agents, their versions, which one is pinned |
+| Results | `results` | what each run gave back, newest first, a card each; where viewers and runners land |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
 | One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>`, pages `/journal`, `/provenance`, `/cost`, `/corrections`; `runs/<runId>` alone finds either | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
@@ -107,11 +108,11 @@ decided one opens its own page.
 | Evidence | `compliance` | the records kept for audits |
 | Members | `members` | who has a role on this project |
 
-The runs list filters by its URL: `agent=<agentId>`, `status=` one of
-`pending`, `running`, `suspended`, `completed`, `failed`, `cancelled`,
-and `since=` one of `1h`, `1d`, `7d`, `30d`. The cost page takes `range=`
-one of `7d`, `30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of
-`agent`, `model`, `flow`, `kind`.
+The runs list and Results filter by their URL: `agent=<agentId>`,
+`status=` one of `pending`, `running`, `suspended`, `completed`, `failed`,
+`cancelled`, and `since=` one of `1h`, `1d`, `7d`, `30d`. The cost page
+takes `range=` one of `7d`, `30d`, `90d`, `12m`, `agent=<agentId>` and
+`by=` one of `agent`, `model`, `flow`, `kind`.
 
 ### Workspace pages
 
@@ -141,7 +142,7 @@ say there were none.
 - In the CLI: `kindgi console --no-open`, `kindgi auth whoami` and
   `kindgi projects get-default` give the address and the ids.
 - In the console: the project's dashboard link, then the sections they
-  use: Runs, Approvals, Tools, Guardrails, Schedules, Cost, and the
+  use: Results, Runs, Approvals, Tools, Guardrails, Schedules, Cost, and the
   workspace's People.
 
 **"Which tools are there, and what may each do?"**
@@ -162,7 +163,8 @@ say there were none.
 - In the CLI: `kindgi runs list --agent <agentId> --limit 100`, keeping
   the runs whose `status` is `completed` and whose `createdAt` is in the
   last day (the CLI doesn't filter by status or time itself).
-- In the console: `runs?agent=<agentId>&status=completed&since=1d`.
+- In the console: `results?agent=<agentId>&status=completed&since=1d`, each
+  answer's start on a card (`runs?` with the same filters is the table).
 
 **"Which rule stopped that answer, and where is it set?"**
 - In the CLI: `kindgi runs get <runId>`: a `status` of `failed` with

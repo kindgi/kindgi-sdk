@@ -1,9 +1,9 @@
 // {{PACK_ID}}.order-reviewer — writes a short review of a new order for the
-// store's staff. `{{PACK_ID}}.order-review` runs it on each order event.
+// store's staff. `{{PACK_ID}}.review-order` runs it on each order event.
 //
 // It's the agent that sees outside input, so it can't change anything: its
 // only tool is the read-only order lookup. Refunds and store changes stay
-// with `{{PACK_ID}}.store-agent`, which staff talk to and which the
+// with `{{PACK_ID}}.order-desk`, which staff talk to and which the
 // event never reaches. The order arrives already checked by
 // `{{PACK_ID}}.woo.check-order-event`, as the step's input (`{{ input.order.* }}`).
 import { defineAgent } from '@kindgi/sdk/define';

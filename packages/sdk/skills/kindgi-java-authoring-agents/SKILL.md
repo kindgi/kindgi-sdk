@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.12"
+version: "0.1.13"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -78,7 +78,7 @@ public final class BriefWriter {
 
   public static final Agent AGENT = Agent.define("acme.brief-writer")
       .version("0.1.0")
-      .name("Brief Writer")
+      .name("Brief writer")
       .description("Drafts appellate briefs from a case file; cites precedents.")
       .instructions("You are drafting a brief in {{ jurisdiction }}. The user gives the case facts; you write "
           + "a Section IV argument citing at least two precedents. Check every cite with the echo tool "
@@ -109,9 +109,28 @@ public final class BriefWriter {
   mistake with its file.
 - A class may hold several agents, each in its own `static final` field.
 
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
+
 ## Field by field
 
-- **`id`:** `<pack-id>.<agent-name>`, kebab-case, dot-namespaced.
+- **`id`:** `<pack-id>.<name>`; see Naming above.
 - **`version`:** an exact semver with no build metadata (`1.2.3`,
   `1.2.3-rc.1`). Conversations pin the version they started on.
 - **`name`, `description`**, and `set("tags", List.of(…))`: for people and
@@ -151,6 +170,12 @@ public final class BriefWriter {
   **`tool(id, range)`** is a tool of another pack, with a semver **range**
   (`"^1.0.0"`); the highest active matching version is picked at turn
   start. An agent with no tools is chat-only.
+  - **Dates:** a model doesn't know the date. When the agent reasons about
+    dates ("this month's invoices", "due in 14 days", "was this delivered
+    within the window"), give it a date and time tool. The
+    kindgi-java-authoring-tools skill has one ("A date and time tool", under `ToolContext`);
+    it answers in the workspace's time zone. `{{ today }}` in the
+    instructions is in UTC.
 - **`guardrail(Guardrail)`** or **`guardrail(id)`:** checks the final answer,
   before it is stored. One whose action is `retry` sends the answer back to
   the model for a new one, up to `retry.maxAttempts` answers in all (default
@@ -185,9 +210,10 @@ public final class BriefWriter {
 - **`set("toolErrors", …)`:** `maxRetries` and `retryOn`. A failed tool call
   goes back to the model as the call's result, so it can fix the call. The
   default kinds are `invalid-arguments` and `unknown-tool` (nothing ran). Add
-  `tool-error` only when retrying the tool is safe. The list replaces the
-  default, so keep `invalid-arguments` and `unknown-tool` in it. Each retry
-  costs a step.
+  `tool-error` only when retrying the tool is safe, and `tool-failed` to send
+  back a tool's failure on purpose (`ToolFailureException`) with its code and
+  words. The list replaces the default, so keep `invalid-arguments` and
+  `unknown-tool` in it. Each retry costs a step.
 - **`set("parallelToolCalls", false)`:** when a model step asks for several
   calls at once, an agent runs calls to read-only tools (`mutating(false)`, no
   changing effect) that come one after another at the same time, up to 8 of

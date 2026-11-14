@@ -50,8 +50,8 @@ export function effectiveToolErrorPolicy(
 
 /**
  * Which kind of failure a tool call's error is: arguments that failed
- * the input schema, a tool the agent doesn't have, or a tool that ran
- * and failed.
+ * the input schema, a tool the agent doesn't have, a tool that failed
+ * the call on purpose (`ToolFailure`), or a tool that ran and failed.
  */
 export function toolErrorKindOf(error: {
   readonly code: string;
@@ -59,7 +59,43 @@ export function toolErrorKindOf(error: {
 }): ToolErrorKind {
   if (error.code === 'unresolved-tool') return 'unknown-tool';
   const inner = (error.cause as { readonly code?: unknown } | undefined)?.code;
-  return inner === 'input-validation-failed' ? 'invalid-arguments' : 'tool-error';
+  if (inner === 'input-validation-failed') return 'invalid-arguments';
+  return inner === 'tool-failed' ? 'tool-failed' : 'tool-error';
+}
+
+/** A tool's own failure (`ToolFailure`), as a failed call's error carries it. */
+export interface ToolFailureFacts {
+  /** The tool's own code for why (`order-not-found`). */
+  readonly reason: string;
+  /** Its words for a person, masked. */
+  readonly message: string;
+  /** Its facts, masked; absent when it gave none. */
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The tool's own failure inside a failed call's error, if the tool threw
+ * `ToolFailure` (`invokeTool` answers `tool-failed` with its `reason`).
+ */
+export function toolFailureOf(error: {
+  readonly code: string;
+  readonly cause?: unknown;
+}): ToolFailureFacts | undefined {
+  const inner = error.cause as
+    | {
+        readonly code?: unknown;
+        readonly reason?: unknown;
+        readonly message?: unknown;
+        readonly details?: unknown;
+      }
+    | undefined;
+  if (inner?.code !== 'tool-failed') return undefined;
+  if (typeof inner.reason !== 'string' || typeof inner.message !== 'string') return undefined;
+  const { details } = inner;
+  const facts = { reason: inner.reason, message: inner.message };
+  return typeof details === 'object' && details !== null && !Array.isArray(details)
+    ? { ...facts, details: details as Readonly<Record<string, unknown>> }
+    : facts;
 }
 
 /** Marks the results this module writes, so they can be counted. */
@@ -73,6 +109,10 @@ export interface ToolErrorResult {
     readonly kind: ToolErrorKind;
     readonly message: string;
     readonly issues?: readonly unknown[];
+    /** For `tool-failed`: the tool's own code for why. */
+    readonly reason?: string;
+    /** For `tool-failed`, when the tool gave them: its facts. */
+    readonly details?: Readonly<Record<string, unknown>>;
   };
   readonly instruction: string;
 }
@@ -81,17 +121,26 @@ const INSTRUCTIONS: Readonly<Record<ToolErrorKind, string>> = {
   'invalid-arguments': "Fix the arguments to match the tool's input schema and call it again.",
   'unknown-tool': 'Call one of the tools you were given instead.',
   'tool-error': 'The tool failed. Call it again if a retry makes sense, or answer without it.',
+  'tool-failed':
+    'The tool said this call failed, and why. Tell the person, or try another way; the same call gives the same answer.',
 };
 
 export function toolErrorResult(
   kind: ToolErrorKind,
   message: string,
   issues: readonly unknown[] | undefined,
+  failure?: ToolFailureFacts,
 ): ToolErrorResult {
   return {
     kindgi: RETRY_MARKER,
     status: 'failed',
-    error: { kind, message, ...(issues !== undefined && { issues }) },
+    error: {
+      kind,
+      message,
+      ...(issues !== undefined && { issues }),
+      ...(failure !== undefined && { reason: failure.reason }),
+      ...(failure?.details !== undefined && { details: failure.details }),
+    },
     instruction: INSTRUCTIONS[kind],
   };
 }

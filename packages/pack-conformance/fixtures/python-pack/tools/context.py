@@ -25,6 +25,8 @@ def context(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         out["requestId"] = ctx.request_id
     if ctx.idempotency_key is not None:
         out["idempotencyKey"] = ctx.idempotency_key
+    if ctx.time_zone is not None:
+        out["timeZone"] = ctx.time_zone
     if ctx.project_id is not None:
         out["projectId"] = ctx.project_id
     if ctx.org_id is not None:

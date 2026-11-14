@@ -16,7 +16,7 @@ The wire form, portable to Python / Go / Rust pack authors publishing over MCP.
 import { defineTool } from '@kindgi/tools';
 
 const echo = defineTool({
-  id: 'demo.echo' as never,
+  id: 'acme.echo' as never,
   description: 'Echo the input as output.',
   input: {
     type: 'object',
@@ -50,7 +50,7 @@ const InputSchema = z.object({ msg: z.string() });
 const OutputSchema = z.object({ msg: z.string(), length: z.number().int() });
 
 const echo = defineTool({
-  id: 'demo.echo' as never,
+  id: 'acme.echo' as never,
   description: 'Echo the input with a length count (Zod-authored).',
   input: InputSchema,
   output: OutputSchema,

@@ -293,10 +293,13 @@ refused, and nothing started.
   `idempotency-key-replay-withheld`, saying when the first one succeeded. It
   never gets the secret again, and nothing is made twice.
 
-A waited start answers only when its run completes, fails or waits for
-something. Until then, a repeat gets `idempotency-key-in-flight`. So start a
-run that can take long in the background, with `wait: false`: its answer
-carries the run's id at once. Then [follow it](../follow-a-run/).
+A waited start answers once its run completes, fails or waits for
+something, or, when a read fails part-way, with the run still `running`.
+Until then, a repeat gets `idempotency-key-in-flight`. A repeat after a
+`running` answer gets that same answer again, not the run as it is now:
+follow the run by its id. So start a run that can take long in the
+background, with `wait: false`: its answer carries the run's id at once.
+Then [follow it](../follow-a-run/).
 
 Other requests that change something take an idempotency key too, such as
 `cancel` and registering a webhook endpoint.

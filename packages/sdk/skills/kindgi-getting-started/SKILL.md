@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.25"
+version: "0.3.26"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -170,10 +170,10 @@ with `output-schema-violation`). Register a provider
 From a second terminal, with `cd my-pack`:
 
 ```bash
-pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
 ```
 
-`my-pack.echo-agent` is the agent the `sample` template ships (`<pack-id>.echo-agent`);
+`my-pack.greeter` is the agent the `sample` template ships (`<pack-id>.greeter`);
 a `minimal` pack has no agent until you write one.
 
 The CLI reads `.kindgirc.json` (auto-written by `kindgi dev`) for the
@@ -215,9 +215,11 @@ folder or when the user's request mentions the primitive kind.
 Most of the setup is automatable, but two require your knowledge:
 
 - **The pack id + version** in `kindgi.config.ts` — the pack id
-  becomes the namespace prefix (`<pack-id>.<primitive-name>`) for
-  every primitive. Pick a stable kebab-case name; changing it later
-  breaks all published references.
+  names the app or the business, once, and becomes the prefix of
+  every primitive (`<pack-id>.<name>`). Names inside the pack don't
+  repeat it, and an agent's or a flow's name has no dot of its own.
+  Pick a stable kebab-case name; changing it later breaks all
+  published references.
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is

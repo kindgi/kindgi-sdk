@@ -16,11 +16,14 @@ providers on `prod`, before and after you go live. So everything here uses
 
 ## Before you start
 
-- **A Kindgi Cloud workspace,** where you're an admin. Whoever
-  [signs up](https://platform.kindgi.com/cloud/signup) is the workspace's
-  first admin. An email signs up for one workspace: adding a `+` tag to it
-  doesn't make it another, and neither does moving a Gmail address's dots.
-  To work in another workspace, ask one of its admins to add you.
+- **A Kindgi Cloud workspace with a plan,** where you're an admin. Whoever
+  [signs up](../sign-up/) is the workspace's first admin. An email signs up
+  for one workspace: adding a `+` tag to it doesn't make it another, and
+  neither does moving a Gmail address's dots. To work in another workspace,
+  ask one of its admins to add you. Nothing runs in the workspace until it
+  has a plan: choose one on its
+  [billing page](https://platform.kindgi.com/cloud/account/billing). If you
+  have a promotion code, type it on Stripe's payment page.
 - **A pack with an agent,** with its tests passing, and the Kindgi skills
   that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
   with the agent `acme-desk.reply-drafter`.
@@ -66,9 +69,21 @@ your account can read that file.
 
 If that file already holds a login for another runtime (one you run
 yourself, say), `auth login` keeps it and stops, so its key isn't lost.
-Run it again with `--force` to replace that login. Or keep both: skip
-`auth login`, and `export KINDGI_API_URL=https://platform.kindgi.com` beside
-the key, so this terminal's commands go to Kindgi Cloud.
+Run it again with `--force` to replace that login. Or keep both: save
+Kindgi Cloud's login as a Kindgi login profile instead, pasting the key at
+the prompt again:
+
+```sh
+unset KINDGI_API_TOKEN
+read -rs KEY && printf '%s' "$KEY" | pnpm exec kindgi auth login --profile cloud --url=https://platform.kindgi.com --token-stdin
+pnpm exec kindgi auth whoami --profile cloud
+```
+
+Then `--profile cloud` on a command sends it to Kindgi Cloud, with that key.
+Each command in this guide then takes `--profile cloud`: tell your coding
+agent to add it too, or to run `export KINDGI_PROFILE=cloud` in the
+terminal it works in. Without it, a command goes to the login for your own
+runtime.
 :::
 
 ## Sign the pack
@@ -328,6 +343,11 @@ version and every version that's waiting read the same values:
   with their ids). Run the same
   `kindgi deploy --hosted --env=prod` again: it sends the same deployment
   and goes on waiting.
+- **Nothing runs: the workspace has no plan.** Kindgi Cloud runs nothing
+  without one: no build and no run, in testing or live. You can still sign
+  in, and read and [export your data](../export-your-data/). An admin
+  chooses a plan on the
+  [billing page](https://platform.kindgi.com/cloud/account/billing).
 - **Testing mode says `Going live isn't turned on for this workspace yet.`**
   If it offers **See how to go live**, that link says what comes next.
   Until then, building and testing work as they are.

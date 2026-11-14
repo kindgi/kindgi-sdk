@@ -96,7 +96,7 @@ export interface SystemTenantPurged {
   readonly left: readonly SystemTenantTableRows[];
   /** Objects still under its prefix in the artifacts' store. */
   readonly objectsLeft: number;
-  /** Why what's left wasn't deleted, when it's a setting the runtime lacks. */
+  /** Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase. */
   readonly leftBecause?: string;
 }
 

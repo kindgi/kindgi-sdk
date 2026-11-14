@@ -13,6 +13,9 @@
  *     `setup` journaled, with the tool versions it journaled (a range
  *     isn't resolved again: a version published meanwhile doesn't run
  *     mid-turn);
+ *   - the instructions, as `render-prompt` journaled them rendered: a turn
+ *     resumed before `build-initial-messages` completed (its worker was
+ *     lost between the two) builds its messages on them;
  *   - the messages the turn stored come back from the conversation, from
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
@@ -70,11 +73,15 @@ import {
   addRetrievalNodes,
   addStepToolNodes,
   agentActor,
+  noteCallKeys,
 } from './turn-provenance.js';
 import type { FileRead, PointCheckNode, ToolApproval } from './turn-provenance.js';
+import { resolveTurnTimeZone } from './turn-time-zone.js';
 
 interface StepRecord {
   readonly nodeId: string;
+  /** The step's scope, as the recorder keys it: its node id, or its `bodyStepKey` in a loop. */
+  readonly scope: string;
   readonly output: unknown;
   readonly inLoop: boolean;
   /** When the step completed. */
@@ -97,6 +104,7 @@ function completedSteps(journal: readonly JournalEntry[]): readonly StepRecord[]
     byStep.delete(key);
     byStep.set(key, {
       nodeId: e.nodeId as unknown as string,
+      scope: key,
       output: payload.output,
       inLoop: payload.loopContext !== undefined,
       at: e.timestamp,
@@ -158,6 +166,7 @@ export async function rehydrateTurnContext(
     readonly toolVersions?: Readonly<Record<string, string>>;
     readonly blockVersions?: PinnedBlockVersions;
     readonly guardrails?: PinnedGuardrails;
+    readonly timeZone?: string;
   }>(steps, 'setup');
   if (setup === undefined) return false;
 
@@ -181,6 +190,12 @@ export async function rehydrateTurnContext(
     setup.guardrails,
   );
   await offerAccounts(ctx, runId);
+  // The zone `setup` journaled; a journal from before it was recorded
+  // reads the workspace's now.
+  await resolveTurnTimeZone(ctx, setup.timeZone);
+
+  const prompt = outputOf<{ readonly rendered?: string }>(steps, 'render-prompt');
+  if (prompt?.rendered !== undefined) ctx.renderedPrompt = prompt.rendered;
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
   if (userMessage !== undefined) {
@@ -315,6 +330,12 @@ function rebuildProvenance(
     };
     if (out.step === undefined) continue;
     storedByStep.set(out.step, out.iterationAppended ?? []);
+    noteCallKeys(
+      ctx,
+      ctx.provenance.runId as unknown as string,
+      s.scope,
+      out.iterationAppended ?? [],
+    );
     if (out.guardrailChecks !== undefined) checksByStep.set(out.step, out.guardrailChecks);
   }
   const calls = steps

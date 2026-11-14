@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
+import type { BlobStorageUsed } from '@kindgi/blob-binding';
 import type { Scope, TenantHierarchyBinding } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
@@ -111,6 +112,12 @@ export interface TenantRouterOptions {
    * empty: no `egress`. Each entry is an IPv4 or IPv6 address.
    */
   readonly egress?: EgressAddresses;
+  /**
+   * What the tenant's files take, from a file store that counts them
+   * (`BlobStorageBinding.storageUsed`): `GET /`'s `storage`. Absent: no
+   * `storage`.
+   */
+  readonly storageUsed?: (tenantId: TenantId) => Promise<BlobStorageUsed>;
   /**
    * The env the runtime serves (`createApp`'s `envName`): `/config` reads
    * and writes its `env` and `secret` entries under it. Absent:
@@ -222,6 +229,7 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     authorizer,
     productionNext,
     auditEvents,
+    storageUsed,
   } = options;
   const envName = options.envName ?? DEFAULT_TENANT_CONFIG_ENV_NAME;
   // The tenant's settings stay where they always were: they aren't an
@@ -258,7 +266,10 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
-    const row = await tenantHierarchyBinding.getTenant(tenantId);
+    const [row, storage] = await Promise.all([
+      tenantHierarchyBinding.getTenant(tenantId),
+      storageUsed?.(tenantId),
+    ]);
     if (row === null) {
       c.status(statusFor('tenant-not-found') as never);
       return c.json(
@@ -283,6 +294,7 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       ...(row.productionAllowed !== undefined && { productionAllowed: row.productionAllowed }),
       ...(row.productionAllowed === false && productionNext !== undefined && { productionNext }),
       ...(row.limits !== undefined && { limits: row.limits }),
+      ...(storage !== undefined && { storage: { usedBytes: storage.usedBytes } }),
       ...(row.state !== undefined && { state: row.state }),
       // The deployment's, not the tenant's: every tenant gets the same lists.
       ...(egress !== undefined && { egress }),

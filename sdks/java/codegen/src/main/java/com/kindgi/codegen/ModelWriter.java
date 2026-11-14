@@ -64,6 +64,9 @@ final class ModelWriter {
     for (Ir.Decl d : planner.decls.values()) {
       out.add(file(d.name().packageName(), type(d)));
     }
+    for (Ir.UnionDecl u : planner.objectInterfaces.values()) {
+      out.add(file(u.objectInterface.packageName(), objectInterface(u)));
+    }
     return out;
   }
 
@@ -95,6 +98,9 @@ final class ModelWriter {
     List<String> params = new ArrayList<>();
     rb.addAnnotation(
         AnnotationSpec.builder(JSON_INCLUDE).addMember("value", "$T.Include.NON_NULL", JSON_INCLUDE).build());
+    if (d.interfaces.stream().anyMatch(planner.objectInterfaces::containsKey)) {
+      rb.addAnnotation(noTypeInfo());
+    }
     if (d.interfaces.isEmpty()) {
       rb.addSuperinterface(MODEL);
     }
@@ -263,6 +269,8 @@ final class ModelWriter {
                 .addStatement("this.$N = $T.of($N)", f.java, OPTIONAL_NULLABLE, f.java)
                 .addStatement("return this")
                 .build());
+      } else if (f.commaList) {
+        b.addMethod(commaSetter(bn, f, fdoc));
       } else {
         b.addMethod(
             setter(bn, f.java, ft, fdoc).addStatement("this.$N = $N", f.java, f.java).addStatement("return this").build());
@@ -324,6 +332,29 @@ final class ModelWriter {
             .returns(bn)
             .addStatement("return new $T(this)", bn)
             .build());
+  }
+
+  /**
+   * A comma list's setter: its values as varargs, so a call with one value, or with a {@code null}
+   * one, reads as it did when the parameter took one value. The array and its items are both
+   * {@code @Nullable}: a literal {@code null} is a {@code null} array.
+   */
+  private static MethodSpec commaSetter(ClassName builder, Ir.Field f, String doc) {
+    TypeName item = ((ParameterizedTypeName) f.type).typeArguments().get(0);
+    TypeName values = ArrayTypeName.of(nullable(item)).annotated(AnnotationSpec.builder(NULLABLE).build());
+    String note = "One or more values, sent as one comma-separated parameter. A {@code null} value is skipped; with none left, the parameter is left out.";
+    return MethodSpec.methodBuilder(f.java)
+        .addModifiers(Modifier.PUBLIC)
+        .returns(builder)
+        .addParameter(values, f.java)
+        .varargs()
+        .addJavadoc("$L\n", doc.isEmpty() ? note : doc + "\n<p>" + note)
+        .addStatement(
+            "$T<$T> given = $N == null ? $T.of() : $T.stream($N).filter($T::nonNull).toList()",
+            List.class, item, f.java, List.class, java.util.Arrays.class, f.java, Objects.class)
+        .addStatement("this.$N = given.isEmpty() ? null : given", f.java)
+        .addStatement("return this")
+        .build();
   }
 
   private static MethodSpec.Builder setter(ClassName builder, String name, TypeName type, String doc) {
@@ -657,30 +688,10 @@ final class ModelWriter {
               .build());
     }
     if (u.kind == Ir.UnionKind.TAGGED || u.kind == Ir.UnionKind.DEDUCED) {
-      AnnotationSpec.Builder info = AnnotationSpec.builder(JSON_TYPE_INFO);
-      if (tagged) {
-        info.addMember("use", "$T.Id.NAME", JSON_TYPE_INFO)
-            .addMember("include", "$T.As.EXISTING_PROPERTY", JSON_TYPE_INFO)
-            .addMember("property", "$S", u.tagWire)
-            .addMember("visible", "true");
-      } else {
-        info.addMember("use", "$T.Id.DEDUCTION", JSON_TYPE_INFO);
-      }
-      info.addMember("defaultImpl", "$T.class", u.unrecognized);
-      ib.addAnnotation(info.build());
-      AnnotationSpec.Builder subs = AnnotationSpec.builder(JSON_SUB_TYPES);
-      for (Ir.Variant v : u.variants) {
-        AnnotationSpec.Builder t = AnnotationSpec.builder(JSON_SUB_TYPES.nestedClass("Type")).addMember("value", "$T.class", v.type());
-        if (tagged) {
-          if (v.tags().size() == 1) {
-            t.addMember("name", "$S", v.tags().get(0));
-          } else {
-            t.addMember("names", "$L", stringArray(v.tags()));
-          }
-        }
-        subs.addMember("value", "$L", t.build());
-      }
-      ib.addAnnotation(subs.build());
+      typeInfo(ib, u.kind, u.tagWire, u.unrecognized, u.variants);
+    } else if (u.kind == Ir.UnionKind.BY_STATUS) {
+      // An app's own Jackson reads it as a shape it knows: a by-status answer gains no shape.
+      typeInfo(ib, u.objectKind, u.tagWire, null, u.variants);
     }
     if (u.unrecognized != null) {
       ib.addType(unrecognized(u));
@@ -690,11 +701,28 @@ final class ModelWriter {
       ib.addMethod(
           MethodSpec.methodBuilder("of")
               .addJavadoc("The text variant.\n")
+              .addAnnotation(delegatingCreator())
               .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
               .returns(cn)
               .addParameter(ModelPlanner.STRING, "text")
               .addStatement("return new $T(text)", text.type())
               .build());
+      MethodSpec.Builder object =
+          MethodSpec.methodBuilder("object")
+              .addAnnotation(delegatingCreator())
+              .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+              .returns(cn);
+      if (u.objectInterface == null) {
+        ClassName only = u.variants.stream().filter(v -> !v.text()).findFirst().orElseThrow().type();
+        object.addJavadoc("How an app's own Jackson reads an object: as {@link $T}.\n", only)
+            .addParameter(only, "value")
+            .addStatement("return value");
+      } else {
+        object.addJavadoc("How an app's own Jackson reads an object: by the properties it has.\n")
+            .addParameter(u.objectInterface, "value")
+            .addStatement("return ($T) value", cn);
+      }
+      ib.addMethod(object.build());
       if (text.allowed() != null && text.allowed().size() == 1) {
         ib.addField(
             FieldSpec.builder(text.type(), Names.constant(text.allowed().get(0)), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
@@ -720,6 +748,66 @@ final class ModelWriter {
       ib.addType(type(n));
     }
     return ib.build();
+  }
+
+  /**
+   * The type info an app's own Jackson tells {@code variants} apart by: a tag ({@code rule}
+   * TAGGED), or the properties each has; one it doesn't know reads as {@code defaultImpl}, if any.
+   */
+  private static void typeInfo(
+      TypeSpec.Builder ib, Ir.UnionKind rule, String tagWire, ClassName defaultImpl, List<Ir.Variant> variants) {
+    boolean tagged = rule == Ir.UnionKind.TAGGED;
+    AnnotationSpec.Builder info = AnnotationSpec.builder(JSON_TYPE_INFO);
+    if (tagged) {
+      info.addMember("use", "$T.Id.NAME", JSON_TYPE_INFO)
+          .addMember("include", "$T.As.EXISTING_PROPERTY", JSON_TYPE_INFO)
+          .addMember("property", "$S", tagWire)
+          .addMember("visible", "true");
+    } else {
+      info.addMember("use", "$T.Id.DEDUCTION", JSON_TYPE_INFO);
+    }
+    if (defaultImpl != null) {
+      info.addMember("defaultImpl", "$T.class", defaultImpl);
+    }
+    ib.addAnnotation(info.build());
+    AnnotationSpec.Builder subs = AnnotationSpec.builder(JSON_SUB_TYPES);
+    for (Ir.Variant v : variants) {
+      AnnotationSpec.Builder t = AnnotationSpec.builder(JSON_SUB_TYPES.nestedClass("Type")).addMember("value", "$T.class", v.type());
+      if (tagged) {
+        if (v.tags().size() == 1) {
+          t.addMember("name", "$S", v.tags().get(0));
+        } else {
+          t.addMember("names", "$L", stringArray(v.tags()));
+        }
+      }
+      subs.addMember("value", "$L", t.build());
+    }
+    ib.addAnnotation(subs.build());
+  }
+
+  /**
+   * A text-or-object union's hidden {@code <Union>Object}: the type info that tells its objects
+   * apart for an app's own Jackson, which the union's {@code object} creator reads them through.
+   * On the union itself, a text would be read as a type id too.
+   */
+  private static TypeSpec objectInterface(Ir.UnionDecl u) {
+    TypeSpec.Builder ib =
+        TypeSpec.interfaceBuilder(u.objectInterface)
+            .addJavadoc(
+                "How an app's own Jackson reads an object as {@link $T}: by the properties it has, and one\n"
+                    + "it doesn't know as {@link $T}. Not part of the API.\n",
+                u.name,
+                u.unrecognized);
+    typeInfo(ib, Ir.UnionKind.DEDUCED, null, u.unrecognized, u.variants.stream().filter(v -> !v.text()).toList());
+    return ib.build();
+  }
+
+  /**
+   * An object of a text-or-object union reads as itself where it's the declared type: it would
+   * otherwise inherit its hidden interface's type info, and deduce (Unrecognized) another variant.
+   */
+  static AnnotationSpec noTypeInfo() {
+    return AnnotationSpec.builder(JSON_TYPE_INFO).addMember("use", "$T.Id.NONE", JSON_TYPE_INFO).build();
   }
 
   private static CodeBlock stringArray(List<String> values) {
@@ -770,6 +858,9 @@ final class ModelWriter {
             tag != null ? u.tagJava : "",
             tag != null ? tag : "")
         .recordConstructor(ctor.build());
+    if (u.objectInterface != null) {
+      rb.addSuperinterface(u.objectInterface).addAnnotation(noTypeInfo());
+    }
     keepUnknown(rb, u.unrecognized, known, "properties", ModelPlanner.OBJECT);
     return rb.addMethod(validate.build()).build();
   }

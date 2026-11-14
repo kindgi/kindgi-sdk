@@ -39,9 +39,10 @@ final class OperationPlanner {
           "requestBody",
           "responses",
           "security",
+          "deprecated",
           "x-kindgi-sender-only");
   private static final Set<String> PARAMETER_KEYS =
-      Set.of("name", "in", "schema", "required", "description", "x-kindgi-segment-path");
+      Set.of("name", "in", "schema", "required", "description", "style", "explode", "x-kindgi-segment-path");
 
   /**
    * More names for an operation, beside its own: the name the other resources use for the same
@@ -60,8 +61,11 @@ final class OperationPlanner {
   /** A path parameter: a positional argument. */
   record PathParam(String wire, String java, TypeName type, String description) {}
 
-  /** A query or header parameter: a member of the operation's parameters record. */
-  record OtherParam(String wire, String java, String in, boolean required, boolean segments, TypeName type) {}
+  /**
+   * A query or header parameter: a member of the operation's parameters record. {@code comma}: a
+   * list sent as one key, its values comma-separated ({@code style: form}, {@code explode: false}).
+   */
+  record OtherParam(String wire, String java, String in, boolean required, boolean segments, boolean comma, TypeName type) {}
 
   static final class Op {
     String id;
@@ -69,6 +73,11 @@ final class OperationPlanner {
     String path;
     String summary;
     String description;
+    /**
+     * A deprecated operation's note: its description's first paragraph, which says what to use
+     * instead ({@code null} when it isn't deprecated).
+     */
+    String deprecated;
     final List<PathParam> pathParams = new ArrayList<>();
     final List<OtherParam> otherParams = new ArrayList<>();
     ClassName paramsType;
@@ -279,6 +288,7 @@ final class OperationPlanner {
     copy.path = op.path;
     copy.summary = op.summary;
     copy.description = op.description;
+    copy.deprecated = op.deprecated;
     copy.pathParams.addAll(op.pathParams);
     copy.otherParams.addAll(op.otherParams);
     copy.paramsType = op.paramsType;
@@ -309,6 +319,15 @@ final class OperationPlanner {
     op.path = path;
     op.summary = (String) raw.getOrDefault("summary", "");
     op.description = (String) raw.getOrDefault("description", "");
+    if (Boolean.TRUE.equals(raw.get("deprecated"))) {
+      // Its description opens with what to use instead, which the Python client's warning says too.
+      String note = Docs.firstParagraph(op.description).strip();
+      if (note.isEmpty()) {
+        throw new GenerationException(
+            id + " is deprecated, and its description doesn't open with what to use instead");
+      }
+      op.deprecated = String.join(" ", note.split("\\s+"));
+    }
     op.operationConstant = Names.constant(id);
     String hint = Names.pascal(id);
 
@@ -334,6 +353,7 @@ final class OperationPlanner {
       boolean required = Boolean.TRUE.equals(pm.get("required"));
       String description = (String) pm.get("description");
       String java = javaParamName(name);
+      boolean comma = commaList(id, name, in, schema, pm);
       if (!javaNames.add(java)) {
         throw new GenerationException(id + ": two parameters become " + java);
       }
@@ -353,11 +373,14 @@ final class OperationPlanner {
             if (!"query".equals(in)) {
               throw new GenerationException(id + ": a segment path outside the query");
             }
+            if (comma) {
+              throw new GenerationException(id + ": a segment path sent comma-separated");
+            }
             fixed = ParameterizedTypeName.get(ModelPlanner.LIST, segmentType());
             java = "segments";
           }
-          others.add(new ModelPlanner.ParamSpec(name, java, schema, required, description, fixed));
-          otherParams.add(new OtherParam(name, java, in, required, segments, null));
+          others.add(new ModelPlanner.ParamSpec(name, java, schema, required, description, fixed, comma));
+          otherParams.add(new OtherParam(name, java, in, required, segments, comma, null));
           if ("header".equals(in) && name.equals("Idempotency-Key")) {
             op.idempotencyKey = true;
           }
@@ -384,7 +407,7 @@ final class OperationPlanner {
       op.paramsOptional = others.stream().noneMatch(ModelPlanner.ParamSpec::required);
       for (int i = 0; i < otherParams.size(); i++) {
         OtherParam o = otherParams.get(i);
-        op.otherParams.add(new OtherParam(o.wire(), o.java(), o.in(), o.required(), o.segments(), d.fields.get(i).type));
+        op.otherParams.add(new OtherParam(o.wire(), o.java(), o.in(), o.required(), o.segments(), o.comma(), d.fields.get(i).type));
       }
     }
 
@@ -412,6 +435,8 @@ final class OperationPlanner {
 
     Map<String, Object> responses = map(raw.get("responses"), id);
     Map<Integer, TypeName> success = new TreeMap<>();
+    // Each JSON shape's schema, for a union by status to tell its shapes apart by.
+    Map<TypeName, Schema> shapes = new LinkedHashMap<>();
     ResponseKind kind = null;
     for (Map.Entry<String, Object> r : responses.entrySet()) {
       if (!r.getKey().startsWith("2")) {
@@ -433,7 +458,9 @@ final class OperationPlanner {
         switch (media) {
           case "application/json":
             k = ResponseKind.JSON;
-            t = models.typeOf(Schema.of(rawSchema, id + " response"), models.top(), hint + "Response");
+            Schema shape = Schema.of(rawSchema, id + " response");
+            t = models.typeOf(shape, models.top(), hint + "Response");
+            shapes.putIfAbsent(t, shape);
             break;
           case "text/event-stream":
             k = ResponseKind.SSE;
@@ -463,12 +490,12 @@ final class OperationPlanner {
       if (op.responseKind != ResponseKind.JSON) {
         throw new GenerationException(id + ": different 2xx shapes that aren't JSON");
       }
-      List<ClassName> variants = new ArrayList<>();
+      Map<ClassName, Schema> variants = new LinkedHashMap<>();
       for (TypeName t : distinct) {
         if (!(t instanceof ClassName)) {
           throw new GenerationException(id + ": a 2xx shape that isn't a named type");
         }
-        variants.add((ClassName) t);
+        variants.put((ClassName) t, shapes.get(t));
       }
       op.response = models.statusUnion(hint + "Response", "The answer of {@code " + id + "}, by HTTP status.", variants);
       op.byStatus = success;
@@ -484,6 +511,34 @@ final class OperationPlanner {
       throw new GenerationException("ScopeSegment must be an object with key and value");
     }
     return t;
+  }
+
+  /**
+   * Whether a parameter is a list sent as one key, its values comma-separated: {@code style:
+   * form} with {@code explode: false}, on a query array. Repeated keys ({@code explode} true or
+   * left out) are the default. Anything else is refused, so a client never sends a form the spec
+   * doesn't say.
+   */
+  private static boolean commaList(String id, String name, String in, Schema schema, Map<String, Object> pm) {
+    Object style = pm.get("style");
+    Object explode = pm.get("explode");
+    if (style == null && explode == null) {
+      return false;
+    }
+    if (!"query".equals(in)) {
+      throw new GenerationException(id + ": parameter " + name + " sets style or explode outside the query");
+    }
+    if (style != null && !"form".equals(style)) {
+      throw new GenerationException(id + ": parameter " + name + " has style " + style + "; only form is supported");
+    }
+    if (explode != null && !(explode instanceof Boolean)) {
+      throw new GenerationException(id + ": parameter " + name + " has explode " + explode + ", not true or false");
+    }
+    boolean comma = Boolean.FALSE.equals(explode);
+    if (comma && !schema.types().equals(Set.of("array"))) {
+      throw new GenerationException(id + ": parameter " + name + " has explode false but isn't an array");
+    }
+    return comma;
   }
 
   /** `Idempotency-Key` → `idempotencyKey`; `X-Request-Id` → `requestId`. */

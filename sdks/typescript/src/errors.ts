@@ -98,7 +98,10 @@ export interface InvalidRequestError {
   readonly issues: readonly { readonly path: string; readonly message: string }[];
   /**
    * The server's details (`secret` and `providerId` for a
-   * `provider-key-refused`, …), when it sent any besides `issues`.
+   * `provider-key-refused`, `secret` and `appId` for a
+   * `connection-key-refused`, `secret` and `identityProviderId` for an
+   * `identity-provider-key-refused`, and so on), when it sent any besides
+   * `issues`.
    */
   readonly fields?: Readonly<Record<string, unknown>>;
 }
@@ -275,6 +278,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'role-exceeds-principal':
     case 'key-project-mismatch':
     case 'identity-providers-operator-managed':
+    case 'join-domains-operator-managed':
+    case 'join-domain-not-yours':
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
@@ -293,6 +298,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'provenance-not-found':
     case 'observation-not-found':
     case 'blob-not-found':
+    case 'file-not-found':
+    case 'file-version-not-found':
     case 'audit-bundle-not-found':
     case 'signing-not-configured':
     case 'signing-key-not-found':
@@ -353,10 +360,16 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'identity-user-email-taken':
     case 'last-tenant-admin':
     case 'seed-user-admin':
+    case 'listed-admin':
     case 'identity-user-unregister-refused':
     case 'identity-user-unregistered':
     case 'identity-user-not-invited':
     case 'provider-key-in-use':
+    case 'artifact-in-file':
+    case 'file-version-conflict':
+    case 'file-version-pinned':
+    case 'file-last-version':
+    case 'identity-provider-key-in-use':
       return conflict(code, message, details);
     case 'invalid-request':
     case 'validation-failed':
@@ -374,8 +387,11 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'guardrail-config-invalid':
     case 'provider-config-invalid':
     case 'provider-key-refused':
+    case 'connection-key-refused':
+    case 'identity-provider-key-refused':
     case 'scope-invalid':
     case 'artifact-too-large':
+    case 'file-too-large':
       return invalidRequest(message, obj, details);
     case 'guardrail-violation': {
       const attempts = details?.attempts;

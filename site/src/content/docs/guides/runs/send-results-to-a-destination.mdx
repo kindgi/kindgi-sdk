@@ -1,0 +1,424 @@
+---
+title: Send results to a destination
+description: Set up the places schedules send their results to, a chat channel, a signed webhook or members' email, test one, and see and redeliver what it sent.
+sidebar:
+  order: 2.55
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide sets up a **destination**, a place outside Kindgi that schedules
+send their results to (runtime 0.7.0 or later), tests it, and shows what it
+sent. A schedule names it in its `sendResultsTo`, as
+[Run on a schedule](../run-on-a-schedule/#send-its-results-somewhere)
+shows.
+
+Destinations are a tenant admin's: every call here but one answers
+`403 permission-denied` to anyone else. The one is
+`destinations.list({ projectId })`, which shows anyone who may run in that
+project the destinations its schedules may use, without where they send. An
+older runtime doesn't serve `/v1/destinations`.
+
+## The kinds
+
+A destination's `kind` says where it sends:
+
+- **`email`**: some of the workspace's members, by email. `people` lists
+  their user ids, 1 to 50. One that isn't a member of the workspace
+  answers `400 bad-input`, naming it. Each one is checked again when a
+  message goes: a person who has left the workspace, or can't read the
+  run's project, is skipped (`no-access`).
+- **`slack`, `teams`, `google-chat` and `discord`**: a channel's incoming
+  webhook, by its `url` or `urlRef`.
+- **`webhook`**: your own endpoint, by its `url` or `urlRef`, signed with
+  the secret its `secretRef` names.
+
+A deployment may not send every kind. A kind it can't send is refused with
+`400 bad-input`, and `details.setting` names the setting it needs.
+
+## Make one
+
+Each destination needs a `name`, up to 100 characters, and its `kind`. This
+code makes one for a Slack channel:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// app/make-destination.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+const alerts = await kindgi.destinations.create({
+  name: 'ops alerts',
+  kind: 'slack',
+  url: 'https://hooks.slack.com/services/<your-webhook-path>',
+});
+console.log(alerts.destinationId, alerts.host);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# app/make_destination.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+alerts = kindgi.destinations.create(
+    name="ops alerts",
+    kind="slack",
+    url="https://hooks.slack.com/services/<your-webhook-path>",
+)
+print(alerts.destination_id, alerts.host)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/MakeDestination.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateDestinationBody;
+import com.kindgi.client.models.Destination;
+import com.kindgi.client.models.DestinationKind;
+
+public final class MakeDestination {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Destination alerts = kindgi.destinations().create(CreateDestinationBody.builder()
+        .name("ops alerts")
+        .kind(DestinationKind.SLACK)
+        .url("https://hooks.slack.com/services/<your-webhook-path>")
+        .build());
+    System.out.println(alerts.destinationId() + " " + alerts.host());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/MakeDestination.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateDestinationBody, DestinationKind}
+
+object MakeDestination {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val alerts = kindgi.destinations().create(CreateDestinationBody.builder()
+      .name("ops alerts")
+      .kind(DestinationKind.SLACK)
+      .url("https://hooks.slack.com/services/<your-webhook-path>")
+      .build())
+    println(s"${alerts.destinationId} ${alerts.host}")
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+`POST /v1/destinations` answers `201` with the destination. Its
+`destinationId` is what a schedule's `sendResultsTo` names. An `email`
+destination takes `people` in place of a URL, such as
+`{ name: 'order desk leads', kind: 'email', people: ['<user-id>'] }`.
+
+- **`url`** is an absolute `https` URL, up to 2,048 characters, with no user
+  name or password in it. A chat kind's must be on that service's own host,
+  such as `hooks.slack.com` for `slack`, and the deployment may refuse
+  private network addresses. Either answers `400 destination-url-refused`,
+  with `details.reason`.
+- **`projects`**, up to 100 project ids, limits which projects' schedules may
+  use it. Left out, every project's may. A project that doesn't exist
+  answers `404 project-not-found`.
+- A field that doesn't fit the kind, such as `people` on a `slack`
+  destination, answers `400 bad-input` naming it. A field it doesn't know
+  answers `400 unknown-field`.
+- `create`, `update`, `remove`, `sendTest` and `redeliver` take an
+  idempotency key: `{ idempotencyKey }` as the last argument in
+  TypeScript, `idempotency_key=` in Python.
+
+## Its URL is write-only
+
+A chat webhook's URL lets anyone who has it post to that channel, so it's a
+credential. `url` goes in on create or update, and the runtime keeps it in
+the tenant's secrets store, under a reserved `kindgi.` name that no caller
+of `/v1/secrets` can read or write over. It never comes back: a destination
+shows its `host`, and no delivery, log line or `lastError` holds the URL,
+its path or its query.
+
+If you keep your secrets elsewhere, store the URL first, as
+[Store a secret](../../secrets/store-a-secret/) shows, and name it with
+`urlRef: { envName, name }` in place of `url` (`url_ref=` in Python).
+
+- The secret must exist, or `400 destination-secret-not-found`.
+- It can't be a model provider's key (`400 provider-key-refused`) or a
+  `kindgi.` name (`400 reserved-name-prefix`).
+- On a deployment that serves only its own environment, a reference under
+  another one answers `409 env-not-served`.
+
+## Sign a webhook destination
+
+A `webhook` destination sends the same signed requests as a webhook
+endpoint, in the Standard Webhooks format. Its `secretRef` names the
+signing secret: `whsec_` and the base64 of at least 24 random bytes, or
+`400 destination-secret-too-weak`. The checks on `urlRef` above hold for it
+too.
+[Get a webhook when a run finishes](../../webhooks/receive-run-finished/)
+makes and stores one, and [Verify a webhook](../../webhooks/verify-a-webhook/)
+checks it in your app.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// app/make-webhook-destination.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+await kindgi.destinations.create({
+  name: 'acme tickets',
+  kind: 'webhook',
+  url: 'https://tickets.acme.example/hooks/kindgi',
+  secretRef: { envName: 'local', name: 'ACME_WEBHOOK_SECRET' },
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# app/make_webhook_destination.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+kindgi.destinations.create(
+    name="acme tickets",
+    kind="webhook",
+    url="https://tickets.acme.example/hooks/kindgi",
+    secret_ref={"envName": "local", "name": "ACME_WEBHOOK_SECRET"},
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/MakeWebhookDestination.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateDestinationBody;
+import com.kindgi.client.models.DestinationKind;
+import com.kindgi.client.models.DestinationSecretRef;
+
+public final class MakeWebhookDestination {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.destinations().create(CreateDestinationBody.builder()
+        .name("acme tickets")
+        .kind(DestinationKind.WEBHOOK)
+        .url("https://tickets.acme.example/hooks/kindgi")
+        .secretRef(DestinationSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+        .build());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/MakeWebhookDestination.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateDestinationBody, DestinationKind, DestinationSecretRef}
+
+object MakeWebhookDestination {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.destinations().create(CreateDestinationBody.builder()
+      .name("acme tickets")
+      .kind(DestinationKind.WEBHOOK)
+      .url("https://tickets.acme.example/hooks/kindgi")
+      .secretRef(DestinationSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+      .build())
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+A message can arrive more than once. Its `webhook-id` header is the same
+on every attempt, so your app can act on each one once. Chat kinds have no
+such id, so a retry after a lost answer can post twice.
+
+## What a message carries
+
+`content` says what each message holds:
+
+- **`link`**, the default: the run's status and its console link.
+- **`answer`**: the run's answer too, up to its first 1,000 characters. It
+  needs `projects`, so only the answers of the projects it names go there.
+  Without them, it answers `400 bad-input`. A `webhook` destination never
+  takes it: its receiver reads the run with its own key.
+
+## Change one
+
+`update` changes only the fields you give it. This code sends one project's
+answers to the channel:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// app/send-answers.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+await kindgi.destinations.update('<destination-id>', {
+  content: 'answer',
+  projects: ['<project-id>'],
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# app/send_answers.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+kindgi.destinations.update(
+    "<destination-id>",
+    content="answer",
+    projects=["<project-id>"],
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/SendAnswers.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.DestinationContent;
+import com.kindgi.client.models.UpdateDestinationBody;
+import java.util.List;
+import java.util.UUID;
+
+public final class SendAnswers {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.destinations().update(UUID.fromString("<destination-id>"), UpdateDestinationBody.builder()
+        .content(DestinationContent.ANSWER)
+        .projects(List.of(UUID.fromString("<project-id>")))
+        .build());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/SendAnswers.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{DestinationContent, UpdateDestinationBody}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object SendAnswers {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.destinations().update(UUID.fromString("<destination-id>"), UpdateDestinationBody.builder()
+      .content(DestinationContent.ANSWER)
+      .projects(List(UUID.fromString("<project-id>")).asJava)
+      .build())
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+`PATCH /v1/destinations/{destinationId}` answers `200` with the destination.
+
+- Fields left out are kept.
+- `kind` never changes: make a destination of the other kind instead.
+- A new `url` replaces the stored one, and a `urlRef` replaces where it's
+  kept. Leave both out to keep it.
+- `projects: null` (`projects=None` in Python, `.projects(null)` in Java)
+  lets every project's schedules use it again.
+- The destination as changed must still fit its kind: `content: 'answer'`
+  with no `projects` is refused, as on create.
+
+## Test it
+
+`sendTest('<destination-id>')` (`send_test` in Python),
+`POST /v1/destinations/{destinationId}/test`, queues a `destination.test`
+message to check it end to end. It answers `202` with that delivery: follow
+it in the destination's deliveries, below.
+
+A destination's `status` is `active`, or `failing` when its last delivery
+got an answer a retry won't change, such as a removed webhook's `404` or
+`410`. Its `lastError` says why. While it's failing, new messages for it are
+kept but held `pending`. A test that reaches it makes it `active` again,
+and its held messages still within their retry window go out, oldest
+first.
+
+## See what it sent
+
+`listDeliveries('<destination-id>')` (`list_deliveries` in Python),
+`GET /v1/destinations/{destinationId}/deliveries`, pages its messages,
+newest first. `status` lists the ones in one status. Each has its `event`
+(`run.finished`, `approval.requested`, `destination.test` or
+`rate-cap.summary`), the `scheduleId`, `runId` or `approvalId` it's about,
+its `status` and `reason`, its `attempts`, and the `lastResponseStatus` and
+`lastError` of its last attempt. The statuses and reasons are a schedule's, as
+[Where its results went](../run-on-a-schedule/#where-its-results-went)
+lists them. A failed delivery never fails, pauses or slows the run or its
+schedule.
+
+`redeliver('<destination-id>', '<delivery-id>')`,
+`POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`,
+queues a delivery again now, whatever its status: its attempts start over,
+and so does its retry window, about a day. On a `failing` destination it's
+held, as new messages are, until a test reaches it. It's checked again as
+when it was queued and as when it's sent, so one skipped as
+`not-for-this-project` or `no-access` is skipped again for that reason. One
+skipped for `rate-cap` goes out. It answers `202` with the delivery.
+
+## Remove one
+
+`remove('<destination-id>')`, `DELETE /v1/destinations/{destinationId}`,
+answers `204`. Its stored URL is revoked. Kindgi keeps its record, but it
+can't be read again: `get`, `update`, its deliveries, `sendTest`,
+`redeliver` and a second `remove` answer `404 destination-not-found`. Schedules that still
+name it send it nothing: each of their messages is recorded `skipped`, with
+`destination-removed`.

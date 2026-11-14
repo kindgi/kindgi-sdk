@@ -63,6 +63,12 @@ export type ApiTokenId = Brand<string, 'ApiTokenId'>;
 /** An outbound webhook endpoint id (`client.webhookEndpoints`). */
 export type WebhookEndpointId = Brand<string, 'WebhookEndpointId'>;
 
+/** A destination id: where schedules send their results (`client.destinations`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** A delivery to a destination (`client.destinations.listDeliveries`). */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
+
 /** @unwired SDK-defined id for a pack installation. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 
@@ -2023,7 +2029,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, createdBy?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -2044,6 +2050,13 @@ export interface User {
   readonly invite?: UserInvite;
   /** Their first sign-in; absent before it, and for people added before the runtime kept it. */
   readonly firstSignedInAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Who added them: `user:<id>` or `service_account:<id>`;
+   * `identity_provider:<providerId>` or `email_domain:<domain>` for someone
+   * who joined by domain; `site:<siteId>` for a person a site signs in.
+   * Absent for the seed user, and from a runtime that doesn't keep it.
+   */
+  readonly createdBy?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
   /**
    * The person's grants: only from `users.list({ includeGrants: true })`,
@@ -2105,8 +2118,8 @@ export interface InviteRenewed {
 }
 
 /**
- * A removed person and what removing them took away (each 0 when they
- * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ * A removed person and what removing them took away (each 0 when nothing
+ * of theirs was left to take). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
  */
 export interface UnregisterUserResult {
   readonly user: User;
@@ -2489,6 +2502,11 @@ export interface PersonGrants {
   readonly tenantAdmin?: boolean;
   /** A tenant member: reads the workspace's settings, not its projects. Absent when not reported. */
   readonly tenantMember?: boolean;
+  /**
+   * The server's `KINDGI_ADMIN_EMAILS` names them: demote and removal answer
+   * `409 listed-admin`. Absent when not reported.
+   */
+  readonly tenantAdminFromSetting?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
     readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
@@ -2681,6 +2699,8 @@ export interface McpEndpoint {
   readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
   readonly sendTraceparent?: boolean;
+  /** The server's tools that only read, by its own names (see `RegisterMcpEndpointInput`). */
+  readonly readOnlyTools?: readonly string[];
 }
 
 /**
@@ -2721,6 +2741,15 @@ export interface RegisterMcpEndpointInput {
    * transports only: `true` on `stdio` is refused.
    */
   readonly sendTraceparent?: boolean;
+  /**
+   * The server's tools that only read, by the names its `tools/list` gives
+   * them (`acme-order-lookup`, not the catalog id). Each is published with
+   * `mutating: false`, and a tool's newest version decides for every version
+   * of it. List only tools that never change anything. 1 to 256 names, each
+   * 1 to 128 characters, no repeats (`invalid-read-only-tools`). Any
+   * transport.
+   */
+  readonly readOnlyTools?: readonly string[];
   /** The scope the endpoint is registered in; authorization checks it. */
   readonly scope: import('./scope-wire.js').ScopeRef;
 }
@@ -2828,6 +2857,21 @@ export interface BlobMeta {
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   /**
+   * The file these bytes are a version of (`client.files`), with `version`:
+   * both or neither. Absent from older servers.
+   */
+  readonly fileId?: import('@kindgi/types').FileId;
+  /**
+   * Which version of `fileId` these bytes are: the lowest, when versions
+   * share them.
+   */
+  readonly version?: number;
+  /**
+   * A `forRun` upload's: when it's deleted if no run that names it in its
+   * input has started by then. Absent once one has, and on any other file.
+   */
+  readonly expiresAt?: import('@kindgi/types').Timestamp;
+  /**
    * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
    * neither: present when the server's storage gives the blob one.
    */
@@ -2850,6 +2894,14 @@ export interface UploadArtifactInput {
   readonly projectId?: string;
   /** sha256, hex, lowercase: the upload is refused when the bytes differ. */
   readonly expectedHash?: string;
+  /**
+   * An input for a run that hasn't started, with no `ownerRunId`. It's
+   * deleted once the server's unused-upload time has passed (24 hours by
+   * default) unless a run that names it in its input has started by then;
+   * the answer's `expiresAt` says when. Default: the file stays until it's
+   * deleted. An upload by someone who may run but not write is always one.
+   */
+  readonly forRun?: boolean;
 }
 
 /** What `artifacts.head` returns: an artifact's download headers, no bytes. */

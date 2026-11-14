@@ -9,7 +9,8 @@ sidebar:
 When you finish this page, people in your workspace can connect their own
 LinkedIn profile. A tool, such as the ready-made
 [`linkedinPost`](../use-a-connection/#ready-made-tools), can then post on
-LinkedIn as them, after they approve it. They connect through a LinkedIn
+LinkedIn as them, and `linkedinDeletePost` can delete those posts, after
+they approve it. They connect through a LinkedIn
 app your company creates, which you register with Kindgi once.
 
 The app uses two LinkedIn products anyone can add, with no review by
@@ -127,6 +128,16 @@ from **Connections**, or from a run that's waiting for you. If LinkedIn
 gives your app refresh tokens, as it does for partners it approves, Kindgi
 renews the access as it does for other apps.
 
+Seven days before the access ends, the connection says so (runtime 0.7.0 or
+later): "Ends on *date*. Connect it again to keep posting." It shows on
+**Connections** and on the connection's own page, with **Reconnect** for
+whoever can reconnect it. Where the deployment sends mail, they also get one
+email
+([The heads-up before a connection's access ends](../../../deploy/self-hosted/sign-in/#the-heads-up-before-a-connections-access-ends)).
+Reconnecting before the access ends, while you're signed in at LinkedIn,
+skips LinkedIn's consent page
+([LinkedIn: Authorization Code Flow](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow)).
+
 If you turn it down on LinkedIn's page, the connect is declined. If a
 tool's call asked you to connect, that call fails with
 `connection-declined`.
@@ -187,7 +198,9 @@ Kindgi paces each connection's calls at LinkedIn's limit for one member:
   minutes for each call.
 
 A call through [`appFetch`](../use-a-connection/#read-the-token) takes 1
-unit, so your own tool's calls to LinkedIn count too.
+unit, so your own tool's calls to LinkedIn count too. A `linkedinPost`
+with images takes two more for each image, one to start its upload and one
+for its bytes: a post of 20 images takes 41.
 
 LinkedIn also limits your app to 100,000 calls a day across all its
 members, and refuses calls over that until its limits reset at midnight

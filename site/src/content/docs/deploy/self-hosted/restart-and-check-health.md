@@ -55,7 +55,8 @@ kindgi-server
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's
-executing up to 7 seconds to finish. Then it exits with code 0.
+executing up to 7 seconds to finish. Each one still executing then fails,
+and the runtime exits with code 0.
 
 A stop that comes while it's still starting, before it serves, such as
 while it waits for its database, ends it within 3 seconds (runtime 0.1.10
@@ -65,25 +66,35 @@ in a terminal, it says `(SIGINT)` and exits with code 130. A second Ctrl-C
 changes nothing: the first stop is already under way.
 
 :::caution[Runs in flight]
-A run that was executing when the runtime stopped, and didn't finish in
-time, can be left `running`: nothing resumes it. Cancel it, and start it
-again:
+A run still executing when those 7 seconds are up fails, and `run.finished`
+tells your app. It fails with:
 
-```sh
-npx --yes @kindgi/cli@0.6 runs cancel <run id> --url http://localhost:4000
+```text
+Interrupted: the Kindgi server stopped before the run finished (a deploy, a restart or a scale-in). The steps it completed are in its journal; start it again to retry.
 ```
 
-`<run id>` is the run's id, and `--url` is the runtime's URL. It prints the
-run's id, as in [Cancel a run](../../../guides/runs/cancel-a-run/):
+Start it again if you still need it. The runtime's log has a warning for
+each one: `interrupted run <run id>: still running 7000 ms after the
+shutdown began`.
 
-```json
-{
-  "ok": true,
-  "runId": "265627c7-1ac7-4d18-a926-6da9fcc18577"
-}
-```
+If the runtime can't write that failure, such as when its database is
+down, its log says `could not interrupt run <run id>: <why>` instead. The
+run then fails as a crashed runtime's runs do, within about a lease plus a
+sweep once the runtime is back: see
+[If the runtime stops](../../../concepts/runs/#if-the-runtime-stops).
 
-To avoid it, restart when no runs are executing.
+A run waiting for an approval or for another system's answer isn't
+executing. The stop leaves it waiting, and it goes on when its approval is
+decided or its answer comes. A queued run stays queued, and starts once the
+runtime is back. The exception is a run inside another, such as an agent
+step's turn: when the stop fails its parent, it fails with it, with the
+same message.
+
+A run on an agent's test cases fails too, but only once the runtime is back
+and its lease has run out
+([What a replay does](../../../guides/improve/compare-an-agent-version/#what-a-replay-does)).
+
+To keep runs from failing this way, restart when no runs are executing.
 :::
 
 ## Check health and logs
@@ -121,8 +132,9 @@ While Postgres is unreachable, `/ready` answers `503` with
 `{"ok":true}`.
 
 `/v1/runtime` says which runtime answers: its release, how many tenants it
-serves, and whether it runs in development mode. Any of the tenant's tokens
-reads it, whatever its rights:
+serves, whether it runs in development mode, and whether it serves
+connections to other apps. Any of the tenant's tokens reads it, whatever its
+rights:
 
 ```sh
 curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
@@ -135,8 +147,13 @@ curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\
 `version` is the release, or what the build gave otherwise (`dev` when it
 gave none). `tenancy` is `single` for a runtime that serves one tenant and
 `multi` for one that serves many, as
-[`KINDGI_TENANCY`](../../../reference/env-vars/#kindgi_tenancy) sets it. The
-clients read it as `client.runtime.get()`, in TypeScript and in Python.
+[`KINDGI_TENANCY`](../../../reference/env-vars/#kindgi_tenancy) sets it.
+`connections` says whether the runtime serves connections to other apps:
+`{"on":true}`, or `{"on":false}` when it doesn't. A runtime in development
+mode also gives a `reason` when they're off, in its own words; one in
+production never does. A runtime that doesn't say leaves the field out, as in
+the answer above. The clients read it as `client.runtime.get()`, in
+TypeScript and in Python.
 
 Point a load balancer's or a platform's readiness check at `/ready`, or
 `/health`, and never at `/`. `/` leads to the console with a `302`. Without
@@ -213,6 +230,7 @@ repairs the runs the stop left mid-way, as
 Each repair is a line in its log:
 
 ```text
+<time> WARN  [leases] failed run <run id> (tenant <tenant id>): its lease expired with nothing executing it
 <time> INFO  [leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
 <time> INFO  [leases] woke the flow run waiting on child run <run id> …: the child had moved on
 <time> INFO  [leases] ended run <run id> …: its parent run had ended

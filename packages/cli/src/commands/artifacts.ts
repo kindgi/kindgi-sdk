@@ -1,24 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash, randomBytes } from 'node:crypto';
-import { open, readFile, rename, rm } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 
-import type { BlobMeta, DownloadedArtifact, ListPage } from '@kindgi/client';
+import type { BlobMeta, ListPage } from '@kindgi/client';
 
-import type { CommandContext } from '../context.js';
-import { UsageError } from '../errors.js';
-import { exists, placeNew } from '../place-file.js';
+import { exists } from '../place-file.js';
+import { existsError, ownName, saveWhole, unlessStopped } from '../save-download.js';
 import {
   type TableSpec,
   integerFlag,
-  listFlag,
   requiredPositional,
   runSdk,
   stringFlag,
+  tagsFlag,
 } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
@@ -27,6 +23,11 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
  * artifact belongs to a project (its run's, else `--project`, else the
  * tenant's default): reading needs `read` there, uploading and deleting
  * `write`.
+ *
+ * Deprecated: `kindgi files` takes its place. An artifact is one version
+ * of a file, named there by the `fileId` and `version` that `list` and
+ * `upload` answer. Until 0.8.0 removes it, each command does what it did
+ * and says on stderr which one to use instead (`DEPRECATED_COMMANDS`).
  */
 
 const TABLE: TableSpec<ListPage<BlobMeta>, BlobMeta> = {
@@ -94,24 +95,11 @@ const get: LeafCommand = {
     ),
 };
 
-/** `--tag=key=value`, repeatable. */
-function tagsFlag(ctx: CommandContext): Record<string, string> | undefined {
-  const raw = listFlag(ctx, 'tag');
-  if (raw.length === 0) return undefined;
-  const tags: Record<string, string> = {};
-  for (const t of raw) {
-    const eq = t.indexOf('=');
-    if (eq <= 0) throw new UsageError(`--tag must be key=value, got "${t}"`);
-    tags[t.slice(0, eq)] = t.slice(eq + 1);
-  }
-  return tags;
-}
-
 const upload: LeafCommand = {
   kind: 'leaf',
   name: 'upload',
   description:
-    "Upload a file as an artifact: it belongs to its run's project, else --project's, else the workspace's default. The runtime caps an upload (100 MiB unless set otherwise).",
+    "Upload a file as an artifact: it belongs to its run's project, else --project's, else the project your API key is limited to, else the workspace's default. The runtime caps an upload (100 MiB unless set otherwise).",
   usage:
     'kindgi artifacts upload <file> [--name=<name>] [--content-type=<mime>] [--run=<run-id>] [--project=<project-id>] [--tag=<key>=<value>]…',
   optionSpec: {
@@ -145,101 +133,6 @@ const upload: LeafCommand = {
     }),
 };
 
-const existsError = (target: string) =>
-  new Error(`${target} exists: pass --force to overwrite it, or -o <file>`);
-
-/**
- * The download's answer, unless the stop comes first: then the stop's
- * reason is thrown at once, and a body that still arrives is cancelled.
- */
-async function unlessStopped(
-  answer: Promise<DownloadedArtifact>,
-  stop: AbortSignal | undefined,
-): Promise<DownloadedArtifact> {
-  if (stop === undefined) return answer;
-  let onStop = (): void => undefined;
-  const stopped = new Promise<never>((_, reject) => {
-    onStop = () => reject(stop.reason);
-  });
-  if (stop.aborted) onStop();
-  else stop.addEventListener('abort', onStop, { once: true });
-  try {
-    return await Promise.race([answer, stopped]);
-  } catch (err) {
-    if (stop.aborted) void answer.then((got) => got.body.cancel()).catch(() => undefined);
-    throw err;
-  } finally {
-    stop.removeEventListener('abort', onStop);
-  }
-}
-
-/**
- * The body written to a new file beside `target` (as `kindgi exports
- * create` writes its files), which takes `target`'s name only once the
- * whole body has arrived: the stream ended, with the sha256 the server
- * sent. With `force`, it is renamed over `target`; without, it takes the
- * name only while nothing has it (`placeNew`). Otherwise that file is
- * removed, and `target` is as it was: the stop (`stop`, a Ctrl+C) ends
- * the stream as a cut connection does. Returns the size and sha256 of the
- * bytes written.
- */
-async function saveWhole(
-  got: DownloadedArtifact,
-  target: string,
-  force: boolean,
-  stop: AbortSignal | undefined,
-): Promise<{ size: number; hash: string }> {
-  const partial = `${target}.${randomBytes(4).toString('hex')}.partial`;
-  const file = await open(partial, 'wx').catch(async (err: unknown) => {
-    await got.body.cancel();
-    throw err;
-  });
-  const sha256 = createHash('sha256');
-  let size = 0;
-  try {
-    await pipeline(
-      Readable.fromWeb(got.body as Parameters<typeof Readable.fromWeb>[0]),
-      async function* (chunks: AsyncIterable<Buffer>) {
-        for await (const chunk of chunks) {
-          sha256.update(chunk);
-          size += chunk.length;
-          yield chunk;
-        }
-      },
-      file.createWriteStream(),
-      { ...(stop !== undefined && { signal: stop }) },
-    );
-  } catch (err) {
-    await rm(partial, { force: true });
-    throw new Error(
-      `the download stopped part way (${(err as Error).message}): ${target} wasn't written`,
-      { cause: err },
-    );
-  }
-  // The route sends the sha256 as lowercase hex, as digest('hex') gives it.
-  const hash = sha256.digest('hex');
-  // With no hash header (a proxy may drop it), the stream's end is all there is to go on.
-  if (got.hash !== '' && hash !== got.hash) {
-    await rm(partial, { force: true });
-    throw new Error(
-      `the bytes that arrived have the sha256 ${hash}, not the artifact's ${got.hash}: ${target} wasn't written`,
-    );
-  }
-  try {
-    await (force ? rename(partial, target) : placeNew(partial, target, () => existsError(target)));
-  } finally {
-    // Gone after a rename; after a link, its second name; after a failure, the file.
-    await rm(partial, { force: true });
-  }
-  return { size, hash };
-}
-
-/** The file a download writes unless `-o` names one: the artifact's own name, or its id when that name is no file's. */
-function ownName(name: string, blobId: string): string {
-  const own = basename(name);
-  return own === '' || own === '.' || own === '..' ? basename(blobId) : own;
-}
-
 const download: LeafCommand = {
   kind: 'leaf',
   name: 'download',
@@ -261,7 +154,7 @@ const download: LeafCommand = {
         await got.body.cancel();
         throw existsError(target);
       }
-      const saved = await saveWhole(got, target, force, stop);
+      const saved = await saveWhole(got, target, force, stop, "the artifact's");
       return { blobId, file: target, ...saved };
     });
     // Ctrl+C (or SIGTERM) during the download: a stop, not a failure, said
@@ -292,6 +185,6 @@ const del: LeafCommand = {
 export const artifactsCommand: Command = {
   kind: 'group',
   name: 'artifacts',
-  description: 'Files kept in the runtime, each in a project: list, get, upload, download, delete.',
+  description: 'Deprecated: use kindgi files. Removed in 0.8.0.',
   subcommands: [list, get, upload, download, del],
 };

@@ -219,15 +219,15 @@ Ask your coding agent: "Add an agent that reads a support request and sets
 its priority." For reference, the agent looks like this:
 
 ```ts
-// kindgi/agents/triage/index.ts
+// kindgi/agents/ticket-classifier/index.ts
 import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, Semver } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
 const defined = defineAgent({
-  id: 'acme-support.triage' as AgentId,
+  id: 'acme-support.ticket-classifier' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Triage',
+  name: 'Ticket classifier',
   description: 'Reads a support request and sets its priority.',
   instructions:
     'The user names a support request id. Look it up with the get-request tool, ' +
@@ -279,7 +279,7 @@ Register a model first, with your AI model provider's API key:
 ```sh
 pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant   # prompts for the key; it isn't echoed
 pnpm exec kindgi providers register --preset=<preset>
-pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
+pnpm exec kindgi runs start --agent=acme-support.ticket-classifier --input='{"userMessage":"Triage REQ-1002"}'
 ```
 
 With Anthropic's key, for example, the three commands print:

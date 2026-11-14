@@ -9,8 +9,9 @@ key, no network, no cost. Every real deployment plugs in
 Emits a two-message script (tool-call → text):
 
 1. **First invocation** (no tool result yet) — asks the runtime to call
-   the first tool in `input.tools` with `{ message: <last user message> }`,
-   or `demo.echo` when the call declares no tools.
+   the first tool in `input.tools` with `{ message: <last user message> }`.
+   When the call declares no tools, it answers at once with the last user
+   message.
 2. **Second invocation** (post-tool) — emits a final assistant message:
    `Tool responded: <tool result>`.
 

@@ -3,9 +3,10 @@
 
 import type { Filter, Timestamp } from '@kindgi/types';
 
-import { KindgiApiError, fromWire, notYetWired } from '../errors.js';
+import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
-import { type Transport, unwrapErrorEnvelope } from '../transport.js';
+import { bytesHeaders, rawRequest, uploadForm } from '../raw-request.js';
+import type { Transport } from '../transport.js';
 import type {
   ArtifactHead,
   BlobMeta,
@@ -32,12 +33,22 @@ import type {
  *
  * `put` and `get` (content-addressed `BlobRef`s), `presign` and
  * `setRetentionLock` have no API route: use `upload` and `download`.
+ *
+ * `client.files` keeps files with every version, and `client.artifacts`
+ * is removed in a later minor release, announced in advance. An id
+ * `upload` answered is its file's id there too. A caller holding only a blob id finds its file through `BlobMeta`'s
+ * `fileId` and `version`.
+ *
+ * @deprecated Use `client.files`. A later minor release removes it, announced in advance.
  */
 export interface ArtifactsClient {
   /**
    * Upload bytes as an artifact. Over the runtime's cap (default 100 MiB)
-   * is `413 artifact-too-large`; no `write` on its project is `403`.
+   * is `413 artifact-too-large`; no `write` on its project is `403`, and
+   * so is a file the workspace's storage limit has no room for
+   * (`storage-limit-reached`).
    *
+   * @deprecated Use `client.files.create`. A later minor release removes it, announced in advance.
    * @wire `POST /v1/artifacts` (multipart) — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/post`.
    */
@@ -50,6 +61,7 @@ export interface ArtifactsClient {
    * Download an artifact's bytes, streamed. One in a project the caller
    * can't read is `404`, as if absent.
    *
+   * @deprecated Use `client.files.versions.download`. A later minor release removes it, announced in advance.
    * @wire `GET /v1/artifacts/{blobId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/get`.
    */
@@ -59,18 +71,21 @@ export interface ArtifactsClient {
    * An artifact's name, type, size and hash, from its headers (no bytes).
    * One in a project the caller can't read is `404`, as if absent.
    *
+   * @deprecated Use `client.files.versions.get`. A later minor release removes it, announced in advance.
    * @wire `HEAD /v1/artifacts/{blobId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/head`.
    */
   head(blobId: import('@kindgi/types').ArtifactId): Promise<ArtifactHead>;
 
   /**
+   * @deprecated A later minor release removes it, with the rest of `client.artifacts`, announced in advance.
    * @unwired No API route takes a content-addressed `BlobRef`: use
    *   `upload`, which returns the artifact's `BlobMeta`.
    */
   put(input: PutArtifactInput): Promise<BlobRef>;
 
   /**
+   * @deprecated A later minor release removes it, with the rest of `client.artifacts`, announced in advance.
    * @unwired No API route takes a content-addressed `BlobRef`: use
    *   `download(blobId)`.
    */
@@ -82,6 +97,7 @@ export interface ArtifactsClient {
    * Only `contentType`, `ownerRunId` and `projectId` from the filter are
    * sent.
    *
+   * @deprecated Use `client.files.list`. A later minor release removes it, announced in advance.
    * @wire `GET /v1/artifacts` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/get`.
    */
@@ -92,6 +108,8 @@ export interface ArtifactsClient {
    * against an already-gone id returns `deleted: false` (idempotent —
    * 404 only fires when the id was never known).
    *
+   * @deprecated Use `client.files.versions.delete`, or `client.files.delete`
+   *   for the whole file. A later minor release removes it, announced in advance.
    * @wire `DELETE /v1/artifacts/{blobId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/delete`.
    */
@@ -101,6 +119,7 @@ export interface ArtifactsClient {
   ): Promise<{ readonly blobId: string; readonly deleted: boolean }>;
 
   /**
+   * @deprecated A later minor release removes it, with the rest of `client.artifacts`, announced in advance.
    * @unwired The API has no `POST /v1/artifacts/presign` route —
    *   presigned upload URLs are a per-backend concern (S3/GCS/R2
    *   native).
@@ -108,6 +127,7 @@ export interface ArtifactsClient {
   presign(input: PresignInput): Promise<PresignedUrl>;
 
   /**
+   * @deprecated A later minor release removes it, with the rest of `client.artifacts`, announced in advance.
    * @unwired The API has no `POST /v1/artifacts/{blobId}/retention-lock`
    *   route — retention locks are a per-backend concern (S3 Object
    *   Lock, MinIO retention).
@@ -124,86 +144,28 @@ export interface ArtifactFilter extends Filter {
   readonly sha256?: string;
 }
 
-/**
- * A request outside the JSON transport (a multipart body, or a streamed
- * response), with its auth headers; a non-2xx answer throws the wire
- * error, as the transport does.
- */
-async function raw(
-  transport: Transport,
-  req: {
-    readonly method: 'GET' | 'HEAD' | 'POST';
-    readonly path: string;
-    readonly body?: FormData;
-    readonly headers?: Readonly<Record<string, string>>;
-  },
-): Promise<Response> {
-  const res = await transport.fetchImpl(`${transport.apiUrl}${req.path}`, {
-    method: req.method,
-    headers: { ...transport.authHeaders(), ...(req.headers ?? {}) },
-    ...(req.body !== undefined && { body: req.body }),
-  });
-  if (!res.ok) {
-    // A HEAD answer has no body: name the refusal from its status.
-    const body: unknown =
-      req.method === 'HEAD'
-        ? {
-            error: {
-              code: res.status === 404 ? 'blob-not-found' : 'unknown',
-              message:
-                res.status === 404
-                  ? "No such artifact, or it's in a project you can't read"
-                  : `HTTP ${res.status}`,
-            },
-          }
-        : await res.json().catch(() => null);
-    throw new KindgiApiError(fromWire(unwrapErrorEnvelope(body, res.status), res.status));
-  }
-  return res;
-}
+/** An artifact's 404 to a `HEAD`, which has no body. */
+const HEAD_NOT_FOUND = {
+  code: 'blob-not-found',
+  message: "No such artifact, or it's in a project you can't read",
+};
 
 /** What an artifact's download headers say. */
 function headOf(blobId: string, res: Response): ArtifactHead {
-  const name = res.headers.get('X-Kindgi-Blob-Name');
-  return {
-    blobId,
-    name: name !== null ? decodeURIComponent(name) : '',
-    contentType: res.headers.get('Content-Type') ?? 'application/octet-stream',
-    size: Number(res.headers.get('Content-Length') ?? '0'),
-    hash: res.headers.get('X-Kindgi-Blob-Hash') ?? '',
-  };
-}
-
-function uploadForm(input: UploadArtifactInput): FormData {
-  const contentType =
-    input.contentType ??
-    (input.body instanceof Blob && input.body.type !== ''
-      ? input.body.type
-      : 'application/octet-stream');
-  const blob =
-    input.body instanceof Blob
-      ? input.body
-      : new Blob([input.body as ConstructorParameters<typeof Blob>[0][number]], {
-          type: contentType,
-        });
-  const form = new FormData();
-  form.set('file', blob, input.name ?? 'file');
-  form.set('contentType', contentType);
-  if (input.name !== undefined) form.set('name', input.name);
-  if (input.tags !== undefined) form.set('tags', JSON.stringify(input.tags));
-  if (input.ownerRunId !== undefined) form.set('ownerRunId', input.ownerRunId as string);
-  if (input.projectId !== undefined) form.set('projectId', input.projectId);
-  if (input.expectedHash !== undefined) form.set('expectedHash', input.expectedHash);
-  return form;
+  return { blobId, ...bytesHeaders(res) };
 }
 
 export function makeArtifactsClient(transport: Transport): ArtifactsClient {
   return {
     async upload(input, options) {
-      const res = await raw(transport, {
+      const res = await rawRequest(transport, {
         method: 'POST',
         path: '/v1/artifacts',
-        body: uploadForm(input),
+        body: uploadForm(input, {
+          ownerRunId: input.ownerRunId as string | undefined,
+          projectId: input.projectId,
+          forRun: input.forRun === true ? 'true' : undefined,
+        }),
         ...(options?.idempotencyKey !== undefined && {
           headers: { 'Idempotency-Key': options.idempotencyKey },
         }),
@@ -212,7 +174,7 @@ export function makeArtifactsClient(transport: Transport): ArtifactsClient {
     },
 
     async download(blobId) {
-      const res = await raw(transport, {
+      const res = await rawRequest(transport, {
         method: 'GET',
         path: `/v1/artifacts/${encodeURIComponent(blobId as unknown as string)}`,
       });
@@ -223,9 +185,10 @@ export function makeArtifactsClient(transport: Transport): ArtifactsClient {
     },
 
     async head(blobId) {
-      const res = await raw(transport, {
+      const res = await rawRequest(transport, {
         method: 'HEAD',
         path: `/v1/artifacts/${encodeURIComponent(blobId as unknown as string)}`,
+        headNotFound: HEAD_NOT_FOUND,
       });
       return headOf(blobId as unknown as string, res);
     },

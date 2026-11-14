@@ -3,9 +3,11 @@
 
 /**
  * `@kindgi/connections/microsoft/tools` — tools that act with a Microsoft
- * connection on its Outlook mailbox or calendar: the person's own, or the
- * company's (`as`). The calendar tools are
- * `./microsoft-calendar-tools.ts`'s. A pack includes one by exporting it as a tool under an id the
+ * connection on its Outlook mailbox or calendar, its OneDrive, or the
+ * SharePoint libraries it can open: the person's own, or the company's
+ * (`as`). The calendar tools are `./microsoft-calendar-tools.ts`'s, and the
+ * OneDrive and SharePoint tools `./microsoft-drive-tools.ts`'s. A pack
+ * includes one by exporting it as a tool under an id the
  * pack names: a tool folder whose `index.ts` is
  * `export default outlookSend({ id: 'acme.outlook.send' })`.
  * The id is the pack's because a tool id is the tenant's, filed under the
@@ -82,6 +84,27 @@ export {
   outlookCalendarFreeBusy,
   outlookCalendarSharedEventsList,
 } from './microsoft-calendar-tools.js';
+export type {
+  FileCreateSource,
+  FileListed,
+  FileOwner,
+  FileToolOptions,
+  FilesListed,
+} from './files.js';
+export {
+  type OneDriveFileCreateInput,
+  type OneDriveFilesListInput,
+  type OneDriveFilesListOutput,
+  type OneDriveSharedFilesListInput,
+  type OneDriveSharedFilesListOutput,
+  type SharePointLibrariesListInput,
+  type SharePointLibrariesListOutput,
+  type SharePointLibrary,
+  oneDriveFileCreate,
+  oneDriveFilesList,
+  oneDriveSharedFilesList,
+  sharePointLibrariesList,
+} from './microsoft-drive-tools.js';
 
 /** A mail address. Line breaks and list separators are refused, as for every mail tool. */
 const ADDRESS = {

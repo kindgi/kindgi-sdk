@@ -57,8 +57,10 @@ banner:
 ```
 
 The check is **offline**: the runtime verifies the key's signature against
-public keys built into the release. It never calls Kindgi, at startup or
-later.
+public keys built into the release. The check never calls Kindgi. A runtime
+0.7.0 or later makes one call to Kindgi: a daily report that renews its key,
+unless its key is one that doesn't report
+([What the runtime sends](../../deploy/self-hosted/what-the-runtime-sends/)).
 
 There are two kinds of key:
 
@@ -97,10 +99,10 @@ expired yet.
   once in an installation, however many of those projects or versions run
   it. Projects not in production, tools and users don't count.
 - **Above your plan:** running more flows or agents than your plan covers
-  is outside its terms. In a coming release, the runtime warns when you
-  reach your plan's flows or agents, and refuses new ones once you're more
-  than 20% over, though it always lets you go one over. Flows and agents
-  that already run keep running.
+  is outside its terms. The runtime warns when you reach your plan's flows
+  or agents, and refuses new ones once you'd be more than 20% over, though
+  it always lets you go one over. Flows and agents that already run keep
+  running ([Plan limits](../../deploy/self-hosted/plan-limits/)).
 - **A Startup license** from before these plans keeps its 10 flows and 10
   agents until it expires.
 
@@ -108,8 +110,10 @@ expired yet.
 
 A key covers the installation it's set on. The runtime reads it once, when
 it starts, and every tenant and project that runtime serves runs under it:
-a key names no tenant or project, and no number of them. Your plan's
-limits are terms of your license: the runtime doesn't count them yet.
+a key names no tenant or project, and no number of them. A key on Free,
+Starter or Business names its plan's flows and agents, and the runtime
+counts the ones in production against them
+([Plan limits](../../deploy/self-hosted/plan-limits/)).
 
 A project in production
 ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production))

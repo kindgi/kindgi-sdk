@@ -16,7 +16,7 @@ description: >
   Python agents by kindgi-python-authoring-agents.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -76,7 +76,7 @@ IS_BILLING = {
 triage_ticket = Flow(
     id="acme.triage-ticket",
     version="0.1.0",
-    name="Triage a support ticket",
+    name="Triage a ticket",
     description="Parses a ticket, classifies it, looks up billing when needed, drafts a reply.",
     nodes=[
         {
@@ -156,6 +156,25 @@ triage_ticket = Flow(
   on it, and a deploy refuses a flow that fails the `defineFlow`
   checks. That a ref's tool or agent exists is checked when a run
   starts (see "Running a flow").
+
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
 
 ## Nodes
 
@@ -310,7 +329,7 @@ the output), not on every save.
 ## Common mistakes
 
 1. **Building a flow without asking what goes in and comes out.** The
-   pack's `echo_flow` proves the runtime works. It isn't a template for
+   pack's `greet_person` proves the runtime works. It isn't a template for
    the user's flow.
 2. **A second comparison for "otherwise".** On a path that may be
    missing, `eq` is false and `ne` is true, and `lt`/`gt` are both false,
@@ -336,7 +355,7 @@ the output), not on every save.
    real, and an agent's tool approval gate (when it falls back on
    `mutating`) won't ask before it.
 10. **A read-only tool without `mutating=False`.** A dry run stops at it,
-    and an agent's tool approval gate asks before it on first use.
+    and an agent's tool approval gate asks before each call to it.
 
 ## When the framework itself is the problem
 

@@ -19,7 +19,7 @@
         { "from": "$start", "id": "e-start", "to": "record" },
         { "from": "record", "id": "e-end", "to": "$end" }
       ],
-      "id": "acme.ledger.record-flow",
+      "id": "acme.ledger.book-expense",
       "kernelPayloadVersion": 1,
       "modulePath": "flows/record.py",
       "nodes": [{ "id": "record", "kind": "tool", "ref": "acme.ledger.record-expense" }],

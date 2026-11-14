@@ -166,35 +166,35 @@ uv run kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001
 ```
 
 An agent step in a dry run skips its model call, so the agent calls no
-tools. The sample's `echo-flow` greets with a read-only tool, then hands the
+tools. The sample's `greet-person` greets with a read-only tool, then hands the
 greeting to its agent:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --dry-run
+pnpm exec kindgi runs start --flow=my-pack.greet-person --input='{"name":"Ada"}' --dry-run
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --dry-run
+uv run kindgi runs start --flow=my-pack.greet-person --input='{"name":"Ada"}' --dry-run
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --dry-run
+./kindgiw runs start --flow=my-pack.greet-person --input='{"name":"Ada"}' --dry-run
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --dry-run
+./kindgiw runs start --flow=my-pack.greet-person --input='{"name":"Ada"}' --dry-run
 ```
 
 </TabItem>
@@ -281,8 +281,9 @@ approvals for anything an agent could do with what it read.
 - Never declare it on a tool that writes, sends or deletes. A dry run would
   then run it for real, and an agent could run it at the same time as other
   calls.
-- A tool from an [MCP server](../mcp-servers/) always counts as one that
-  changes things: it doesn't run in a dry run.
+- A tool from an [MCP server](../mcp-servers/) counts as one that may
+  change things, so it doesn't run in a dry run, unless its endpoint lists
+  it as read-only ([Name its read-only tools](../mcp-servers/#name-its-read-only-tools)).
 
 ## Next
 

@@ -71,6 +71,8 @@ final class Ir {
     Object defaultValue;
     /** The field's type is a union with a text variant: the builder also takes a string. */
     UnionDecl textUnion;
+    /** A query list sent as one comma-separated key: the builder takes its values as varargs. */
+    boolean commaList;
   }
 
   sealed interface Decl permits RecordDecl, EnumDecl, UnionDecl {
@@ -126,9 +128,15 @@ final class Ir {
     String tagJava;
     /**
      * How the objects of a TEXT_OR_OBJECT or a SCALAR_OR_OBJECT are told apart: TAGGED, DEDUCED, or
-     * null (one object).
+     * null (one object). A BY_STATUS: how an app's own Jackson tells its shapes apart, TAGGED or
+     * DEDUCED.
      */
     UnionKind objectKind;
+    /**
+     * A TEXT_OR_OBJECT with two or more objects: the package-private interface its objects and
+     * Unrecognized implement (`<Union>Object`), which tells them apart for an app's own Jackson.
+     */
+    ClassName objectInterface;
     final List<Variant> variants = new ArrayList<>();
     final List<Decl> nested = new ArrayList<>();
     /** The catch-all variant for a tag or a shape this client doesn't know. */

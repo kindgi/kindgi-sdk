@@ -83,12 +83,7 @@ export async function invokeAgent(
       // A replay's run says so, and which test run and past run it is for.
       ...(input.replay !== undefined && { replay: input.replay }),
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-      ...(input.trigger !== undefined && { trigger: input.trigger }),
-      ...(input.startedBy !== undefined && { startedBy: input.startedBy }),
-      ...(input.toolsAllowedUnattended !== undefined && {
-        toolsAllowedUnattended: input.toolsAllowedUnattended,
-      }),
-      ...(input.mailbox !== undefined && { mailbox: input.mailbox }),
+      ...howItStarted(input),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -127,6 +122,22 @@ function armTurnAbort(
   return () => {
     clearTimeout(timer);
     abortSignal.removeEventListener('abort', external);
+  };
+}
+
+/**
+ * How the run started: its trigger, who or what started it, what it may
+ * call without a person's yes, and the mailbox or text thread it answers.
+ */
+function howItStarted(input: InvokeAgentInput) {
+  return {
+    ...(input.trigger !== undefined && { trigger: input.trigger }),
+    ...(input.startedBy !== undefined && { startedBy: input.startedBy }),
+    ...(input.toolsAllowedUnattended !== undefined && {
+      toolsAllowedUnattended: input.toolsAllowedUnattended,
+    }),
+    ...(input.mailbox !== undefined && { mailbox: input.mailbox }),
+    ...(input.textThread !== undefined && { textThread: input.textThread }),
   };
 }
 
@@ -325,18 +336,27 @@ export type {
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
   ConnectionNotChosenError,
+  ToolFailedTurnError,
   ToolInvocationError,
   TurnMemoryLimitReachedError,
   UnresolvedToolError,
 } from './handlers/errors.js';
 export type { TurnMemoryBinding, TurnMemoryCharge } from './handlers/turn-memory.js';
-export type { FileBinding, FileBindings, FileHold } from './handlers/files.js';
+export type {
+  FileBinding,
+  FileBindings,
+  FileCreateAnswer,
+  FileHold,
+  FileNotCreatedReason,
+} from './handlers/files.js';
 export type {
   HitlBindings,
   HitlEnqueueInput,
   HitlEnqueueResult,
   InvokeAgentBindings,
   InvokeAgentInput,
+  TextRefusal,
+  TextsToolBinding,
   ToolCallAuthorization,
   TurnConnections,
 } from './handlers/public-types.js';
@@ -386,6 +406,10 @@ export function turnInputFromSnapshot(
     // started: never from whoever resumes it.
     ...(snapshot.mailbox !== undefined &&
       snapshot.mailbox !== null && { mailbox: snapshot.mailbox }),
+    // The thread a text trigger's run answers, as recorded when it
+    // started: never from whoever resumes it.
+    ...(snapshot.textThread !== undefined &&
+      snapshot.textThread !== null && { textThread: snapshot.textThread }),
     // No `messageFromEvent`: a replay doesn't park before its turn has
     // stored its message (marked) and built its first model call, and a
     // resumed turn reads that stored mark. If a replay could park sooner,

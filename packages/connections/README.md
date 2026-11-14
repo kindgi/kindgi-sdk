@@ -6,13 +6,14 @@ then acts with that account, and the server keeps its tokens.
 
 An entry is data. It says:
 
-- **how a person signs in** at the app (`signIn`): OAuth 2.0 with PKCE, or a
-  GitHub App's installation;
+- **how a person signs in** at the app (`signIn`): OAuth 2.0 with PKCE, a
+  GitHub App's installation, or an account's credential that the
+  registration keeps, with no one signing in (the texts entry's number);
 - **who may own a connection** (`owners`): a member, the company, or either;
 - **what each permission allows,** in plain words for the person asked
   (`permissions`), and whether it changes anything;
-- **whose account it is** (`account`), learned from an ID token or the
-  installation;
+- **whose account it is** (`account`), learned from an ID token, the
+  installation, or the number a connect names;
 - **how access is withdrawn** on a disconnect, and how the app reports a
   removal made at the app (`removal`);
 - **the app's rate limit,** per connection (`rateLimits`);
@@ -61,14 +62,27 @@ Ready-made tools that act with a connection, one subpath per app:
   `outlookCalendarEventCreate`, `googleCalendarEventUpdate` and
   `outlookCalendarEventUpdate` add or change an event and invite the
   people it names.
+- Google Drive, from `@kindgi/connections/google/tools`:
+  `googleDriveFilesList` lists or searches the files, `googleDriveFileGet`
+  stores one as a file the agent is shown, as an attachment tool does (a
+  Google Doc, Sheet, Slides or Drawing read as Markdown, CSV, text or PNG,
+  or as a PDF), and `googleDriveFileCreate` adds a file from text or from a
+  file of the run, with a permission that reaches only the files it added.
+- OneDrive and SharePoint, from `@kindgi/connections/microsoft/tools`:
+  `oneDriveFilesList` lists or searches the files in the person's own
+  OneDrive, `oneDriveSharedFilesList` lists the files others share with
+  them and a SharePoint library's, `sharePointLibrariesList` finds their
+  organization's libraries, and `oneDriveFileCreate` adds a file from text
+  or from a file of the run.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
-- `@kindgi/connections/linkedin/tools`: `linkedinPost` posts text on
-  LinkedIn as the person whose LinkedIn connection the call has, to anyone
-  or to their connections only. The text is posted as written: a `#` that
-  starts a word is a hashtag, and LinkedIn's markup is escaped, so a post
-  mentions no one.
+- `@kindgi/connections/linkedin/tools`: `linkedinPost` posts on LinkedIn
+  as the person whose LinkedIn connection the call has, to anyone or to
+  their connections only, with 1 to 20 of the run's images or a link card
+  when asked. `linkedinDeletePost` deletes a post they made. The text is
+  posted as written: a `#` that starts a word is a hashtag, and LinkedIn's
+  markup is escaped, so a post mentions no one.
 
 Each is a factory: a pack includes one under an id it names, in a tool
 folder whose `index.ts` is one line.

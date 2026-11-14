@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -30,6 +32,7 @@ __all__ = [
     "PauseNotAvailable",
     "ToolConnection",
     "ToolContext",
+    "ToolFailure",
     "WaitToken",
     "wait_token_from_wire",
 ]
@@ -109,6 +112,70 @@ class ConnectionRejected(Exception):
     def __init__(self, connection: str, message: str | None = None) -> None:
         super().__init__(message or f'the app refused the connection "{connection}"')
         self.connection = connection
+
+
+_TOOL_FAILURE_CODE: Final = re.compile(r"[a-z][a-z0-9-]{0,63}")
+TOOL_FAILURE_MESSAGE_MAX: Final = 1000
+"""The most characters of a tool failure's message that are kept."""
+TOOL_FAILURE_DETAILS_MAX_BYTES: Final = 4096
+"""The most bytes a tool failure's `details` may take as JSON (UTF-8)."""
+
+
+class ToolFailure(Exception):
+    """A tool's own failure: the tool ran, and says this call can't give an answer.
+
+    Raise it with the tool's code for why, in kebab case, and words for a person:
+    `raise ToolFailure("order-not-found", f"No order {order_id}", details={"orderId": order_id})`.
+    The call answers `tool-failed`, with the code as `reason`, the message as written and the
+    details; the runtime's run reads the same. `ValueError` when the code isn't kebab case, the
+    message is empty, or `details` isn't a JSON object of at most 4 KiB: the call then fails as a
+    crash (`handler-throw`) that says why.
+
+    - The code is a fixed word of the tool's, never built from its input: runs are grouped by it,
+      and it outlives the run's erasure.
+    - The message is cut at 1,000 characters. `details` reaches the run's failure and the model,
+      so it never holds a secret, and never a wait or a retry hint.
+    - An outcome the caller acts on goes in the output schema (`{"found": False}`); a bug just
+      raises. A `ToolFailure` doesn't undo what the tool did before it.
+    """
+
+    def __init__(
+        self, code: str, message: str, *, details: Mapping[str, Any] | None = None
+    ) -> None:
+        # The type says `str`, and a caller without a type checker can still pass another.
+        if not isinstance(cast("object", code), str) or _TOOL_FAILURE_CODE.fullmatch(code) is None:
+            raise ValueError(
+                "ToolFailure's code must be kebab case, a letter first, at most 64 characters: "
+                f"{json.dumps(str(code)[:80])}"
+            )
+        if not isinstance(cast("object", message), str) or message.strip() == "":
+            raise ValueError(f'ToolFailure "{code}" needs a message for a person')
+        copied = None if details is None else _json_details(code, details)
+        said = message[:TOOL_FAILURE_MESSAGE_MAX]
+        super().__init__(said)
+        self.code: str = code
+        """The tool's code for why the call failed (`order-not-found`)."""
+        self.message: str = said
+        """Its words for a person, as written."""
+        self.details: dict[str, Any] | None = copied
+        """Its facts, as a JSON copy of what it gave; `None` when it gave none."""
+
+
+def _json_details(code: str, details: object) -> dict[str, Any]:
+    """`details` as a JSON copy, or a `ValueError` that says why it can't be one."""
+    if not isinstance(details, Mapping):
+        raise ValueError(f'ToolFailure "{code}"\'s details must be a JSON object')
+    try:
+        text = json.dumps(details, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as cause:
+        raise ValueError(f"ToolFailure \"{code}\"'s details aren't JSON") from cause
+    size = len(text.encode("utf-8"))
+    if size > TOOL_FAILURE_DETAILS_MAX_BYTES:
+        raise ValueError(
+            f'ToolFailure "{code}"\'s details take {size} bytes as JSON, '
+            f"more than {TOOL_FAILURE_DETAILS_MAX_BYTES}"
+        )
+    return cast("dict[str, Any]", json.loads(text))
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,15 +337,27 @@ class ToolContext:
     runtime before protocol 2.9.0. Never in the context's `repr`. When the app refuses a token
     (a 401), raise `ConnectionRejected("mail")`."""
     files: FileStore | None = field(default=None, repr=False)
-    """The call's files, for a tool that declares `stores_files=True` or `reads_files=True`.
+    """The call's files, for a tool that declares `stores_files=True`, `reads_files=True` or
+    `updates_files=True`.
     `ctx.files.store(name=…, content_type=…, data=…)` (`store_async` from an async handler)
     stores a file the tool fetched as a file the call's run owns, and answers its value, to
     return in the result's top-level `files`, or why nothing was stored; a call has it when its
     tool stores files and it has an idempotency key (`ctx.files.stores`).
     `ctx.files.read(artifact_id)` (`read_async`) answers the bytes of a file the call's run may
     be shown, or why there are none; a call has it when its tool reads files
-    (`ctx.files.reads`). `None` for a tool that declares neither, and from a runtime before
-    pack protocol 2.10.0: return a file's `notShown` as `store` then."""
+    (`ctx.files.reads`). `ctx.files.update(file_id=…, expected_version=…, content_type=…,
+    data=…)` (`update_async`) adds a version to a file the call's run has, and answers the new
+    version's value, Latest (`same`, `conflict`), or why none was added; a call has it when its
+    tool updates files and it has an idempotency key (`ctx.files.updates`), when the runtime
+    says the call may (`toolFiles.updates`, pack protocol 2.13.0 on). `None` for a tool that
+    declares none of them, and from a runtime before pack protocol 2.10.0: return a file's
+    `notShown` as `store` then."""
+    time_zone: str | None = None
+    """The workspace's time zone, an IANA name such as `"America/Toronto"`. An agent turn reads it
+    once, from the workspace's `time-zone` fact, and every call the turn makes gets the same one:
+    `"UTC"` when the workspace sets none, or when it can't be read. A tool that answers a date or
+    a time answers it in this zone (`datetime.now(ZoneInfo(ctx.time_zone or "UTC"))`). `None`
+    outside an agent turn, and from a runtime before pack protocol 2.12.0: use UTC then."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property
@@ -343,11 +422,12 @@ class ToolContext:
         pauses: bool = False,
         stores_files: bool = False,
         reads_files: bool = False,
+        updates_files: bool = False,
     ) -> ToolContext:
         """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …). Its `waitToken` is kept
         only for a tool that `pauses`, and its `toolFiles`, as `files`, only for a tool that
-        `stores_files` (on a call with an `idempotencyKey`) or `reads_files`, with what it
-        declares."""
+        `stores_files` or `updates_files` (each on a call with an `idempotencyKey`) or
+        `reads_files`, with what it declares."""
 
         def mapping(key: str) -> Mapping[str, Any]:
             value = ctx.get(key)
@@ -367,6 +447,7 @@ class ToolContext:
             idempotency_key=idempotency_key,
             project_id=text("projectId"),
             org_id=text("orgId"),
+            time_zone=text("timeZone"),
             env=mapping("env"),
             secrets=mapping("secrets"),
             config=mapping("config"),
@@ -375,7 +456,10 @@ class ToolContext:
             log=log,
             connections=_connections(ctx.get("connections")),
             files=file_store_from_wire(
-                ctx, stores=stores_files and idempotency_key is not None, reads=reads_files
+                ctx,
+                stores=stores_files and idempotency_key is not None,
+                reads=reads_files,
+                updates=updates_files and idempotency_key is not None,
             ),
             _wait_token=wait_token_from_wire(ctx) if pauses else None,
         )

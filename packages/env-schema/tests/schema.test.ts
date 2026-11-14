@@ -22,6 +22,8 @@ import {
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
   LICENSE_KEY_VAR,
+  TENANT_EGRESS_NO_PROXY_VAR,
+  TENANT_EGRESS_PROXY_VAR,
   envVarsForTarget,
   renderEnvExample,
   validateEnvForTarget,
@@ -219,6 +221,19 @@ describe('envVarsForTarget', () => {
     ).toBe(false);
   });
 
+  test("the tenant egress proxy and its direct hosts: the server's, optional, from runtime 0.7.0", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of [TENANT_EGRESS_PROXY_VAR, TENANT_EGRESS_NO_PROXY_VAR]) {
+      expect(server.get(name)).toMatchObject({ group: 'core', required: false });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.7\.0; /);
+      expect(packService).not.toContain(name);
+    }
+    expect(server.get(TENANT_EGRESS_PROXY_VAR)?.description).toContain(
+      'it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses',
+    );
+  });
+
   test("the server's bind host, its public URL and its development settings: optional, server only", () => {
     const server = envVarsForTarget({});
     const host = server.find((v) => v.name === 'KINDGI_API_HOST');
@@ -312,6 +327,28 @@ describe('envVarsForTarget — invitation emails', () => {
     expect(
       envVarsForTarget({ component: 'pack-service' }).some(
         (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('envVarsForTarget — the license report', () => {
+  test("its address is the server's, optional, in core, and says its default and https only", () => {
+    const report = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_LICENSE_REPORT_URL',
+    );
+    expect(report).toMatchObject({
+      required: false,
+      group: 'core',
+      example: 'https://access.kindgi.com/v1/report',
+    });
+    expect(report?.description).toContain(
+      'Default `https://access.kindgi.com/v1/report`; `https` only',
+    );
+    expect(report?.description).toContain("only a key that doesn't report does");
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === 'KINDGI_LICENSE_REPORT_URL',
       ),
     ).toBe(false);
   });
@@ -421,6 +458,7 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_ORCHESTRATOR_PROJECT',
     'KINDGI_ORCHESTRATOR_REGION',
     'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    'KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS',
     'KINDGI_ORCHESTRATOR_PACK_SERVICE',
   ];
 
@@ -578,6 +616,21 @@ describe('validateEnvForTarget', () => {
     expect(key?.required).toBe(false);
     expect(key?.appliesTo({})).toBe(true);
     expect(key?.example).toBe('');
+  });
+
+  test("the Kindgi account key is the server's, optional, in core, with no example; the pack service and the orchestrator don't get it", () => {
+    const key = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_ACCOUNT_KEY',
+    );
+    expect(key?.required).toBe(false);
+    expect(key?.example).toBe('');
+    expect(key?.group).toBe('core');
+    for (const component of ['pack-service', 'pack-orchestrator'] as const) {
+      expect(
+        envVarsForTarget({ component }).map((v) => v.name),
+        component,
+      ).not.toContain('KINDGI_ACCOUNT_KEY');
+    }
   });
 
   test('the server and registry auth modes', () => {

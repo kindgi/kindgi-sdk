@@ -97,6 +97,17 @@ export interface ToolContext {
    */
   readonly orgId?: OrgId;
   /**
+   * The workspace's time zone, an IANA name such as `America/Toronto`. An
+   * agent turn reads it once, from the workspace's `time-zone` fact, and
+   * every call the turn makes gets the same one: `UTC` when the workspace
+   * sets none, or when it can't be read. A tool that answers a date or a
+   * time answers it in this zone
+   * (`new Intl.DateTimeFormat('en-CA', { timeZone: ctx.timeZone ?? 'UTC' })`).
+   * Absent outside an agent turn (a flow's tool step, an MCP call) and
+   * from an older runtime: use UTC then. A unit test passes its own.
+   */
+  readonly timeZone?: string;
+  /**
    * Correlation id for this individual call (the model's tool-call id,
    * an MCP request id, a webhook id). Opaque to tools; useful for logs
    * and provenance. To dedupe a side effect, use `idempotencyKey`: a
@@ -216,8 +227,8 @@ export interface ToolContext {
    */
   readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
   /**
-   * The call's files, only for a tool that declares `storesFiles` or
-   * `readsFiles`, with only what it declares:
+   * The call's files, only for a tool that declares `storesFiles`,
+   * `readsFiles` or `updatesFiles`, with only what it declares:
    * - `store` (`storesFiles`) checks a file's bytes, stores it as a file
    *   the call's run owns, and answers the file value to return in the
    *   result's top-level `files`, or why it stored nothing. At most
@@ -225,11 +236,17 @@ export interface ToolContext {
    *   `idempotencyKey`.
    * - `read` (`readsFiles`) answers the bytes of a file the call's run may
    *   be shown, or why there are none.
+   * - `update` (`updatesFiles`) adds a version to a file the call's run
+   *   has, given the version it read, and answers the new version, or
+   *   Latest when Latest isn't that version, or why it added none. Absent
+   *   when the call has no `idempotencyKey`.
    *
    * Absent for any other tool, when the runtime has no file store, and from
    * a runtime before pack protocol 2.10.0: a tool then says a file can't
-   * be stored (`notShown: 'store'`) without fetching it. A unit test passes
-   * its own.
+   * be stored (`notShown: 'store'`) without fetching it. From a pack
+   * service, `update` is there only when the runtime says the call may add
+   * versions (`toolFiles.updates`, pack protocol 2.13.0), which a runtime
+   * before 2.13.0 never does. A unit test passes its own.
    */
   readonly files?: FileStore;
 }
@@ -373,9 +390,10 @@ export interface ToolManifest {
   /**
    * Globally-unique tool identifier. Convention: `<pack-id>.<tool-name>`
    * (kebab-case, dot-namespaced) — e.g. `acme.verify-citation`,
-   * `demo.echo`. The `<pack-id>` prefix scopes the tool to its pack;
-   * `<tool-name>` names the operation. Enforced as a `ToolId` brand;
-   * `defineTool` refuses ids that don't match the convention.
+   * `acme.fetch-order`. The `<pack-id>` prefix scopes the tool to its pack;
+   * `<tool-name>` names the operation. `defineTool` checks only that
+   * the id isn't empty and doesn't start with `kindgi_`, which is kept for
+   * tools built into Kindgi.
    */
   readonly id: ToolId;
   /**
@@ -468,7 +486,7 @@ export interface ToolManifest {
    * Consumed by `@kindgi/agents` as the per-tool HITL default when an
    * agent's `conversationPolicy.hitl.tools` sets neither an override
    * nor a `default` for the tool — a read-only tool passes straight
-   * through, a mutating tool asks on first use.
+   * through, and a mutating tool asks before each call.
    *
    * It also decides what runs together: calls to read-only tools that a
    * model step asks for one after another run at the same time, up to 8 at
@@ -534,6 +552,19 @@ export interface ToolManifest {
    * `spec`, nor an MCP tool. Absent = `false`.
    */
   readonly readsFiles?: boolean;
+  /**
+   * `true` when the tool may add versions to files its run has, such as
+   * a sheet it fills in. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.update`: it sends a file's new bytes
+   * with the version it read, and returns the new version it gets back
+   * in its result's top-level `files`. When the file's Latest isn't the
+   * version it read, it gets Latest back instead. Only a file of the
+   * call's run, and only where the run may write.
+   *
+   * Only a tool with a handler can update files: not one with a
+   * declarative `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly updatesFiles?: boolean;
   /**
    * `true` when the tool's results are text from outside that nobody
    * checked, such as a mail someone sent or a page a search found. An

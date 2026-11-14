@@ -42,12 +42,16 @@ final class Kindgi_Mail {
 	const RECIPIENTS = '/^(?:To|Cc|Reply-To): /';
 
 	/**
-	 * A line of a mail's own text `mailTurn` set in by a space: one that
-	 * starts `---` behind any characters that don't show. Those are format
+	 * A line of a mail's own text the turn set in by a space: one that
+	 * starts as one of the turn's own lines do behind any characters that
+	 * don't show. That's a mail's first line (`---`), the line that says
+	 * its text is cut or that it has none, or the mark a quote cut leaves;
+	 * or, in any case and with or without a space after the colon, the new
+	 * mail's recipients or a mail's attachments. The characters are format
 	 * characters and default ignorables, as `mailTurn` takes them, the
 	 * latter spelled out since PCRE before 10.40 doesn't name them.
 	 */
-	const SET_IN = '/^ [\p{Cf}\x{034F}\x{115F}\x{1160}\x{17B4}\x{17B5}\x{180B}-\x{180F}\x{2065}\x{3164}\x{FE00}-\x{FE0F}\x{FFA0}\x{FFF0}-\x{FFF8}\x{E0000}-\x{E0FFF}]*---/u';
+	const SET_IN = '/^ [\p{Cf}\x{034F}\x{115F}\x{1160}\x{17B4}\x{17B5}\x{180B}-\x{180F}\x{2065}\x{3164}\x{FE00}-\x{FE0F}\x{FFA0}\x{FFF0}-\x{FFF8}\x{E0000}-\x{E0FFF}]*(?:---|\[the rest of this mail is cut\]|\(no text\)|\[earlier mail left out\]|(?i:to|cc|reply-to|attachments):)/u';
 
 	/** The last lines a mail's text can end with. */
 	const CUT         = '[the rest of this mail is cut]';
@@ -131,15 +135,17 @@ final class Kindgi_Mail {
 		if ( $cut ) {
 			array_pop( $lines );
 		}
-		$text   = rtrim( implode( "\n", array_map( array( self::class, 'unset_line' ), $lines ) ) );
-		$forged = self::forged( $head[0] );
+		// `(no text)` stands for an empty text only as `mailTurn` writes it: a mail's own comes set in.
+		$written = rtrim( implode( "\n", $lines ) );
+		$text    = rtrim( implode( "\n", array_map( array( self::class, 'unset_line' ), $lines ) ) );
+		$forged  = self::forged( $head[0] );
 		return array(
 			'new'         => $new,
 			'from'        => $forged ? self::as_written( $head[0] ) : self::from( $head[3] ?? '' ),
 			'at'          => ! $forged && '' !== ( $head[4] ?? '' ) ? str_replace( ' ', 'T', $head[4] ) . ':00Z' : null,
 			'subject'     => ! $forged && isset( $head[5] ) && '' !== $head[5] ? $head[5] : null,
 			'recipients'  => $recipients,
-			'text'        => self::NO_TEXT === $text ? '' : $text,
+			'text'        => self::NO_TEXT === $written ? '' : $text,
 			'cut'         => $cut,
 			'attachments' => $attachments,
 		);
@@ -204,7 +210,7 @@ final class Kindgi_Mail {
 		return strlen( $text ) >= strlen( $end ) && substr( $text, -strlen( $end ) ) === $end;
 	}
 
-	/** A line of a mail's own text as it was: `mailTurn` sets in by a space each that would read as one of its own `---` lines (`SET_IN`). */
+	/** A line of a mail's own text as it was: `mailTurn` sets in by a space each that would read as one of its own lines (`SET_IN`). */
 	private static function unset_line( string $line ): string {
 		return 1 === preg_match( self::SET_IN, $line ) ? substr( $line, 1 ) : $line;
 	}

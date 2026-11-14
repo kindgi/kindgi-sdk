@@ -2,8 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type {
+  AllowJoinDomainBody,
+  ChangeJoinDomainBody,
   CreateSystemTenantBody,
   CreateSystemTenantResult,
+  JoinDomain,
+  JoinDomainList,
+  JoinDomainLookupResult,
+  JoinLookupWorkspace,
   ProjectSuspension,
   SystemTenantList,
   SystemTenantPurge,
@@ -11,7 +17,9 @@ import type {
   TenantAdminContacts,
   TenantLimitsResult,
   TenantLimits as TenantLimitsWire,
+  TenantPlan,
   TenantProductionAllowed,
+  UnregisterJoinDomainResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 import type { RenameTenantInput } from './tenant.js';
@@ -22,6 +30,7 @@ export type SystemTenantSpec = CreateSystemTenantBody;
 export type CreatedSystemTenant = CreateSystemTenantResult;
 export type TenantAdminContact = TenantAdminContacts['data'][number];
 export type TenantPurge = SystemTenantPurge;
+export type { JoinLookupWorkspace };
 
 /**
  * What the control plane sets on a tenant, with a system key (`kgi_sy_…`)
@@ -121,6 +130,58 @@ export interface SystemTenantsClient {
    */
   admins(tenantId: string): Promise<readonly TenantAdminContact[]>;
   /**
+   * The email domains a tenant lets people join from, the first allowed
+   * first. Takes `system:join-domains`.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}/join-domains`
+   */
+  joinDomains(tenantId: string): Promise<readonly JoinDomain[]>;
+  /**
+   * Let people at a domain join a tenant (`role` default `viewer`), as the
+   * operator: never a public mailbox domain, nor one verified for another
+   * tenant. Takes `system:join-domains`.
+   *
+   * @wire `POST /v1/system/tenants/{tenantId}/join-domains`
+   */
+  allowJoinDomain(
+    tenantId: string,
+    input: AllowJoinDomainBody,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<JoinDomain>;
+  /**
+   * Change what someone joining a tenant by a domain gets. People who joined
+   * already keep what they have. Takes `system:join-domains`.
+   *
+   * @wire `PATCH /v1/system/tenants/{tenantId}/join-domains/{domain}`
+   */
+  updateJoinDomain(
+    tenantId: string,
+    domain: string,
+    changes: ChangeJoinDomainBody,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<JoinDomain>;
+  /**
+   * Stop letting people at a domain join a tenant: new joins stop, joiners
+   * stay. Takes `system:join-domains`.
+   *
+   * @wire `POST /v1/system/tenants/{tenantId}/join-domains/{domain}/unregister`
+   */
+  unregisterJoinDomain(
+    tenantId: string,
+    domain: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterJoinDomainResult>;
+  /**
+   * For one email a sign-up page verified, of the workspaces that let
+   * people at its domain join, the ones it may join (`join`) and the ones
+   * it's in already (`member`): ids, names and join roles only, never every
+   * workspace it's in. Takes `system:join-domains:read` or
+   * `system:join-domains`.
+   *
+   * @wire `POST /v1/system/join-domains/lookup`
+   */
+  lookupJoinDomains(email: string): Promise<readonly JoinLookupWorkspace[]>;
+  /**
    * Purge a closed tenant for good, once its export window has passed:
    * every row of it, its artifacts' bytes and its authorization store.
    * Irreversible. `confirm` is its slug, a second check on the id. It
@@ -159,8 +220,9 @@ export interface SystemTenantsClient {
   /**
    * The tenant's limits as stored, in the shape `setLimits` takes: to
    * change one, read them, change it and set them all. A limit that isn't
-   * set is absent. Takes `system:tenants:limits`; a closing tenant's can
-   * be read.
+   * set is absent. From a runtime that keeps it, `plan` is the tenant's
+   * plan id (`setPlan`), or null while none is set. Takes
+   * `system:tenants:limits`; a closing tenant's can be read.
    *
    * @wire `GET /v1/system/tenants/{tenantId}/limits`
    */
@@ -176,6 +238,19 @@ export interface SystemTenantsClient {
     limits: TenantLimitsShape,
     options?: { readonly idempotencyKey?: string },
   ): Promise<TenantLimitsResult>;
+  /**
+   * Set the id of the plan the tenant is on, or clear it with null. It's
+   * only shown, beside the limits: the limits are what's enforced, so set
+   * them with `setLimits` too. Takes `system:tenants:limits`; a runtime
+   * that doesn't keep it answers `501 tenant-plan-unsupported`.
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/plan`
+   */
+  setPlan(
+    tenantId: string,
+    plan: string | null,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<TenantPlan>;
 }
 
 export function makeSystemTenantsClient(transport: Transport): SystemTenantsClient {
@@ -253,6 +328,44 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
       });
       return page.data;
     },
+    async joinDomains(tenantId) {
+      const page = await transport.request<JoinDomainList>({
+        method: 'GET',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains`,
+      });
+      return page.data;
+    },
+    async allowJoinDomain(tenantId, input, options) {
+      return transport.request<JoinDomain>({
+        method: 'POST',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains`,
+        body: input,
+        ...idem(options),
+      });
+    },
+    async updateJoinDomain(tenantId, domain, changes, options) {
+      return transport.request<JoinDomain>({
+        method: 'PATCH',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains/${encodeURIComponent(domain)}`,
+        body: changes,
+        ...idem(options),
+      });
+    },
+    async unregisterJoinDomain(tenantId, domain, options) {
+      return transport.request<UnregisterJoinDomainResult>({
+        method: 'POST',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains/${encodeURIComponent(domain)}/unregister`,
+        ...idem(options),
+      });
+    },
+    async lookupJoinDomains(email) {
+      const page = await transport.request<JoinDomainLookupResult>({
+        method: 'POST',
+        path: '/v1/system/join-domains/lookup',
+        body: { email },
+      });
+      return page.data;
+    },
     async purge(tenantId, confirm, options) {
       return transport.request<TenantPurge>({
         method: 'POST',
@@ -281,6 +394,14 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
         method: 'PUT',
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/limits`,
         body: limits,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async setPlan(tenantId, plan, options) {
+      return transport.request<TenantPlan>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/plan`,
+        body: { plan },
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },

@@ -12,8 +12,16 @@ import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { CorrectionRegistryBinding } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import { type ItemRights, forbidden } from '../item-rights.js';
+import {
+  type HeldProjects,
+  type ItemRights,
+  type ItemServing,
+  forbidden,
+  heldProjects,
+  recordedProjects,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import { TEST_CASE_KINDS, type TestCaseKind } from '../test-case-binding.js';
 import { type TestSetRegistryBinding, agentTestSetId } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
@@ -27,6 +35,7 @@ import {
   unfinishedRun,
   unknownCorrectionTool,
 } from './corrections.js';
+import { includeListOf } from './include-list.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -56,13 +65,16 @@ export function isTestSetPath(path: string): boolean {
  * Adding and retiring are fixing, so they need publish on the agent, and
  * read on the case's project. For an agent more than one project serves,
  * they need write on the case's project instead, as a correction's change
- * does (`item-rights.ts`, rule 3).
+ * does (`item-rights.ts`, rule 3). Without a store, a key or session
+ * limited to a project is held to those projects (`heldFixRefusal`).
  */
 export function agentTestSetRouter(deps: {
   readonly corrections: CorrectionRegistryBinding;
   readonly runs: RunBinding;
   readonly authorizer?: Authorizer;
   readonly itemRights?: ItemRights;
+  /** With no authorizer: which projects serve the agent (`itemServingOf`). */
+  readonly itemServing?: ItemServing;
   /** Answers an unknown agent's 404, and resolves its version's tools. */
   readonly agents?: AgentRegistryBinding;
   readonly conversations?: ConversationBinding;
@@ -72,6 +84,23 @@ export function agentTestSetRouter(deps: {
 }): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const { corrections } = deps;
+  // What adding or retiring a case asks (`fixRefusal`). Without a store,
+  // the agent's projects: the host's, else its record's.
+  const fixDeps = {
+    ...deps,
+    held: heldProjects(deps.itemServing, 'agent', async (c, id) =>
+      deps.agents === undefined
+        ? []
+        : recordedProjects(
+            deps.agents.listVersions({
+              tenantId: c.get('tenantId') as TenantId,
+              agentId: id as AgentId,
+              limit: 1,
+              includeTombstoned: true,
+            }),
+          ),
+    ),
+  };
 
   r.get('/:agentId/test-set', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
@@ -106,10 +135,8 @@ export function agentTestSetRouter(deps: {
     const agentId = c.req.param('agentId');
     const projectId = projectOf(c);
     if (typeof projectId !== 'string') return projectId;
-    const include = c.req.query('include');
-    if (include !== undefined && include !== 'retired') {
-      return fail(c, 'bad-input', 'include takes only retired.');
-    }
+    const include = includeListOf(c.req.queries('include'), ['retired']);
+    if (include.kind === 'err') return fail(c, 'bad-input', include.message);
     const kinds = parseKinds(c.req.query('kind'));
     if (typeof kinds === 'string') return fail(c, 'bad-input', kinds);
     const refused =
@@ -127,7 +154,7 @@ export function agentTestSetRouter(deps: {
       agentId,
       projectId,
       ...(kinds !== undefined && { kinds }),
-      ...(include === 'retired' && { includeRetired: true }),
+      ...(include.value.has('retired') && { includeRetired: true }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
       limit: clampLimit(c.req.query('limit')),
     });
@@ -161,7 +188,7 @@ export function agentTestSetRouter(deps: {
       return fail(c, 'run-not-found', `No run "${said.runId}".`);
     }
     const projectId = run.projectId as unknown as ProjectId;
-    const refused = await fixRefusal(c, deps, agentId, projectId);
+    const refused = await fixRefusal(c, fixDeps, agentId, projectId);
     if (refused !== undefined) return refused;
     const subject = subjectOf(run);
     if (subject.kind !== 'agent' || subject.id !== agentId) {
@@ -235,7 +262,7 @@ export function agentTestSetRouter(deps: {
     const found = await corrections.getCase({ tenantId, agentId, caseId });
     // A case in a project the caller can't read is no case, as a correction is.
     if (found === null || !(await canRead(c, deps.authorizer, found.projectId))) return notFound();
-    const refused = await fixRefusal(c, deps, agentId, found.projectId);
+    const refused = await fixRefusal(c, fixDeps, agentId, found.projectId);
     if (refused !== undefined) return refused;
     const outcome = await corrections.retireCase({ tenantId, agentId, caseId, reason, by });
     if (outcome.kind === 'not-found') return notFound();
@@ -327,11 +354,15 @@ async function canRead(
  */
 async function fixRefusal(
   c: Ctx,
-  deps: { readonly authorizer?: Authorizer; readonly itemRights?: ItemRights },
+  deps: {
+    readonly authorizer?: Authorizer;
+    readonly itemRights?: ItemRights;
+    readonly held: HeldProjects;
+  },
   agentId: string,
   projectId: ProjectId,
 ): Promise<Response | undefined> {
-  if (deps.authorizer === undefined) return undefined;
+  if (deps.authorizer === undefined) return heldFixRefusal(c, deps.held, agentId, projectId);
   const projects = await deps.itemRights?.multi(c, 'agent', agentId);
   if (deps.itemRights !== undefined && projects !== undefined) {
     const refused = await deps.itemRights.on(c, projectId, 'write');
@@ -343,4 +374,26 @@ async function fixRefusal(
     );
   }
   return await refusal(c, deps.authorizer, 'publish', ref('agent', agentId), `agent "${agentId}"`);
+}
+
+/**
+ * `fixRefusal` without a store, for a key or session limited to a
+ * project: refused where a store would refuse it for that limit alone
+ * (`limitedCallerRefusal`). For an agent more than one project serves,
+ * that's the case's project; else the agent's own. An agent that records
+ * no project passes, and so does one that isn't there (its 404).
+ */
+async function heldFixRefusal(
+  c: Ctx,
+  held: HeldProjects,
+  agentId: string,
+  projectId: ProjectId,
+): Promise<Response | undefined> {
+  if (c.get('tokenProjectId') === undefined) return undefined;
+  const projects = await held.projects(c, agentId);
+  const own = projects?.[0];
+  if (projects === undefined || own === undefined) return undefined;
+  return projects.length > 1
+    ? limitedCallerRefusal(c, 'write', ref('project', projectId as unknown as string), 'the case')
+    : limitedCallerRefusal(c, 'publish', ref('project', own as unknown as string), 'the agent');
 }

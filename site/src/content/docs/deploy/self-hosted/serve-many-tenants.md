@@ -101,14 +101,18 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:create` | Creating tenants only: each with a first admin, production blocked, no image repository, not a test tenant |
 | `system:tenants:image-prefix` | Setting a tenant's image repository |
 | `system:tenants:production` | A tenant's production switch |
-| `system:tenants:limits` | A tenant's limits |
+| `system:tenants:limits` | A tenant's limits, and the id of the plan it's on |
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
 | `system:tenants:purge` | [Purging a closed tenant](#close-and-purge-a-tenant), once its window has passed (runtime 0.1.10 or later). No other scope includes it |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
 | `system:env-refs` | [Setting a tenant's env names to a cloud secret](#set-a-name-to-a-cloud-secret), for its pack services (runtime 0.4.0 or later) |
+| `system:kept-repos` | [Kept repos](#kept-repos), for the repo store's reconcile: the rulings on the repos it holds, the unfinished erasures, and reporting a purge done. It can't request an erasure |
+| `system:kept-repos:erase` | [Requesting a kept repo's erasure](#erase-a-kept-repo), and reading its state |
 | `system:license` | Reading the deployment's license, for its renewal |
+| `system:join-domains` | [The email domains a tenant lets people join from](../../people-and-keys/#let-people-at-your-domain-join): listing, allowing, changing and stopping them, and the sign-up lookup (runtime 0.8.0 or later) |
+| `system:join-domains:read` | For one verified email, of the tenants that let people at its domain join, the ones it may join and the ones it's in already, for a sign-up page that offers them before it makes a new tenant: ids, names and join roles only, never a list of every tenant the email is in (`POST /v1/system/join-domains/lookup`, runtime 0.8.0 or later) |
 | `kindgi:system` | All of them: a full key |
 
 ```sh
@@ -152,10 +156,16 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
 - **With `firstAdmin`,** that person becomes the tenant's admin and member by
   email, and signs in with the runtime's own sign-in
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
-  make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
+  make the tenant's keys ([API keys](../../people-and-keys/#api-keys)). They
+  make the tenant's other admins
+  ([Someone who signs in](../../people-and-keys/#someone-who-signs-in)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
   once. Store it, because nothing shows it again. Only the full capability
   creates a tenant that way.
+- **`KINDGI_ADMIN_EMAILS` is for a runtime that serves one tenant.** With
+  several, the runtime refuses it at start: `firstAdmin` names each tenant's
+  first admin instead
+  ([Tenant admins by email](../../people-and-keys/#tenant-admins-by-email)).
 - **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
   `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
   new person by email, with what a first admin holds: every capability but
@@ -261,12 +271,32 @@ or a script, with a `system:deployments` key. The runtime records where each
 service is, and checks it. It never creates or deletes one.
 
 A pack's code may read whatever its service's account may. On
-[Cloud Run](../cloud-run/#serve-many-tenants), every tenant's pack services
-run as the module's one pack account, `$N-pack`. So each tenant's pack code
-can read every `kp-` secret, other tenants' pack service tokens and secret
-env values among them, and every secret in `pack_secret_readers`. One such
-installation is for tenants that trust one another's pack code. Give tenants
-that don't an installation each
+[Cloud Run](../cloud-run/#serve-many-tenants), by default
+(`pack_accounts = "shared"`), every tenant's pack services run as the
+module's one pack account, `$N-pack`. So each tenant's pack code can read
+every `kp-` secret, other tenants' pack service tokens and secret env values
+among them, and every secret in `pack_secret_readers`. Such an installation
+is for tenants that trust one another's pack code.
+
+With `pack_accounts = "per-tenant"`, each tenant listed in `pack_tenants`
+gets an account of its own
+([A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)).
+Turning it on is one-way: going back to shared isn't supported. A tenant
+leaves `pack_tenants` only after its deployments are retired. Once its pack
+services have moved to its account and `pack_shared_account` is `false`
+(step 3 in
+[A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)),
+its pack code can read only its own `kp-` secrets and the
+`pack_secret_readers` secrets listed for it. Until then, a pack service
+still on `$N-pack` reads every `kp-` secret. Other things stay shared:
+every tenant's pack code can
+connect to each instance in `pack_cloud_sql_instances`, read each bucket in
+`pack_bucket_readers`, and call each service in `pack_run_invokers`. So list
+there only what every tenant may reach. The pack orchestrator acts as every
+tenant's account and gives each service its values, so it's trusted with
+every tenant, as the runtime is. Tenants that don't trust one another's pack
+code can share an installation only on those terms. Otherwise, give them an
+installation each
 ([Your tools' code](../../../concepts/security/#your-tools-code)).
 
 1. **List the deployments that need a service:**
@@ -491,6 +521,36 @@ from its own token, for that tenant alone.
   (`system:tenants:limits`). `PUT` replaces them all: a limit left out isn't
   set, and isn't enforced. Read them, change one, and put them all back. The
   tenant reads its own on `GET /v1/tenant`.
+- **Storage:** the `storageMiB` limit caps the MiB of files a tenant keeps:
+  its uploads, its runs' files and its tools' files, with the uploads under
+  way. Past it, an upload is refused with `403 storage-limit-reached`, and a
+  tool's file isn't stored. Lowering it deletes no file. `GET …/limits`
+  answers what the tenant's files take as `inUse.storageUsedBytes`, and the
+  tenant reads it as `storage.usedBytes` on `GET /v1/tenant`. An upload made
+  for a run (`forRun`) is deleted when no run that names it starts within
+  `KINDGI_UNUSED_UPLOAD_TTL_MS`, 24 hours by default
+  ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/#upload-one-for-a-run-that-hasnt-started)).
+- **Flows and agents in production:** the `flowsInProduction` and
+  `agentsInProduction` limits hold the tenant to a plan's numbers, each flow
+  and agent counted once however many of its projects in production run it.
+  Past the most, the number and a margin, a write that adds new ones is
+  refused with `403 plan-limit-reached`
+  ([A workspace's own limits](../plan-limits/#a-workspaces-own-limits)).
+  From a runtime that counts them, `GET …/limits` answers what the tenant
+  runs as `inUse`.
+- **The plan's id:** `PUT /v1/system/tenants/{tenantId}/plan` with
+  `{"plan": "starter"}` (`system:tenants:limits`) records which plan the
+  tenant is on, and `{"plan": null}` clears it. An id is a lowercase letter,
+  then up to 31 lowercase letters, digits and hyphens. It's only shown: the
+  limits are what's enforced, so set them too. `GET …/limits` answers it as
+  `plan`, and `PUT …/limits` leaves it as it is. It answers:
+  - `200` with `{ tenantId, plan }`;
+  - `400 bad-input` for any other body;
+  - `403 system-scope-missing` for a key without `system:tenants:limits`;
+  - `404 tenant-not-found` for an unknown or purged tenant, and
+    `409 tenant-closing` for a closing one;
+  - `501 tenant-plan-unsupported` from a runtime that doesn't keep a plan
+    ([tenant-plan-unsupported](../../../reference/errors/#tenant-plan-unsupported)).
 - **Production:** `PUT /v1/system/tenants/{tenantId}/production-allowed` with
   `{"allowed": true}` (`system:tenants:production`). Until then, putting a
   project in production is refused with `403 production-not-allowed`, and
@@ -529,6 +589,71 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   and it lists to retire. Restored, it serves again from the endpoint
   recorded for it. If its endpoint is pending, or was cleared meanwhile, it
   lists as needing a pack service.
+
+## Kept repos
+
+Kindgi Cloud keeps a git repo for each project without a GitHub repo, in a
+repo store beside a runtime serving many tenants. The store holds the repos.
+The runtime holds their record: which projects are live, deleted or moved to
+GitHub, which repos are due a purge, and each purge done. A runtime you run
+has no repo store, so `KINDGI_KEPT_REPOS` stays off on it. This section says
+what the runtime's side does, and what its routes answer.
+
+- **It's turned on** with `KINDGI_KEPT_REPOS=on`, on the runtime and on the
+  store's gateway alike. Off is the default. A runtime serving one tenant
+  refuses to start with it on.
+- **Turning it off erases nothing.** Repos the store holds stay there until
+  they're purged while it's on. An erasure requested while it was on stays
+  unfinished while it's off, and completes once it's on again.
+- **The store's key** holds `system:kept-repos`, and nothing more. With it,
+  each pass of the store's reconcile:
+  - asks for a ruling on each repo it holds, up to 500 at a time
+    (`POST /v1/system/kept-repos/rulings`): `keep`, with the mark it sets
+    on the repo, or `purge`, for a reason (`erasure`, `retention`,
+    `tenant-purged` or `no-record`);
+  - lists the unfinished erasures (`GET /v1/system/kept-repos/erasures`),
+    and purges each, whether or not it holds the repo;
+  - reports each purge done
+    (`POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged`
+    with `{"reason": "..."}`), which completes the erasure waiting on it.
+  The three answer whether or not `KINDGI_KEPT_REPOS` is on, so a store
+  still purges what's ruled while the runtime's is off.
+- **A repo is kept** while its project is live, and for 90 days after its
+  project is deleted or the repo moves to GitHub, its kept window (`keep`,
+  marked `deleted` or `moved`). Then it's ruled `purge` for `retention`,
+  unless something holds it (`keep`, marked `held`).
+
+### Erase a kept repo
+
+With a key holding `system:kept-repos:erase`:
+
+```sh
+curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/projects/$PROJECT_ID/kept-repo/erasure" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY")
+```
+
+- **`202`** `{"state": "erasure-requested", "since": "..."}`: requested, now
+  or by an earlier request still unfinished. The store's next pass purges
+  the repo and reports it, which completes the erasure.
+- **`200`** `{"state": "purged", "since": "..."}`: its erasure is done
+  already, and nothing more is requested. A repo purged when its kept
+  window ended is requested still, so its erasure is recorded too.
+- **`404 project-not-found`:** the runtime has no record of the project.
+- **`409 legal-hold`:** something holds the repo, and nothing is requested.
+- **`501 kept-repos-off`:** `KINDGI_KEPT_REPOS` is off on the runtime, and
+  nothing is requested.
+
+`GET` on the same path, under the same scope, answers the repo's state:
+`live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and
+since when.
+
+Each erasure done is recorded off the database too, under
+`KINDGI_TENANT_PURGE_RECORD` (`kept-repos/erased/<tenant id>/<project id>.json`)
+and in every copy of the erasure ledger, so a restore from an older backup
+can't bring an erased repo back. After a restore, keep the store's gateway
+stopped until
+[`erasures replay --records`](../back-up-and-restore/#copies-the-runtime-keeps-on-its-own)
+and [`tenants repurge`](#after-a-restore-tenants-repurge) have run.
 
 ## Close and purge a tenant
 
@@ -591,18 +716,32 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants/$TENANT_ID/purge" \
 - **`complete: true`:** nothing of it is left, its record is written, and
   it's marked purged at `purgedAt`. **`complete: false`:** `left` and
   `objectsLeft` say what is, and `leftBecause` why, when it's a setting the
-  runtime lacks. Run it again. A call that ended before its answer is
+  runtime lacks or a secret your secret manager didn't erase. Run it again. A call that ended before its answer is
   finished the same way. Each run again is a new request: a new
   `Idempotency-Key`, or none.
 - **Refused, with nothing changed:** a tenant that isn't closing
   (`409 tenant-not-closing`), or whose window is still open
   (`409 tenant-export-window-open`, with `windowEndsAt`), and one with
-  artifacts or an authorization store when the server has no
-  `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL` (`409 purge-setting-missing`).
+  artifacts, an authorization store or secrets a secret manager may still
+  hold when the server has no `KINDGI_ARTIFACTS`, `KINDGI_OPENFGA_API_URL` or
+  `KINDGI_SECRETS_MANAGER` (`409 purge-setting-missing`).
 - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`,
   and its message says what that left. A tenant's rows go only after its
   store, so by then its artifacts' bytes may be deleted, but none of its
   rows. Run it again once OpenFGA answers.
+- **With your own secret manager**
+  ([Keep secrets in your own secret manager](../secret-manager/)), the
+  purge (runtime 0.7.0 or later) erases each of the tenant's secrets there
+  after its OpenFGA store and before its rows. One your secret manager
+  doesn't erase stops it, with
+  none of its rows deleted (a rate limit is waited out a few times first): `complete: false`, and `leftBecause` names the
+  secret manager, its answer and the secret's id. The server's warning in
+  its log says where the secret is. Fix the server's access to your secret
+  manager, or delete that secret there by hand, then run it again. A server
+  whose `KINDGI_SECRETS_BACKEND` isn't `secret-manager` refuses a tenant with
+  secrets left in a secret manager by an earlier setup: purge it with
+  [`kindgi-runtime tenants purge`](#with-kindgi-runtime), with that secret
+  manager's settings.
 - **A day later,** run it again. On a tenant already purged, it deletes
   anything of it written since its mark (`alreadyPurged: true`), and its
   mark and its record stay as they were. Nothing should write to a tenant
@@ -634,11 +773,35 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
 
 - **It deletes the tenant for good:** every row of it, its artifacts' bytes and
   its OpenFGA store. Its tenants row stays, marked purged, with nothing left
-  that signs in.
-- **`--dry-run`** says what would be deleted, and changes nothing.
+  that signs in. With your own secret manager (runtime 0.7.0 or later), it
+  erases the tenant's secrets there before its rows
+  (`secrets: <n> erased in the secret manager`).
+- **`--dry-run`** says what would be deleted, and changes nothing. With
+  secrets a secret manager may still hold, it counts them:
+  `secrets a secret manager may still hold: <n> (<secret manager>)`.
 - **Refused (exit 2)** for a tenant that isn't closing or is still in its
   window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
+- **Its secrets in a secret manager need `KINDGI_SECRETS_MANAGER`**
+  (runtime 0.7.0 or later), with that secret manager's settings and, on
+  AWS or Azure, the server's identity
+  there, as the server has them. Without it, a tenant with secrets a secret
+  manager may still hold is refused (exit 2). For a tenant with secrets, it
+  first checks it can reach the secret manager, as the server does when it
+  starts, and stops with exit 2, nothing deleted, when it can't. A dry run,
+  or a tenant with no secrets, doesn't reach it.
+  When the server's `KINDGI_SECRETS_BACKEND` isn't `secret-manager`, and an
+  earlier setup left secrets in a secret manager, set
+  `KINDGI_SECRETS_MANAGER` and that secret manager's settings for the purge.
+  A secret manager gone for good can only be passed by deleting the
+  tenant's `secret_mappings` rows by hand.
+- **Exit 1, too, when your secret manager doesn't erase a secret:**
+  `stopped, nothing after it deleted: …` names it, and the warning
+  before it says where it is. Fix the access, or delete that secret there
+  by hand, then run it again. A secret it doesn't send to a secret manager
+  is warned of and counted
+  (`secrets not sent to a secret manager: <n> (named above; their values may still be there)`),
+  and its row goes.
 - **With a key for OpenFGA**
   ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)),
   purging a tenant with an OpenFGA store needs runtime 0.1.9 or later. An
@@ -659,7 +822,9 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   its prefix.
 - **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
   `s3:<bucket>[/<prefix>]` with runtime 0.4.0 or later) keeps a record of
-  each purge, `purged/<tenant id>.json` under it. After a restore,
+  each purge, `purged/<tenant id>.json` under it. With your own secret
+  manager, it counts the secrets erased (`secretsErased`) and names any not
+  sent (`secretsNotSent`). After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
   second, here or through the system API, waits for the first to finish.
@@ -721,10 +886,12 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
   (`refused: its record's createdAt isn't this tenant's.`), and, for a
   record without a creation time, by the tenant's slug.
 - **Exit `0`:** done. **`1`:** rows of a tenant are left, named
-  (`tenant <id>: left: <table>: <n> rows`): run it again. **`2`:** a tenant
-  was refused, as above or for a setting the run lacks (artifacts or an
-  OpenFGA store, and no `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL`), or
-  it couldn't run.
+  (`tenant <id>: left: <table>: <n> rows`), or a secret your secret manager
+  didn't erase stopped it (`stopped, nothing after it deleted: …`): run
+  it again. **`2`:** a tenant was refused, as above or for a setting the run
+  lacks (artifacts, an OpenFGA store or secrets a secret manager may still
+  hold, and no `KINDGI_ARTIFACTS`, `KINDGI_OPENFGA_API_URL` or
+  `KINDGI_SECRETS_MANAGER`), or it couldn't run.
 
 ## After each upgrade: tenants repair
 

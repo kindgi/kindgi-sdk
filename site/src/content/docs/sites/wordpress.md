@@ -150,12 +150,18 @@ and `kindgi sites update <site-id>` changes it later:
 
 Each SDK release carries the plugin as `kindgi-<version>.zip`; its source is under
 [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
-It needs WordPress 6.4 or later and PHP 7.4 or later.
+This page is for release `{{kindgi.version}}`, whose plugin needs runtime
+0.4.0 or later, WordPress 6.4 or later and PHP 7.4 or later. For an older
+runtime, read this page in the docs for the runtime's own version: it names
+the plugin that fits it.
+<!-- 0.4.0 is the floor of the plugin this release carries, as its readme.txt says: change them together. -->
 
-1. **Install it.** Download `kindgi-<version>.zip` from the SDK's
-   [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest),
-   and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New
-   Plugin** before WordPress 6.8). The `.sha256` file next to it checks the
+1. **Install it.** Download `kindgi-<version>.zip`, the plugin this version
+   of the docs describes, from release Kindgi SDK `{{kindgi.version}}` on the
+   SDK's [releases page](https://github.com/kindgi/kindgi-sdk/releases), and
+   upload it under
+   **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before
+   WordPress 6.8). The `.sha256` file next to it checks the
    download (`sha256sum -c`). Or copy the folder to
    `wp-content/plugins/kindgi`. Then activate it.
 2. **Connect.** An administrator, under **Kindgi → Settings**, pastes the
@@ -264,14 +270,15 @@ themselves, in conversations of their own:
   [Give some projects its tools](../../guides/tools/mcp-servers/#give-some-projects-its-tools)).
 - **A read-only tool** runs as the agent's and the workspace's rules say. It
   counts as read-only when every version of it, retired ones included,
-  says `mutating: false`.
+  says `mutating: false`. An MCP tool counts as read-only when its
+  endpoint's registration lists it in `readOnlyTools`: its newest version
+  then decides for every version (see
+  [Name its read-only tools](../../guides/tools/mcp-servers/#name-its-read-only-tools)).
 - **Every other tool waits for a yes** on each call, whatever the agent's
-  or the workspace's rules say, and so does `kindgi_remember`. An MCP tool
-  always counts as one that changes things, so each of the store's
-  actions waits, product lookups included (see
+  or the workspace's rules say, and so does `kindgi_remember`. So each of
+  the store's actions the endpoint doesn't list waits, a product lookup
+  included (see
   [Give the agent the store's actions](#give-the-agent-the-stores-actions)).
-  Only a tool whose own definition says `mutating: false`, as a pack's
-  read-only tool can, reads without one.
 - **Who says yes:** a reviewer whose role may decide it. The person who
   asked may approve their own call when their role reviews approvals,
   unless the agent sets `separateApprover` (see [Four eyes](#four-eyes)).
@@ -520,9 +527,16 @@ the store's actions (look up an order, refund it) as
 - **Set `meta.mcp.public` to `false`** on every ability with side effects.
   The default server then never exposes it, even when the ability is
   otherwise public, and only your own server does.
-- **Give read-only tools `never_ask`.** An MCP tool always counts as one
-  that changes things, so, with `hitl.tools` set, a gate asks before it
-  unless an override says otherwise:
+- **List the store's lookups as read-only.** Register the endpoint with
+  `"readOnlyTools": ["acme-order-lookup"]`, the ability's tool name as the
+  server lists it (see
+  [Name its read-only tools](../../guides/tools/mcp-servers/#name-its-read-only-tools)).
+  `shop.acme-order-lookup` then counts as read-only, and every unlisted
+  tool as one that may change things. List no ability with side effects.
+- **Give read-only tools `never_ask`.** With `hitl.tools` set and no rule
+  for it, a gate lets a listed tool through and asks before any other. An
+  agent whose gate defaults to `always_ask` still needs an override for
+  each lookup:
 
   ```ts excerpt
   conversationPolicy: {
@@ -536,8 +550,9 @@ the store's actions (look up an order, refund it) as
   },
   ```
 
-  In an Ask from someone the site signs in, every store tool waits for a
-  yes, whatever the override says (see [What an Ask may do](#what-an-ask-may-do)).
+  In an Ask from someone the site signs in, a listed lookup runs as its
+  override says, and every other store tool waits for a yes, whatever the
+  override says (see [What an Ask may do](#what-an-ask-may-do)).
 
 - **Give money tools no automatic retries on a tool error.** A retry is a
   new call, with its own approval and its own idempotency key. If the first

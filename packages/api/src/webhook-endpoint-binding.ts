@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { RunAgentRef } from '@kindgi/runtime';
+import type { RunAgentRef, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
 import type {
   Cursor,
   EnvName,
@@ -209,6 +209,17 @@ export interface FinishedRun {
    * send it yet.
    */
   readonly agent?: RunAgentRef;
+  /**
+   * The trigger that started the run, as `GET /v1/runs/:runId` shows it (a
+   * schedule's `triggerId` is its `scheduleId`). Absent on a run no
+   * trigger started, and from a runtime that doesn't send it yet.
+   */
+  readonly trigger?: RunTriggerRef;
+  /**
+   * How the run started, as `GET /v1/runs/:runId`'s `startedBy`. Absent on
+   * a run that records none, and from a runtime that doesn't send it yet.
+   */
+  readonly startedBy?: RunStartedBy;
 }
 
 export interface RunFinishedEvent {
@@ -256,6 +267,12 @@ export interface RequestedApproval {
   readonly createdAt: Timestamp;
   readonly expiresAt?: Timestamp;
   readonly url?: string;
+  /**
+   * The top-level run that waits on it, when a run asked for it. Absent on
+   * an approval no run asked for, and from a runtime that doesn't send it
+   * yet.
+   */
+  readonly runId?: RunId;
 }
 
 /** Sent only by `POST /v1/webhook-endpoints/:endpointId/test`. */

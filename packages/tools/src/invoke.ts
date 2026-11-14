@@ -3,7 +3,7 @@
 
 import type { ValidateFunction } from 'ajv';
 
-import { describeCauses, scrubText } from '@kindgi/log';
+import { REDACTED, describeCauses, isSecretKey, scrubText } from '@kindgi/log';
 import { holdJsonSchema, parseWithSchema } from '@kindgi/schema';
 import type { CompileJsonSchemaOptions } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
@@ -14,11 +14,13 @@ import type {
   OutputValidationError,
   PreconditionFailedError,
   ToolError,
+  ToolFailedError,
   ToolPauseUnsupportedError,
   WaitTokenRerunsExhaustedError,
 } from './errors.js';
 import { type ToolPause, isToolRerunsExhaustedError, pauseOf } from './pause.js';
 import { isToolPreconditionError } from './precondition.js';
+import { ToolFailure, isToolFailure } from './tool-failure.js';
 import type { JsonSchema, Tool, ToolContext } from './types.js';
 
 const PACK_SCHEMAS: CompileJsonSchemaOptions = { dialects: ['2020-12'] };
@@ -150,7 +152,8 @@ export type ToolOutcome<TOutput> =
  *      `tool.inputZod` (defaults, transforms, refinements). Reject on
  *      failure.
  *   2. Call `tool.handler(prepared, ctx)`. Catch any throw and return
- *      `handler-error` — invocation is total, throws don't escape.
+ *      `handler-error` — invocation is total, throws don't escape. A
+ *      `ToolFailure` is the tool's own answer, not a crash: `tool-failed`.
  *   3. Validate the return value against `tool.output` schema (unless the
  *      caller opts out).
  *
@@ -198,7 +201,8 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
   let output: TOutput;
   try {
     output = await tool.handler(prepared.value as TInput, ctx);
-  } catch (cause) {
+  } catch (thrown) {
+    const cause = isToolFailure(thrown) ? remade(thrown) : thrown;
     if (isToolPreconditionError(cause)) {
       const refused: PreconditionFailedError = {
         code: 'precondition-failed',
@@ -219,6 +223,7 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
       };
       return { kind: 'err', error: exhausted };
     }
+    if (isToolFailure(cause)) return { kind: 'err', error: toolFailed(tool.id, cause) };
     const err: HandlerError = {
       code: 'handler-error',
       message: `Tool "${tool.id}" handler threw: ${thrownText(cause)}`,
@@ -257,6 +262,57 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
 function thrownText(cause: unknown): string {
   if (!(cause instanceof Error)) return scrubText(String(cause), { fullMask: true });
   return `${scrubText(String(cause.message), { fullMask: true })}${describeCauses(cause)}`;
+}
+
+/**
+ * A `ToolFailure` as the call's error: the tool's code as `reason`, its
+ * message as written and its details, with no wrap and no causes. The
+ * message and every string in the details take `scrubText`'s full mask,
+ * as a thrown message does, and a details key that looks secret has its
+ * value redacted.
+ */
+function toolFailed(toolId: Tool['id'], failure: ToolFailure): ToolFailedError {
+  const message = scrubText(failure.message, { fullMask: true });
+  const { details } = failure;
+  if (details === undefined) return { code: 'tool-failed', message, toolId, reason: failure.code };
+  return {
+    code: 'tool-failed',
+    message,
+    toolId,
+    reason: failure.code,
+    details: maskedJson(details) as Readonly<Record<string, unknown>>,
+  };
+}
+
+/**
+ * `failure` made again, or the class's refusal of it: one whose code,
+ * message or details the class would refuse (changed after it was made, or
+ * from a copy of the SDK that doesn't check) is then a throw that says why.
+ */
+function remade(failure: ToolFailure): unknown {
+  try {
+    return new ToolFailure(
+      failure.code,
+      failure.message,
+      failure.details === undefined ? {} : { details: failure.details },
+    );
+  } catch (refusal) {
+    return refusal;
+  }
+}
+
+/** A JSON value with its strings fully masked and its secret-looking keys redacted. */
+function maskedJson(value: unknown): unknown {
+  if (typeof value === 'string') return scrubText(value, { fullMask: true });
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(maskedJson);
+  // fromEntries defines each key, so a `__proto__` stays one.
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, v]) => [
+      key,
+      isSecretKey(key) ? REDACTED : maskedJson(v),
+    ]),
+  );
 }
 
 /**

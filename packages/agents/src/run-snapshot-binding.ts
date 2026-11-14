@@ -3,7 +3,7 @@
 
 import type { ProjectId, Result, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
-import type { RunMailbox, RunReplayRef, RunStartedBy } from '@kindgi/runtime';
+import type { RunMailbox, RunReplayRef, RunStartedBy, RunTextThread } from '@kindgi/runtime';
 
 import type { PersistenceError } from './errors.js';
 import type { AgentId, ConversationId } from './types.js';
@@ -61,6 +61,13 @@ export interface RunSnapshotWriteInput {
    * run's.
    */
   readonly mailbox?: RunMailbox;
+  /**
+   * The thread a text trigger's turn answers
+   * (`InvokeAgentInput.textThread`). A store that keeps it with the run's
+   * record instead may ignore it here, as long as `read` answers the
+   * run's.
+   */
+  readonly textThread?: RunTextThread;
 }
 
 /**
@@ -103,6 +110,13 @@ export interface RunSnapshotRecord {
    * it. Absent or null on every other run.
    */
   readonly mailbox?: RunMailbox | null;
+  /**
+   * The thread a text trigger's run answers, as recorded when it started:
+   * a resumed turn gets it from here, never from whoever resumes it, so a
+   * reply approved after a wait goes to the same person. Absent or null on
+   * every other run.
+   */
+  readonly textThread?: RunTextThread | null;
   readonly createdAt: Timestamp;
 }
 

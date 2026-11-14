@@ -117,6 +117,48 @@ function azureAlert(resource: string): (line: string) => boolean {
   return (line) => keeps.every((keep) => keep(line));
 }
 
+/**
+ * The Cloud Run module's alerts on the renewal job's log, read from their
+ * Cloud Logging filters, as the Azure module's are from its KQL. Cloud Run
+ * logs each line of stdout and stderr as `textPayload`.
+ */
+const GCP_RENEWAL_TF = fileURLToPath(
+  new URL('../../../deploy/gcp-cloud-run/renewal.tf', import.meta.url),
+);
+
+// `textPayload =~ "<regex>"`, or its NOT. No backslash: Cloud Logging and HCL
+// would each take one away, so a character class ([(]) stands in for an escape.
+const TEXT_PAYLOAD = /^(NOT )?textPayload =~ "([^"\\]*)"$/;
+
+function gcpAlert(resource: string): (line: string) => boolean {
+  const tf = readFileSync(GCP_RENEWAL_TF, 'utf8');
+  const at = tf.indexOf(`"google_monitoring_alert_policy" "${resource}"`);
+  const literal =
+    at < 0
+      ? undefined
+      : /condition_matched_log \{\s*filter = ("(?:[^"\\]|\\.)*")/.exec(tf.slice(at))?.[1];
+  if (literal === undefined) throw new Error(`no log filter for ${resource} in ${GCP_RENEWAL_TF}`);
+  // HCL escapes its quotes as JSON does.
+  const [type, job, ...rest] = (JSON.parse(literal) as string).split(' AND ');
+  expect(type, resource).toBe('resource.type = "cloud_run_job"');
+  expect(job, resource).toBe('resource.labels.job_name = "${local.renewal_job}"');
+  const keeps = rest.map((term): ((log: string) => boolean) => {
+    const where = TEXT_PAYLOAD.exec(term);
+    if (where === null)
+      throw new Error(`${resource}: a filter term this test doesn't read: ${term}`);
+    const [, not, text = ''] = where;
+    if (/[$%]\{/.test(text)) throw new Error(`${resource}: Terraform fills in ${text}`);
+    // Cloud Logging's regexes are RE2's too.
+    if (/\(\?<?[=!]/.test(text)) {
+      throw new Error(`${resource}: RE2 has no lookaround: ${text}`);
+    }
+    const regex = new RegExp(text);
+    return not === undefined ? (log) => regex.test(log) : (log) => !regex.test(log);
+  });
+  if (keeps.length === 0) throw new Error(`${resource}: its filter tests no textPayload`);
+  return (line) => keeps.every((keep) => keep(line));
+}
+
 const fires = (alert: (line: string) => boolean, out: { stdout: string; stderr: string }) =>
   [...out.stdout.split('\n'), ...out.stderr.split('\n')].some(alert);
 
@@ -417,11 +459,12 @@ describe('kindgi license renew', () => {
 
   // By the key's subject, as `kindgi doctor` and the runtime's banner say it:
   // a key Kindgi issued (any use) is extended with Kindgi; a self-serve one
-  // (`gh-…`, `dom-…`, any use) comes from signing in.
+  // (`gh-…`, `em-…`, `dom-…`, any use) comes from signing in.
   test.each([
     ['Kindgi issued, production', 'acme-prod', 'production', 'contact'],
     ['Kindgi issued, non-production', 'acme-eval', 'non-production', 'contact'],
     ['self-serve, production (a company domain)', 'dom-acme.example', 'production', 'sign in'],
+    ['self-serve, an email sign-in', 'em-kqzt3xw7mfa2rb5ndl6hpye4cv', 'non-production', 'sign in'],
   ])("a key %s: the warning's next step", async (_label, sub, use, next) => {
     const soon = licenseKey({ sub, name: 'Acme Corp', use, exp: NOW / 1000 + 10 * DAY });
     const { dir, renewer } = await enrolled(soon);
@@ -440,15 +483,21 @@ describe('kindgi license renew', () => {
     expect(out.stdout).not.toContain(next === 'contact' ? 'sign in' : 'contact@kindgi.com');
   });
 
-  // The Azure module's expiring alert, as its query reads this run's lines.
-  test("the Azure module's expiring alert, from its query: within a week and past the key's date, not at 7 days", async () => {
-    const expiring = azureAlert('license_key_expiring');
+  // Both modules' expiring alerts, as their queries read this run's lines:
+  // they follow the warning line, which follows the key's warning window.
+  test("both modules' expiring alerts, from their queries: inside the key's warning window and past its date, never before it", async () => {
+    const alerts = [
+      ['azure', azureAlert('license_key_expiring')],
+      ['gcp', gcpAlert('license_key_expiring')],
+    ] as const;
     for (const [days, raised] of [
+      [30, true],
+      [10, true],
       [6, true],
       [0, true],
       [-3, true],
-      [7, false],
-      [10, false],
+      [31, false],
+      [45, false],
     ] as const) {
       const key = licenseKey({ exp: NOW / 1000 + days * DAY });
       const { dir, renewer } = await enrolled(key);
@@ -458,9 +507,11 @@ describe('kindgi license renew', () => {
         { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: key })) },
       );
       expect(out.exitCode, `${days} days`).toBe(0);
-      // The 30-day warning is there either way: the alert reads its days.
-      expect(out.stdout, `${days} days`).toMatch(/^⚠ /m);
-      expect(fires(expiring, out), `${days} days`).toBe(raised);
+      // The alerts fire on the warning line, and only on it.
+      expect(/^⚠ It expires in /m.test(out.stdout), `${days} days`).toBe(raised);
+      for (const [module, expiring] of alerts) {
+        expect(fires(expiring, out), `${module}, ${days} days`).toBe(raised);
+      }
     }
   });
 
@@ -499,9 +550,13 @@ describe('kindgi license renew', () => {
     expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toBe(before);
   });
 
-  /** A runtime's `license.usage`, recording what it was asked. */
+  /**
+   * A runtime's `license.usage`, recording what it was asked, and its
+   * `license.replace`, taking every key handed to it.
+   */
   function runtime(answer: (since: Date) => Promise<Record<string, unknown>>) {
     const asked: { url: string; token: string; since: string }[] = [];
+    const handed: string[] = [];
     const clientFactory = (url: string, token: string) =>
       ({
         license: {
@@ -509,9 +564,13 @@ describe('kindgi license renew', () => {
             asked.push({ url, token, since: since.toISOString() });
             return answer(since);
           },
+          replace: async ({ key }: { key: string }) => {
+            handed.push(key);
+            return {};
+          },
         },
       }) as unknown as KindgiClient;
-    return { asked, clientFactory };
+    return { asked, handed, clientFactory };
   }
   const USAGE = {
     since: '2026-10-05T12:00:00.000Z',
@@ -817,9 +876,14 @@ describe('kindgi license renew', () => {
     ]);
   });
 
-  // The Azure module's counts alert, as its query reads this run's lines.
-  test("the Azure module's counts alert, from its query: renewed, unchanged or refused without counts, never with them or a production key's", async () => {
-    const notSent = azureAlert('license_counts_not_sent');
+  // Both modules' counts alerts, as their queries read this run's lines.
+  test("both modules' counts alerts, from their queries: renewed, unchanged or refused without counts, never with them or a production key's", async () => {
+    const azure = azureAlert('license_counts_not_sent');
+    const gcp = gcpAlert('license_counts_not_sent');
+    const notSent = (line: string) => {
+      expect(gcp(line), line).toBe(azure(line));
+      return azure(line);
+    };
     const notFound = runtime(async () => {
       throw new KindgiApiError({
         code: 'not-found',
@@ -1069,12 +1133,12 @@ describe('kindgi license renew', () => {
     }
   });
 
-  test("the Azure module's alerts fire the same under --quiet and --json: the job's log has the warnings either way", async () => {
-    const expiring = azureAlert('license_key_expiring');
+  test("both modules' alerts fire the same under --quiet and --json: the job's log has the warnings either way", async () => {
+    const expirings = [azureAlert('license_key_expiring'), gcpAlert('license_key_expiring')];
     for (const [days, raised] of [
       [6, true],
       [-3, true],
-      [7, false],
+      [31, false],
     ] as const) {
       const key = licenseKey({ exp: NOW / 1000 + days * DAY });
       const { dir, renewer } = await enrolled(key);
@@ -1083,11 +1147,13 @@ describe('kindgi license renew', () => {
           ...deps,
           fetchImpl: service(renewer, () => Response.json({ licenseKey: key })),
         });
-        expect(fires(expiring, out), `${days} days ${flags.join(' ')}`).toBe(raised);
+        for (const expiring of expirings) {
+          expect(fires(expiring, out), `${days} days ${flags.join(' ')}`).toBe(raised);
+        }
       }
     }
 
-    const notSent = azureAlert('license_counts_not_sent');
+    const notSents = [azureAlert('license_counts_not_sent'), gcpAlert('license_counts_not_sent')];
     const notFound = runtime(async () => {
       throw new KindgiApiError({
         code: 'not-found',
@@ -1112,7 +1178,9 @@ describe('kindgi license renew', () => {
           clientFactory,
         });
         expect(out.exitCode, `${label} ${flags.join(' ')}`).toBe(0);
-        expect(fires(notSent, out), `${label} ${flags.join(' ')}`).toBe(raised);
+        for (const notSent of notSents) {
+          expect(fires(notSent, out), `${label} ${flags.join(' ')}`).toBe(raised);
+        }
       }
     }
   });
@@ -1137,6 +1205,274 @@ describe('kindgi license renew', () => {
     });
     for (const flags of [['--json'], ['--raw'], ['--table'], ...QUIET]) {
       expect(await run(flags), flags.join(' ')).toEqual(plain);
+    }
+  });
+
+  /**
+   * A runtime through the client: `GET /v1/license/usage` answers counts,
+   * `PUT /v1/license` answers `put`, `GET /v1/license` answers `license`
+   * when given, and the keys handed to it are kept.
+   */
+  function served(put: () => Response, license?: () => Response) {
+    const handed: string[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      const path = new URL(String(url)).pathname;
+      if (init.method === 'PUT' && path === '/v1/license') {
+        handed.push((JSON.parse(String(init.body)) as { key: string }).key);
+        return put();
+      }
+      if (license !== undefined && path === '/v1/license') return license();
+      return Response.json(USAGE);
+    }) as unknown as typeof fetch;
+    return {
+      handed,
+      clientFactory: (url: string, token: string) =>
+        createClient({ apiUrl: url, auth: { kind: 'apiToken', token }, fetch: fetchImpl }),
+    };
+  }
+  const wireError = (status: number, error: Record<string, unknown>) => () =>
+    Response.json({ error }, { status });
+  /** An older runtime's answers to `PUT /v1/license`: its own token's, and a system key's. */
+  const NO_PUT = [
+    wireError(404, { code: 'route-not-found', message: 'No route PUT /v1/license.' }),
+    wireError(403, {
+      code: 'system-key-on-tenant-route',
+      message: 'A system key reaches /v1/system/* only.',
+    }),
+  ];
+  const NO_PUT_SAID = 'https://runtime.acme.example has no PUT /v1/license';
+
+  test('--runtime: a new key goes to the runtime first, and is written once it took it', async () => {
+    const { dir, renewer } = await enrolled();
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const rt = served(() => Response.json({}));
+    const out = await cli(dir, [...RENEW_WITH_RUNTIME, '--json'], {
+      ...deps,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: NEXT_KEY })),
+      clientFactory: rt.clientFactory,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(rt.handed).toEqual([NEXT_KEY]);
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      status: 'renewed',
+      runtime: { kind: 'taken' },
+      warnings: [],
+    });
+    expect(out.stderr).toContain('The runtime took the new key: it runs it now.\n');
+    expect(out.stderr).not.toContain('next start');
+    expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toBe(
+      `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${NEXT_KEY}\n`,
+    );
+  });
+
+  test('--runtime: a key the runtime refuses is never written; exit 1 with its reason', async () => {
+    const { dir, renewer } = await enrolled();
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const before = readFileSync(join(dir, 'kindgi.env'), 'utf8');
+    const rt = served(
+      wireError(409, {
+        code: 'license-key-refused',
+        message: 'The key is for another licensee than the key this server runs.',
+        details: { reason: 'other-licensee' },
+      }),
+    );
+    for (const flags of [[], ['--json'], ['--quiet']]) {
+      const out = await cli(dir, [...RENEW_WITH_RUNTIME, ...flags], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: NEXT_KEY })),
+        clientFactory: rt.clientFactory,
+      });
+      expect(out.exitCode, flags.join(' ')).toBe(1);
+      expect(out.stdout, flags.join(' ')).toBe('');
+      expect(out.stderr, flags.join(' ')).toContain(
+        "The runtime refused the new key (license-key-refused): The key is for another licensee than the key this server runs. It wasn't written.",
+      );
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toBe(before);
+    }
+  });
+
+  test("--runtime: a runtime that can't take a key gets it at its next start, said as a warning", async () => {
+    for (const put of NO_PUT) {
+      const { dir, renewer } = await enrolled();
+      writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+      const rt = served(put);
+      const out = await cli(dir, [...RENEW_WITH_RUNTIME, '--json'], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: NEXT_KEY })),
+        clientFactory: rt.clientFactory,
+      });
+      const line = `The runtime didn't take the new key (${NO_PUT_SAID}): it uses it from its next start; until then it runs on the one it started with.`;
+      expect(out.exitCode).toBe(0);
+      expect(rt.handed).toEqual([NEXT_KEY]);
+      expect(JSON.parse(out.stdout)).toMatchObject({
+        status: 'renewed',
+        runtime: { kind: 'next-start', said: NO_PUT_SAID },
+        warnings: [line],
+      });
+      expect(out.stderr).toContain(`⚠ ${line}\n`);
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toContain(
+        `KINDGI_LICENSE_KEY=${NEXT_KEY}\n`,
+      );
+    }
+  });
+
+  test('--runtime: an unchanged key goes to a runtime that runs an older one, and nothing is written', async () => {
+    // Outside its warning window, so the only warning is the runtime's.
+    const current = licenseKey({ exp: NOW / 1000 + 45 * DAY });
+    /** The runtime's own key: it expires 10 days before the kept one. */
+    const older = () =>
+      Response.json({ mode: 'licensed', expiresAt: new Date(NOW + 35 * DAY * 1000).toISOString() });
+    const notTaken = `, and didn't take it (${NO_PUT_SAID}): it uses it from its next start.`;
+    for (const [label, put] of [
+      ['taken', () => Response.json({})],
+      ['not taken', NO_PUT[0] as () => Response],
+    ] as const) {
+      const { dir, renewer } = await enrolled(current);
+      writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+      const before = readFileSync(join(dir, 'kindgi.env'), 'utf8');
+      const rt = served(put, older);
+      const out = await cli(dir, [...RENEW_WITH_RUNTIME, '--json'], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: current })),
+        clientFactory: rt.clientFactory,
+      });
+      expect(out.exitCode, label).toBe(0);
+      expect(rt.handed, label).toEqual([current]);
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8'), label).toBe(before);
+      const result = JSON.parse(out.stdout) as { status: string; warnings: string[] };
+      expect(result.status, label).toBe('unchanged');
+      if (label === 'taken') {
+        expect(result).toMatchObject({ runtime: { kind: 'taken' }, warnings: [] });
+        expect(out.stderr).toMatch(
+          /The runtime ran an older key than the one in .+: it took that one, and runs it now\.\n/,
+        );
+      } else {
+        expect(result).toMatchObject({ runtime: { kind: 'next-start', said: NO_PUT_SAID } });
+        expect(result.warnings).toHaveLength(1);
+        expect(result.warnings[0]).toMatch(/^The runtime runs an older key than the one in /);
+        expect(result.warnings[0]).toContain(notTaken);
+        expect(out.stderr).toContain(`⚠ ${result.warnings[0]}\n`);
+      }
+    }
+  });
+
+  test('--runtime: an unchanged key and a runtime in step: no key handed over', async () => {
+    const current = licenseKey({ exp: NOW / 1000 + 45 * DAY });
+    const { dir, renewer } = await enrolled(current);
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const rt = served(
+      () => Response.json({}),
+      () =>
+        Response.json({
+          mode: 'licensed',
+          expiresAt: new Date(NOW + 45 * DAY * 1000).toISOString(),
+        }),
+    );
+    const out = await cli(dir, [...RENEW_WITH_RUNTIME, '--json'], {
+      ...deps,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: current })),
+      clientFactory: rt.clientFactory,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(rt.handed).toEqual([]);
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('runtime');
+    expect(out.stderr).not.toContain('older key');
+  });
+
+  test('--runtime: a key that needs 0.7.0 where the current one needs less is written only once the runtime took it', async () => {
+    const NEW_KID = 'test-lk-new';
+    const newKey = licenseKey({ kid: NEW_KID, iat: NOW / 1000, exp: NOW / 1000 + 45 * DAY });
+    const needs = {
+      licenseDeps: {
+        renew: {
+          now: () => NOW,
+          publicKeys: { ...publicKeys, [NEW_KID]: publicKeys['test-lk'] },
+          minimumRuntime: { [NEW_KID]: '0.7.0' },
+        },
+      },
+    };
+    for (const put of NO_PUT) {
+      const { dir, renewer } = await enrolled();
+      writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+      const before = readFileSync(join(dir, 'kindgi.env'), 'utf8');
+      const out = await cli(dir, RENEW_WITH_RUNTIME, {
+        ...needs,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: newKey })),
+        clientFactory: served(put).clientFactory,
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `The new key needs runtime 0.7.0 or later, and the runtime didn't take it (${NO_PUT_SAID}), so it wasn't written.`,
+      );
+      expect(out.stderr).toContain('Upgrade the runtime first, then run renew again.');
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toBe(before);
+    }
+
+    // Taken: written, as for any key.
+    const { dir, renewer } = await enrolled();
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const taken = await cli(dir, RENEW_WITH_RUNTIME, {
+      ...needs,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: newKey })),
+      clientFactory: served(() => Response.json({})).clientFactory,
+    });
+    expect(taken.exitCode).toBe(0);
+    expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toContain(
+      `KINDGI_LICENSE_KEY=${newKey}\n`,
+    );
+
+    // The next one, from a key that needs 0.7.0 already: the runtime that
+    // started with it starts with this one, so a server that's down gets it.
+    const later = licenseKey({ kid: NEW_KID, iat: NOW / 1000, exp: NOW / 1000 + 46 * DAY });
+    const down = await cli(dir, RENEW_WITH_RUNTIME, {
+      ...needs,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: later })),
+      clientFactory: served(() => {
+        throw new TypeError('fetch failed');
+      }).clientFactory,
+    });
+    expect(down.exitCode).toBe(0);
+    expect(down.stdout).toContain("⚠ The runtime didn't take the new key (");
+    expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toContain(
+      `KINDGI_LICENSE_KEY=${later}\n`,
+    );
+
+    // Without --runtime: written, saying the runtime it needs.
+    const fresh = await enrolled();
+    const plain = await cli(fresh.dir, RENEW, {
+      ...needs,
+      fetchImpl: service(fresh.renewer, () => Response.json({ licenseKey: newKey })),
+    });
+    expect(plain.exitCode).toBe(0);
+    expect(plain.stdout).toContain(
+      'The runtime uses the new key from its next start, and needs to be 0.7.0 or later to start with it; until then it runs on the one it started with.',
+    );
+  });
+
+  test("--runtime: a runtime that answers otherwise, or isn't asked, gets the key at its next start", async () => {
+    for (const [put, said] of [
+      [
+        wireError(401, { code: 'unauthenticated', message: 'The token is not valid.' }),
+        'https://runtime.acme.example answered: The token is not valid.',
+      ],
+      [
+        () => new Response('<!DOCTYPE html><title>canary sign-in</title>', { status: 200 }),
+        'https://runtime.acme.example answered, but not as a runtime: a page from a proxy or another server, perhaps',
+      ],
+    ] as const) {
+      const { dir, renewer } = await enrolled();
+      writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+      const out = await cli(dir, RENEW_WITH_RUNTIME, {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: NEXT_KEY })),
+        clientFactory: served(put).clientFactory,
+      });
+      expect(out.exitCode, said).toBe(0);
+      expect(out.stdout, said).toContain(`⚠ The runtime didn't take the new key (${said}): `);
+      expect(`${out.stdout}${out.stderr}`, said).not.toMatch(/canary|DOCTYPE/);
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toContain(
+        `KINDGI_LICENSE_KEY=${NEXT_KEY}\n`,
+      );
     }
   });
 });

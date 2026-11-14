@@ -1,0 +1,17 @@
+"""{{PACK_ID}}.greet-person — runs the pack's echo tool, then ends."""
+
+from kindgi import Flow
+
+from ..tools.echo import echo
+
+greet_person = Flow(
+    id="{{PACK_ID}}.greet-person",
+    version="{{PACK_VERSION}}",
+    name="Greet a person",
+    description="Runs the pack's echo tool and terminates.",
+    nodes=[{"id": "echo", "kind": "tool", "ref": echo}],
+    edges=[
+        {"id": "e-start", "from": "$start", "to": "echo"},
+        {"id": "e-end", "from": "echo", "to": "$end"},
+    ],
+)

@@ -1,0 +1,18 @@
+{
+  "id": "acme.sheets.fill-row",
+  "description": "Fills in one row of a timesheet the run has, and returns the sheet's new version.",
+  "version": "1.0.0",
+  "input": {
+    "type": "object",
+    "required": ["fileId", "version", "row"],
+    "properties": {
+      "fileId": { "type": "string" },
+      "version": { "type": "integer", "minimum": 1 },
+      "row": { "type": "object" }
+    }
+  },
+  "output": { "type": "object" },
+  "mutating": true,
+  "readsFiles": true,
+  "updatesFiles": true
+}

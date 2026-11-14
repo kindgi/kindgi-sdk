@@ -26,6 +26,8 @@ import {
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_READ_ONLY_TOOLS_MAX,
+  MCP_READ_ONLY_TOOL_NAME_MAX,
   MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
   REDACTED_ENV_VALUE,
@@ -36,9 +38,14 @@ import {
   mcpEndpointSecretRefs,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { gate } from '../middleware/key-project.js';
+import { gate, limitedCallerRefusal } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
@@ -48,6 +55,9 @@ import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
+
+/** A prompt's render, `POST /endpoints/:endpointId/prompts/:name`. */
+const PROMPT_PATH_RE = /\/endpoints\/[^/]+\/prompts\/[^/]+$/;
 
 /**
  * MCP-endpoint routes (mounted at `/v1/mcp`). Tenants declare the
@@ -71,6 +81,16 @@ export function mcpRouter(
   options: {
     readonly hostAccess: TenantHostAccess;
     readonly providerKeys?: ProviderKeys;
+    /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /** Where each secret an endpoint names is read is recorded at registration (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
@@ -118,6 +138,34 @@ export function mcpRouter(
     const mw = authorize(action, () => ref('mcp_endpoint', endpointId));
     return mw(c, next);
   });
+  // Without a store, a key or session limited to a project changes no
+  // endpoint by its id beyond that project, its scope read from the
+  // registry (`scopeOf`): another project's, the tenant's or an org's.
+  // Rendering a prompt changes nothing, so only another project's is held
+  // for it: a project's runs reach the tenant's and its org's endpoints.
+  if (authorizer === undefined) {
+    r.use('/endpoints/:endpointId/*', async (c, next) => {
+      if (
+        binding.scopeOf === undefined ||
+        c.get('tokenProjectId') === undefined ||
+        isReadMethod(c.req.method)
+      ) {
+        return next();
+      }
+      const tenantId = c.get('tenantId') as TenantId;
+      const endpointId = c.req.param('endpointId') ?? '';
+      const scope = await binding.scopeOf({ tenantId, endpointId });
+      if (scope === null) return next();
+      if (PROMPT_PATH_RE.test(c.req.path) && scope.kind !== 'project') return next();
+      const held = limitedCallerRefusal(
+        c,
+        'admin',
+        scopeResourceRef(scope, tenantId),
+        'the MCP endpoint',
+      );
+      return held ?? next();
+    });
+  }
 
   // ---------- GET /endpoints (list, cursor-paginated, optional ?transport=) ----------
   r.get('/endpoints', async (c) => {
@@ -238,12 +286,15 @@ export function mcpRouter(
       );
     }
 
-    // A reserved `kindgi.` name or a model provider's key is never an MCP endpoint's.
+    // A reserved `kindgi.` name, a model provider's key or a texts
+    // registration's account key is never an MCP endpoint's.
     const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       mcpEndpointSecretNames(validation.value),
       'an MCP endpoint',
+      { keys: options.connectionKeys },
+      options.identityProviderKeys,
     );
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
@@ -701,6 +752,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
+    ...(e.readOnlyTools !== undefined && { readOnlyTools: e.readOnlyTools }),
     ...(e.secretScopes !== undefined && { secretScopes: e.secretScopes }),
   };
 }
@@ -750,6 +802,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'instructions',
   'metadata',
   'sendTraceparent',
+  'readOnlyTools',
   'scopeKind',
   'scopeId',
 ]);
@@ -906,6 +959,9 @@ function validateMCPEndpoint(
       },
     };
   }
+  const readOnlyTools =
+    b.readOnlyTools === undefined ? undefined : parseReadOnlyTools(b.endpointId, b.readOnlyTools);
+  if (readOnlyTools?.kind === 'err') return readOnlyTools;
 
   const value: MCPEndpoint = {
     endpointId: b.endpointId,
@@ -920,8 +976,43 @@ function validateMCPEndpoint(
       metadata: b.metadata as Readonly<Record<string, unknown>>,
     }),
     ...(b.sendTraceparent !== undefined && { sendTraceparent: b.sendTraceparent }),
+    ...(readOnlyTools !== undefined && { readOnlyTools: readOnlyTools.value }),
   };
   return { kind: 'ok', value };
+}
+
+/**
+ * `readOnlyTools`: the server's tool names, as its `tools/list` gives them,
+ * 1 to `MCP_READ_ONLY_TOOLS_MAX`, each 1 to `MCP_READ_ONLY_TOOL_NAME_MAX`
+ * characters, no repeats. Any transport: a tool only reads whatever way the
+ * runtime reaches its server.
+ */
+function parseReadOnlyTools(
+  endpointId: string,
+  raw: unknown,
+):
+  | { kind: 'ok'; value: readonly string[] }
+  | { kind: 'err'; error: { message: string; reason: string } } {
+  const bad = (message: string) => ({
+    kind: 'err' as const,
+    error: { message: `endpoint "${endpointId}" ${message}`, reason: 'invalid-read-only-tools' },
+  });
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MCP_READ_ONLY_TOOLS_MAX) {
+    return bad(
+      `readOnlyTools must be a list of 1 to ${MCP_READ_ONLY_TOOLS_MAX} tool names, as the server's tools/list gives them`,
+    );
+  }
+  const seen = new Set<string>();
+  for (const name of raw) {
+    if (!boundedString(name, MCP_READ_ONLY_TOOL_NAME_MAX)) {
+      return bad(
+        `readOnlyTools: each tool name must be a string of 1 to ${MCP_READ_ONLY_TOOL_NAME_MAX} characters`,
+      );
+    }
+    if (seen.has(name)) return bad(`readOnlyTools names "${name}" twice`);
+    seen.add(name);
+  }
+  return { kind: 'ok', value: [...seen] };
 }
 
 /** `auth`, parsed and checked against the rest of the endpoint. */

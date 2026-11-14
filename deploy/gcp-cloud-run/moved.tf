@@ -1,16 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-# Each deployment is a pack service of its own, made by the pack
-# orchestrator, and every one runs as the pack account, which is no longer
-# optional. A deployment that had the one pack service (pack_image) keeps
-# its account: this move gives it its address back, so it isn't replaced.
-# That pack service, the server's grant on it and its token's secret go.
-# A deployment from before pack_image was optional never had the index.
+# The pack account and its own grants exist while pack_shared_account is
+# true, so they're counted. An installation from before keeps each: these
+# moves give them their new addresses, so its plan shows no change. One
+# whose account was still at pack[0] (it had the one pack service,
+# pack_image) is at that address already.
 
 moved {
-  from = google_service_account.pack[0]
-  to   = google_service_account.pack
+  from = google_service_account.pack
+  to   = google_service_account.pack[0]
+}
+
+moved {
+  from = google_project_iam_member.pack_reads_pack_secrets
+  to   = google_project_iam_member.pack_reads_pack_secrets[0]
+}
+
+moved {
+  from = google_service_account_iam_member.orchestrator_acts_as_pack
+  to   = google_service_account_iam_member.orchestrator_acts_as_pack[0]
 }
 
 # The module's own Cloud SQL instance became optional (database_host_instance:

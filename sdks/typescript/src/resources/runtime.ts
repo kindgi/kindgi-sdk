@@ -10,8 +10,10 @@ export interface RuntimeClient {
   /**
    * Which runtime answers: its version (its release, such as `0.3.0`, or
    * what its build gave otherwise: `dev` when it gave none), its tenancy
-   * (`single` when it serves one tenant, `multi` when it serves many) and
-   * whether it runs in development mode.
+   * (`single` when it serves one tenant, `multi` when it serves many),
+   * whether it runs in development mode, and whether it serves connections
+   * to other apps (`connections`, absent when the runtime doesn't say; a
+   * runtime in development mode gives the `reason` when they're off).
    * Any caller of a workspace reads it. A runtime that doesn't report it
    * answers 404.
    *

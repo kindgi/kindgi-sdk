@@ -24,6 +24,7 @@ export type InvokeAgentError =
   | CapabilityRoutingError
   | ModelInvocationError
   | ToolInvocationError
+  | ToolFailedTurnError
   | BudgetExceededError
   | RateLimitExceededError
   | AgentTurnAbortedError
@@ -232,6 +233,29 @@ export interface ToolInvocationError {
    * Failed tool calls sent back to the model this turn before this one
    * ended it (see `Agent.toolErrors`). Present when the failure is a
    * kind the turn retries and its retries ran out.
+   */
+  readonly toolRetries?: number;
+}
+
+/**
+ * A tool the turn called failed the call on purpose (it threw
+ * `ToolFailure`): its own code, its words for a person, said once, and
+ * its facts. The turn's policy doesn't send it back to the model
+ * (`toolErrors.retryOn` has no `tool-failed`), or its retries ran out.
+ */
+export interface ToolFailedTurnError {
+  readonly code: 'tool-failed';
+  /** The tool's words for a person, masked. */
+  readonly message: string;
+  readonly toolId: string;
+  /** The tool's own code for why (`order-not-found`). */
+  readonly reason: string;
+  /** The tool's facts about the failure, masked; absent when it gave none. */
+  readonly details?: Readonly<Record<string, unknown>>;
+  /**
+   * Failed tool calls sent back to the model this turn before this one
+   * ended it (see `Agent.toolErrors`). Present when the turn retries
+   * `tool-failed` and its retries ran out.
    */
   readonly toolRetries?: number;
 }

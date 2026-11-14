@@ -3,7 +3,7 @@
 Agents for a WooCommerce store, with a person approving what matters.
 Scaffolded by `kindgi init --template=woocommerce`.
 
-- **The store agent** (`{{PACK_ID}}.store-agent`) is the agent your
+- **The order desk** (`{{PACK_ID}}.order-desk`) is the agent your
   staff talk to. It looks up orders, refunds them and changes the store.
   Refunds of up to 100 run on their own. A larger refund, a price change and
   publishing a product each wait for a person to approve.
@@ -32,15 +32,15 @@ Scaffolded by `kindgi init --template=woocommerce`.
 │   ├── no-customer-contact-details/index.ts    # no email address or phone number in an answer
 │   └── no-customer-contact-details/index.test.ts
 ├── agents/
-│   ├── store-agent/index.ts
-│   ├── store-agent/index.test.ts               # what it's told about the tools that wait
+│   ├── order-desk/index.ts
+│   ├── order-desk/index.test.ts               # what it's told about the tools that wait
 │   ├── order-reviewer/index.ts
 │   └── order-reviewer/index.test.ts            # what its instructions may take from an order
 ├── blocks/
-│   ├── store-agent-prompt.json                 # the store agent's instructions, a prompt block
-│   └── store-agent-prompt.liquid               # their text
+│   ├── order-desk-prompt.json                 # the order desk's instructions, a prompt block
+│   └── order-desk-prompt.liquid               # their text
 ├── flows/
-│   └── order-review/index.ts                   # order event → check → order reviewer
+│   └── review-order/index.ts                   # order event → check → order reviewer
 ├── fixtures/order-created.json                 # a sample order event
 └── scripts/connect-store.mjs                   # connect a store: its owner approves in wp-admin
 ```
@@ -52,7 +52,7 @@ start from `default: 'always_ask'`, so every tool waits for a person unless
 the policy names it. A tool you add later is covered too, until you decide
 otherwise.
 
-| Tool | Store agent | Order reviewer |
+| Tool | Order desk | Order reviewer |
 |---|---|---|
 | `{{PACK_ID}}.woo.find-orders` | runs on its own | runs on its own |
 | `{{PACK_ID}}.woo.refund` (up to 100) | runs on its own | not given |
@@ -60,7 +60,7 @@ otherwise.
 | `{{PACK_ID}}.woo.set-price` | waits for a person | not given |
 | `{{PACK_ID}}.woo.publish-product` | waits for a person | not given |
 
-The store agent's three that wait need a second person
+The order desk's three that wait need a second person
 (`conversationPolicy.hitl.separateApprover`). Whoever's turn asked for a
 large refund, a price change or a publish isn't offered **Approve** for it:
 another reviewer decides.
@@ -81,21 +81,21 @@ The audit records the decision, and the agent says the change wasn't made.
 
 The agent doesn't see the approval itself: a call that waited comes back
 with its result once a person decided. So its instructions
-(`blocks/store-agent-prompt.liquid`) say what that means:
+(`blocks/order-desk-prompt.liquid`) say what that means:
 `{"status": "rejected", "rationale": …}` is a reviewer declining,
 `{"status": "failed", "error": …}` is a change that was approved but didn't
 go through (the store refused it, say), and any other result is a change
 that was approved and made. The order may have changed while the call
 waited, so they also say to look it up again before stating its totals.
-`agents/store-agent/index.test.ts` keeps them naming every tool the
+`agents/order-desk/index.test.ts` keeps them naming every tool the
 approval policy holds back.
 
-### The store agent's instructions are a block
+### The order desk's instructions are a block
 
-They're the prompt block `{{PACK_ID}}.store-agent-prompt`: its file is
-`blocks/store-agent-prompt.json`, and its text is in
-`blocks/store-agent-prompt.liquid`. The agent names it by range:
-`instructions: { prompt: '{{PACK_ID}}.store-agent-prompt', version: '^{{PACK_VERSION}}' }`.
+They're the prompt block `{{PACK_ID}}.order-desk-prompt`: its file is
+`blocks/order-desk-prompt.json`, and its text is in
+`blocks/order-desk-prompt.liquid`. The agent names it by range:
+`instructions: { prompt: '{{PACK_ID}}.order-desk-prompt', version: '^{{PACK_VERSION}}' }`.
 `{{KINDGI}} dev` reads it from these files, and `{{KINDGI}} deploy`
 publishes it before the agent. Since they're a block, an Improve run
 can draft new instructions: `{{KINDGI}} improve runs start --tier=prompt`,
@@ -245,10 +245,10 @@ calls the first tool. For Claude, with `kindgi dev` running:
 
 The `kindgi-authoring-providers` skill has the other providers.
 
-Ask the store agent something. Start with a question about your orders:
+Ask the order desk something. Start with a question about your orders:
 
 ```sh
-{{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Which orders are still processing?"}'
+{{KINDGI}} runs start --agent={{PACK_ID}}.order-desk --input='{"userMessage": "Which orders are still processing?"}'
 ```
 
 A refund of up to 100 on an order (in its currency, counting what it was
@@ -256,7 +256,7 @@ refunded already) runs as soon as you ask, with no approval, and it's a real
 refund in your store. So try one on a test order of 40 or more:
 
 ```sh
-{{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Refund 40 on order <order number>: it arrived torn."}'
+{{KINDGI}} runs start --agent={{PACK_ID}}.order-desk --input='{"userMessage": "Refund 40 on order <order number>: it arrived torn."}'
 ```
 
 `<order number>` is the test order's number, as **WooCommerce → Orders**
@@ -296,7 +296,7 @@ since its ids already belong to the first.
 
 ## Review each new order
 
-`{{PACK_ID}}.order-review` is a flow with two steps:
+`{{PACK_ID}}.review-order` is a flow with two steps:
 
 1. `{{PACK_ID}}.woo.check-order-event` checks the order WooCommerce sent,
    in code, before any model sees it.
@@ -305,7 +305,7 @@ since its ids already belong to the first.
 Try it with the sample event:
 
 ```sh
-{{KINDGI}} runs start --flow={{PACK_ID}}.order-review --input=@fixtures/order-created.json
+{{KINDGI}} runs start --flow={{PACK_ID}}.review-order --input=@fixtures/order-created.json
 ```
 
 ### The event is data, never instructions
@@ -347,7 +347,7 @@ A webhook trigger starts the flow on each new order. WooCommerce signs every
 delivery, and Kindgi checks the signature before it starts a run:
 
 ```sh
-{{KINDGI}} webhooks register --flow={{PACK_ID}}.order-review --flow-version={{PACK_VERSION}} \
+{{KINDGI}} webhooks register --flow={{PACK_ID}}.review-order --flow-version={{PACK_VERSION}} \
   --preset=woocommerce --generate-secret --secret=WOO_WEBHOOK_SECRET \
   --label="WooCommerce orders"
 ```

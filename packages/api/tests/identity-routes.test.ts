@@ -858,6 +858,26 @@ describe('API — invitations', () => {
     ]);
   });
 
+  test('a person carries who added them, as the directory keeps it, on every read; absent where it keeps none', async () => {
+    const { app, directory } = makeInviteApp();
+    directory.setUser({
+      ...baseUser({ userId: 'u-d' as UserId, tenantId: tenantA }),
+      createdBy: 'email_domain:acme.example',
+    });
+    directory.setUser({ ...baseUser({ userId: 'u-s' as UserId, tenantId: tenantA }) });
+    const one = (await (
+      await jsonGet(app, '/v1/identity/users/u-d', ADMIN_TOKEN)
+    ).json()) as Record<string, unknown>;
+    expect(one.createdBy).toBe('email_domain:acme.example');
+    const list = (await (await jsonGet(app, '/v1/identity/users', ADMIN_TOKEN)).json()) as {
+      data: Record<string, unknown>[];
+    };
+    expect(list.data.map((u) => [u.userId, u.createdBy])).toEqual([
+      ['u-d', 'email_domain:acme.example'],
+      ['u-s', undefined],
+    ]);
+  });
+
   test('pending=true asks the directory for the invited, and lists only them even from one that ignores it', async () => {
     for (const filters of [true, false]) {
       const { app, directory, lists } = makeInviteApp({ filters });

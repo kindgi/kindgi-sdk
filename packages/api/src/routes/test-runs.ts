@@ -11,8 +11,17 @@ import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } fr
 import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
 import type { CorrectionRegistryBinding } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
+import {
+  type HeldItems,
+  type ItemRights,
+  filterOwned,
+  limitedItemRefusal,
+  limitedStartRefusal,
+  ownProject,
+  runIn,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -41,6 +50,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { type ProjectDeletedCheck, projectGone } from './project-deleted.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame, pause, readingOf } from './sse.js';
 import { parseComparison } from './test-run-comparison.js';
@@ -115,6 +125,17 @@ export function testRunsRouters(
    * test set is frozen. Absent: the freeze alone says.
    */
   corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
+  /**
+   * Without a store, where a project-limited key's start of a test-set run,
+   * or change to a run, beyond its project is held (`limitedStartRefusal`,
+   * `limitedItemRefusal`). Absent: no hold.
+   */
+  held?: HeldItems,
+  /**
+   * Whether a project is deleted: no test run starts in one, refused `404
+   * project-not-found` before the suspended check. Absent: no check.
+   */
+  projectDeleted?: ProjectDeletedCheck,
 ): TestRunsRouters {
   return {
     start: startRouter(
@@ -127,8 +148,10 @@ export function testRunsRouters(
       itemRights,
       testSetFreeze,
       corrections,
+      held,
+      projectDeleted,
     ),
-    readback: readbackRouter(binding, authorizer, itemRights),
+    readback: readbackRouter(binding, authorizer, itemRights, held),
   };
 }
 
@@ -267,8 +290,41 @@ function startRouter(
   itemRights?: ItemRights,
   testSetFreeze?: TestSetFreezeBinding,
   corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
+  held?: HeldItems,
+  projectDeleted?: ProjectDeletedCheck,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Without a store, a project-limited key's or session's test-set run,
+   * held as a store holds it (`limitedStartRefusal`): the test set (an
+   * agent's own is its project's) and what it runs, each served in the
+   * run's project, the key's. The run names it, so a refusal asks
+   * `execute`, as `runRefusal` does outside an item's projects.
+   */
+  async function limitedRunStart(
+    c: Context<AppEnv>,
+    testSetId: string,
+    own: boolean,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ): Promise<Response | undefined> {
+    if (authorizer !== undefined || held === undefined) return undefined;
+    const onSet = own
+      ? undefined
+      : await limitedStartRefusal(c, {
+          kind: 'test_set',
+          id: testSetId,
+          held: held.testSets,
+          unnamed: false,
+        });
+    if (onSet?.refused !== undefined) return onSet.refused;
+    const onTarget = await limitedStartRefusal(c, {
+      ...target,
+      held: target.kind === 'agent' ? held.agents : held.flows,
+      unnamed: false,
+    });
+    return onTarget?.refused;
+  }
 
   /**
    * Running `item` for a run filed in `projectId`: for an item more than
@@ -329,6 +385,8 @@ function startRouter(
     // project serves, run in one of them: that project's right instead. An
     // agent's own test set is its project's, and has no object until its first
     // freeze: `write` there and running the agent cover it.
+    const limited = await limitedRunStart(c, testSetId, own, target);
+    if (limited !== undefined) return limited;
     const refused =
       (own
         ? undefined
@@ -362,6 +420,8 @@ function startRouter(
       ...versionsReferences(parsed.value.comparison?.versions),
     ]);
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    const gone = await projectGone(c, projectDeleted, tenantId, projectId);
+    if (gone !== undefined) return gone;
     if (projectSuspended !== undefined && (await projectSuspended(tenantId, projectId))) {
       c.status(statusFor('project-suspended') as never);
       return c.json(
@@ -491,19 +551,22 @@ function readbackRouter(
   binding: TestRunBinding,
   authorizer?: Authorizer,
   itemRights?: ItemRights,
+  held?: HeldItems,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   /**
    * The refusal, if any, of `action` on the test set of the run named in the
    * path. A run of a test set more than one project serves is its own
    * project's: `read` on it, or to change it, `execute` (`onProject`).
+   * Without a store, a project-limited key's change is held there
+   * (`limitedRunRefusal`).
    */
   const onRunTestSet = async (
     c: Context<AppEnv>,
     action: Action,
     onProject: Action = action,
   ): Promise<Response | undefined> => {
-    if (authorizer === undefined) return undefined;
+    if (authorizer === undefined) return limitedRunRefusal(c, action, onProject);
     const tenantId = c.get('tenantId') as TenantId;
     const run = await binding.get({ tenantId, testRunId: c.req.param('testRunId') as RunId });
     if (run === null) return undefined;
@@ -518,6 +581,39 @@ function readbackRouter(
       ? deniedBy(authorizer, c, action, ref('test_set', run.testSetId))
       : deniedBy(authorizer, c, onProject, ref('project', own));
   };
+
+  /**
+   * Without a store, a project-limited key's change to the run named in
+   * the path, held where `onRunTestSet` asks a store: on the test set
+   * (`limitedItemRefusal`), at the run's project for one several serve.
+   */
+  async function limitedRunRefusal(
+    c: Context<AppEnv>,
+    action: Action,
+    onProject: Action,
+  ): Promise<Response | undefined> {
+    if (held === undefined || c.get('tokenProjectId') === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    const run = await binding.get({ tenantId, testRunId: c.req.param('testRunId') as RunId });
+    if (run === null) return undefined;
+    const projectId = run.projectId as unknown as string | undefined;
+    return limitedItemRefusal(c, {
+      kind: 'test_set',
+      id: run.testSetId,
+      today: action,
+      check:
+        projectId === undefined
+          ? { rule: 'every', action }
+          : { rule: 'on', action: onProject, projectId },
+      held: held.testSets,
+    });
+  }
+
+  /** `write` on the project a rescore runs in; without a store, a project-limited key's hold there. */
+  const writeRefusal = (c: Context<AppEnv>, projectId: string) =>
+    authorizer === undefined
+      ? Promise.resolve(limitedCallerRefusal(c, 'write', ref('project', projectId), 'the test run'))
+      : deniedBy(authorizer, c, 'write', ref('project', projectId));
 
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {
@@ -672,7 +768,7 @@ function readbackRouter(
         ),
       );
     }
-    const denied = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
+    const denied = await writeRefusal(c, projectId as string);
     if (denied !== undefined) return denied;
     return startAnswer(c, requestId, await binding.start(rescoreStart(run, projectId)));
   });

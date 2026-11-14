@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.9"
+version: "0.5.10"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -76,6 +76,7 @@ does `zod/v4` from zod 3.
 | Your case | Read |
 |---|---|
 | A `handler`: what it gets (`input`, `ctx`), and logging | [imperative-handler.md](imperative-handler.md) |
+| A date or a time: the workspace's time zone (`ctx.timeZone`), and a date and time tool | [imperative-handler.md](imperative-handler.md) |
 | An env value, a workspace's secret, or acting in another app (a connection) | [secrets-and-connections.md](secrets-and-connections.md) |
 | A plain remote call: `spec: {kind: 'http'}` | [declarative-http.md](declarative-http.md) |
 | A read-only tool, a person's yes in unattended runs, results that are outside text | [tool-flags.md](tool-flags.md) |
@@ -94,8 +95,9 @@ answer elsewhere), and don't raise the deadline for it: read
 
 `<pack-id>.<tool-name>` — kebab-case, dot-namespaced. The `<pack-id>`
 prefix scopes the tool to its pack; `<tool-name>` names the operation.
-Enforced by `defineTool` at author time. Examples:
-`acme.verify-citation`, `shop.fetch-order`, `demo.echo`.
+`defineTool` checks only that the id isn't empty and doesn't start
+with `kindgi_`, which is kept for built-in tools. Examples:
+`acme.verify-citation`, `acme.fetch-order`.
 
 ## Wiring the tool onto an agent
 

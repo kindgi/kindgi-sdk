@@ -78,7 +78,7 @@ class OtherItem(BaseModel):
 
 class RunTrigger(BaseModel):
     """
-    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).
+    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook), `mail` (new mail in a mailbox) or `text` (a text to a business number).
     """
 
     model_config = ConfigDict(
@@ -86,7 +86,7 @@ class RunTrigger(BaseModel):
         populate_by_name=True,
     )
     trigger_id: Annotated[UUID, Field(alias="triggerId")]
-    kind: Annotated[Literal["schedule", "event", "webhook", "mail"] | str, _open.OPEN]
+    kind: Annotated[Literal["schedule", "event", "webhook", "mail", "text"] | str, _open.OPEN]
     fire_id: Annotated[str, Field(alias="fireId")]
     """
     The fire that started the run: one entry of the trigger's fire history.
@@ -389,7 +389,7 @@ class PinCheck(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed, with `details` naming the budget; `tool-failed` when a tool failed a call on purpose, with its code as `reason`); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -400,15 +400,15 @@ class RunFailure(BaseModel):
     message: str
     cause: Any | None = None
     """
-    What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.
+    What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider; for `tool-failed`, the tool, `{ toolId }`.
     """
     reason: str | None = None
     """
-    The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time; for `tool-failed`, the tool's own code for why (`order-not-found`). Absent from an older runtime and from errors without one; read `code` then.
     """
     details: dict[str, Any] | None = None
     """
-    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
+    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses; for `tool-failed`, the facts the tool gave, when it gave any. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
     """
 
 
@@ -440,7 +440,7 @@ class FailureGroup(BaseModel):
     """
     reason: str | None = None
     """
-    The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`.
+    The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`; a `tool-failed` failure's tool code, e.g. `order-not-found`.
     """
     subject: FailureSubject
     version: str | None = None
@@ -498,7 +498,7 @@ class StartRunOptions(BaseModel):
     """
     wait: bool | None = None
     """
-    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends.
+    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`).
     """
 
 
@@ -513,7 +513,7 @@ class Options(BaseModel):
     """
     wait: bool | None = None
     """
-    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends.
+    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`).
     """
 
 
@@ -769,6 +769,10 @@ class SystemKey(BaseModel):
             "system:env-refs",
             "system:usage:read",
             "system:license",
+            "system:kept-repos",
+            "system:kept-repos:erase",
+            "system:join-domains:read",
+            "system:join-domains",
             "kindgi:system",
         ]
     ]
@@ -802,6 +806,10 @@ class MintSystemKeyBody(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
         ],
@@ -850,6 +858,10 @@ class MintSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -902,6 +914,10 @@ class Datum2(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -958,6 +974,10 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -1509,7 +1529,7 @@ class SystemTenantPurge(BaseModel):
     """
     left_because: Annotated[str | None, Field(alias="leftBecause")] = None
     """
-    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase.
     """
 
 
@@ -1938,6 +1958,59 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class RuntimeConnections(BaseModel):
+    """
+    Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    on: bool
+    """
+    The runtime serves connections.
+    """
+    reason: str | None = None
+    """
+    Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says.
+    """
+
+
+class LicenseLimit(BaseModel):
+    """
+    One count the key limits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[int, Field(ge=1)]
+    """
+    The number the key carries.
+    """
+    most: Annotated[int, Field(ge=1)]
+    """
+    The most this runtime runs: past it, it refuses new ones.
+    """
+    in_use: Annotated[int, Field(alias="inUse", ge=0)]
+    """
+    How many it counts now.
+    """
+
+
+class LicenseKeyBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(max_length=4096, min_length=1)]
+    """
+    The whole license key, `kgi_lk_…`.
+    """
+
+
 class RuntimeInfo(BaseModel):
     """
     Which runtime answers: what a client says about the runtime it's connected to.
@@ -1958,6 +2031,10 @@ class RuntimeInfo(BaseModel):
     development: bool
     """
     The runtime runs in development mode, which allows development-only settings.
+    """
+    connections: RuntimeConnections | None = None
+    """
+    Whether the runtime serves connections to other apps. Absent when the runtime doesn't say.
     """
 
 
@@ -3020,6 +3097,25 @@ class AgentMemoryPolicy(BaseModel):
     """
 
 
+class AgentFilesPolicy(BaseModel):
+    """
+    Lets the agent's model change its run's files, text only. `update: true` offers the built-in tool `kindgi_update_file`: a new version of a text file the run has, given the version the model read. `create: true` offers `kindgi_create_file`: a new text file of the run's. Built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`. Each call changes something, so the agent's approval rules apply, and the run needs `write` where the file is. A runtime with no file store offers neither. Absent: neither tool.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    update: bool | None = None
+    """
+    Offers `kindgi_update_file`. Absent means `false`.
+    """
+    create: bool | None = None
+    """
+    Offers `kindgi_create_file`. Absent means `false`.
+    """
+
+
 class McpExposure(BaseModel):
     """
     Whether an agent or a flow is a tool in a person's chat app, through the API's MCP server (`/mcp`). An agent's tool is named by its id, a flow's by `flow.` and its id. The chat app lists it only to people who can see it. Absent, or `expose: false`: it isn't one.
@@ -3148,13 +3244,16 @@ class ToolErrorsSpec(BaseModel):
     """
     retry_on: Annotated[
         list[
-            Annotated[Literal["invalid-arguments", "unknown-tool", "tool-error"] | str, _open.OPEN]
+            Annotated[
+                Literal["invalid-arguments", "unknown-tool", "tool-error", "tool-failed"] | str,
+                _open.OPEN,
+            ]
         ]
         | None,
         Field(alias="retryOn"),
     ] = None
     """
-    Which failures are sent back: arguments that don't fit the input schema (`invalid-arguments`), a tool the agent doesn't have (`unknown-tool`), a tool that ran and failed (`tool-error`). Default `invalid-arguments`, `unknown-tool`.
+    Which failures are sent back: arguments that don't fit the input schema (`invalid-arguments`), a tool the agent doesn't have (`unknown-tool`), a tool that ran and failed (`tool-error`), a tool that failed the call on purpose (`tool-failed`). Default `invalid-arguments`, `unknown-tool`.
     """
 
 
@@ -3318,6 +3417,38 @@ class FlowVersionOverrides(BaseModel):
     """
 
 
+class PlanCount(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[int, Field(ge=0)]
+    """
+    The plan's number: the license key's, or the workspace's own limit (`TenantLimits`).
+    """
+    most: Annotated[int, Field(ge=0)]
+    """
+    The most it runs: its plan and a margin. A write past this is refused.
+    """
+    in_use: Annotated[int, Field(alias="inUse", ge=0)]
+    """
+    How many run in production, with this write.
+    """
+
+
+class PlanWarning(BaseModel):
+    """
+    The plan limits' counts that are at their plan or past it, with this write: flows and agents in production, against the license key's plan or the workspace's own limit. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flows: PlanCount | None = None
+    agents: PlanCount | None = None
+
+
 class Warning(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3336,8 +3467,9 @@ class PublishAgentResult(BaseModel):
     version: str
     warnings: list[Warning] | None = None
     """
-    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them), `recall-unavailable` (the deployment cannot recall earlier conversations) or `files-unavailable` (the agent declares `files` and the deployment has no file store).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class AgentOwner(BaseModel):
@@ -3419,6 +3551,7 @@ class ReinstateAgentVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowNode(BaseModel):
@@ -3528,6 +3661,7 @@ class PublishFlowResult(BaseModel):
     )
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class UnregisterFlowResult(BaseModel):
@@ -3551,6 +3685,7 @@ class ReinstateFlowVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowCollectionPage(BaseModel):
@@ -4105,6 +4240,14 @@ class FileValue(BaseModel):
     artifact_id: Annotated[str, Field(alias="artifactId", min_length=1)]
     """
     The stored file (`POST /v1/artifacts`): its `blobId`.
+    """
+    file_id: Annotated[str | None, Field(alias="fileId", min_length=1)] = None
+    """
+    The file these bytes are a version of, on a runtime that keeps file versions. Set with `version`: a value is admitted only when the two name `artifactId`'s bytes.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which version of `fileId` these bytes are. Set with `fileId`.
     """
     name: str | None = None
     """
@@ -5833,6 +5976,10 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.
+    """
     bucket: str | None = None
     """
     The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
@@ -5840,6 +5987,14 @@ class BlobMeta(BaseModel):
     key: str | None = None
     """
     The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
+    file_id: Annotated[str | None, Field(alias="fileId")] = None
+    """
+    The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.
     """
 
 
@@ -5886,6 +6041,10 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.
+    """
     bucket: str | None = None
     """
     The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
@@ -5893,6 +6052,14 @@ class Datum5(BaseModel):
     key: str | None = None
     """
     The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
+    file_id: Annotated[str | None, Field(alias="fileId")] = None
+    """
+    The file these bytes are a version of, on a runtime that keeps file versions (`/v1/files`). A blob stored before it kept them is version 1 of a file with its own id.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which version of `fileId` these bytes are. Set with `fileId`. Bytes two versions share name the lowest: the one that stored them.
     """
 
 
@@ -5908,7 +6075,7 @@ class ArtifactCollectionPage(BaseModel):
 
 class UploadArtifactBody(BaseModel):
     """
-    Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).
+    Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).
     """
 
     model_config = ConfigDict(
@@ -5933,6 +6100,10 @@ class UploadArtifactBody(BaseModel):
     """
     Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400).
     """
+    for_run: Annotated[Literal["true", "false"] | None, Field(alias="forRun")] = None
+    """
+    `true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted.
+    """
 
 
 class DeleteArtifactResult(BaseModel):
@@ -5944,6 +6115,329 @@ class DeleteArtifactResult(BaseModel):
     deleted: bool
     """
     `true` on the first delete; `false` on subsequent calls (already gone). 404 only when the id was never known.
+    """
+
+
+class FilePin(BaseModel):
+    """
+    A version's keep mark: it can't be deleted, and retention never purges it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    by: str
+    """
+    Who pinned it: `user:<id>` or `service_account:<id>`.
+    """
+    at: AwareDatetime
+    reason: str | None = None
+
+
+class FileVersion(BaseModel):
+    """
+    One version of a file. Numbers start at 1, only grow, and are never reused. A deleted or purged version keeps its record, so the runs that used it still name it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file_id: Annotated[str, Field(alias="fileId")]
+    """
+    The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.
+    """
+    version: Annotated[int, Field(ge=1)]
+    blob_id: Annotated[str, Field(alias="blobId")]
+    """
+    The stored bytes. Two versions of one file can share them.
+    """
+    name: str
+    """
+    The file's name when this version was made.
+    """
+    content_type: Annotated[str, Field(alias="contentType")]
+    """
+    MIME type, as the writer declared it.
+    """
+    size: Annotated[int, Field(ge=0)]
+    hash: Annotated[str, Field(pattern="^[0-9a-f]{64}$")]
+    """
+    sha256 of the bytes, hex-encoded, lowercase.
+    """
+    tags: dict[str, str]
+    """
+    Labels the writer gave this version.
+    """
+    parent_version: Annotated[int | None, Field(alias="parentVersion", ge=1)] = None
+    """
+    Latest when this version was made. Absent on version 1.
+    """
+    restored_from: Annotated[int | None, Field(alias="restoredFrom", ge=1)] = None
+    """
+    The version a restore copied the bytes of.
+    """
+    made_via: Annotated[
+        Annotated[Literal["upload", "restore", "tool", "model"] | str, _open.OPEN],
+        Field(alias="madeVia"),
+    ]
+    """
+    How it was made: a person's or a key's upload, a restore, a run's tool, or a run's model.
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made it: `user:<id>` or `service_account:<id>`, or `run:<id>` for a run's tool or model.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run that made it, when one did.
+    """
+    call_key: Annotated[str | None, Field(alias="callKey")] = None
+    """
+    The run's tool call that made it.
+    """
+    tool_id: Annotated[str | None, Field(alias="toolId")] = None
+    """
+    The tool that made it.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    superseded_at: Annotated[AwareDatetime | None, Field(alias="supersededAt")] = None
+    """
+    When a newer version replaced it as Latest. Absent on Latest: when Latest is deleted, the version that's Latest again has none.
+    """
+    pin: FilePin | None = None
+    deleted_at: Annotated[AwareDatetime | None, Field(alias="deletedAt")] = None
+    purged_at: Annotated[AwareDatetime | None, Field(alias="purgedAt")] = None
+    """
+    When retention dropped its bytes (the `file_version` domain). Its number, hash, size and maker stay.
+    """
+
+
+class PinnedVersion1(RootModel[int]):
+    root: Annotated[int, Field(ge=1)]
+
+
+class StoredFile(BaseModel):
+    """
+    A file the runtime keeps, with every edit as a version, and its Latest: the highest version that isn't deleted.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file_id: Annotated[str, Field(alias="fileId")]
+    """
+    The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project it belongs to. Reading it needs `read` there, or `run` for a file of the caller's own; changing it needs `write`.
+    """
+    name: str
+    """
+    Its name: Latest's.
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made version 1: `user:<id>` or `service_account:<id>`.
+    """
+    owner_run_id: Annotated[UUID | None, Field(alias="ownerRunId")] = None
+    """
+    The run that made version 1, when one did.
+    """
+    latest_version: Annotated[int, Field(alias="latestVersion", ge=1)]
+    highest_version: Annotated[int, Field(alias="highestVersion", ge=1)]
+    """
+    The highest number it has had, deleted versions included.
+    """
+    pinned_versions: Annotated[list[PinnedVersion1], Field(alias="pinnedVersions")]
+    """
+    Its pinned versions, lowest first.
+    """
+    latest: FileVersion
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    """
+    When its newest version was made, or its Latest last moved.
+    """
+
+
+class StoredFileCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[StoredFile]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FileVersionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[FileVersion]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FilePinChange(BaseModel):
+    """
+    One pin or unpin of a version. Entries are only ever added.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    change_id: Annotated[str, Field(alias="changeId")]
+    file_id: Annotated[str, Field(alias="fileId")]
+    """
+    The file's id: the `blobId` of its version 1's bytes, which names the file through every later version.
+    """
+    version: Annotated[int, Field(ge=1)]
+    change: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
+    by: str
+    """
+    `user:<id>` or `service_account:<id>`.
+    """
+    at: AwareDatetime
+    reason: str | None = None
+
+
+class FilePinChangeCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[FilePinChange]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FileVersionWrite(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: FileVersion
+    created: bool
+    """
+    `false` when the bytes were already Latest's: no version was added, and `version` is Latest.
+    """
+
+
+class CreateFileBody(BaseModel):
+    """
+    Multipart form. `file` is the byte stream (required); the other fields are optional.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: bytes
+    content_type: Annotated[str | None, Field(alias="contentType")] = None
+    """
+    Its MIME type. Default: the file part's.
+    """
+    tags: str | None = None
+    """
+    JSON-encoded `Record<string, string>`: labels for this version.
+    """
+    expected_hash: Annotated[str | None, Field(alias="expectedHash", pattern="^[0-9a-f]{64}$")] = (
+        None
+    )
+    """
+    Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`.
+    """
+    name: str | None = None
+    """
+    Its name. Default: the file part's filename.
+    """
+    owner_run_id: Annotated[UUID | None, Field(alias="ownerRunId")] = None
+    """
+    The run that produced it: the file joins that run's project.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the workspace's default project.
+    """
+
+
+class AddFileVersionBody(BaseModel):
+    """
+    Multipart form. `file` is the byte stream (required); the other fields are optional. The version stays in its file's project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: bytes
+    content_type: Annotated[str | None, Field(alias="contentType")] = None
+    """
+    Its MIME type. Default: the file part's.
+    """
+    tags: str | None = None
+    """
+    JSON-encoded `Record<string, string>`: labels for this version.
+    """
+    expected_hash: Annotated[str | None, Field(alias="expectedHash", pattern="^[0-9a-f]{64}$")] = (
+        None
+    )
+    """
+    Caller-computed sha256, hex-encoded, lowercase. A mismatch is `400 blob-hash-mismatch`.
+    """
+    name: str | None = None
+    """
+    A new name for the file. Default: Latest's.
+    """
+    expected_version: Annotated[int | None, Field(alias="expectedVersion", ge=1)] = None
+    """
+    The version the writer read. When Latest isn't it, the answer is `409 file-version-conflict` and nothing is written. Without it, the last write wins: it becomes Latest whatever came in between, which stays in the history.
+    """
+
+
+class RestoreFileVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    expected_version: Annotated[int | None, Field(alias="expectedVersion", ge=1)] = None
+    """
+    As on adding a version: when Latest isn't it, nothing is written.
+    """
+
+
+class PinFileVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=500)] = None
+    """
+    Why, kept in the pin history.
+    """
+
+
+class DeleteFileResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file_id: Annotated[str, Field(alias="fileId")]
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The version deleted, when one version was.
+    """
+    deleted: bool
+    """
+    `true` on the first delete; `false` on later ones (already gone).
     """
 
 
@@ -6234,6 +6728,10 @@ class ProviderCheckResult(BaseModel):
     """
     The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.
     """
+
+
+class ReadOnlyTool(RootModel[str]):
+    root: Annotated[str, Field(max_length=128, min_length=1)]
 
 
 class MCPEndpointSecretRef(BaseModel):
@@ -6808,6 +7306,7 @@ class RetentionPolicyConflict(BaseModel):
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -6816,7 +7315,7 @@ class RetentionPolicyConflict(BaseModel):
         _open.OPEN,
     ]
     """
-    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.
     """
     policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
     """
@@ -6852,6 +7351,7 @@ class RetentionScheduledItem(BaseModel):
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -6860,7 +7360,7 @@ class RetentionScheduledItem(BaseModel):
         _open.OPEN,
     ]
     """
-    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.
     """
     id: str
     """
@@ -6928,6 +7428,7 @@ class RetentionScheduledPage(BaseModel):
                     "provider",
                     "memory",
                     "conversation",
+                    "file_version",
                     "api_key",
                     "service_account",
                     "*",
@@ -6962,6 +7463,7 @@ class RetentionScheduledPage(BaseModel):
                     "provider",
                     "memory",
                     "conversation",
+                    "file_version",
                     "api_key",
                     "service_account",
                     "*",
@@ -7006,6 +7508,7 @@ class RetentionSweepBody(BaseModel):
                 "provider",
                 "memory",
                 "conversation",
+                "file_version",
                 "api_key",
                 "service_account",
                 "*",
@@ -7059,6 +7562,7 @@ class PerDomainItem(BaseModel):
             "provider",
             "memory",
             "conversation",
+            "file_version",
             "api_key",
             "service_account",
             "*",
@@ -7067,7 +7571,7 @@ class PerDomainItem(BaseModel):
         _open.OPEN,
     ]
     """
-    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory`, `conversation` and `file_version`: the first two hold people's words, and `file_version` holds every edit of a file, so only a policy naming them purges them. `file_version` covers a file's versions other than Latest: a deleted one after the grace, and one that isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace.
     """
     purged: Annotated[int, Field(ge=0)]
     remaining: Annotated[int, Field(ge=0)]
@@ -7795,7 +8299,7 @@ class TestRun(BaseModel):
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
+    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     """
@@ -7964,7 +8468,14 @@ class OidcIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.
+    """
+    join_role: Annotated[
+        Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN] | None,
+        Field(alias="joinRole"),
+    ] = None
+    """
+    What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -7978,7 +8489,7 @@ class OidcIdentityProviderConfig(BaseModel):
     client_id: Annotated[str, Field(alias="clientId", min_length=1)]
     client_secret_ref: Annotated[str, Field(alias="clientSecretRef", min_length=1)]
     """
-    Opaque reference resolved server-side. Never a plaintext secret.
+    Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a destination, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger, a destination or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own.
     """
     scopes: list[str] | None = None
     """
@@ -8037,7 +8548,14 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.
+    """
+    join_role: Annotated[
+        Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN] | None,
+        Field(alias="joinRole"),
+    ] = None
+    """
+    What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8059,13 +8577,13 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     sp_signing_key_ref: Annotated[str | None, Field(alias="spSigningKeyRef", min_length=1)] = None
     """
-    Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key.
+    Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).
     """
     sp_decryption_key_ref: Annotated[
         str | None, Field(alias="spDecryptionKeyRef", min_length=1)
     ] = None
     """
-    Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key.
+    Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).
     """
     sp_signing_certificates: Annotated[
         list[SpSigningCertificate] | None, Field(alias="spSigningCertificates")
@@ -8217,6 +8735,10 @@ class SignInOptions(BaseModel):
     """
     The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
+    sign_up_url: Annotated[AnyUrl | None, Field(alias="signUpUrl")] = None
+    """
+    The deployment's own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.
+    """
     links: Annotated[list[ConsoleLink] | None, Field(max_length=8)] = None
     """
     The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.
@@ -8261,12 +8783,15 @@ class SignInEvent(BaseModel):
             "second-factor-set-up",
             "second-factor-removed",
             "recovery-codes-replaced",
+            "chat-app-connected",
+            "chat-app-refresh-refused",
+            "chat-app-disconnected",
         ]
         | str,
         _open.OPEN,
     ]
     """
-    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.
+    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`; `chat-app-connected`, `chat-app-refresh-refused` (with `reason`) and `chat-app-disconnected` (a chat app this person connected, whose renewal was refused, or that they disconnected; `clientId` is the chat app). Never a key or a code.
     """
     outcome: str
     """
@@ -8274,7 +8799,7 @@ class SignInEvent(BaseModel):
     """
     user_id: Annotated[str | None, Field(alias="userId")] = None
     """
-    The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.
+    The person the event is about: who signed in or out, whose sessions ended, whom a link was for, or whose chat app it was. Absent on a refusal that names no one.
     """
     method: str | None = None
     """
@@ -8286,12 +8811,16 @@ class SignInEvent(BaseModel):
     """
     reason: str | None = None
     """
-    Why a sign-in was refused, or which limit held.
+    Why a sign-in or a chat app's renewal was refused, or which limit held.
     """
     session_id: Annotated[str | None, Field(alias="sessionId")] = None
     by_user_id: Annotated[str | None, Field(alias="byUserId")] = None
     """
     Who acted, when it isn't `userId`: the admin who ended this person's sessions.
+    """
+    client_id: Annotated[str | None, Field(alias="clientId")] = None
+    """
+    The chat app, on a `chat-app-*` kind: its client id.
     """
 
 
@@ -8334,12 +8863,13 @@ class UpdateIdentityProviderBody(BaseModel):
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     domains: list[Domain] | None = None
     join: Literal["invite", "domain"] | None = None
+    join_role: Annotated[Literal["viewer", "runner", "none"] | None, Field(alias="joinRole")] = None
     metadata: dict[str, Any] | None = None
     issuer: AnyUrl | None = None
     client_id: Annotated[str | None, Field(alias="clientId", min_length=1)] = None
     client_secret_ref: Annotated[str | None, Field(alias="clientSecretRef", min_length=1)] = None
     """
-    Opaque reference resolved server-side. Never a plaintext secret.
+    Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a destination, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger, a destination or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own.
     """
     scopes: list[str] | None = None
     authorization_endpoint: Annotated[AnyUrl | None, Field(alias="authorizationEndpoint")] = None
@@ -8493,6 +9023,10 @@ class UserCreated(BaseModel):
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
+    """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
 
@@ -8642,6 +9176,106 @@ class AuthSettingsPatch(BaseModel):
         populate_by_name=True,
     )
     second_factor: Annotated[SecondFactor1, Field(alias="secondFactor")]
+
+
+class JoinDomain(BaseModel):
+    """
+    An email domain the workspace lets people join from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    """
+    Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`.
+    """
+    role: Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy", min_length=1)]
+    """
+    Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token).
+    """
+    updated_at: Annotated[AwareDatetime | None, Field(alias="updatedAt")] = None
+    updated_by: Annotated[str | None, Field(alias="updatedBy", min_length=1)] = None
+    """
+    Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one.
+    """
+
+
+class JoinDomainList(BaseModel):
+    """
+    The workspace's allowed domains, the first allowed first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JoinDomain]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class AllowJoinDomainBody(BaseModel):
+    """
+    A domain to let people join from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    """
+    An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent.
+    """
+    role: Literal["viewer", "runner", "none"] | None = None
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Default `viewer`.
+    """
+
+
+class ChangeJoinDomainBody(BaseModel):
+    """
+    What someone joining by the domain gets from now on. People who joined already keep what they have.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["viewer", "runner", "none"]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+
+
+class UnregisterJoinDomainResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    unregistered: Literal[True]
+
+
+class JoinDomainLookupBody(BaseModel):
+    """
+    One email a sign-up page verified.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    email: Annotated[str, Field(min_length=3)]
+    """
+    An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it.
+    """
 
 
 class CreateUserBody(BaseModel):
@@ -9545,6 +10179,13 @@ class DeployCheckAgentId(RootModel[str]):
     """
 
 
+class DeployCheckFlowId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    A flow's id, as the image index names it.
+    """
+
+
 class ReplacedItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9574,6 +10215,7 @@ class DeployCheckResult(BaseModel):
     """
     The blocks `replace` names that nothing newer runs for: nothing to replace.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class By2(BaseModel):
@@ -10032,6 +10674,8 @@ class EvidenceKind(RootModel[str]):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10217,6 +10861,8 @@ class ComplianceEvidence(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10330,6 +10976,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10420,6 +11068,8 @@ class Filter(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10820,7 +11470,7 @@ class Project(BaseModel):
     """
     former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
     """
-    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them.
     """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
@@ -10859,6 +11509,7 @@ class ProjectProduction(BaseModel):
     """
     When the project went into production; `null` while it isn't in production.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class ProjectRepoConnectionBody(BaseModel):
@@ -10928,6 +11579,49 @@ class ProjectCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[Project]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class DeletedProject(BaseModel):
+    """
+    A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    ProjectId — opaque branded string.
+    """
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    org_id: Annotated[str | None, Field(alias="orgId")] = None
+    """
+    Its org; absent when it has none.
+    """
+    name: str
+    slug: str
+    """
+    Its slug, still its own: no other project can take it where this one is.
+    """
+    former_slugs: Annotated[list[str], Field(alias="formerSlugs")]
+    """
+    The slugs it had before it was renamed, newest first; still its own, in any org of the workspace.
+    """
+    deleted_at: Annotated[AwareDatetime, Field(alias="deletedAt")]
+    """
+    When it was deleted. Deleting it again keeps this time.
+    """
+
+
+class DeletedProjectCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DeletedProject]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11059,6 +11753,18 @@ class TenantLimits(BaseModel):
     """
     Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
     """
+    storage_mi_b: Annotated[int | None, Field(alias="storageMiB", ge=1)] = None
+    """
+    MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file.
+    """
+    flows_in_production: Annotated[int | None, Field(alias="flowsInProduction", ge=1)] = None
+    """
+    Flows in production, each counted once however many of the workspace's projects in production run it. There's a margin: a write that would take the count past the most, the larger of 1.2 times this (rounded down) and one more than it, is refused with 403 `plan-limit-reached` (`scope: tenant`), and a write's answer warns from this number on (`planWarning`). Lowering it takes nothing out of production.
+    """
+    agents_in_production: Annotated[int | None, Field(alias="agentsInProduction", ge=1)] = None
+    """
+    Agents in production, counted as `flowsInProduction` is, with the same margin and the same refusal.
+    """
 
 
 class EgressAddresses(BaseModel):
@@ -11112,6 +11818,188 @@ class TenantLimitsInUse(BaseModel):
     projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
     """
     The tenant's projects in production.
+    """
+    storage_used_bytes: Annotated[int | None, Field(alias="storageUsedBytes", ge=0)] = None
+    """
+    The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files.
+    """
+    flows_in_production: Annotated[int | None, Field(alias="flowsInProduction", ge=0)] = None
+    """
+    The tenant's flows in production, each counted once. Absent from a runtime that doesn't count it.
+    """
+    agents_in_production: Annotated[int | None, Field(alias="agentsInProduction", ge=0)] = None
+    """
+    The tenant's agents in production, each counted once. Absent from a runtime that doesn't count it.
+    """
+
+
+class KeptRepoId(BaseModel):
+    """
+    A project's kept repo, by its tenant and project ids.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class KeptRepoRulingsBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    ids: Annotated[list[KeptRepoId], Field(max_length=500)]
+    """
+    The kept repos to rule on, up to 500. They may span tenants, and repeat.
+    """
+
+
+class KeptRepoRuling(BaseModel):
+    """
+    What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    ruling: Annotated[Literal["keep", "purge"] | str, _open.OPEN]
+    mark: Annotated[Literal["none", "deleted", "moved", "held"] | str, _open.OPEN] | None = None
+    """
+    With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it).
+    """
+    since: AwareDatetime | None = None
+    """
+    With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time).
+    """
+    reason: (
+        Annotated[Literal["erasure", "retention", "tenant-purged", "no-record"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).
+    """
+    recorded: Literal[True] | None = None
+    """
+    With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`.
+    """
+
+
+class KeptRepoRulings(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rulings: list[KeptRepoRuling]
+    """
+    One ruling for each id, in the order given.
+    """
+
+
+class KeptRepoOpenErasure(BaseModel):
+    """
+    An unfinished erasure of a project's kept repo.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    since: AwareDatetime
+    """
+    When it was requested.
+    """
+
+
+class KeptRepoErasurePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: Annotated[list[KeptRepoOpenErasure], Field(max_length=500)]
+    """
+    By tenant id, then project id.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Present when there are more: pass it as `cursor` for the next page.
+    """
+
+
+class KeptRepoPurgedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Literal["erasure", "retention", "tenant-purged", "no-record"]
+    """
+    Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).
+    """
+
+
+class KeptRepoState(BaseModel):
+    """
+    A kept repo's state, as the runtime records it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[
+        Literal["live", "deleted", "moved", "held", "erasure-requested", "purged"] | str, _open.OPEN
+    ]
+    """
+    `live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded).
+    """
+    since: AwareDatetime
+    """
+    When it came to be in that state.
+    """
+
+
+class TenantStorage(BaseModel):
+    """
+    What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    used_bytes: Annotated[int, Field(alias="usedBytes", ge=0)]
+    """
+    The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it.
+    """
+
+
+class TenantPlanBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
+    """
+    The plan's id: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. null clears it.
+    """
+
+
+class TenantPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
+    """
+    The tenant's plan id now; null when none is set.
     """
 
 
@@ -11302,6 +12190,51 @@ class SecretRevokeResult(BaseModel):
     """
 
 
+class ScheduleResultTarget(BaseModel):
+    """
+    One place a schedule's results go, and which of them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to: str
+    """
+    A destination's id, or `me`: the schedule's owner's own email, when the owner is a person.
+    """
+    on: Annotated[
+        list[Annotated[Literal["completed", "failed", "cancelled", "waiting"] | str, _open.OPEN]],
+        Field(min_length=1),
+    ]
+    """
+    The events it gets.
+    """
+
+
+class ScheduleResultTargetInput(BaseModel):
+    """
+    One place a schedule's results go, as registering or changing one names it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to: str
+    """
+    A destination's id, or `me`: the schedule's owner's own email, when the owner is a person and the deployment sends email.
+    """
+    on: Annotated[
+        list[Annotated[Literal["completed", "failed", "cancelled", "waiting"] | str, _open.OPEN]]
+        | None,
+        Field(min_length=1),
+    ] = None
+    """
+    The events it gets, each kept once. Absent: every event.
+    """
+
+
 class ToolsAllowedUnattendedItem(RootModel[str]):
     root: Annotated[str, Field(max_length=200, min_length=1)]
 
@@ -11354,7 +12287,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended or deleted (`project-suspended`, `project-deleted`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension, a delete or a close (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11437,7 +12370,7 @@ class WebhookFire(BaseModel):
         Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
     ]
     """
-    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
+    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended or deleted after the delivery was taken, before its run started (`project-suspended`, `project-deleted`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11449,7 +12382,7 @@ class WebhookFire(BaseModel):
     """
     detail: str | None = None
     """
-    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.
+    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it.
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
@@ -11507,7 +12440,7 @@ class ToolFileStoreAnswer2(BaseModel):
     )
     not_stored: Annotated[Literal["type", "size", "limit", "storage"], Field(alias="notStored")]
     """
-    Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.
+    Why nothing was stored: `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.
     """
 
 
@@ -11515,6 +12448,78 @@ class ToolFileStoreAnswer(RootModel[ToolFileStoreAnswer1 | ToolFileStoreAnswer2]
     root: ToolFileStoreAnswer1 | ToolFileStoreAnswer2
     """
     What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
+    """
+
+
+class ToolFileUpdateAnswer1(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: FileValue
+
+
+class ToolFileUpdateAnswer2(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    same: FileValue
+
+
+class ToolFileUpdateAnswer3(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    conflict: FileValue
+
+
+class ToolFileUpdateAnswer4(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    not_updated: Annotated[
+        Literal["rule", "denied", "gone", "type", "size", "storage"], Field(alias="notUpdated")
+    ]
+    """
+    Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full).
+    """
+
+
+class ToolFileUpdateAnswer(
+    RootModel[
+        ToolFileUpdateAnswer1
+        | ToolFileUpdateAnswer2
+        | ToolFileUpdateAnswer3
+        | ToolFileUpdateAnswer4
+    ]
+):
+    root: (
+        ToolFileUpdateAnswer1
+        | ToolFileUpdateAnswer2
+        | ToolFileUpdateAnswer3
+        | ToolFileUpdateAnswer4
+    )
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
     """
 
 
@@ -11550,9 +12555,11 @@ class WebhookReceipt(BaseModel):
     """
     An earlier fire holds this delivery's dedupe key: nothing new started.
     """
-    skipped: Literal["paused", "tenant-suspended", "project-suspended"] | None = None
+    skipped: (
+        Literal["paused", "tenant-suspended", "project-suspended", "project-deleted"] | None
+    ) = None
     """
-    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.
+    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded.
     """
     received: Literal["ping"] | None = None
     """
@@ -11767,7 +12774,7 @@ class RegisterMailTriggerBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project. Absent → the workspace's default project.
+    The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -11876,6 +12883,247 @@ class MailTriggerCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class TextTriggerRecord(BaseModel):
+    """
+    A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); a text that isn't a reply always waits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int, Field(alias="perSenderPerHour", ge=1, le=60)]
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why it isn't answering as it should: `connection-missing` (its connection is gone or lapsed; it answers again once it's back), `owner-refused` (its owner was removed or may no longer run the target; its texts are refused until that changes or an admin takes it over), or why the runtime paused it.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class RegisterTextTriggerBodyConfig(BaseModel):
+    """
+    A new text trigger's connection and pace.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int | None, Field(alias="perSenderPerHour", ge=1, le=60)] = None
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+
+
+class PatchTextTriggerBodyConfig(BaseModel):
+    """
+    A text trigger's connection or pace, to change. An absent field keeps its value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int | None, Field(alias="perSenderPerHour", ge=1, le=60)] = None
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+
+
+class RegisterTextTriggerBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the text, so it takes none. The number is the company's: it needs `admin` on the project, and `execute` on what it runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project. Absent: the workspace's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Not with `runAsServiceAccountId`, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
+    """
+    config: RegisterTextTriggerBodyConfig
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `kindgi_send_text` (400): a text that isn't a reply always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class PatchTextTriggerBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its connection, pace or label. Every change takes `admin` on the trigger's project. The owner stays.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    config: PatchTextTriggerBodyConfig | None = None
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the list (`[]` clears it; absent keeps it). Never `kindgi_send_text` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class TextFire(BaseModel):
+    """
+    One text a text trigger was given and what came of it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Annotated[
+        Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
+    ]
+    """
+    `pending` while its run starts. `skipped`: no run started, as `detail` says. `refused`: over the trigger's `runsPerHour` or `perSenderPerHour` (`over-limit:`), or its connection missing or lapsed (`connection-missing:` and why); a refused text doesn't run later. `failed`: the run couldn't start.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run it started.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's version its run started with: the newest when it started. Absent until the run starts.
+    """
+    detail: str | None = None
+    """
+    Why it was skipped, refused or failed. It never names the sender's number.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends a missing connection. Skips never count.
+    """
+
+
+class TextFirePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextFire]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class TextTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class MailTriggerDefinition(BaseModel):
     """
     What a mail trigger's version runs, as whom, and which mailbox it reads at what pace, as its record names them, and never its state (status, next or last fire).
@@ -11969,6 +13217,102 @@ class MailTriggerVersionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[MailTriggerVersion]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class TextTriggerDefinition(BaseModel):
+    """
+    What a text trigger's version runs, as whom, and which number it answers at what pace, as its record names them, and never its state (status, next or last fire).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int, Field(alias="perSenderPerHour", ge=1, le=60)]
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    label: str | None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class TextTriggerVersion(BaseModel):
+    """
+    One version of a text trigger: what it was from `createdAt` until the next. A text's run uses the newest when it starts, and keeps it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    version: Annotated[int, Field(ge=1)]
+    """
+    Counts from 1, one more for each version.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).
+    """
+    cause: Annotated[
+        Literal["register", "edit", "owner", "first-fire", "unversioned-edit", "pin"] | str,
+        _open.OPEN,
+    ]
+    """
+    What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
+    """
+    definition: TextTriggerDefinition
+
+
+class TextTriggerVersionPage(BaseModel):
+    """
+    Newest first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextTriggerVersion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -12162,10 +13506,14 @@ class Removal(BaseModel):
         populate_by_name=True,
     )
     revoke: (
-        Annotated[Literal["oauth2-revoke", "github-installation-token"] | str, _open.OPEN] | None
+        Annotated[
+            Literal["oauth2-revoke", "github-installation-token", "restore-inbound"] | str,
+            _open.OPEN,
+        ]
+        | None
     ) = None
     """
-    How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).
+    How a disconnect withdraws access at the app: an OAuth revoke, revoking the GitHub App's installation tokens (the app stays installed), or putting a number's inbound back where it was before the connect, or clearing what Kindgi set (`restore-inbound`).
     """
     revoke_is_grant_wide: Annotated[bool | None, Field(alias="revokeIsGrantWide")] = None
     """
@@ -12206,6 +13554,29 @@ class ConnectionGitHubApp(BaseModel):
     webhook_secret: Annotated[ConnectionSecretRef, Field(alias="webhookSecret")]
 
 
+class ConnectionTokenApp(BaseModel):
+    """
+    A texts registration's provider account: its API key, by reference, and the key its texts are signed with.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider: Annotated[Literal["telnyx"] | str, _open.OPEN]
+    """
+    One of the entry's `signIn.providers`.
+    """
+    api_key: Annotated[ConnectionSecretRef, Field(alias="apiKey")]
+    """
+    The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, not an identity provider's secret (`400 identity-provider-key-refused`), and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a destination, a model provider or another registration that names it is refused (`400 connection-key-refused`).
+    """
+    public_key: Annotated[str, Field(alias="publicKey", pattern="^[A-Za-z0-9+/]{43}=$")]
+    """
+    The account's Ed25519 public key, base64 of its 32 bytes, as the provider shows it. Anything else is `400 bad-input` (`token.publicKey`).
+    """
+
+
 class ConnectionApp(BaseModel):
     """
     A workspace's registration of an app: its own client there, or Kindgi's own app (`via`). Secrets are references, never values.
@@ -12227,6 +13598,7 @@ class ConnectionApp(BaseModel):
     label: str | None = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: list[str] | None = None
     """
     The projects whose runs may use its connections. Absent: every project.
@@ -12256,7 +13628,7 @@ class ConnectionAppPage(BaseModel):
 
 class CreateConnectionAppBody(BaseModel):
     """
-    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes that registration itself.
+    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App, `token` for an app whose sign-in is an account's credential (`texts`). An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes that registration itself.
     """
 
     model_config = ConfigDict(
@@ -12270,6 +13642,7 @@ class CreateConnectionAppBody(BaseModel):
     label: Annotated[str | None, Field(max_length=200)] = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
     """
     The projects whose runs may use its connections. Leave out for every project.
@@ -12288,6 +13661,7 @@ class UpdateConnectionAppBody(BaseModel):
     label: Annotated[str | None, Field(max_length=200)] = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
     """
     `null` allows every project.
@@ -12305,90 +13679,20 @@ class ConnectionAppRemoved(BaseModel):
     """
 
 
-class Connection(BaseModel):
+class ConnectionTextsCount(BaseModel):
     """
-    One owner's account at an app, through a registration, in one env. Never its token.
+    A number's (`texts`) texts in the current month, by UTC. Absent for other apps.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    connection_id: Annotated[UUID, Field(alias="connectionId")]
-    env_name: Annotated[str, Field(alias="envName")]
-    app_id: Annotated[UUID, Field(alias="appId")]
+    received: Annotated[int, Field(ge=0)]
+    sent: Annotated[int, Field(ge=0)]
+    unanswered: Annotated[int, Field(ge=0)]
     """
-    The registration it goes through.
-    """
-    app: str
-    """
-    The app's entry id.
-    """
-    owner: ConnectionOwner
-    account: ConnectionAccount
-    label: str | None = None
-    """
-    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
-    """
-    main: bool | None = None
-    """
-    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
-    """
-    permissions: list[str]
-    """
-    The entry's permission keys the app granted.
-    """
-    state: Annotated[
-        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
-    ]
-    """
-    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
-    """
-    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
-    """
-    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.
-    """
-    installation_id: Annotated[str | None, Field(alias="installationId")] = None
-    """
-    A GitHub App's installation.
-    """
-    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
-    """
-    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
-    """
-    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
-    """
-    When its current grant was stored: the connect, or the last reconnect.
-    """
-    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
-    """
-    When a run last used it, to the hour.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    created_by: Annotated[str, Field(alias="createdBy")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
-    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
-    removed_reason: Annotated[
-        Annotated[
-            Literal[
-                "disconnected", "revoked-at-app", "uninstalled", "registration-removed", "replaced"
-            ]
-            | str,
-            _open.OPEN,
-        ]
-        | None,
-        Field(alias="removedReason"),
-    ] = None
-    withdrawn: (
-        Annotated[
-            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
-            _open.OPEN,
-        ]
-        | None
-    ) = None
-    """
-    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    The texts received with nothing to answer them.
     """
 
 
@@ -12409,16 +13713,6 @@ class UpdateConnectionBody(BaseModel):
     """
     The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.
     """
-
-
-class ConnectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Connection]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ConnectionChoicePerson(BaseModel):
@@ -12578,7 +13872,15 @@ class CreateConnectRequestBody(BaseModel):
     """
     reconnects: UUID | None = None
     """
-    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one. For a number (`texts`), a reconnect names the connection's own number (any other is `409 connection-account-mismatch`), looks it up again with the registration's current credential, and makes the connection working.
+    """
+    number: Annotated[str | None, Field(pattern="^\\+[1-9][0-9]{6,14}$")] = None
+    """
+    A `texts` connect's, and required there: the number to connect, in E.164 (`+15551234567`). `400 bad-input` for any other app.
+    """
+    replace_inbound: Annotated[Literal[True] | None, Field(alias="replaceInbound")] = None
+    """
+    A `texts` connect's: `true` connects even though the number's inbound texts go somewhere else today (`409 inbound-in-use` without it). Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply; the removal puts the old inbound back. Only `true`; `400 bad-input` for any other app.
     """
 
 
@@ -12798,6 +14100,10 @@ class RequestedApproval(BaseModel):
     """
     Its page in the console, when the runtime knows its public address.
     """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The top-level run that waits on it, when a run asked for it. Absent on an approval no run asked for, and from a runtime that doesn't send it yet.
+    """
 
 
 class ApprovalRequestedEventData(BaseModel):
@@ -12875,6 +14181,216 @@ class WebhookTestEvent(BaseModel):
     type: Literal["webhook.test"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data2
+
+
+class DestinationSecretRef(BaseModel):
+    """
+    A secret by name in the deployment's secrets store, resolved at tenant scope (the same shape as a webhook endpoint's `secretRef`). The store keeps the value; the destination keeps only this reference.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName", pattern="^[a-z][a-z0-9-]{0,62}$")]
+    name: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class Destination(BaseModel):
+    """
+    Where a schedule sends its results. Its URL is never returned: `host` and `urlRef` say where it goes. `GET /v1/destinations?projectId=` answers a caller who is not a workspace admin without `people`, `host`, `urlRef`, `secretRef` and `projects`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    destination_id: Annotated[str, Field(alias="destinationId")]
+    name: str
+    kind: Annotated[
+        Literal["email", "slack", "teams", "google-chat", "discord", "webhook"] | str, _open.OPEN
+    ]
+    """
+    Where a destination sends. `email` goes to workspace members, each checked when a message is sent; the others post to a URL.
+    """
+    people: list[UUID] | None = None
+    """
+    `email`: the workspace members it goes to. Absent on the other kinds.
+    """
+    host: str | None = None
+    """
+    The URL's host, on every kind but `email`. The URL itself is never returned.
+    """
+    url_ref: Annotated[DestinationSecretRef | None, Field(alias="urlRef")] = None
+    """
+    Where its URL is kept, on every kind but `email`.
+    """
+    secret_ref: Annotated[DestinationSecretRef | None, Field(alias="secretRef")] = None
+    """
+    `webhook`: its signing secret, by reference, as a webhook endpoint's.
+    """
+    projects: list[UUID] | None = None
+    """
+    The projects whose schedules may use it. Absent: every project's may.
+    """
+    content: Annotated[Literal["link", "answer"] | str, _open.OPEN]
+    """
+    What a message carries. `link`: the run's status and its console link. `answer`: also the run's answer, up to its first 1,000 characters; only on a destination that names `projects`, and never on the `webhook` kind, whose receiver reads the run with its own key.
+    """
+    status: Annotated[Literal["active", "failing"] | str, _open.OPEN]
+    """
+    `active`: it takes messages. `failing`: its last delivery got an answer that won't change on a retry (such as a removed webhook's 404 or 410); later messages for it are kept but held until a `sendTest` reaches it.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")]
+    """
+    Why it is `failing`, as a fixed reason that never holds the URL; `null` when it is `active`.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class DestinationCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Destination]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateDestinationBody(BaseModel):
+    """
+    `url` or `urlRef` on every kind but `email`, which takes `people`; `secretRef` on `webhook` only.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    kind: Annotated[
+        Literal["email", "slack", "teams", "google-chat", "discord", "webhook"] | str, _open.OPEN
+    ]
+    """
+    Where a destination sends. `email` goes to workspace members, each checked when a message is sent; the others post to a URL.
+    """
+    people: Annotated[list[UUID] | None, Field(max_length=50, min_length=1)] = None
+    """
+    `email`: the workspace members it goes to, each checked when a message is sent.
+    """
+    url: AnyUrl | None = None
+    """
+    Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`).
+    """
+    url_ref: Annotated[DestinationSecretRef | None, Field(alias="urlRef")] = None
+    """
+    A URL already in the secrets store, by reference, in place of `url`.
+    """
+    secret_ref: Annotated[DestinationSecretRef | None, Field(alias="secretRef")] = None
+    """
+    `webhook` (and needed there): its signing secret, by reference, `whsec_` + base64 of at least 24 random bytes, as a webhook endpoint's.
+    """
+    projects: Annotated[list[UUID] | None, Field(max_length=100, min_length=1)] = None
+    """
+    The projects whose schedules may use it. Absent: every project's may.
+    """
+    content: Annotated[Literal["link", "answer"] | str, _open.OPEN] | None = None
+    """
+    `link` when absent.
+    """
+
+
+class UpdateDestinationBody(BaseModel):
+    """
+    Fields to change; absent fields are kept and `kind` never changes. A new `url` rotates the stored one; `urlRef` replaces it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    people: Annotated[list[UUID] | None, Field(max_length=50, min_length=1)] = None
+    url: AnyUrl | None = None
+    """
+    Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`).
+    """
+    url_ref: Annotated[DestinationSecretRef | None, Field(alias="urlRef")] = None
+    secret_ref: Annotated[DestinationSecretRef | None, Field(alias="secretRef")] = None
+    projects: Annotated[list[UUID] | None, Field(max_length=100, min_length=1)] = None
+    """
+    `null` lets every project's schedules use it again.
+    """
+    content: Annotated[Literal["link", "answer"] | str, _open.OPEN] | None = None
+    """
+    What a message carries. `link`: the run's status and its console link. `answer`: also the run's answer, up to its first 1,000 characters; only on a destination that names `projects`, and never on the `webhook` kind, whose receiver reads the run with its own key.
+    """
+
+
+class DestinationDelivery(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    delivery_id: Annotated[str, Field(alias="deliveryId")]
+    to: str
+    """
+    The destination's id, or `me`: the schedule owner's own email.
+    """
+    event: Annotated[
+        Literal["run.finished", "approval.requested", "destination.test", "rate-cap.summary"] | str,
+        _open.OPEN,
+    ]
+    """
+    What a delivery tells: a run that ended, an approval that waits on a person, a test, or, at the end of an hour whose cap (`rate-cap`) left messages out, how many.
+    """
+    schedule_id: Annotated[str | None, Field(alias="scheduleId")]
+    """
+    The schedule that sent it; `null` for a test.
+    """
+    run_id: Annotated[str | None, Field(alias="runId")]
+    """
+    The run it is about; `null` for a test or a `rate-cap.summary`.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")]
+    """
+    `approval.requested`: the approval that waits; `null` otherwise.
+    """
+    status: Annotated[Literal["pending", "delivered", "failed", "skipped"] | str, _open.OPEN]
+    """
+    `pending`: waiting for its next attempt, or held while its destination is `failing`. `delivered`: the destination took it. `failed`: it can't be sent (see `reason`). `skipped`: it was never sent (see `reason`).
+    """
+    reason: str | None
+    """
+    Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise.
+    """
+    attempts: Annotated[int, Field(ge=0)]
+    next_attempt_at: Annotated[AwareDatetime | None, Field(alias="nextAttemptAt")]
+    """
+    When the next attempt is due; `null` unless `pending` and not held.
+    """
+    last_attempt_at: Annotated[AwareDatetime | None, Field(alias="lastAttemptAt")]
+    last_response_status: Annotated[int | None, Field(alias="lastResponseStatus")]
+    """
+    The HTTP status (or SMTP reply code) of the last attempt; `null` when it got none.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")]
+    """
+    Why the last attempt failed, as a fixed reason that never holds the URL.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    delivered_at: Annotated[AwareDatetime | None, Field(alias="deliveredAt")]
+
+
+class DestinationDeliveryCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DestinationDelivery]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class LicensePreview(BaseModel):
@@ -13731,6 +15247,38 @@ class CallDifferenceFieldValue(BaseModel):
     """
 
 
+class JoinLookupWorkspaceJoin(BaseModel):
+    """
+    A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["join"]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    name: str
+    role: Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+
+
+class JoinLookupWorkspaceMember(BaseModel):
+    """
+    A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["member"]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    name: str
+
+
 class ScopeTenant(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
@@ -14542,6 +16090,21 @@ class IdentityProviderConfigUnrecognized(BaseModel):
 
 
 class ImproveRunOutcomeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class JoinLookupWorkspaceUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -15460,6 +17023,7 @@ class SystemDeploymentEntry(BaseModel):
                 "tenant-suspended",
                 "project-suspended",
                 "pack-suspended",
+                "project-deleted",
             ]
             | str,
             _open.OPEN,
@@ -15467,7 +17031,7 @@ class SystemDeploymentEntry(BaseModel):
         | None
     ) = None
     """
-    In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted.
     """
 
 
@@ -15779,7 +17343,7 @@ class ServiceAccount(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.
+    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project.
     """
 
 
@@ -15957,46 +17521,17 @@ class CompleteApprovalResult(BaseModel):
     """
 
 
-class LicenseStatus(BaseModel):
+class LicenseLimits(BaseModel):
+    """
+    What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
-    """
-    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
-    """
-    name: str | None = None
-    """
-    Whose key: the name the banner prints.
-    """
-    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
-    """
-    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
-    """
-    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
-    """
-    Whole days until it expires; negative once it has.
-    """
-    standing: (
-        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
-    ) = None
-    """
-    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
-    """
-    renew_by: Annotated[
-        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
-    ] = None
-    """
-    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
-    """
-    renew: str | None = None
-    """
-    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
-    """
-    preview: LicensePreview | None = None
+    flows: LicenseLimit | None = None
+    agents: LicenseLimit | None = None
 
 
 class CorrectorGroup(BaseModel):
@@ -16337,7 +17872,7 @@ class RegisterToolBody(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -16356,6 +17891,10 @@ class RegisterToolBody(BaseModel):
     reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
     """
     `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    updates_files: Annotated[bool | None, Field(alias="updatesFiles")] = None
+    """
+    `true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
@@ -17100,6 +18639,24 @@ class UpdateIdentityProviderResult(BaseModel):
     """
 
 
+class JoinDomainLookupResult(BaseModel):
+    """
+    For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[
+        Annotated[
+            JoinLookupWorkspaceJoin | JoinLookupWorkspaceMember | JoinLookupWorkspaceUnrecognized,
+            _open.OpenUnion("kind", JoinLookupWorkspaceUnrecognized),
+        ]
+    ]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class PersonProjectRole(BaseModel):
     """
     A person's direct role on a project.
@@ -17263,7 +18820,7 @@ class DeploymentEndpoint(BaseModel):
     """
     retired: str | None = None
     """
-    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored, and `project-deleted` until the project is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
     """
     pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
     """
@@ -17348,6 +18905,7 @@ class DeploymentRecord(BaseModel):
     """
     The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeployCheckBody(BaseModel):
@@ -17362,6 +18920,10 @@ class DeployCheckBody(BaseModel):
     agents: Annotated[list[DeployCheckAgentId], Field(max_length=500)]
     """
     The pack's agents, by id: the image index's.
+    """
+    flows: Annotated[list[DeployCheckFlowId] | None, Field(max_length=500)] = None
+    """
+    The pack's flows, by id: the image index's. With `agents`, what the plan limits count; absent: no flows.
     """
     blocks: Annotated[list[DeployCheckBodyBlock], Field(max_length=500)]
     """
@@ -17410,6 +18972,7 @@ class DeploymentPromotion(BaseModel):
     Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
     block_check: Annotated[PromotionBlockCheck | None, Field(alias="blockCheck")] = None
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeploymentPromotionCheck(BaseModel):
@@ -17431,6 +18994,7 @@ class DeploymentPromotionCheck(BaseModel):
     """
     Edits of the build's agents and flows that would stay behind; absent when none.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeploymentCollectionPage(BaseModel):
@@ -17543,6 +19107,7 @@ class Tenant(BaseModel):
     On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
+    storage: TenantStorage | None = None
     egress: EgressAddresses | None = None
 
 
@@ -17554,6 +19119,10 @@ class TenantLimitsResult(BaseModel):
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     limits: TenantLimits
     in_use: Annotated[TenantLimitsInUse | None, Field(alias="inUse")] = None
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")] = None
+    """
+    The tenant's plan id, as `PUT …/plan` set it: on `GET …/limits` only. null while none is set; absent from a runtime that doesn't keep it. It's only shown: the limits are what's enforced.
+    """
 
 
 class EnvRecord(BaseModel):
@@ -18055,6 +19624,12 @@ class ScheduleRecord(BaseModel):
     """
     The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
+    send_results_to: Annotated[list[ScheduleResultTarget] | None, Field(alias="sendResultsTo")] = (
+        None
+    )
+    """
+    Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere.
+    """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
     Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
@@ -18107,7 +19682,7 @@ class RegisterScheduleBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.
+    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -18141,6 +19716,12 @@ class RegisterScheduleBody(BaseModel):
     ] = None
     """
     The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    send_results_to: Annotated[
+        list[ScheduleResultTargetInput] | None, Field(alias="sendResultsTo", max_length=5)
+    ] = None
+    """
+    Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person and the deployment sends email. Absent or `[]`: nowhere.
     """
 
 
@@ -18192,6 +19773,12 @@ class PatchScheduleBody(BaseModel):
     ] = None
     """
     Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    send_results_to: Annotated[
+        list[ScheduleResultTargetInput] | None, Field(alias="sendResultsTo", max_length=5)
+    ] = None
+    """
+    Replaces where its results go, checked as at registration against the schedule's project and owner as they are now; `[]` clears it, and absent keeps it. The same places and events in another order change nothing.
     """
 
 
@@ -18324,7 +19911,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project; absent: the workspace's default project.
+    The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project.
     """
     config: RegisterWebhookTriggerBodyConfig | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
@@ -18491,6 +20078,12 @@ class ScheduleDefinition(BaseModel):
     ] = None
     """
     The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    send_results_to: Annotated[list[ScheduleResultTarget] | None, Field(alias="sendResultsTo")] = (
+        None
+    )
+    """
+    Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere.
     """
 
 
@@ -18695,16 +20288,22 @@ class WebhookEndpointCollectionPage(BaseModel):
 
 class SignIn(BaseModel):
     """
-    How a person signs in at the app.
+    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["oauth2", "github-app", "kindgi-app"] | str, _open.OPEN]
+    kind: Annotated[Literal["oauth2", "github-app", "kindgi-app", "token"] | str, _open.OPEN]
     """
-    `oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`).
+    `oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`). `token`: with an account's credential the registration keeps (`texts`).
+    """
+    providers: Annotated[
+        list[Annotated[Literal["telnyx"] | str, _open.OPEN]] | None, Field(min_length=1)
+    ] = None
+    """
+    A `token` sign-in's: the providers a registration may name (`token.provider`), each once.
     """
     tenant: ConnectionEntrySignInTenant | None = None
     """
@@ -18735,7 +20334,7 @@ class ConnectionEntry(BaseModel):
     """
     sign_in: Annotated[SignIn, Field(alias="signIn")]
     """
-    How a person signs in at the app.
+    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
     permissions: dict[str, ConnectionEntryPermission]
     """
@@ -18757,6 +20356,118 @@ class ConnectionEntryList(BaseModel):
         populate_by_name=True,
     )
     data: list[ConnectionEntry]
+
+
+class Connection(BaseModel):
+    """
+    One owner's account at an app, through a registration, in one env. Never its token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    app_id: Annotated[UUID, Field(alias="appId")]
+    """
+    The registration it goes through.
+    """
+    app: str
+    """
+    The app's entry id.
+    """
+    owner: ConnectionOwner
+    account: ConnectionAccount
+    label: str | None = None
+    """
+    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
+    """
+    main: bool | None = None
+    """
+    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
+    """
+    permissions: list[str]
+    """
+    The entry's permission keys the app granted.
+    """
+    state: Annotated[
+        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
+    ]
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
+    """
+    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended), `credential-refused` (the provider refused the registration's credential: update the registration's secret, then reconnect). Other values may be added; `state` says what to do.
+    """
+    installation_id: Annotated[str | None, Field(alias="installationId")] = None
+    """
+    A GitHub App's installation.
+    """
+    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
+    """
+    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
+    """
+    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
+    """
+    When its current grant was stored: the connect, or the last reconnect.
+    """
+    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
+    """
+    When a run last used it, to the hour.
+    """
+    last_proven_inbound_at: Annotated[AwareDatetime | None, Field(alias="lastProvenInboundAt")] = (
+        None
+    )
+    """
+    A number's (`texts`): when a text last arrived for it with a good signature. Absent for other apps, and until one has.
+    """
+    texts_this_month: Annotated[ConnectionTextsCount | None, Field(alias="textsThisMonth")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+    removed_reason: Annotated[
+        Annotated[
+            Literal[
+                "disconnected",
+                "revoked-at-app",
+                "uninstalled",
+                "registration-removed",
+                "replaced",
+                "owner-removed",
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="removedReason"),
+    ] = None
+    """
+    Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).
+    """
+    withdrawn: (
+        Annotated[
+            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    """
+
+
+class ConnectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Connection]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ConnectionChoice(BaseModel):
@@ -18865,7 +20576,7 @@ class ConnectionChoiceNeeds(BaseModel):
 
 class ConnectRequest(BaseModel):
     """
-    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
+    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one. An app connected without a browser (`texts`) has no such step: its request is `connected` from the start.
     """
 
     model_config = ConfigDict(
@@ -18933,9 +20644,12 @@ class ConnectRequest(BaseModel):
     """
     connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
     """
-    Where the owner starts.
+    Where the owner starts. For an app connected without a browser (`texts`), the request comes back `connected`, with `connectionId`, and its page only shows it connected: there is nothing to open.
     """
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    When a `pending` request expires; it ends no other.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     created_by: Annotated[str, Field(alias="createdBy")]
 
@@ -19114,7 +20828,7 @@ class RunAgent(BaseModel):
 
 class RunWaitingFor(BaseModel):
     """
-    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
+    Set on a suspended run by `GET /v1/runs/{runId}`, and by the list with `?include=waitingFor`: what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
     """
 
     model_config = ConfigDict(
@@ -19206,7 +20920,7 @@ class Run(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
     """
-    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form, and so does a flow run's step that a tool failed on purpose (`tool-failed`).
     """
     failure: RunFailure | None = None
     output: Any | None = None
@@ -19230,17 +20944,18 @@ class Run(BaseModel):
     trigger: RunTrigger | None = None
     started_by: Annotated[
         Annotated[
-            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+            Literal["person", "key", "schedule", "webhook", "event", "mail", "text"] | str,
+            _open.OPEN,
         ]
         | None,
         Field(alias="startedBy"),
     ] = None
     """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event`, `mail` or `text`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook, a mail or a text trigger fired (`startedBy` `schedule`, `webhook`, `mail` or `text`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -19321,7 +21036,7 @@ class Datum(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
     """
-    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form, and so does a flow run's step that a tool failed on purpose (`tool-failed`).
     """
     failure: RunFailure | None = None
     output: Any | None = None
@@ -19345,17 +21060,18 @@ class Datum(BaseModel):
     trigger: RunTrigger | None = None
     started_by: Annotated[
         Annotated[
-            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+            Literal["person", "key", "schedule", "webhook", "event", "mail", "text"] | str,
+            _open.OPEN,
         ]
         | None,
         Field(alias="startedBy"),
     ] = None
     """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event`, `mail` or `text`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook, a mail or a text trigger fired (`startedBy` `schedule`, `webhook`, `mail` or `text`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -19403,6 +21119,49 @@ class RunCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class LicenseStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
+    """
+    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
+    """
+    name: str | None = None
+    """
+    Whose key: the name the banner prints.
+    """
+    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    """
+    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    """
+    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    """
+    Whole days until it expires; negative once it has.
+    """
+    standing: (
+        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
+    ) = None
+    """
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
+    """
+    renew_by: Annotated[
+        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
+    ] = None
+    """
+    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
+    """
+    renew: str | None = None
+    """
+    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
+    """
+    preview: LicensePreview | None = None
+    limits: LicenseLimits | None = None
 
 
 class Correction(BaseModel):
@@ -19600,7 +21359,7 @@ class Tool(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -19619,6 +21378,10 @@ class Tool(BaseModel):
     reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
     """
     `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    updates_files: Annotated[bool | None, Field(alias="updatesFiles")] = None
+    """
+    `true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
@@ -19721,7 +21484,7 @@ class ToolVersionRow(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -19740,6 +21503,10 @@ class ToolVersionRow(BaseModel):
     reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
     """
     `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    updates_files: Annotated[bool | None, Field(alias="updatesFiles")] = None
+    """
+    `true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
@@ -19873,6 +21640,12 @@ class RegisterMCPEndpointBody(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
+    read_only_tools: Annotated[
+        list[ReadOnlyTool] | None, Field(alias="readOnlyTools", max_length=256, min_length=1)
+    ] = None
+    """
+    The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing.
+    """
     scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
     """
     Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
@@ -19896,6 +21669,10 @@ class PersonGrants(BaseModel):
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
     Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
+    """
+    tenant_admin_from_setting: Annotated[bool | None, Field(alias="tenantAdminFromSetting")] = None
+    """
+    Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it.
     """
     tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
     """
@@ -19970,6 +21747,21 @@ class FinishedRun(BaseModel):
     agent: RunAgent | None = None
     """
     On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.
+    """
+    trigger: RunTrigger | None = None
+    """
+    The trigger that started the run, as `GET /v1/runs/{runId}` shows it (a schedule's `triggerId` is its `scheduleId`). Absent on a run no trigger started, and from a runtime that doesn't send it yet.
+    """
+    started_by: Annotated[
+        Annotated[
+            Literal["person", "key", "schedule", "webhook", "event", "mail", "text"] | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="startedBy"),
+    ] = None
+    """
+    How the run started, as `GET /v1/runs/{runId}`'s `startedBy`. Absent on a run that records none, and from a runtime that doesn't send it yet.
     """
 
 
@@ -20088,6 +21880,7 @@ class Agent(BaseModel):
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
     memory: AgentMemoryPolicy | None = None
+    files: AgentFilesPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -20161,6 +21954,7 @@ class PublishAgentBody(BaseModel):
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
     memory: AgentMemoryPolicy | None = None
+    files: AgentFilesPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -20257,6 +22051,12 @@ class MCPEndpoint(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
+    read_only_tools: Annotated[
+        list[ReadOnlyTool] | None, Field(alias="readOnlyTools", max_length=256, min_length=1)
+    ] = None
+    """
+    The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing.
+    """
     secret_scopes: Annotated[
         dict[
             str,
@@ -20314,6 +22114,10 @@ class UserRecord(BaseModel):
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
+    """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
     """
@@ -20336,7 +22140,7 @@ class InviteRenewed(BaseModel):
 
 class UnregisterUserResult(BaseModel):
     """
-    A removed person, and what removing them took away (each 0 when they were already removed).
+    A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).
     """
 
     model_config = ConfigDict(

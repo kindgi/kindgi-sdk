@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.16"
+version: "0.4.17"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -59,7 +59,7 @@ import type { AgentId, Semver } from '@kindgi/sdk/types';
 const defined = defineAgent({
   id: 'acme.brief-writer' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Brief Writer',
+  name: 'Brief writer',
   description:
     'Drafts appellate briefs from a case file. Cites precedents; escalates novel legal questions.',
   instructions:
@@ -85,10 +85,28 @@ if (defined.kind === 'err') {
 export default defined.value;
 ```
 
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
+
 ## Field-by-field
 
-- **`id`** — `<pack-id>.<agent-name>` (kebab-case, dot-namespaced).
-  Enforced.
+- **`id`** — `<pack-id>.<name>`; see Naming above.
 - **`version`** — Semver. Runs pin to a specific version; upgrading
   the agent doesn't retroactively rewrite in-flight conversations.
 - **`instructions`** — LiquidJS template. `{{ variable }}` substitutes
@@ -125,6 +143,12 @@ export default defined.value;
   `{id, version}` where `version` is an npm-style semver **range**
   (`'^0.1.0'`, `'~1.2.3'`, `'>=1.0.0 <2.0.0'`). Empty array = chat-only
   agent.
+  - **Dates:** a model doesn't know the date. When the agent reasons about
+    dates ("this month's invoices", "due in 14 days", "was this delivered
+    within the window"), give it a date and time tool. The
+    kindgi-authoring-tools skill has one ("A date and time tool", in imperative-handler.md);
+    it answers in the workspace's time zone. `{{ today }}` in the
+    instructions is in UTC.
 - **`guardrails`** — array of guardrail `id` strings. Resolved at turn
   start against the guardrails bound for the run (the workspace's
   registered ones). If a guardrail id isn't registered, the turn
@@ -188,6 +212,9 @@ export default defined.value;
   failed and why) so it can correct the call, up to `maxRetries` times
   per turn (default 1), for the kinds in `retryOn` (default
   `['invalid-arguments', 'unknown-tool']`, failures where nothing ran).
+  Add `'tool-failed'` to send back a tool's failure on purpose
+  (`ToolFailure`) with its code, words and details, so the model can tell
+  the person or try another way; `'tool-error'` doesn't cover it.
   Add `'tool-error'` to retry a tool that ran and failed — only when
   retrying it is safe (a mutating tool may have changed something before
   failing). The list replaces the default, so keep `'invalid-arguments'`
@@ -335,7 +362,7 @@ fix: a setting or wording as a suggested change, a rule in code.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc.
 - API reference: https://docs.kindgi.com/v0.6/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
-- Common patterns: the `sample` template's `agents/echo-agent`
+- Common patterns: the `sample` template's `agents/greeter`
   demonstrates the smallest tool-calling shape.
 
 ## When the framework itself is the problem

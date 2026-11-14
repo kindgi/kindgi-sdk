@@ -1,5 +1,12 @@
 # Imperative handler
 
+## Contents
+
+- A handler, whole, and three things about `ctx`
+- A date and time tool
+- What the handler receives
+- Logging from the handler
+
 ```ts
 // tools/verify-citation/index.ts
 import { defineTool } from '@kindgi/sdk/define';
@@ -42,7 +49,7 @@ export default defined.value;
 
 A handler must return a Promise; one with nothing to `await` can return `Promise.resolve({ … })` instead of being `async`, which keeps lint rules like `require-await` quiet.
 
-Two things about `ctx`, beside the fields the sample's comment names:
+Three things about `ctx`, beside the fields the sample's comment names:
 
 - `ctx.abortSignal` fires when the call is cancelled, or at its deadline
   (120 s by default). Stop there: what the handler returns afterwards goes
@@ -51,6 +58,63 @@ Two things about `ctx`, beside the fields the sample's comment names:
 - With `pauses: true`: `ctx.waitToken` (`{ id, url }`) and `ctx.pause()`.
   Read the token before handing anything on: on a runtime that can't pause,
   reading it throws, and the call fails with `pause-not-available`.
+- `ctx.timeZone`: the workspace's time zone, an IANA name such as
+  `'America/Toronto'`: an agent turn reads it once, so all its calls get the
+  same one, `'UTC'` when the workspace sets none. Absent outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
+
+## A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```ts
+// tools/today/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'acme.today' as ToolId,
+  description:
+    "Today's date, weekday and time in the workspace's time zone. Call it before answering anything that depends on today's date.",
+  version: '0.1.0',
+  input: z.object({}),
+  output: z.object({ date: z.string(), weekday: z.string(), time: z.string(), timeZone: z.string() }),
+  effects: [],
+  mutating: false,
+  handler: async (_input, ctx) => {
+    const timeZone = ctx.timeZone ?? 'UTC';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? '';
+    return {
+      date: `${part('year')}-${part('month')}-${part('day')}`,
+      weekday: part('weekday'),
+      time: `${part('hour')}:${part('minute')}`,
+      timeZone,
+    };
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+Test it with `timeZone: 'Asia/Tokyo'` in the context you pass `invokeTool`. Docs:
+https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## What the handler receives
 
@@ -63,6 +127,10 @@ The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output 
 - **Unions of scalars** (`z.union([z.string(), z.number()])`, `type: ['string', 'number']` on the wire) compile and validate. A schema Kindgi's strict schema check still refuses (an open tuple, an unknown keyword) says so at `defineTool`; for a field that may hold any JSON value, `z.json()` compiles.
 
 The output side is the reverse: the advertised output schema requires every field, defaulted ones included. Return them all.
+
+## Failing a call on purpose
+
+When the tool ran and knows why the call can't give an answer, throw `ToolFailure` (`@kindgi/sdk/define`) with its own code, words for a person and, if any, facts: `` throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } }) ``. The call fails with `tool-failed`, the code as `reason`, the message as written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. In an agent it ends the turn unless `toolErrors.retryOn` names `'tool-failed'`; in a flow a step's `retry` never reruns it. An outcome the caller acts on (an order that may not exist) belongs in the output schema instead (`found: false`); a bug just throws.
 
 ## Logging from the handler
 

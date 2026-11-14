@@ -521,7 +521,7 @@ export function augmentNextSteps(
     ...(samplePackId === undefined
       ? []
       : [
-          `Try the sample agent: ${binDisplay(pm, 'kindgi', ['runs', 'start', `--agent=${samplePackId}.echo-agent`, `--input='{"userMessage":"hi"}'`])}`,
+          `Try the sample agent: ${binDisplay(pm, 'kindgi', ['runs', 'start', `--agent=${samplePackId}.greeter`, `--input='{"userMessage":"hi"}'`])}`,
         ]),
     ...(tests === undefined
       ? []

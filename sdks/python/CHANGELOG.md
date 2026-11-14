@@ -100,6 +100,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **`SystemTenantPurge.left_because`'s docstring says it also names
+  a secret the secret manager didn't erase.** It named only a setting the
+  runtime lacks. What you pass or read doesn't change.
 - `kindgi`: **a key carries the key it was minted with, and a revoke names
   the keys that went with it.** `ApiToken.minted_with` is the key a key was
   minted with, which revoking stops it with. `tokens.list(minted_with=...)`
@@ -149,6 +152,17 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   import doesn't count on its own: a module that imports it fails too. If it
   defines tools itself, it says they're left out of the index. A pack image's
   build runs it with `--strict`. Without the flag, nothing changes.
+- `kindgi`: **a tool can fail a call on purpose, with its own code and
+  words.** `raise ToolFailure("order-not-found", f"No order {order_id}",
+  details={"orderId": order_id})` answers the call `tool-failed` (pack
+  protocol 2.12.0): the code is its `reason`, the message is said as
+  written, and the details go with it, to the run's `failure` and, in an
+  agent whose `tool_errors` `retryOn` names `tool-failed`, to the model. A
+  code that isn't kebab case, an empty message, or details that aren't a
+  JSON object of at most 4 KiB raise `ValueError`, so the call is a crash
+  that says why. The client's agent models take `tool-failed` in
+  `retryOn`, and `RunFailure`'s docstrings say what a `tool-failed` failure
+  carries.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
@@ -164,6 +178,69 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   answers don't change.
 - `kindgi`: **an API key can be made to only read.** `MintTokenBody.read_only`, set when the key is made, gives a key whose every request but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. Such a key makes and revokes no keys. `ApiToken`, `MintTokenResult`, `WhoamiResult` and `MyKeyLimits` gain `read_only`. A server whose key store can't keep the limit makes no key (`read-only-unsupported`).
 - `kindgi`: **a tenant admin gives another tenant admin capabilities, and takes them back.** `identity.users.give_capabilities` and `identity.users.take_back_capability` answer with the person's grants after. A person's grants carry the capabilities they hold, when the runtime reports them.
+- `kindgi`: **files with versions: `client.files`.** `client.files` has `list`, `create`, `get`, `delete` and `pin_history`, and `client.files.versions` has `list`, `add`, `get`, `download`, `restore`, `delete`, `pin` and `unpin`, one for each `files.*` operation, in the async client too. `create` and `add` send a multipart upload, as `client.artifacts.upload` does. A version is named by its number or by `"latest"`. `BlobMeta` gains `file_id` and `version`, for a blob that is a file's version. `client.artifacts`' methods are deprecated: each warns with `DeprecationWarning`, naming the `files` method to use, until 0.8.0 removes them. `file-not-found` and `file-version-not-found` raise `NotFoundError`; `file-version-conflict`, `file-version-pinned`, `file-last-version` and `artifact-in-file` raise `ConflictError`; and `file-too-large` raises `InvalidRequestError`.
+- `kindgi`: **a tool can declare that it updates files, and an agent that its
+  model may change files.** `@tool(updates_files=True)` declares a tool that
+  adds versions to files its run has; only a tool with a handler can.
+  `Agent(files={"update": True, "create": True})` offers the agent's model the
+  built-in `kindgi_update_file` and `kindgi_create_file`. The indexer writes
+  `updatesFiles` and `files` into the pack index, and the vendored
+  `tool.schema.json` (1.5.0) and `pack-index.schema.json` (1.10.0) take them.
+  The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
+  its publish body, and `updates_files` on a tool.
+- `kindgi`: **a tool that updates files gets `ctx.files.update`.** On a call
+  with an idempotency key whose tool files say `updates` (pack protocol
+  2.13.0), a tool that declares `updates_files=True` gets
+  `ctx.files.update(file_id=..., expected_version=..., content_type=...,
+  data=..., name=None)`, and `update_async`. It answers a `FileUpdateAnswer`:
+  `file`, the new version; `same` or `conflict`, Latest; or `not_updated`,
+  why no version was added. An update over 10 MB answers `size`, and nothing
+  is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
+  client's models gain `ToolFileUpdateAnswer`.
+- `kindgi`: **a tool's context names the workspace's time zone.** `ToolContext` gains `time_zone`, an IANA name such as `"America/Toronto"`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `"UTC"` when the workspace sets none. It's `None` outside an agent turn and from an older runtime, so a tool uses UTC then. `ToolContext.for_test(time_zone=…)` passes one in a unit test.
+- `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
+- `kindgi`: **a tenant's own limits on the flows and agents in production,
+  and its plan id.** `TenantLimits` gains `flows_in_production` and
+  `agents_in_production`, and `TenantLimitsInUse` their counts.
+  `TenantLimitsResult` gains `plan`: the tenant's plan id, `None` while none
+  is set, absent from a runtime that doesn't keep it.
+  `client.system_tenants.set_plan(tenant_id, plan="starter")` sets it, and
+  `plan=None` clears it (`TenantPlanBody`, answering `TenantPlan`).
+- `kindgi`: **the client's models carry a runtime's plan warning.** Once a
+  count of the flows or agents in production reaches the runtime's license
+  key's plan, `plan_warning` (`PlanWarning`: `flows` and `agents`, each a
+  `PlanCount` with `plan`, `most` and `in_use`) is on a published agent's or
+  flow's answer, a deployment, a deploy check, a promotion and its check, and
+  a project's production answer; a runtime that doesn't count them leaves it
+  out. `DeployCheckBody` gains `flows`.
+- `kindgi`: **a deleted project is kept, and a workspace admin can restore
+  it.** `projects.restore` brings one back as it was, and
+  `projects.list_deleted` lists the workspace's deleted projects, newest first
+  (the new `DeletedProject` model). A webhook delivery to a deleted project
+  answers `skipped: "project-deleted"`, a system deployment retired with its
+  project says `reason: "project-deleted"`, and an audit event's `kind` can be
+  `project-deleted` or `project-restored`.
+- `kindgi`: **a workspace can let people at its email domain join.** `client.auth.join_domains` lists the domains a workspace lets people join from, and allows, changes and stops allowing one (`list`, `allow`, `update`, `unregister`); `client.system_tenants` gains `join_domains`, `allow_join_domain`, `update_join_domain`, `unregister_join_domain` and, for a sign-up page, `lookup_join_domains`. The new models are `JoinDomain`, `JoinDomainList`, `AllowJoinDomainBody`, `ChangeJoinDomainBody`, `UnregisterJoinDomainResult`, `JoinDomainLookupBody`, `JoinDomainLookupResult` and `JoinLookupWorkspaceJoin` or `JoinLookupWorkspaceMember`. `join-domain-not-yours` and `join-domains-operator-managed` raise `AuthError` with `reason` `forbidden`.
+- `kindgi`: a person's record (`UserRecord`, `UserCreated`) gains `created_by`, who added them, as ids only: `user:<id>`, `service_account:<id>`, `identity_provider:<providerId>` or `email_domain:<domain>` for someone who joined by domain, or `site:<siteId>`. `None` for the seed user, and from a runtime that doesn't keep it.
+- `kindgi`: **an identity provider can let colleagues join by domain, and a person's grants say when the server's setting makes them a tenant admin.** The identity provider models, and their register and update bodies, gain `join_role` (`viewer`, `runner` or `none`), what someone who joins by domain gets, and `join`'s description says what `domain` now does. `PersonGrants` gains `tenant_admin_from_setting`: the server's `KINDGI_ADMIN_EMAILS` names the person, and taking tenant admin from them, or removing them, is refused with `listed-admin`.
+- `kindgi`: **`client.runs.list(include="waitingFor")` says what each
+  suspended run waits for** (its `waiting_for`, as `client.runs.get` gives
+  it). A page with it holds at most 25 runs. A runtime before Kindgi 0.7.0
+  refuses it with `400 bad-input`.
+- `kindgi`: **an `include` takes a value or a list:
+  `client.runs.list(include=["output", "waitingFor"])`.** The runs list, an
+  agent's test cases, the cost records and the people list send a list as
+  one comma-separated parameter. One value works as before.
+- `kindgi`: **`client.license.replace(key=...)` hands a running server a renewed license key** (`PUT /v1/license`), with the deployment's own token or a system key holding `system:license`. A server that takes it runs the new key without a restart. Runtime 0.7.0 doesn't serve the route, so it runs a renewed key from its next start. A key the server refuses raises `ConflictError` (`license-key-refused`, with `details["reason"]`); `LicenseKeyBody` is the request. `LicenseStatus` gains `limits` (`LicenseLimits`: `flows` and `agents`, each a `LicenseLimit` with `plan`, `most` and `in_use`), set only when the key carries limits, and only in the operator's view.
+- `kindgi`: **`Tool.mutating`'s description says a tool that isn't read-only asks before
+  each call**, not only the first time: an approval isn't remembered, so
+  `ask_on_first_use` asks before every call, as `always_ask` does. The client's
+  models and the vendored `tool.schema.json` say the same. How a call is gated
+  doesn't change.
+- `kindgi`: **sign-in options can link the deployment's own sign-up page.**
+  `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
+  "No account yet? Sign up". It's `None` when the operator set none, and from
+  older servers.
 
 ## 0.6.0
 

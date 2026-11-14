@@ -27,6 +27,7 @@ from .pack.context import (
     PauseNotAvailable,
     ToolConnection,
     ToolContext,
+    ToolFailure,
     WaitToken,
 )
 from .pack.define import (
@@ -47,6 +48,7 @@ from .pack.files import (
     FileStore,
     FileStoreAnswer,
     FileStoreError,
+    FileUpdateAnswer,
 )
 from .pack.trace import CheckResult, ModelCallRecord, RunTrace, ToolCallRecord, ToolResultRecord
 
@@ -64,6 +66,7 @@ __all__ = [
     "FileStore",
     "FileStoreAnswer",
     "FileStoreError",
+    "FileUpdateAnswer",
     "Flow",
     "Guardrail",
     "ModelCallRecord",
@@ -74,6 +77,7 @@ __all__ = [
     "ToolCallRecord",
     "ToolConnection",
     "ToolContext",
+    "ToolFailure",
     "ToolResultRecord",
     "WaitToken",
     "__version__",

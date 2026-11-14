@@ -76,6 +76,19 @@ describe('appFetch', () => {
     });
   });
 
+  it("sends a body of bytes as they are: a file's, an upload's", async () => {
+    const calls = fetchAnswering(ok);
+    const bytes = Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x0d, 0x0a]);
+    await appFetch(
+      toolContextForTest({ connections: { mail: connection() } }),
+      call({ method: 'PUT', headers: { 'content-type': 'application/pdf' }, body: bytes }),
+    );
+    expect(calls[0]?.init.body).toBe(bytes);
+    expect(Array.from(calls[0]?.init.body as Uint8Array)).toEqual([
+      0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x0d, 0x0a,
+    ]);
+  });
+
   it("the connection's token is the only Authorization sent, whatever case a caller's own had", async () => {
     const calls = fetchAnswering(ok);
     await appFetch(

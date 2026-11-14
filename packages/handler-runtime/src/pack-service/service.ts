@@ -298,6 +298,7 @@ export function createPackService(options: PackServiceOptions): PackService {
         ...(tool.pauses === true && { pauses: true }),
         ...(tool.storesFiles === true && { storesFiles: true }),
         ...(tool.readsFiles === true && { readsFiles: true }),
+        ...(tool.updatesFiles === true && { updatesFiles: true }),
       },
       input: message.input,
       ctx: handlerContext(message.ctx, signal, callLog),
@@ -557,6 +558,8 @@ function fromHandlerError(
     ...(error.cause !== undefined && { cause: error.cause }),
     ...(error.issues !== undefined && { issues: error.issues }),
     ...(error.connection !== undefined && { connection: error.connection }),
+    ...(error.reason !== undefined && { reason: error.reason }),
+    ...(error.details !== undefined && { details: error.details }),
   });
 }
 

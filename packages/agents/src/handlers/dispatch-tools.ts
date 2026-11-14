@@ -6,7 +6,12 @@ import { type TraceCall, type TraceCallResult, guardrailCoversTool } from '@kind
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WAITPOINT_TIMEOUT_REASON, WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { type RunMailbox, type RunStartedBy, needsPersonsYesUnattended } from '@kindgi/runtime';
+import {
+  HAND_TO_PERSON_TOOL_ID,
+  type RunMailbox,
+  type RunStartedBy,
+  needsPersonsYesUnattended,
+} from '@kindgi/runtime';
 import {
   BUILT_IN_TOOL_PREFIX,
   invokeTool,
@@ -51,6 +56,7 @@ import {
 } from './connection-gate.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import {
+  type ToolFailedTurnError,
   type ToolInvocationError,
   type UnresolvedToolError,
   approvalsPendingLimitOf,
@@ -88,10 +94,11 @@ import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
   toolErrorResult,
+  toolFailureOf,
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
-import { addPointCheckNodes, addStepToolNodes } from './turn-provenance.js';
+import { addPointCheckNodes, addStepToolNodes, noteCallKeys } from './turn-provenance.js';
 
 /**
  * Resolves the effective HITL mode + reviewer role for a specific
@@ -100,9 +107,10 @@ import { addPointCheckNodes, addStepToolNodes } from './turn-provenance.js';
  * resolver's output, and adds the floors that sit above the agent's
  * rules: the tenant's, and in a run no person started, the unattended
  * rule (`needsPersonsYesUnattended`: the tool's own
- * `needsApprovalWhenUnattended`, a person's connection, and in a mail's
- * run a change or the run's own mailbox), unless the webhook, schedule or
- * mail trigger that started the run lists the tool.
+ * `needsApprovalWhenUnattended`, a person's connection, in a mail's run a
+ * change or the run's own mailbox, and in a text's run a change but the
+ * built-in hand-over), unless the webhook, schedule, mail or text trigger
+ * that started the run lists the tool.
  */
 export function resolveEffectiveToolHitl(
   effective: EffectiveHitlPolicy,
@@ -643,12 +651,33 @@ async function retryOrFail(
   const policy =
     ctx.toolErrorPolicy ?? effectiveToolErrorPolicy(ctx.input.agent.toolErrors, undefined);
   const kind = toolErrorKindOf(error);
+  const failure = toolFailureOf(error);
+  // A tool's own failure ends the turn as itself, not wrapped in the call's.
+  const failing: UnresolvedToolError | ToolInvocationError | ToolFailedTurnError =
+    failure === undefined
+      ? error
+      : {
+          code: 'tool-failed',
+          message: failure.message,
+          toolId: error.toolId,
+          reason: failure.reason,
+          ...(failure.details !== undefined && { details: failure.details }),
+        };
   const used = toolRetriesSoFar(ctx, target.nextMessages);
-  if (!policy.retryOn.has(kind)) throwAgentTurnFailure(error);
-  if (used >= policy.maxRetries) throwAgentTurnFailure({ ...error, toolRetries: used });
-  const withheld = await screen?.({ error: { code: error.code, message: error.message } });
+  if (!policy.retryOn.has(kind)) throwAgentTurnFailure(failing);
+  if (used >= policy.maxRetries) throwAgentTurnFailure({ ...failing, toolRetries: used });
+  const withheld = await screen?.({
+    error: {
+      code: failure === undefined ? error.code : 'tool-failed',
+      // The check reads all the model would: a tool's facts as well as its words.
+      message:
+        failure?.details === undefined
+          ? error.message
+          : `${error.message} ${JSON.stringify(failure.details)}`,
+    },
+  });
   if (withheld !== undefined) return appendNote(ctx, call, withheld, 'withheld', target);
-  return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues), target);
+  return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues, failure), target);
 }
 
 /**
@@ -689,8 +718,10 @@ const TOOL_AUTHORIZE_RECORD_PREFIX = 'tool-authorize:';
 /**
  * Whether a call is asked of `authorizeToolCall`: a registered tool's,
  * always; a built-in's (`kindgi_<verb>`), only when what it touches
- * reaches beyond the run's project (the rule is in `remember.ts`). A
- * built-in with no rule here is asked.
+ * reaches beyond the run's project (the rule is in `remember.ts`), or
+ * outside Kindgi. A built-in with no rule here is asked: the reply to a
+ * text is. The hand-over to a person isn't: it only stops the run's
+ * trigger answering the thread.
  */
 function asksAuthorization(ctx: TurnContext, toolId: string): boolean {
   if (!toolId.startsWith(BUILT_IN_TOOL_PREFIX)) return true;
@@ -698,7 +729,7 @@ function asksAuthorization(ctx: TurnContext, toolId: string): boolean {
   if (toolId === REMEMBER_TOOL_ID && remember !== undefined) {
     return !rememberStaysInProject(remember);
   }
-  return true;
+  return toolId !== HAND_TO_PERSON_TOOL_ID;
 }
 
 /** At most this many of a step's calls run at the same time. */
@@ -898,7 +929,12 @@ async function planCall(
     ctx,
     (m) => m.role === 'tool' && m.toolCall?.invocationId === call.id,
   );
-  if (stored !== undefined) return { kind: 'stored', call, message: stored };
+  if (stored !== undefined) {
+    // Its file versions' edges find its node by its key, as a call this
+    // process runs does.
+    noteCallKeys(ctx, kctx.runId as unknown as string, kctx.stepScope, [stored]);
+    return { kind: 'stored', call, message: stored };
+  }
   // The resolved binding gives the call's events `toolVersion` +
   // `toolVersionRange` alongside the id. Model-requested tools the
   // agent didn't declare emit a bare `tool.failed` with no version.
@@ -922,8 +958,8 @@ async function planCall(
   // deterministic tokenId returns the resolved decision from the
   // journal — no re-park. The gate itself is decided once
   // (`decideToolGate`), so a policy changed during the park can't
-  // skip the reviewer's answer. Cross-turn `ask_on_first_use` caching
-  // (via conversation metadata) is not implemented.
+  // skip the reviewer's answer. `ask_on_first_use` asks before each
+  // call, as `always_ask` does: no approval is reused for a later call.
   const gate = await decideToolGate(ctx, kctx, call, tool);
 
   // A replay turn decides the call first: a recorded or refused call
@@ -1351,12 +1387,17 @@ async function finishRun(
         )
       : invoked;
   if (result.kind === 'err') {
+    const failure = toolFailureOf(result.error);
     await emitTurnEvent(ctx.bindings.onEvent, {
       kind: 'tool.failed',
       step: step.step,
       toolId: call.name,
       invocationId: call.id,
-      error: { code: result.error.code, message: result.error.message },
+      // A tool's own failure says so, with its code; its details stay out of the stream.
+      error:
+        failure === undefined
+          ? { code: result.error.code, message: result.error.message }
+          : { code: 'tool-failed', message: failure.message, reason: failure.reason },
     });
     // A result that couldn't be stored was screened already.
     return retryOrFail(
@@ -1745,6 +1786,10 @@ function toolContextFor(
     kctx.stepScope === undefined
       ? undefined
       : toolIdempotencyKey({ runId, stepScope: kctx.stepScope, toolId, callId: call.id });
+  if (idempotencyKey !== undefined) {
+    ctx.callKeys ??= new Map();
+    ctx.callKeys.set(idempotencyKey, call.id);
+  }
   const files = callFileStore(ctx.files, tool, idempotencyKey, ctx.turnAbort.signal);
   return {
     tenantId: ctx.input.tenantId,
@@ -1752,10 +1797,12 @@ function toolContextFor(
     // The run's own project and org, never the model's arguments.
     projectId: ctx.input.projectId,
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+    // The workspace's zone, read once for the turn.
+    ...(ctx.timeZone !== undefined && { timeZone: ctx.timeZone }),
     requestId: call.id,
     ...(idempotencyKey !== undefined && { idempotencyKey }),
-    // Files the call stores, as files its run owns, and reads
-    // (`Tool.storesFiles`, `Tool.readsFiles`).
+    // Files the call stores, as files its run owns, reads and adds
+    // versions to (`Tool.storesFiles`, `Tool.readsFiles`, `Tool.updatesFiles`).
     ...(files !== undefined && { files }),
     ...(kctx.attempt !== undefined && { attempt: kctx.attempt }),
     // The turn's, and its batch's: a call running alongside one that fails

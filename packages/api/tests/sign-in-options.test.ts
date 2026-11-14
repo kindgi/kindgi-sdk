@@ -44,6 +44,7 @@ function makeApp(
       allowedFor?: (emailDomain: string) => Promise<boolean>;
     };
     legal?: SignInLegalLinks;
+    signUpUrl?: string;
     links?: readonly ConsoleLink[];
     logLines?: string[];
   } = {},
@@ -80,6 +81,7 @@ function makeApp(
     ...(opts.rateLimit !== undefined && { signInOptionsRateLimit: opts.rateLimit }),
     ...(opts.emailLink !== undefined && { signInEmailLink: opts.emailLink }),
     ...(opts.legal !== undefined && { signInLegal: opts.legal }),
+    ...(opts.signUpUrl !== undefined && { signUpUrl: opts.signUpUrl }),
     ...(opts.links !== undefined && { consoleLinks: opts.links }),
     ...(opts.logLines !== undefined && {
       logger: createLogger({ write: (line) => opts.logLines?.push(line) }),
@@ -296,6 +298,51 @@ describe("sign-in options: the deployment's terms and privacy policy", () => {
   ])('createApp refuses a %s with a username or password, without quoting it', (field, legal) => {
     expect(() => makeApp({ legal })).toThrow(
       new Error(`createApp: signInLegal.${field} must not carry a username or password.`),
+    );
+  });
+});
+
+describe("sign-in options: the deployment's own sign-up page", () => {
+  const SIGN_UP = 'https://acme.example/signup';
+
+  test('unset: the answer has no `signUpUrl` key, with or without an email', async () => {
+    const { app } = makeApp();
+    for (const email of [undefined, 'a@acme.com']) {
+      const body = (await (await lookup(app, email)).json()) as Record<string, unknown>;
+      expect(Object.keys(body)).not.toContain('signUpUrl');
+    }
+  });
+
+  test('set: `signUpUrl` is in the answer, the same with or without an email, beside `legal`', async () => {
+    const { app } = makeApp({
+      signUpUrl: SIGN_UP,
+      legal: { termsUrl: 'https://acme.example/terms' },
+    });
+    for (const email of [undefined, 'a@acme.com', 'guest@gmail.com']) {
+      const body = (await (await lookup(app, email)).json()) as Record<string, unknown>;
+      expect(body.signUpUrl).toBe(SIGN_UP);
+      expect(body.legal).toEqual({ termsUrl: 'https://acme.example/terms' });
+    }
+  });
+
+  test('`signUpUrl` is carried as a browser reads it', async () => {
+    const { app } = makeApp({ signUpUrl: 'HTTPS:acme.example/signup' });
+    const body = (await (await lookup(app)).json()) as { signUpUrl?: unknown };
+    expect(body.signUpUrl).toBe(SIGN_UP);
+  });
+
+  test.each(['http://acme.example/signup', '/cloud/signup', 'javascript:alert(1)', 'https://'])(
+    'createApp refuses %s: not an absolute https URL',
+    (signUpUrl) => {
+      expect(() => makeApp({ signUpUrl })).toThrow(
+        'createApp: signUpUrl must be an absolute https URL',
+      );
+    },
+  );
+
+  test('createApp refuses one with a username or password, without quoting it', () => {
+    expect(() => makeApp({ signUpUrl: 'https://reader:hunter2@acme.example/signup' })).toThrow(
+      new Error('createApp: signUpUrl must not carry a username or password.'),
     );
   });
 });

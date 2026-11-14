@@ -300,7 +300,8 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   },
   {
     name: 'KINDGI_TENANT_ID',
-    description: 'Tenant UUID to seed / reuse. Default: fresh UUID printed at boot.',
+    description:
+      "The tenant the runtime serves, a uuid in lower case (`uuidgen | tr 'A-Z' 'a-z'`). The first start seeds it, and every later start with the same id serves that tenant again. Left unset, a runtime serving one tenant seeds a new one at every start, without the last one's data, and prints its id, so set it on any runtime you keep. Give each runtime its own id. A runtime serving many (`KINDGI_TENANCY=multi`) refuses it.",
     example: '00000000-0000-4000-8000-000000000001',
     required: false,
     appliesTo: appliesToServer,
@@ -329,6 +330,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "The id, a UUID (read in lower case), of the user the runtime's API token (`KINDGI_API_TOKEN`) acts as, made a tenant admin at every boot. Unset: the user that token had at an earlier boot (kept by the token's hash), or a new one the first time a token is used. Set it to keep one user across token changes.",
     example: '00000000-0000-4000-8000-000000000002',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ADMIN_EMAILS',
+    description:
+      "Comma-separated email addresses (read in lower case) of the people who are tenant admins by this setting, on a runtime that serves one tenant and has an authorization store (`KINDGI_OPENFGA_API_URL`). At every start, each listed address that isn't a tenant admin yet is added as a person if there's none with that email (with no invitation), and made a tenant admin with what a first admin holds, as `kindgi-runtime tenants make-admin` does. They sign in by that address, through the tenant's identity provider or the deployment's ways in. While an address is listed, its person can't be made a non-admin or removed. Taken off the list, someone this setting made admin stops being one at the next start, and stays a member. Unset or empty is an empty list, so everyone it made admin stops being one at the next start. Tenant admins made in People aren't touched either way. With several tenants, or with no authorization store, the runtime refuses this setting at start, and a malformed address stops it at start too.",
+    example: 'dana@acme.com,lee@acme.com',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -371,6 +381,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
     allowedValues: ['allow', 'deny'],
+  },
+  {
+    name: 'KINDGI_TENANT_EGRESS_PROXY',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. A forward proxy for the connections whose host tenant configuration chose (an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference, a workspace's SSO identity provider) and for webhooks: for a server whose network lets traffic out only through one. `http://` or `https://` with the proxy's host and port only; a URL with a user name or password is refused at startup, since a proxy that asks for credentials isn't supported. The server still refuses an IP address, and `localhost`, by `KINDGI_TENANT_HOST_ACCESS` before anything is sent. Every other host goes to the proxy unresolved, by `CONNECT`, with TLS to the host end to end, so the proxy resolves it and checks the address: it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses, and private networks for webhooks unless `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. A `403` from the proxy is a refusal that names this setting. It applies at every `KINDGI_TENANT_HOST_ACCESS` level, `local` too. Never `HTTPS_PROXY`: the server's own proxy settings don't apply to these connections. Unset: they connect directly.",
+    example: 'http://egress-proxy.internal:3128',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TENANT_EGRESS_NO_PROXY',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The hosts that skip `KINDGI_TENANT_EGRESS_PROXY` and connect directly, each checked by every address it resolves to, as without a proxy: comma-separated host names (`.corp.internal` for every name under `corp.internal`) or IP addresses. Never `NO_PROXY`. The server won't start with it set and `KINDGI_TENANT_EGRESS_PROXY` unset, or with `*`.",
+    example: '.corp.internal,registry.internal',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
   },
   {
     name: 'KINDGI_PRODUCTION_GATE',
@@ -424,6 +452,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "Where this deployment keeps its renewer's key, as `kindgi license renew --renewer` names it. Only the expiry warnings read it, to print the exact renew command; the deployment modules set it.",
     example: 'gcp:projects/acme-prod/secrets/kindgi-license-renewer',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ACCOUNT_KEY',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. A self-hosted runtime's Kindgi account key, for the connections that sign in through Kindgi's own Meta app (Facebook Pages and Instagram). Their sign-in goes through Kindgi's connect step, and the key is how the step knows this runtime: Kindgi issues it with your account, and it pins this runtime's public address and your company's name. The server sends this key to Kindgi only while an admin connects or disconnects one of those accounts, and to no one else; the license check stays offline. Without it, Facebook Pages and Instagram show \"Needs a Kindgi account\", and everything else works as before. Kindgi Cloud deployments don't need it. A secret: set it by reference to a secret, pinned to a version.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_LICENSE_REPORT_URL',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. Where the server sends its daily license report. Default `https://access.kindgi.com/v1/report`; `https` only. The report honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`. No setting turns reports off: only a key that doesn't report does.",
+    example: 'https://access.kindgi.com/v1/report',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -521,7 +567,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AUTH_TENANT_PROVIDERS',
     description:
-      "Whether a tenant's admins may add, change and remove its identity providers: `on` or `off`. Default `on`. `off` when the operator manages sign-in: then only the deployment's own token (`KINDGI_API_TOKEN`) can, and a tenant's change answers `403 identity-providers-operator-managed`. The providers already there keep signing people in either way, and anyone may still read them.",
+      "Whether a tenant's admins may add, change and remove its identity providers: `on` or `off`. Default `on`. `off` when the operator manages sign-in: then only the deployment's own token (`KINDGI_API_TOKEN`) can, and a tenant's change answers `403 identity-providers-operator-managed`. The providers already there keep signing people in either way, and anyone may still read them. `off` also keeps who joins by email domain to the operator: letting people at a domain join, or giving joiners more, answers `403 join-domains-operator-managed`, while a tenant admin may still lower joiners' role or stop allowing a domain.",
     example: 'off',
     required: false,
     appliesTo: appliesToServer,
@@ -721,6 +767,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "The deployment's privacy policy, which the console's sign-in page links as \"Privacy\" (sign-in options' `legal.privacyUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_TERMS_URL`.",
     example: 'https://example.com/privacy',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_SIGN_UP_URL',
+    description:
+      "The deployment's own sign-up page, which the console's sign-in page links as \"No account yet? Sign up\" on its first step, where the email is asked (sign-in options' `signUpUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Unset: the sign-in page links no sign-up, since the runtime has none of its own: people come in by an invite, or through the deployment's identity provider.",
+    example: 'https://example.com/signup',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -972,17 +1027,45 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_PURGE_RECORD',
     description:
-      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value in none of these forms stops the server from starting.",
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. With `KINDGI_KEPT_REPOS` on, each kept repo's erasure has its record there too, `kept-repos/erased/<tenant id>/<project id>.json`, written once its purge is reported, and `kindgi-runtime erasures replay --records` puts each one back after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value in none of these forms stops the server from starting.",
     example: 'gcs:acme-purge-records/runtime',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
   },
   {
+    name: 'KINDGI_KEPT_REPOS',
+    description:
+      "`on` keeps repos for the runtime's projects without a GitHub repo, in a repo store beside the runtime: the runtime keeps their record, rules on each repo the store holds, and records each purge. Kindgi Cloud's repo store uses it, with the same value on the store's gateway; a runtime you run has no repo store, so leave it off there. Off (the default), `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses with `501 kept-repos-off` and requests nothing; the other kept-repo routes answer either way. Turning it off erases nothing: repos the store holds stay until they're purged while it's on, and an erasure requested while it was on stays unfinished until it's on again. Only a runtime serving many tenants (`KINDGI_TENANCY=multi`) keeps them: one serving one tenant refuses to start with it on. With `KINDGI_TENANT_PURGE_RECORD` unset, a kept repo's erasure has no record of its own off the database: only the erasure ledger's copies list it, so a restore can't put back one made since the last copy, and the startup output says so.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['on', 'off'],
+  },
+  {
     name: 'KINDGI_PASSIVE',
     description:
       "`on` boots a server that does nothing on its own, for looking at a restored backup before anyone uses it: none of its background work starts (runs, schedules and event triggers, webhook deliveries, sending permission changes to OpenFGA, the sweeps, erasures and the erasure ledger export), and it sends no email. Requests are served as usual, and a run started through the API still runs (in the server that took the request), so keep a passive server where only you can reach it. The startup output and `/ready` say it's passive. Off by default.",
     example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TICK_CALLER',
+    description:
+      "Used from runtime 0.7.0; for a server whose CPU is allocated only during requests (Cloud Run's request-based billing), which may scale to zero: the email of the service account whose Google-signed ID token the server's tick takes. The tick, `POST /internal/tick`, runs the background work that's due (schedules, mail polls, webhook deliveries and more; the Cloud Run deploy page's \"Scale the server to zero\" lists it all) inside its request; Cloud Scheduler calls it each minute with that account's token, for the audience `<KINDGI_SERVICE_URL>/internal/tick`. The server verifies the token, and checks that its email is this one and verified. Set with `KINDGI_SERVICE_URL`, both or neither; not on a passive server (`KINDGI_PASSIVE`). Unset: no tick, and the background work runs on the server's own timers.",
+    example: 'kindgi-tick@acme-prod.iam.gserviceaccount.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SERVICE_URL',
+    description:
+      "Used from runtime 0.7.0; with `KINDGI_TICK_CALLER`: the server's own URL, its origin alone (https, no path, not this machine's address), on Cloud Run its `run.app` one. The tick's token is for `<this URL>/internal/tick`. While the server has work in flight (a run, a delivery, an erasure, a tick), it keeps a request to itself open at this URL, so its CPU stays allocated between requests. That request reaches the same instance only while the service runs one at most: another instance refuses it, and the server warns. Both or neither.",
+    example: 'https://kindgi-server-123456789012.us-central1.run.app',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1035,7 +1118,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACTS',
     description:
-      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+      "Where files are kept, which turns on `/v1/files` and `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy, and a deleted or superseded file version under `file_version`'s, when one is set. Unset (the default): no `/v1/files` or `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`. 0.8.0 renames it `KINDGI_FILES`, and doesn't start with this name set.",
     example: 'gcs:acme-artifacts/prod',
     required: false,
     appliesTo: appliesToServer,
@@ -1044,8 +1127,35 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACT_MAX_BYTES',
     description:
-      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MiB).',
+      "The most bytes one upload may carry, the whole request body; more is `413 file-too-large` on `/v1/files` and `413 artifact-too-large` on `/v1/artifacts`. Default 104857600 (100 MiB). 0.8.0 renames it `KINDGI_FILE_MAX_BYTES`, and doesn't start with this name set.",
     example: '104857600',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_UPLOAD_DAILY_BYTES',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The most bytes one person may upload to `POST /v1/artifacts` in a workspace in 24 hours as files for their own runs, in projects where they have `run` and no `write`. Past it, such an upload is `429 upload-limit-reached`, saying when it fits. What the person uploads to projects where they have `write` is never refused, but it counts toward this limit too: the count is every file they uploaded in the workspace in the last 24 hours that names no run and is still stored, in whichever project. Default 1073741824 (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when that is larger. Set, it's a whole number no smaller than `KINDGI_ARTIFACT_MAX_BYTES`, or `off`; set lower, the runtime refuses to start.",
+    example: '1073741824',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_UPLOAD_DAILY_FILES',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The most files one person may upload that way in 24 hours, counted as `KINDGI_RUN_UPLOAD_DAILY_BYTES` counts bytes. Default 1000: a whole number from 1, or `off`. With both `off`, only each upload's size is limited.",
+    example: '1000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_UNUSED_UPLOAD_TTL_MS',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. How long an upload made for a run (`forRun`) is kept when no run that names it in its input starts, in milliseconds, from 1 to 315360000000 (ten years). Past it, the upload is deleted; its `expiresAt` says when. Once such a run starts, the file stays until it's deleted. Default 86400000 (24 hours). Any other value stops the server at startup, naming the setting.",
+    example: '86400000',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1212,9 +1322,19 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'secrets',
   },
   {
+    name: 'KINDGI_CONNECTIONS_STORE',
+    description:
+      "Where connections keep their token sets with the `dotenv` backend (development only): `none` (default; connections are off) | `postgres` (in the database, under a local key: needs `KINDGI_SECRETS_BACKEND_KMS=libsodium`, the local key, the AAD key and `KINDGI_SECRETS_LOCAL_KEY_ACK`, as the postgres backend does). A registration's own secrets are still read from the `.env` files, and never written. `kindgi dev` sets it, with keys it makes for its database. Any other backend refuses a value but `none`: it keeps token sets itself.",
+    example: 'postgres',
+    required: false,
+    appliesTo: appliesToDotenvBackend,
+    group: 'secrets',
+    allowedValues: ['none', 'postgres'],
+  },
+  {
     name: 'KINDGI_SECRETS_BACKEND_KMS',
     description:
-      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
+      'Which KMS wraps DEKs (postgres backend only; with the `dotenv` backend, `libsodium` for `KINDGI_CONNECTIONS_STORE=postgres`): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
     example: 'gcp',
     required: true,
     appliesTo: appliesToPostgresBackend,
@@ -1686,9 +1806,19 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
     description:
-      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need.",
+      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need. With `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS` it's still required, as the install's name: the label on the orchestrator's secrets, and the account the pack services move off.",
     example: 'kindgi-packs@acme-kindgi.iam.gserviceaccount.com',
     required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS',
+    description:
+      "A pack account per tenant, as one JSON object: each tenant's id, in lower case, to the service account its pack services run as, by email. Each account's id (the part before `@`) is `kp-t` and 16 lower-case hex digits, the key that tenant's secrets are named under, and no two tenants share one. A tenant not listed has nowhere to run pack services: its deployments wait with `tenant-not-provisioned`. Unset, every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`.",
+    example:
+      '{"8d3e5f1a-2b4c-4d6e-8f01-23456789abcd":"kp-t034d09f98934346b@acme-kindgi.iam.gserviceaccount.com"}',
+    required: false,
     appliesTo: appliesToPackOrchestrator,
     group: 'pack-orchestrator',
   },

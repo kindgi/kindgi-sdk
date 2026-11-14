@@ -474,7 +474,11 @@ stops, deploys nothing, and exits 1:
   `kindgi deploy` deploys as before, and says so in one line. A key the
   check refuses (`403`) goes on without it too, and says so: the deploy
   asks the same right as the check, so a runtime with the check refuses
-  the deploy the same way.
+  the deploy the same way. A deploy that would take the flows or agents in
+  production past the most the license key runs is refused by the check
+  and by the deploy alike, `403 plan-limit-reached`, and `kindgi deploy`
+  stops there with nothing deployed
+  ([Plan limits](../self-hosted/plan-limits/)).
 - **A promotion that pins is checked too,** against what runs in the target
   environment only: `kindgi promote --pin` puts the build's blocks there.
   A stop prints the same table ("Nothing was promoted.") and exits 1, with
@@ -492,6 +496,26 @@ a runtime checks the signature against the workspace it's deployed to. So build 
 from the same commit for each runtime, and deploy each build to its
 runtime's first environment. Set up each runtime once: its trusted signing
 key, providers, release gates, test cases and triggers.
+
+Give each self-hosted runtime its own tenant id, so each build, export and
+audit record names that runtime's workspace: run `uuidgen | tr 'A-Z' 'a-z'`
+for each one, for an id in lower case, as
+[Self-host Kindgi](../self-hosted/self-host/#3-build-sign-and-push-your-pack)
+does, and never reuse one runtime's id for another.
+
+An export (`kindgi exports create`) doesn't copy one runtime into another.
+It's the workspace's own copy of its records, not a backup to restore: no
+runtime loads one. A runtime makes its own ids, never answers a secret's
+value or a connection's token, and checks each build's signature against its
+own workspace. So set up each runtime as above, from the same commit. To
+bring a self-hosted runtime back, restore its database
+([Back up and restore](../self-hosted/back-up-and-restore/)).
+
+CI gives each job its runtime's key in `KINDGI_API_TOKEN`, as above, and
+the env block names the endpoint. A person's terminal keeps a Kindgi login
+profile for each runtime instead (`kindgi auth login --profile prod`), and
+names it on each command with `--profile prod`. `kindgi auth list` shows
+the ones it keeps.
 
 ## Python, Java and Scala packs
 

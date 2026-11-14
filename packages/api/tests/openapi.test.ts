@@ -541,6 +541,7 @@ describe('OpenAPI — Retry-After and the answers every call can get', () => {
   const REFUSE_FOR_A_FROZEN_WORKSPACE_THEMSELVES = new Set([
     'POST /v1/hooks/{tenantId}/{webhookId}',
     'POST /v1/tool-files',
+    'POST /v1/tool-files/{fileId}/versions',
     'POST /v1/wait-tokens/{token}/complete',
   ]);
 

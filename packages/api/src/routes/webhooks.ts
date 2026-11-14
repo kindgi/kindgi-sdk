@@ -24,7 +24,13 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -81,7 +87,8 @@ export interface WebhooksRouterOptions {
   readonly authorizer?: Authorizer;
   /**
    * The tenant's default project, where a webhook trigger that names no
-   * project goes; and a project's org, where its signing secret may be read.
+   * project goes when the caller's key or session is limited to none; and a
+   * project's org, where its signing secret may be read.
    */
   readonly projects?: Pick<ProjectBinding, 'getDefault' | 'get'>;
   /**
@@ -98,6 +105,16 @@ export interface WebhooksRouterOptions {
   readonly names?: TriggerOwnerNames;
   /** A model provider's key is never a webhook trigger's secret. */
   readonly providerKeys?: ProviderKeys;
+  /**
+   * A texts registration's account key is never named here
+   * (`connection-key-refused`); absent, not checked.
+   */
+  readonly connectionKeys?: ConnectionKeys;
+  /**
+   * An identity provider's secret is never named here
+   * (`identity-provider-key-refused`); absent, not checked.
+   */
+  readonly identityProviderKeys?: IdentityProviderKeys;
   /**
    * A trigger's receive URL (`POST /v1/hooks/{tenantId}/{webhookId}`), made
    * from the deployment's configured public URL; never from a request's
@@ -164,6 +181,8 @@ export function webhooksRouter(
     projects,
     names,
     providerKeys,
+    connectionKeys,
+    identityProviderKeys,
     receiveUrl,
     secrets,
     envName,
@@ -237,7 +256,15 @@ export function webhooksRouter(
     if (rec === null || rec.kind !== 'webhook') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
-    const refused = await denied(c, action, ref('project', rec.projectId as unknown as string));
+    const projectId = rec.projectId as unknown as string;
+    // Without a store, a key or session limited to another project changes
+    // none of its triggers. It still reads them.
+    const held =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'write', ref('project', projectId), 'the trigger')
+        : undefined;
+    if (held !== undefined) return { kind: 'err', response: held };
+    const refused = await denied(c, action, ref('project', projectId));
     if (refused !== undefined) return { kind: 'err', response: refused };
     return { kind: 'ok', value: rec };
   }
@@ -299,7 +326,10 @@ export function webhooksRouter(
     );
   }
 
-  /** A reserved `kindgi.` name or a model provider's key named as the signing secret: the refusal. */
+  /**
+   * A reserved `kindgi.` name, a model provider's key or a texts
+   * registration's account key named as the signing secret: the refusal.
+   */
   async function signingSecretRefused(
     c: Context<AppEnv>,
     name: string,
@@ -309,6 +339,8 @@ export function webhooksRouter(
       c.get('tenantId') as TenantId,
       [name],
       'a webhook trigger',
+      { keys: connectionKeys },
+      identityProviderKeys,
     );
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);
@@ -347,11 +379,13 @@ export function webhooksRouter(
     const unwritable = generate ? nameRefused(c, hmacSecretName.value) : undefined;
     if (unwritable !== undefined) return unwritable;
 
-    // A trigger that names no project goes in the tenant's default
-    // project: checked and stored as that project. With no default to
-    // find, the registry picks it, and only a tenant admin may.
+    // A trigger that names no project goes in the project the caller's key
+    // or session is limited to, else in the tenant's default project:
+    // checked and stored as that project. With no default to find, the
+    // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
+      c.get('tokenProjectId') ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const refused =
       (project === undefined
@@ -380,6 +414,7 @@ export function webhooksRouter(
         triggerScope(tenantId, project),
         { kind: 'flow', flowId: flowId.value, flowVersion: flowVersion.value },
         tools.value,
+        'webhook',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -682,6 +717,7 @@ export function webhooksRouter(
         triggerScope(tenantId, found.value.projectId),
         flowAfter,
         tools.value,
+        'webhook',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }

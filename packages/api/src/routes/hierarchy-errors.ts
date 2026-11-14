@@ -16,24 +16,29 @@ export type HierarchyResource = 'org' | 'team' | 'project';
  * tenant; a project's in its org, and a project without an org's among the
  * projects without one. With `heldAs: 'old-slug'`, another project of the
  * tenant had `slug` before it was renamed, and it stays that project's, in
- * any org. Neither names the other project: the caller may not see it.
+ * any org. With `deletedProject`, the project holding it is deleted: its
+ * slugs stay its own, for its restore. Neither names the other project: the
+ * caller may not see it.
  */
 export function slugConflictError(
   resource: HierarchyResource,
   slug: string,
   heldAs: 'slug' | 'old-slug' = 'slug',
+  deletedProject = false,
 ) {
+  const deleted = ' That project is deleted, and its slugs stay its own. Choose another slug.';
   return {
     code: 'slug-conflict',
     message:
       heldAs === 'old-slug'
-        ? `The slug "${slug}" was another project's until it was renamed, and it stays that project's. Choose another slug.`
+        ? `The slug "${slug}" was another project's until it was renamed, and it stays that project's.${deletedProject ? deleted : ' Choose another slug.'}`
         : resource === 'project'
-          ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)`
+          ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)${deletedProject ? `.${deleted}` : ''}`
           : `Another ${resource} in the workspace has the slug "${slug}"`,
     resource,
     slug,
     heldAs,
+    ...(deletedProject && { deletedProject: true as const }),
   } as const;
 }
 
@@ -59,6 +64,29 @@ export function orgDeleteSlugConflictError(slugs: readonly string[]) {
  */
 export function orgNotFoundError(orgId: string) {
   return { code: 'org-not-found', message: `No org with id "${orgId}"`, orgId } as const;
+}
+
+/**
+ * `409 project-is-default`: the workspace's default project can't be
+ * deleted. The answer names it (`details.projectId`).
+ */
+export function projectIsDefaultError(projectId: string) {
+  return {
+    code: 'project-is-default',
+    message: "The workspace's default project can't be deleted.",
+    projectId,
+  } as const;
+}
+
+/**
+ * `501 project-restore-unsupported`: this runtime's project binding keeps no
+ * deleted project to restore or list.
+ */
+export function projectRestoreUnsupportedError() {
+  return {
+    code: 'project-restore-unsupported',
+    message: "This runtime can't restore deleted projects or list them.",
+  } as const;
 }
 
 /** `409 project-default-already-exists`: the tenant has a default project. */

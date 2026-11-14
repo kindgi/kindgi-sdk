@@ -8,7 +8,7 @@ import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { ItemRights } from '../item-rights.js';
+import type { HeldProjects, ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type {
   EventTriggerRecord,
@@ -38,9 +38,11 @@ export function eventTriggersRouter(
   authorizer?: Authorizer,
   /** Rights on a flow more than one project serves (`trigger-access.ts`). */
   itemRights?: ItemRights,
+  /** Without a store: where a flow's projects are read, so a limited caller is held (`trigger-access.ts`). */
+  flows?: HeldProjects,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const access = triggerAccess(binding, 'event', authorizer, itemRights);
+  const access = triggerAccess(binding, 'event', authorizer, itemRights, flows);
 
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {

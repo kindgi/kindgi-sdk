@@ -4,7 +4,7 @@ An agent that writes a follow-up mail from your notes and sends it from your
 own Gmail, once you've read it and said yes. Scaffolded by
 `kindgi init --template=follow-up`.
 
-You tell **the follow-up agent** (`{{PACK_ID}}.follow-up`) who the mail is
+You tell **the follow-up writer** (`{{PACK_ID}}.follow-up-writer`) who the mail is
 for and give it your notes. It writes the mail and asks to send it with
 `{{PACK_ID}}.gmail.send`. The send waits for you: you see the mail as it
 would go, and approve or reject it.
@@ -18,8 +18,8 @@ would go, and approve or reject it.
 │   ├── gmail-send/index.ts                     # Gmail's send tool from @kindgi/connections, under this pack's id
 │   └── gmail-send/index.test.ts                # tested with a made-up connection, no Google account
 └── agents/
-    ├── follow-up/index.ts                      # the agent: writes the mail, asks before each send
-    └── follow-up/index.test.ts                 # every send waits, and its results are explained
+    ├── follow-up-writer/index.ts                      # the agent: writes the mail, asks before each send
+    └── follow-up-writer/index.test.ts                 # every send waits, and its results are explained
 ```
 
 ## The tool is this pack's, under its own id
@@ -86,13 +86,11 @@ every tool that sends or changes something waiting for a person.
 ```
 
 `kindgi test` and this pack's own tests run without Google. Under
-`kindgi dev`, connections are off, because dev keeps secrets in `.env`
-files and connections need a store of their own. A send there fails at
-once with `connection-app-missing`, before any approval, and the agent
-says the mail wasn't sent. To send for real, run the pack on a Kindgi
-server that serves connections (a public address, its env name, and a
-Postgres or secret-manager secrets store), with Google set up there as
-Kindgi's guide to connecting Google describes.
+`kindgi dev`, until Google is set up, a send fails at once with
+`connection-app-missing`, before any approval, and the agent says the
+mail wasn't sent. To send for real, set Google up as Kindgi's guide to
+connecting Google describes. Under `kindgi dev`, the redirect URI it asks
+for is on the Connections line `kindgi dev` prints when it starts.
 
 The agent needs a real model: `kindgi dev`'s `dev-echo` fallback only
 calls the first tool. For Claude, with `kindgi dev` running:
@@ -107,5 +105,5 @@ The `kindgi-authoring-providers` skill has the other providers.
 Ask the agent for a follow-up:
 
 ```sh
-{{KINDGI}} runs start --agent={{PACK_ID}}.follow-up --input='{"userMessage": "Follow up with bo@example.com on today'\''s call: we send the revised quote by Friday, and they confirm the delivery address."}'
+{{KINDGI}} runs start --agent={{PACK_ID}}.follow-up-writer --input='{"userMessage": "Follow up with bo@example.com on today'\''s call: we send the revised quote by Friday, and they confirm the delivery address."}'
 ```

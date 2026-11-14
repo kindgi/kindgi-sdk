@@ -60,6 +60,22 @@ Unit-test a handler directly:
 assertEquals(Greet.tool.call(Greet.Input("Ada"), ToolContext.forTest()), Greet.Output("Hello, Ada!"))
 ```
 
+### Failing a call on purpose
+
+When the tool ran and knows why the call can't give an answer, it throws a
+`ToolFailureException` with its own code for why, words for a person and,
+if any, facts as a Scala map:
+
+```scala
+throw ToolFailureException("order-not-found", s"No order ${in.orderId}", Map("orderId" -> in.orderId))
+```
+
+The call answers `tool-failed`, with the code as `reason`, the message as
+written and the details. The rules are kindgi-pack's: a kebab-case code of
+at most 64 characters, a message cut at 1,000 characters, and details of at
+most 4 KiB as JSON, never a secret. One the class refuses is a crash
+(`handler-throw`) that says why.
+
 ### Answering later
 
 ```scala

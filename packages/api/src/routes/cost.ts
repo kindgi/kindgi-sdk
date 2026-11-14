@@ -24,6 +24,7 @@ import { statusFor, toWireError } from '../errors.js';
 import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
+import { includeListOf } from './include-list.js';
 import { clampLimit } from './pagination.js';
 import { projectIdsCallerMay } from './readable-projects.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
@@ -79,7 +80,7 @@ export function costRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: filter.error }, requestId));
     }
-    const include = parseInclude(c.req.query('include'));
+    const include = parseInclude(c.req.queries('include'));
     if (include.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: include.error }, requestId));
@@ -121,7 +122,7 @@ export function costRouter(
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const recordId = c.req.param('recordId');
-    const include = parseInclude(c.req.query('include'));
+    const include = parseInclude(c.req.queries('include'));
     if (include.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: include.error }, requestId));
@@ -463,20 +464,13 @@ function parseRecordFilter(
   return { kind: 'ok', value: out };
 }
 
-/** The `include` query: optional extra fields, comma-separated. Only `rawUsage` today. */
+/** The `include` query: optional extra fields. Only `rawUsage` today. */
 function parseInclude(
-  raw: string | undefined,
+  raw: readonly string[] | undefined,
 ): { kind: 'ok'; rawUsage: boolean } | { kind: 'err'; error: string } {
-  const fields = (raw ?? '')
-    .split(',')
-    .map((f) => f.trim())
-    .filter((f) => f.length > 0);
-  for (const field of fields) {
-    if (field !== 'rawUsage') {
-      return { kind: 'err', error: `\`include\` value "${field}" is not known (one of: rawUsage)` };
-    }
-  }
-  return { kind: 'ok', rawUsage: fields.includes('rawUsage') };
+  const includes = includeListOf(raw, ['rawUsage']);
+  if (includes.kind === 'err') return { kind: 'err', error: includes.message };
+  return { kind: 'ok', rawUsage: includes.value.has('rawUsage') };
 }
 
 function serializeRecord(rec: CostRecord): Record<string, unknown> {

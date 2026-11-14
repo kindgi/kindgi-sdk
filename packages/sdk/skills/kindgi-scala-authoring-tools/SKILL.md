@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.9"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -159,6 +159,11 @@ object Citator {
   or looks for it there first: a refund never goes out twice. A UUID; `null`
   outside a run and from a runtime before 0.1.6. Docs:
   https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+- `ctx.timeZone`: the workspace's time zone, an IANA name such as
+  `"America/Toronto"`: an agent turn reads it once, so all its calls get the
+  same one, `"UTC"` when the workspace sets none. `null` outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
 - `ctx.projectId`, `ctx.orgId`: the run's project, and its org (`null` when
   it has none). The runtime sets them from the run, never from the input.
   To check an id the input names, compare it with these.
@@ -175,6 +180,46 @@ object Citator {
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config`: **reserved, empty today**.
+
+### A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```scala
+// src/main/scala/acme/tools/Today.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+import java.time.{ZoneId, ZonedDateTime}
+import java.time.format.{DateTimeFormatter, TextStyle}
+import java.util.Locale
+
+object Today {
+  final case class Input()
+
+  final case class Output(date: String, weekday: String, time: String, timeZone: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.today")
+    .description(
+      "Today's date, weekday and time in the workspace's time zone. " +
+        "Call it before answering anything that depends on today's date.")
+    .readOnly
+    .handler { (_, ctx) =>
+      val zone = Option(ctx.timeZone).getOrElse("UTC")
+      val now = ZonedDateTime.now(ZoneId.of(zone))
+      Output(
+        now.toLocalDate.toString,
+        now.getDayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+        now.format(DateTimeFormatter.ofPattern("HH:mm")),
+        zone)
+    }
+}
+```
+
+Test it with `ToolContext.forTest(new ToolContext.Builder().withTimeZone("Asia/Tokyo"))`.
+Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 
@@ -263,6 +308,13 @@ Docs: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
   `handler-throw` and the exception's message. In an agent turn, the model
   sees the failure only when the agent's `toolErrors` policy includes
   `tool-error`, so retrying must be safe for that tool.
+- Throw `ToolFailureException` when the tool ran and knows why the call
+  can't give an answer:
+  `throw ToolFailureException("order-not-found", s"No order $id", Map("orderId" -> id))`.
+  The call fails with `tool-failed`, the code as `reason`, the message as
+  written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. An agent sends it to the model only with
+  `tool-failed` in `toolErrors.retryOn`. An outcome the caller acts on
+  belongs in the output case class instead (`found = false`).
 - What the handler logs goes to the pack service's output (`kindgi dev`
   shows it as `[pack] …`), never into a result.
 
@@ -313,7 +365,7 @@ object FetchOrder {
   final case class Input(orderId: String)
   final case class Output(id: String, status: String, total: Double)
 
-  val tool: Tool[Input, Output] = Tool[Input, Output]("shop.fetch-order")
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.fetch-order")
     .description("Fetch an order by id from the storefront API.")
     .version("0.1.0")
     .readOnly
@@ -441,7 +493,7 @@ changes (a removed field, a narrower type), not on every save.
    `kindgi dev` and fails in the image, which ships the runtime classpath
    only.
 9. **A read-only tool without `readOnly`.** A dry run stops at it, and an
-   approval gate asks before it on first use.
+   approval gate asks before each call to it.
 10. **`readOnly` on a tool that writes.** A dry run then runs it for real.
 11. **A jackson-module-scala that doesn't match your app's
     `jackson-databind` minor version.** It refuses to load: depend on the

@@ -20,7 +20,10 @@ repository). Two files are written, both generated — never edit them:
   operation id `approvals.reviewers.list` becomes
   `client.approvals.reviewers.list(...)`: path parameters positional, query
   and header parameters keyword-only, a JSON body as a model or a mapping (or
-  its fields as keywords), the success response parsed into its model.
+  its fields as keywords), the success response parsed into its model. A
+  deprecated operation's method warns (`DeprecationWarning`) with its
+  description's first paragraph, which says what to use instead; generation
+  fails for one without a description.
 
 `scripts/model_names.json`, written beside them, holds where each model sits:
 a component's own model at the component, any other at the fields that lead
@@ -114,6 +117,9 @@ class Operation:
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
     responses: dict[int, str] = field(default_factory=dict)
     follow: bool = False  # a FOLLOWS method: `_follow`, not `_stream`
+    # A deprecated operation's note: its description's first paragraph, which
+    # says what to use instead. The method warns with it. None otherwise.
+    deprecated: str | None = None
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -142,6 +148,20 @@ def deref(doc: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
 
 
 ID_PARAM = re.compile(r"(?:^id|Id)$")
+
+
+def comma_list(doc: dict[str, Any], param: dict[str, Any]) -> bool:
+    """A query array sent as one key, its values comma-separated (`include=a,b`).
+
+    That's OpenAPI's `style: form` with `explode: false`. Any other array is
+    repeated keys (`segment=a&segment=b`), which httpx writes from a list.
+    """
+    return (
+        param["in"] == "query"
+        and deref(doc, param.get("schema", {})).get("type") == "array"
+        and param.get("style", "form") == "form"
+        and param.get("explode") is False
+    )
 
 
 def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = "") -> str:
@@ -247,6 +267,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                         required=bool(p.get("required", p["in"] == "path")),
                         annotation=param_annotation(doc, p.get("schema", {}), p["name"]),
                         description=p.get("description", ""),
+                        encode="_csv" if comma_list(doc, p) else None,
                     )
                 )
             # Path parameters in template order.
@@ -300,6 +321,17 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 if responses:
                     assert response is not None
                     responses = {status: response, **responses}
+            deprecated = None
+            if op.get("deprecated"):
+                # Its description opens with what to use instead, which the
+                # Java client's `@deprecated` says too.
+                note = op.get("description", "").strip().split("\n\n")[0]
+                if not note:
+                    raise SystemExit(
+                        f"gen_client: {op_id} is deprecated, and its description doesn't open"
+                        " with what to use instead"
+                    )
+                deprecated = " ".join(note.split())
             ops.append(
                 Operation(
                     id=op_id,
@@ -314,6 +346,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     response_kind=response_kind,
                     status=status,
                     responses=responses,
+                    deprecated=deprecated,
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
@@ -356,8 +389,11 @@ def docstring(op: Operation, indent: str) -> str:
     first = op.summary or op.id
     lines = [f"{first.rstrip('.')}. `{op.method} {op.path}`"]
     if op.description:
-        paragraph = op.description.split("\n\n")[0].replace('"""', "'''").replace("\\", "\\\\")
-        lines += ["", *paragraph.splitlines()]
+        # A deprecated operation's description opens with its note, so its
+        # own first paragraph follows: a caller still on it keeps both.
+        shown = op.description.split("\n\n")[: 1 if op.deprecated is None else 2]
+        for paragraph in shown:
+            lines += ["", *paragraph.replace('"""', "'''").replace("\\", "\\\\").splitlines()]
     body = "\n".join(f"{indent}{line}" if line else "" for line in lines)
     return f'{indent}"""{body.lstrip()}\n{indent}"""'
 
@@ -453,8 +489,17 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
             f"{'Async' if asynchronous else ''}{child.class_name}(client)"
         )
     for op in node.operations:
-        out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
+        out += ["", signature(op, asynchronous), docstring(op, "        ")]
+        if op.deprecated is not None:
+            out.append(warning(op))
+        out.append(call(op, asynchronous))
     return out
+
+
+def warning(op: Operation) -> str:
+    """A deprecated operation's warning, at the caller's line (`stacklevel=2`)."""
+    message = f"client.{snake_path(op.id)} is deprecated. {op.deprecated}"
+    return f"        warnings.warn({message!r}, DeprecationWarning, stacklevel=2)"
 
 
 def idempotent(op: Operation) -> str:
@@ -466,12 +511,13 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         HEADER,
         "from __future__ import annotations",
         "",
+        *(["import warnings"] if any(op.deprecated is not None for op in ops) else []),
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
         "from typing import Any, Literal, cast",
         "from uuid import UUID",
         "",
         "from . import _models",
-        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _csv, _segments",
         *(
             f"from .{module} import Async{mixin}, {mixin}"
             for module, mixin in sorted(MIXINS.values())

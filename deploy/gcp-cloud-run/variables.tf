@@ -51,13 +51,28 @@ variable "server_public" {
 }
 
 variable "server_min_instances" {
-  description = "Minimum server instances. At least 1: runs started with wait:false, Improve runs and test runs keep running after the response, and need an instance (and CPU) to finish on."
+  description = "Minimum server instances. 1 by default: runs started with wait:false, Improve runs and test runs keep running after the response, and need an instance (and CPU) to finish on. 0 only with server_billing = \"request\", where the server keeps its own instance up while it has work."
   type        = number
   default     = 1
 
   validation {
-    condition     = var.server_min_instances >= 1
-    error_message = "Background runs need at least one instance."
+    condition     = var.server_min_instances >= 0 && floor(var.server_min_instances) == var.server_min_instances
+    error_message = "server_min_instances is a whole number, 0 or more."
+  }
+}
+
+variable "server_billing" {
+  description = <<-EOT
+    How Cloud Run bills the server, and so when it has CPU.
+    "instance" (the default): CPU always allocated. The server's own timers run its background work (schedules, mail polls, webhook deliveries and more; the docs' Cloud Run page, "Scale the server to zero", lists it all).
+    "request": CPU only while a request is in flight, billed for that time (and for any minimum instances while idle). server_min_instances may then be 0. Cloud Scheduler calls the server's tick each minute, which runs the background work that's due, and the server keeps a request to itself open while it has work in flight. Needs server_ingress = "INGRESS_TRAFFIC_ALL", server_max_instances = 1, and server_public or server_invoker_iam_disabled. README, "Scale the server to zero".
+  EOT
+  type        = string
+  default     = "instance"
+
+  validation {
+    condition     = contains(["instance", "request"], var.server_billing)
+    error_message = "server_billing is \"instance\" or \"request\"."
   }
 }
 
@@ -196,10 +211,11 @@ variable "pack_max_instances" {
 }
 
 variable "pack_secret_readers" {
-  description = "Secrets in Secret Manager that a pack's env names as cloud secrets (`kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`, with a system key): { secret, project } each, the secret's id, with project null for this one. The pack account gets roles/secretmanager.secretAccessor on each secret alone, never on its project, in the project the entry names: whoever applies needs to be able to grant there. Every pack service runs as that account, so each pack may read every one."
+  description = "Secrets in Secret Manager that a pack's env names as cloud secrets (`kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`, with a system key): { secret, project, tenants } each, the secret's id, with project null for this one. The pack account gets roles/secretmanager.secretAccessor on each secret alone, never on its project, in the project the entry names: whoever applies needs to be able to grant there. Every pack service runs as that account, so each pack may read every one. With pack_accounts = \"per-tenant\", tenants lists the tenants whose accounts read the secret, each one in pack_tenants: needed on every entry then, and refused with \"shared\"."
   type = list(object({
     secret  = string
     project = optional(string)
+    tenants = optional(list(string))
   }))
   default = []
   validation {
@@ -213,7 +229,7 @@ variable "pack_secret_readers" {
 }
 
 variable "pack_cloud_sql_instances" {
-  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account gets roles/cloudsql.client."
+  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account, and with pack_accounts = \"per-tenant\" each tenant's, gets roles/cloudsql.client."
   type        = list(string)
   default     = []
 
@@ -224,13 +240,13 @@ variable "pack_cloud_sql_instances" {
 }
 
 variable "pack_bucket_readers" {
-  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, which every pack service runs as)."
+  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, and with pack_accounts = \"per-tenant\" for each tenant's)."
   type        = list(string)
   default     = []
 }
 
 variable "pack_run_invokers" {
-  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
+  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account, and with pack_accounts = \"per-tenant\" each tenant's, gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
   type = list(object({
     project  = string
     location = string
@@ -245,6 +261,41 @@ variable "pack_run_invokers" {
     condition     = length(distinct([for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}"])) == length(var.pack_run_invokers)
     error_message = "pack_run_invokers names a service twice."
   }
+}
+
+# ---- the pack accounts ----------------------------------------------------------
+# Which account each pack service runs as. The checks that read another
+# variable are preconditions on google_service_account.orchestrator: a
+# variable's own validation can't read another before Terraform 1.9.
+
+variable "pack_accounts" {
+  description = "Which account the pack services run as. \"shared\" (the default): every one runs as the one pack account, so each tenant's pack code may read what every other's may. \"per-tenant\" (tenancy = \"multi\", runtime 0.7.0 or later): each tenant in pack_tenants gets an account of its own, which reads only its own pack services' secrets and the pack_secret_readers secrets listed for it. Turning it on is one-way: going back to \"shared\" isn't supported. See the README."
+  type        = string
+  default     = "shared"
+  validation {
+    condition     = contains(["shared", "per-tenant"], var.pack_accounts)
+    error_message = "pack_accounts must be \"shared\" or \"per-tenant\"."
+  }
+}
+
+variable "pack_tenants" {
+  description = "With pack_accounts = \"per-tenant\", the tenants whose pack services may run, each a tenant id (GET /v1/system/tenants lists them). Each gets an account of its own, kp-t and 16 hex digits. A tenant not listed has nowhere to run pack services: its deployments wait with tenant-not-provisioned. Take a tenant out only after its deployments are retired. At most 93. Refused with \"shared\" unless empty."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for id in var.pack_tenants : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    error_message = "Each pack_tenants entry is a tenant id, a uuid."
+  }
+  validation {
+    condition     = length(distinct([for id in var.pack_tenants : lower(id)])) == length(var.pack_tenants)
+    error_message = "pack_tenants names a tenant twice (ids match in any case)."
+  }
+}
+
+variable "pack_shared_account" {
+  description = "Whether the one pack account and its grants exist. Keep it true while turning per-tenant on: the pack orchestrator moves each running pack service to its tenant's account, and the pack account keeps serving until it has. Set it false once none is left on it (upgrade.sh checks), which takes it and its grants away. False needs pack_accounts = \"per-tenant\"."
+  type        = bool
+  default     = true
 }
 
 # ---- the database -------------------------------------------------------------
@@ -423,7 +474,7 @@ variable "pack_call_timeout_ms" {
 }
 
 variable "pack_bucket_object_prefixes" {
-  description = "Per bucket in pack_bucket_readers, object-name prefixes the pack may read (an IAM condition on its objectViewer grant; the bucket needs uniform bucket-level access). A bucket missing here is readable in full."
+  description = "Per bucket in pack_bucket_readers, object-name prefixes the packs may read (an IAM condition on each objectViewer grant: the pack account's and, with pack_accounts = \"per-tenant\", each tenant's; the bucket needs uniform bucket-level access). A bucket missing here is readable in full."
   type        = map(list(string))
   default     = {}
 }
@@ -584,5 +635,57 @@ variable "server_secret_env" {
   validation {
     condition     = alltrue([for name in keys(var.server_secret_env) : can(regex("^[A-Z_][A-Z0-9_]*$", name))])
     error_message = "server_secret_env: a name is upper-case letters, digits and underscores."
+  }
+}
+
+# ---- renewing the license key (optional) ----------------------------------------
+
+variable "license_renewal_schedule" {
+  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job, scheduler or alerts; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output). README, step 8."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewal_schedule == "" || can(regex("^[0-9*,/-]+ [0-9*,/-]+ [0-9*,/?LW-]+ [0-9A-Za-z*,/-]+ [0-9A-Za-z*,/?L#-]+$", var.license_renewal_schedule))
+    error_message = "license_renewal_schedule: empty, or five cron fields (minute hour day month weekday), in UTC."
+  }
+}
+
+variable "license_renewer_secret" {
+  description = "The Secret Manager secret that holds this deployment's renewer key: the module creates it empty, `kindgi license enroll` adds it once (the license_enroll_command output), and renewing reads it. The server never reads it. Empty (the default): <name_prefix>-license-renewer."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewer_secret == "" || can(regex("^[A-Za-z0-9_-]{1,255}$", var.license_renewer_secret))
+    error_message = "license_renewer_secret: a secret id (letters, digits, - and _, up to 255)."
+  }
+}
+
+variable "license_usage_key_secret" {
+  description = "The Secret Manager secret, in this project, that holds a system key holding system:license alone, which you mint with the deployment's own token and keep there yourself, before the apply that names it (README, step 8). Terraform never holds the key. With it, the renewal job (license_renewal_schedule) reads it and renews with --runtime (the server) and --runtime-token (this secret), as the license_renew_command output does: renewing then carries counts of the deployment's use, and offers a renewed key to the running server, which runtime 0.7.0 can't take while it runs. Needs a server that takes calls without Cloud Run IAM (server_public or server_invoker_iam_disabled). Empty (the default): no counts, and the server takes a renewed key at its next start."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_usage_key_secret == "" || can(regex("^[A-Za-z0-9_-]{1,255}$", var.license_usage_key_secret))
+    error_message = "license_usage_key_secret: a secret id (letters, digits, - and _, up to 255)."
+  }
+}
+
+variable "license_renewal_scheduler_region" {
+  description = "Where Cloud Scheduler starts the renewal job, if `region` has no Cloud Scheduler (its locations: https://docs.cloud.google.com/scheduler/docs/locations). Empty (the default): `region`. The job itself runs in `region`."
+  type        = string
+  default     = ""
+}
+
+variable "alert_notification_channels" {
+  description = "Cloud Monitoring notification channels (projects/<project>/notificationChannels/<id>) the license renewal's alerts go to: a failed renewal, a key inside its warning window, and, with license_usage_key_secret, a renewal that sent no counts. Empty: they open incidents in the console and notify no one. Only with license_renewal_schedule set."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.alert_notification_channels : can(regex("^projects/[^/]+/notificationChannels/[^/]+$", c))])
+    error_message = "alert_notification_channels: each is projects/<project>/notificationChannels/<id>."
   }
 }

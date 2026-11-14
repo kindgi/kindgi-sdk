@@ -193,6 +193,19 @@ export interface AgentMemoryPolicy {
 }
 
 /**
+ * Which of its run's files an agent's model may change, text only, through
+ * built-in tools: `update` offers `kindgi_update_file`
+ * (`UPDATE_FILE_TOOL_ID`), a new version of a text file the run has, and
+ * `create` offers `kindgi_create_file` (`CREATE_FILE_TOOL_ID`), a new text
+ * file of the run's. Absent or `false`: not offered. A runtime with no file
+ * store offers neither.
+ */
+export interface AgentFilesPolicy {
+  readonly update?: boolean;
+  readonly create?: boolean;
+}
+
+/**
  * Where an agent's remembered facts go, always within its run:
  *   - `same-user`:         the conversation's end user. A run that
  *                          names none (`participantId`) isn't offered
@@ -277,19 +290,6 @@ export interface ConversationPolicy {
   readonly hitl?: ConversationHitlPolicy;
 }
 
-/**
- * Tool-level HITL mode.
- *
- * - `never_ask`   — dispatch straight through, no gate. Read-only tools
- *   (`Tool.mutating: false`) get this default.
- * - `ask_on_first_use` — on the first call to `(toolId, hashOfArgs)`
- *   within a conversation, park + require approval. Approved decisions
- *   cache on the conversation so subsequent identical calls dispatch
- *   without re-parking. Mutating tools default to this.
- * - `always_ask`  — park + require approval on EVERY invocation. No
- *   caching. Highest friction; used for external-effect actions
- *   (email/payment/deploy) where every occurrence is a real event.
- */
 /**
  * A tool's gate (`never_ask` | `ask_on_first_use` | `always_ask`), and a
  * per-tool rule — a mode plus the reviewer role its approvals need
@@ -413,9 +413,9 @@ export interface AgentOutputSpec {
  */
 export interface Agent {
   /**
-   * Globally-unique agent identifier. Convention:
-   * `<pack-id>.<agent-name>` (kebab-case, dot-namespaced). See the
-   * `AgentId` brand for the naming rule.
+   * Globally-unique agent identifier: `<pack-id>.<agent-name>`, the
+   * pack's own id, a dot, and a kebab-case name with no dot. See the
+   * `AgentId` brand for what is checked.
    */
   readonly id: AgentId;
   /**
@@ -497,6 +497,8 @@ export interface Agent {
   readonly retrieval: readonly RetrievalIntent[];
   /** How the agent uses what it retrieves (`instructionTypes`). Absent: all data. */
   readonly memory?: AgentMemoryPolicy;
+  /** Which of its run's files the model may change (`update`, `create`). Absent: none. */
+  readonly files?: AgentFilesPolicy;
   /**
    * Guardrail ids the agent is subject to. Resolved at turn start
    * against the guardrail definitions bound for the run

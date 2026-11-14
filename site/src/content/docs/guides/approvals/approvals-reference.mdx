@@ -180,7 +180,10 @@ The clients' `list` also takes:
 ## A run's `waitingFor`
 
 From your app, `runs.get(runId)` answers what a suspended run waits for, as
-`waitingFor`. It's the API's answer to the CLI's `kindgi runs resume`:
+`waitingFor`, and the runs list answers it for each suspended run on a page
+with `includeWaitingFor: true`
+([List runs](../../runs/list-runs/)). It's the API's answer to the CLI's
+`kindgi runs resume`:
 
 - **`approvals`** are the approvals still to be decided.
 - **`connections`** are the connects it waits for: each names the app

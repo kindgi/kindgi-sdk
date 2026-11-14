@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.9"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -171,6 +171,11 @@ final class Citator {
   column) or looks for it there first: a refund never goes out twice. A
   UUID; `null` outside a run and from a runtime before 0.1.6. Docs:
   https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+- `ctx.timeZone()`: the workspace's time zone, an IANA name such as
+  `"America/Toronto"`: an agent turn reads it once, so all its calls get the
+  same one, `"UTC"` when the workspace sets none. `null` outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
 - `ctx.projectId()`, `ctx.orgId()`: the run's project, and its org (`null`
   when it has none). The runtime sets them from the run, never from the
   input. To check an id the input names, compare it with these.
@@ -187,6 +192,51 @@ final class Citator {
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config()`: **reserved, empty today**.
+
+### A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```java
+// src/main/java/acme/tools/Today.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
+import java.util.Locale;
+
+public final class Today {
+  public record Input() {}
+
+  public record Output(String date, String weekday, String time, String timeZone) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.today")
+      .description("Today's date, weekday and time in the workspace's time zone. "
+          + "Call it before answering anything that depends on today's date.")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        String zone = ctx.timeZone() != null ? ctx.timeZone() : "UTC";
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.of(zone));
+        return new Output(
+            now.toLocalDate().toString(),
+            now.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+            now.format(DateTimeFormatter.ofPattern("HH:mm")),
+            zone);
+      });
+
+  private Today() {}
+}
+```
+
+Test it with `ToolContext.forTest(new ToolContext.Builder().withTimeZone("Asia/Tokyo"))`.
+Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 
@@ -275,6 +325,13 @@ Docs: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
   exception's message. In an agent turn, the model sees the failure only
   when the agent's `toolErrors` policy includes `tool-error`, so retrying
   must be safe for that tool.
+- Throw `ToolFailureException` when the tool ran and knows why the call
+  can't give an answer:
+  `throw new ToolFailureException("order-not-found", "No order " + id, Map.of("orderId", id))`.
+  The call fails with `tool-failed`, the code as `reason`, the message as
+  written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. An agent sends it to the model only with
+  `tool-failed` in `toolErrors.retryOn`. An outcome the caller acts on
+  belongs in the output record instead (`found: false`).
 - What the handler logs (your app's logger, `System.err`) goes to the pack
   service's output (`kindgi dev` shows it as `[pack] …`), never into a
   result.
@@ -330,7 +387,7 @@ public record FetchOrder(String orderId) {}
 public record Order(String id, String status, double total) {}
 
 public static final Tool<FetchOrder, Order> TOOL =
-    Tool.define("shop.fetch-order")
+    Tool.define("acme.fetch-order")
         .description("Fetch an order by id from the storefront API.")
         .version("0.1.0")
         .mutating(false)
@@ -476,7 +533,7 @@ removed field, a narrower type), not on every save.
    `kindgi dev` and fails in the image, which copies the runtime classpath
    only. Use `compile` or `runtime` scope.
 8. **A read-only tool without `mutating(false)`.** A dry run stops at it, an
-   approval gate asks before it on first use, and an agent runs each call to
+   approval gate asks before each call to it, and an agent runs each call to
    it on its own.
 9. **`mutating(false)` on a tool that writes.** A dry run then runs it for
    real, and an agent may run it at the same time as other calls.

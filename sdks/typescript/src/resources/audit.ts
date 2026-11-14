@@ -66,16 +66,23 @@ export interface SignInEvent {
     | 'sessions-ended'
     | 'second-factor-set-up'
     | 'second-factor-removed'
-    | 'recovery-codes-replaced';
+    | 'recovery-codes-replaced'
+    | 'chat-app-connected'
+    | 'chat-app-refresh-refused'
+    | 'chat-app-disconnected';
   readonly outcome: string;
-  /** The person: who signed in or out, or whom a link was for. Absent on a refusal. */
+  /** The person: who signed in or out, whom a link was for, or whose chat app it was. Absent on a refusal. */
   readonly userId?: string;
   /** How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider's id. */
   readonly method?: string;
   readonly clientAddress?: string;
-  /** Why a sign-in was refused, or which limit held. */
+  /** Why a sign-in or a chat app's renewal was refused, or which limit held. */
   readonly reason?: string;
   readonly sessionId?: string;
+  /** Who acted, when it isn't `userId`: the admin who ended this person's sessions. */
+  readonly byUserId?: string;
+  /** The chat app, on a `chat-app-*` kind: its client id. */
+  readonly clientId?: string;
 }
 
 export interface SignInEventPage {

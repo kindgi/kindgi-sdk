@@ -153,15 +153,15 @@ The agent reads a ticket with `get-ticket`, and answers in a shape your flow
 can act on. Write it:
 
 ```ts tutorial=write
-// agents/triage/index.ts
+// agents/ticket-classifier/index.ts
 import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, Semver } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
 const defined = defineAgent({
-  id: 'acme-desk.triage' as AgentId,
+  id: 'acme-desk.ticket-classifier' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Triage',
+  name: 'Ticket classifier',
   description: 'Classifies a support ticket and drafts a first reply.',
   instructions: [
     'You triage support tickets. Read the ticket with the get-ticket tool, then answer',
@@ -200,7 +200,7 @@ The flow runs the agent, then escalates the ticket or records the reply,
 depending on the agent's answer. Write it:
 
 ```ts tutorial=write
-// flows/handle-ticket/index.ts
+// flows/triage-ticket/index.ts
 import { defineFlow } from '@kindgi/sdk/define';
 
 const isUrgent = {
@@ -210,15 +210,15 @@ const isUrgent = {
 } as const;
 
 const defined = defineFlow({
-  id: 'acme-desk.handle-ticket',
+  id: 'acme-desk.triage-ticket',
   version: '0.1.0',
-  name: 'Handle a ticket',
+  name: 'Triage a ticket',
   description: 'Triages a ticket, then escalates it or records the drafted reply.',
   nodes: [
     {
       id: 'triage',
       kind: 'agent',
-      ref: 'acme-desk.triage',
+      ref: 'acme-desk.ticket-classifier',
       inputMapping: { ticketId: { path: 'runInput.ticketId' } },
     },
     {
@@ -327,10 +327,10 @@ provider's default model.
 Running the agent on its own shows its answer before the flow acts on it:
 
 ```sh
-pnpm exec kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Triage ticket T-101"}'
+pnpm exec kindgi runs start --agent=acme-desk.ticket-classifier --input='{"userMessage":"Triage ticket T-101"}'
 ```
 
-- `--agent=acme-desk.triage` is the agent to run.
+- `--agent=acme-desk.ticket-classifier` is the agent to run.
 - `--input` is the turn's input, as JSON: `userMessage` is what the agent is
   asked.
 
@@ -356,8 +356,8 @@ see the run's page, with each step, the tool call and the cost, run
 The flow acts on the agent's answer. Run it once for each ticket:
 
 ```sh
-pnpm exec kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-100"}'
-pnpm exec kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-101"}'
+pnpm exec kindgi runs start --flow=acme-desk.triage-ticket --input='{"ticketId":"T-100"}'
+pnpm exec kindgi runs start --flow=acme-desk.triage-ticket --input='{"ticketId":"T-101"}'
 ```
 
 `--flow` is the flow to run, and `--input` its run's input. Each prints its

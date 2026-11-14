@@ -42,11 +42,15 @@ export interface RunWait {
   readonly checkMs: number;
 }
 
-const RUN_WAIT: RunWait = { waitMs: RUN_STATE_WAIT_S * 1_000, firstCheckMs: 500, checkMs: 1_000 };
+export const RUN_WAIT: RunWait = {
+  waitMs: RUN_STATE_WAIT_S * 1_000,
+  firstCheckMs: 500,
+  checkMs: 1_000,
+};
 /** `kindgi.run_state`'s own wait checks less often: a chat may wait on it for a long run. */
-const RUN_STATE_WAIT: RunWait = { ...RUN_WAIT, checkMs: 3_000 };
+export const RUN_STATE_WAIT: RunWait = { ...RUN_WAIT, checkMs: 3_000 };
 /** The most agents, or flows, read for one `tools/list`: four pages. */
-const LIST_PAGES = 4;
+export const LIST_PAGES = 4;
 const PAGE_SIZE = '100';
 const DESCRIPTION_LIMIT = 600;
 
@@ -88,6 +92,16 @@ const RUN_STATE_OUTPUT = {
           name: { type: 'string' },
           contentType: { type: 'string' },
           size: { type: 'integer' },
+          fileId: {
+            type: 'string',
+            description:
+              "The file's id, which names it through every version: what the files routes take.",
+          },
+          version: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Which version of the file this lists: its Latest when the run was read.',
+          },
         },
       },
     },
@@ -99,7 +113,7 @@ const RUN_STATE_OUTPUT = {
 export function runStateTools(wait: RunWait = RUN_STATE_WAIT): McpToolSet {
   return {
     scopes: ['kindgi:read', 'kindgi:run'],
-    routes: ['GET /v1/runs/:runId', 'GET /v1/artifacts'],
+    routes: ['GET /v1/runs/:runId', 'GET /v1/files', 'GET /v1/artifacts'],
     register(server, context) {
       server.registerResource(
         'kindgi_run_view',
@@ -199,6 +213,7 @@ export function agentTools(wait: RunWait = RUN_WAIT): McpToolSet {
       'GET /v1/flows/:flowId',
       'POST /v1/runs',
       'GET /v1/runs/:runId',
+      'GET /v1/files',
       'GET /v1/artifacts',
     ],
     async register(server, context) {
@@ -347,9 +362,9 @@ async function followRun(
     await pause(Math.min(delay, deadline - Date.now()), signal);
     const read = await readRunState(context.call, context.link, runId);
     if ('error' in read) return toolError(read.error);
-    const { state } = read;
-    if (!runGoesOn(state) || state.status === 'waiting') return runStateResult(state);
-    if (Date.now() >= deadline || signal.aborted) return runStateResult(state);
+    const { state, blocks } = read;
+    if (!runGoesOn(state) || state.status === 'waiting') return runStateResult(state, blocks);
+    if (Date.now() >= deadline || signal.aborted) return runStateResult(state, blocks);
     delay = wait.checkMs;
   }
 }

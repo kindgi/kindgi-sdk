@@ -83,6 +83,70 @@ describe('GET /v1/runtime', () => {
     expect(answer.body).toEqual({ version: '0.3.0', tenancy: 'single', development: false });
   });
 
+  test('connections, as the host says: on, or off with its reason in development mode', async () => {
+    const on: RuntimeInfoInput = {
+      version: '0.3.0',
+      development: false,
+      connections: { on: true },
+    };
+    const served = await makeApp(on)(MEMBER);
+    expect(served.body).toEqual({
+      version: '0.3.0',
+      tenancy: 'single',
+      development: false,
+      connections: { on: true },
+    });
+    expect(validateAgainst('RuntimeInfo', served.body)).toEqual([]);
+
+    const reason = "they need Kindgi's own secrets store (a ready-made one was passed in)";
+    const off: RuntimeInfoInput = {
+      version: 'dev',
+      development: true,
+      connections: { on: false, reason },
+    };
+    const notServed = await makeApp(off)(MEMBER);
+    expect(notServed.body).toEqual({
+      version: 'dev',
+      tenancy: 'single',
+      development: true,
+      connections: { on: false, reason },
+    });
+    expect(validateAgainst('RuntimeInfo', notServed.body)).toEqual([]);
+  });
+
+  test('a runtime in production never says why connections are off', async () => {
+    const info: RuntimeInfoInput = {
+      version: '0.3.0',
+      development: false,
+      connections: { on: false, reason: 'they need KINDGI_PUBLIC_URL' },
+    };
+    const answer = await makeApp(info)(MEMBER);
+    expect(answer.body).toEqual({
+      version: '0.3.0',
+      tenancy: 'single',
+      development: false,
+      connections: { on: false },
+    });
+    expect(validateAgainst('RuntimeInfo', answer.body)).toEqual([]);
+  });
+
+  test("connections field by field: nothing else on the host's object reaches the wire", async () => {
+    const connectionsOf = async (info: RuntimeInfoInput) =>
+      ((await makeApp(info)(MEMBER)).body as { connections?: unknown }).connections;
+    const on = {
+      version: 'dev',
+      development: true,
+      connections: { on: true, reason: 'not when on', missing: ['KINDGI_PUBLIC_URL'] },
+    } as unknown as RuntimeInfoInput;
+    expect(await connectionsOf(on)).toEqual({ on: true });
+    const off = {
+      version: 'dev',
+      development: true,
+      connections: { on: false, missing: ['KINDGI_PUBLIC_URL'] },
+    } as unknown as RuntimeInfoInput;
+    expect(await connectionsOf(off)).toEqual({ on: false });
+  });
+
   test('a caller who is not signed in gets 401', async () => {
     const info: RuntimeInfoInput = { version: '0.3.0', development: false };
     const get = makeApp(info);

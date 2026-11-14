@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+export { BUILT_IN_TOOL_PREFIX } from '@kindgi/types';
 export {
-  BUILT_IN_TOOL_PREFIX,
+  BUILT_IN_ONLY_APPS,
   defineTool,
   defineToolAsync,
   validateToolManifest,
@@ -29,6 +30,8 @@ export type {
   FileStore,
   FileStoreAnswer,
   FileToStore,
+  FileToUpdate,
+  FileUpdateAnswer,
 } from './files.js';
 export { invokeTool, invokeToolOrPause, toolOutputIssues } from './invoke.js';
 export {
@@ -52,6 +55,8 @@ export { invokeToolForTest, toolContextForTest } from './test-context.js';
 export { toolSecretNames } from './secret-names.js';
 export { toolOptionalSecretNames, toolRequiredEnvNames } from './env-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
+export { ToolFailure, isToolFailure } from './tool-failure.js';
+export type { ToolFailureDetails, ToolFailureOptions } from './tool-failure.js';
 export {
   ConnectionRejectedError,
   ConnectionRenewError,
@@ -126,6 +131,7 @@ export type {
   OutputValidationError,
   PreconditionFailedError,
   ToolError,
+  ToolFailedError,
   ToolNotFoundError,
   ToolPauseUnsupportedError,
   ToolVersionNotFoundError,

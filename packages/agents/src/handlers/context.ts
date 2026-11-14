@@ -64,6 +64,13 @@ export interface TurnContext {
   /** The data blocks the turn runs with (set by setup; none when the agent references none). */
   blocks?: TurnBlocks;
   /**
+   * The workspace's time zone, an IANA name, handed to each of the turn's
+   * tool calls (`ToolContext.timeZone`). Read once, when the turn offers a
+   * tool (`resolveTurnTimeZone`): by `setup`, or for a resumed turn, the
+   * one `setup` journaled. Unset when the turn offers none.
+   */
+  timeZone?: string;
+  /**
    * The sets the turn's calls may name a connection from, tool id to need
    * (`offerAccounts`): each tool here was offered an `accounts` input.
    */
@@ -130,7 +137,8 @@ export interface TurnContext {
   userMessage?: ConversationMessage;
   /**
    * Populated by `render-prompt` — the rendered system-instructions
-   * string that seeds the first model call.
+   * string that seeds the first model call. A resumed turn takes it from
+   * `render-prompt`'s journaled output (`rehydrateTurnContext`).
    */
   renderedPrompt?: string;
   /**
@@ -232,6 +240,12 @@ export interface TurnContext {
    * of a resumed turn.
    */
   toolResultIds?: string[];
+  /**
+   * Each call this process ran, its `idempotencyKey` to its invocation id:
+   * how a file version a call made or was given finds the call's node in
+   * the record. Filled by `dispatch-tools`.
+   */
+  callKeys?: Map<string, string>;
   /**
    * The tool-call approvals this turn's journal shows decided, by
    * invocation id: each call's provenance shows the approval it waited on.

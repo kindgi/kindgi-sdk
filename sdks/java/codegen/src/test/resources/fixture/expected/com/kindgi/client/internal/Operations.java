@@ -57,6 +57,11 @@ public final class Operations {
     public static final Operation WIDGETS_ROTATE = new Operation("widgets.rotate", "POST", "/v1/widgets/{widgetId}/rotate", Operation.Kind.JSON, false);
 
     /**
+     * {@code widgets.refresh}: <code>POST /v1/widgets/&#123;widgetId&#125;/refresh</code>
+     */
+    public static final Operation WIDGETS_REFRESH = new Operation("widgets.refresh", "POST", "/v1/widgets/{widgetId}/refresh", Operation.Kind.JSON, false);
+
+    /**
      * {@code settings.put}: <code>PUT /v1/settings/&#123;domain&#125;</code>
      */
     public static final Operation SETTINGS_PUT = new Operation("settings.put", "PUT", "/v1/settings/{domain}", Operation.Kind.JSON, false);
@@ -74,6 +79,7 @@ public final class Operations {
         Map.entry("widgets.blob.download", WIDGETS_BLOB_DOWNLOAD),
         Map.entry("widgets.blob.upload", WIDGETS_BLOB_UPLOAD),
         Map.entry("widgets.rotate", WIDGETS_ROTATE),
+        Map.entry("widgets.refresh", WIDGETS_REFRESH),
         Map.entry("settings.put", SETTINGS_PUT));
 
     /**
