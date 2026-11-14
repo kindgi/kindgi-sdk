@@ -133,8 +133,9 @@ final class Ir {
      */
     UnionKind objectKind;
     /**
-     * A TEXT_OR_OBJECT with two or more objects: the package-private interface its objects and
-     * Unrecognized implement (`<Union>Object`), which tells them apart for an app's own Jackson.
+     * A TEXT_OR_OBJECT or a SCALAR_OR_OBJECT with two or more objects: the package-private
+     * interface its objects and Unrecognized implement (`<Union>Object`), which tells them apart
+     * for an app's own Jackson.
      */
     ClassName objectInterface;
     final List<Variant> variants = new ArrayList<>();

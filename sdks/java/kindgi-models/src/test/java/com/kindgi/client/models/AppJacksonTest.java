@@ -167,8 +167,9 @@ class AppJacksonTest {
   /**
    * Every union reads with an app's Jackson: it has type info, or (a text or an object) a
    * delegating creator. One with nowhere to keep a variant it doesn't know reads a listed sample,
-   * so a new one fails here until it's listed. The objects of a text-or-object union get their
-   * type info from a hidden interface, whose type info they don't take as their own.
+   * so a new one fails here until it's listed. The objects of a text-or-object or a
+   * scalar-or-object union get their type info from a hidden interface, whose type info they
+   * don't take as their own.
    */
   @Test
   void everyUnionReadsWithAnAppsJackson() throws Exception {
@@ -176,6 +177,8 @@ class AppJacksonTest {
     samples.put(AgentInstructions.class, PROMPT_REF);
     samples.put(SecretsRotateResponse.class, ROTATED);
     samples.put(TestRunBaseline.class, AGENT_ID);
+    samples.put(ConversationHitlPolicySeparateApprover.class, "true");
+    samples.put(ToolHitlPolicyOverridesValue.class, "\"always_ask\"");
     List<Class<?>> sampled = new ArrayList<>();
     List<Class<?>> objects = new ArrayList<>();
     for (Class<?> type : models()) {
@@ -273,6 +276,34 @@ class AppJacksonTest {
     assertThat(app.readValue(agent.formatted("\"You help.\""), Agent.class).instructions()).isEqualTo(AgentInstructions.of("You help."));
     assertThat(app.writeValueAsString(AgentInstructions.of("You help."))).isEqualTo("\"You help.\"");
     assertThat(app.writeValueAsString(ref)).isEqualTo(PROMPT_REF);
+  }
+
+  /**
+   * Four eyes is a boolean or a per-tool policy, and a tool's gate a mode or a rule, so an agent's
+   * approval rules read with either and write back as they came.
+   */
+  @Test
+  void readsApprovalRulesOfEitherForm() throws Exception {
+    String policy = "{\"default\":true,\"overrides\":{\"acme.pay\":false}}";
+    assertThat(app.readValue("true", ConversationHitlPolicySeparateApprover.class))
+        .isEqualTo(ConversationHitlPolicySeparateApprover.of(true));
+    assertThat(app.readValue(policy, ConversationHitlPolicySeparateApprover.class)).isInstanceOf(SeparateApproverPolicy.class);
+    for (String value : List.of("false", policy)) {
+      String rules = "{\"separateApprover\":" + value + "}";
+      for (ObjectMapper mapper : List.of(app, strict)) {
+        ConversationHitlPolicy read = mapper.readValue(rules, ConversationHitlPolicy.class);
+        assertThat(app.readTree(app.writeValueAsString(read))).as(rules).isEqualTo(app.readTree(rules));
+      }
+    }
+    assertThat(app.writeValueAsString(ConversationHitlPolicySeparateApprover.of(true))).isEqualTo("true");
+    assertThat(app.readValue("\"always_ask\"", ToolHitlPolicyOverridesValue.class))
+        .isEqualTo(ToolHitlPolicyOverridesValue.of("always_ask"));
+    String tools = "{\"overrides\":{\"acme.pay\":\"always_ask\",\"acme.read\":{\"mode\":\"ask_on_first_use\"}}}";
+    for (ObjectMapper mapper : List.of(app, strict)) {
+      ToolHitlPolicy read = mapper.readValue(tools, ToolHitlPolicy.class);
+      assertThat(read.overrides().get("acme.read")).isInstanceOf(ToolHitlRule.class);
+      assertThat(app.readTree(app.writeValueAsString(read))).isEqualTo(app.readTree(tools));
+    }
   }
 
   /**

@@ -141,6 +141,14 @@ class RefusalTest {
         "com.kindgi.client.models.U: a text-or-object union whose objects carry a tag (kind)");
   }
 
+  /** The same for a plain value beside objects. */
+  @Test
+  void aPlainValueBesideObjectsThatCarryATag() {
+    refuses(
+        Map.of("U", obj("oneOf", List.of(obj("type", "boolean"), tagged("a", "x"), tagged("b", "y")))),
+        "com.kindgi.client.models.U: a scalar-or-object union whose objects carry a tag (kind)");
+  }
+
   /** It reads as itself (no type info of its own), so it can't carry another union's. */
   @Test
   void anObjectOfATextOrObjectUnionThatsAVariantOfAnotherTypedUnion() {

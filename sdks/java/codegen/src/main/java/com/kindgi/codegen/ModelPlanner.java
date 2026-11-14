@@ -154,8 +154,9 @@ final class ModelPlanner {
 
   /**
    * An app's own Jackson reads a variant by the type info its unions carry, so a variant of two
-   * unions needs them to tell variants apart the same way. A text-or-object union's object
-   * carries none of its own ({@code @JsonTypeInfo(use = NONE)}), so it's in no other typed union.
+   * unions needs them to tell variants apart the same way. A text-or-object or a scalar-or-object
+   * union's object carries none of its own ({@code @JsonTypeInfo(use = NONE)}), so it's in no other
+   * typed union.
    */
   private void typeInfoOnce(ClassName variant, Set<ClassName> unions) {
     List<ClassName> typed = new ArrayList<>();
@@ -167,8 +168,9 @@ final class ModelPlanner {
     for (ClassName union : typed) {
       if (objectInterfaces.containsKey(union) && typed.size() > 1) {
         ClassName other = typed.get(typed.get(0).equals(union) ? 1 : 0);
+        String kind = objectInterfaces.get(union).kind == Ir.UnionKind.TEXT_OR_OBJECT ? "text" : "scalar";
         throw new GenerationException(
-            variant + " is an object of the text-or-object union " + unionOf(union) + " and a variant of "
+            variant + " is an object of the " + kind + "-or-object union " + unionOf(union) + " and a variant of "
                 + unionOf(other) + ", whose type info an app's own Jackson would read it by");
       }
     }
@@ -738,14 +740,15 @@ final class ModelPlanner {
       u.tagWire = plan.tag;
       u.tagJava = Names.camel(plan.tag);
     }
-    if (plan.kind == Ir.UnionKind.TEXT_OR_OBJECT && plan.objects.size() >= 2) {
+    if ((plan.kind == Ir.UnionKind.TEXT_OR_OBJECT || plan.kind == Ir.UnionKind.SCALAR_OR_OBJECT)
+        && plan.objects.size() >= 2) {
       // An app's own Jackson reads the objects through a hidden interface that carries their type
-      // info; on the union, a text would be read as a type id too. Only objects told apart by
-      // their properties are proven to read that way.
+      // info; on the union, a text or a plain value would be read as a type id too. Only objects
+      // told apart by their properties are proven to read that way.
       if (plan.objectKind == Ir.UnionKind.TAGGED) {
         throw new GenerationException(
-            cn + ": a text-or-object union whose objects carry a tag (" + plan.tag + "), which an app's own"
-                + " Jackson can't read yet");
+            cn + ": a " + (plan.kind == Ir.UnionKind.TEXT_OR_OBJECT ? "text" : "scalar") + "-or-object union"
+                + " whose objects carry a tag (" + plan.tag + "), which an app's own Jackson can't read yet");
       }
       u.objectInterface = reserveTop(String.join("", cn.simpleNames()) + "Object");
       objectInterfaces.put(u.objectInterface, u);

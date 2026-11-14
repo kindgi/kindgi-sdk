@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.Collections;
 import java.util.Map;
@@ -150,8 +151,21 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
         /**
          * The integer variant.
          */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
         static Limit of(long value) {
             return new Value(value);
+        }
+
+        /**
+         * How an app's own Jackson reads an object: by the properties it has.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        private static Limit object(GateLimitObject value) {
+            return (Limit) value;
         }
 
         /**
@@ -160,12 +174,15 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
          * @param properties its other properties
          */
         @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonTypeInfo(
+                use = JsonTypeInfo.Id.NONE
+        )
         @JsonAutoDetect(
                 fieldVisibility = JsonAutoDetect.Visibility.NONE,
                 getterVisibility = JsonAutoDetect.Visibility.NONE,
                 isGetterVisibility = JsonAutoDetect.Visibility.NONE
         )
-        record Unrecognized(Map<String, Object> properties) implements Limit {
+        record Unrecognized(Map<String, Object> properties) implements Limit, GateLimitObject {
             public Unrecognized {
                 properties = Checks.extras(properties);
             }
@@ -207,7 +224,10 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
          * @param max Required.
          */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        record WithMax(@JsonProperty("max") Long max) implements Limit {
+        @JsonTypeInfo(
+                use = JsonTypeInfo.Id.NONE
+        )
+        record WithMax(@JsonProperty("max") Long max) implements Limit, GateLimitObject {
             public WithMax {
                 max = Checks.required(max, "Gate.Limit.WithMax.max");
             }
@@ -273,7 +293,11 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
          * @param perTool Required.
          */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        record WithPerTool(@JsonProperty("perTool") Map<String, Long> perTool) implements Limit {
+        @JsonTypeInfo(
+                use = JsonTypeInfo.Id.NONE
+        )
+        record WithPerTool(
+                @JsonProperty("perTool") Map<String, Long> perTool) implements Limit, GateLimitObject {
             public WithPerTool {
                 perTool = Checks.required(perTool, "Gate.Limit.WithPerTool.perTool");
                 perTool = Checks.map(perTool);
@@ -350,8 +374,21 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
         /**
          * The number variant.
          */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
         static Weight of(double value) {
             return new Value(value);
+        }
+
+        /**
+         * How an app's own Jackson reads an object: as {@link WithScale}.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        private static Weight object(WithScale value) {
+            return value;
         }
 
         /**
