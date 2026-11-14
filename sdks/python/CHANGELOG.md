@@ -35,6 +35,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   a host. TypeScript's `defineTool` and Java's `Tool.Builder.http` already
   refused these with the same messages, and so did a deployment of the pack.
   Python now refuses them when the tool is defined, with a `DefinitionError`.
+- `kindgi`: **a tool's schema with a name holding a lone surrogate is refused
+  as the runtime refuses it.** Under `properties`, `patternProperties`,
+  `dependentSchemas` or `dependencies`, such a name over a subschema the
+  runtime compiles now fails the definition with the runtime's "URI
+  malformed", where checking it raised `UnicodeEncodeError` before. The
+  runtime writes the name into that subschema's path, URI encoded, and a lone
+  surrogate can't be encoded. Over a subschema any data passes, such as `{}`,
+  the schema compiles, as it does in the runtime.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's
