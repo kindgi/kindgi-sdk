@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 
 import aws4 from 'aws4';
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { BlobMeta, BlobPutInput, BlobStorageBinding } from '@kindgi/blob-binding';
@@ -37,9 +37,9 @@ const credentials: S3CredentialBinding = {
   },
 };
 
-function makeApp(maxBytes = MiB) {
+function makeApp(maxBytes = MiB, beforeBody: readonly MiddlewareHandler<AppEnv>[] = []) {
   const app = new Hono<AppEnv>();
-  app.use('/s3/*', sigv4Middleware(credentials, maxBytes));
+  app.use('/s3/*', sigv4Middleware(credentials, maxBytes, { beforeBody }));
   app.all('/s3/*', async (c) =>
     c.json({ bucket: c.get('bucket'), tenantId: c.get('tenantId'), body: await c.req.text() }),
   );
@@ -281,6 +281,32 @@ describe('the body: read once the request is signed for its bucket, under the li
       expect(res.status, name).toBe(403);
       expect(body.pulled(), name).toBeLessThanOrEqual(64 * 1024);
     }
+  });
+
+  test('a request a beforeBody handler answers is answered unread, its tenant known by then; one they pass is read', async () => {
+    const path = `/s3/${BUCKET}/a.bin`;
+    const tenants: unknown[] = [];
+    const refusing: MiddlewareHandler<AppEnv> = async (c) => {
+      tenants.push(c.get('tenantId'));
+      return c.text('not now', 503);
+    };
+    const body = counted(20 * MiB);
+    const req = sign({ method: 'PUT', path, headers: UNSIGNED });
+    const res = await makeApp(MiB, [refusing]).request(req.url, withBody(req, body.stream));
+    expect([res.status, await res.text()]).toEqual([503, 'not now']);
+    expect(tenants).toEqual([TENANT]);
+    // A stream pulls its first piece when it starts; nothing after that was read.
+    expect(body.pulled()).toBeLessThanOrEqual(64 * 1024);
+
+    const passing: MiddlewareHandler<AppEnv> = async (c, next) => {
+      tenants.push(c.get('tenantId'));
+      await next();
+    };
+    const signed = sign({ method: 'PUT', path, body: 'hello' });
+    const read = await makeApp(MiB, [passing, passing]).request(signed.url, signed.init);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ tenantId: TENANT, body: 'hello' });
+    expect(tenants).toEqual([TENANT, TENANT, TENANT]);
   });
 
   test('a body over the limit → 400 EntityTooLarge, unread by its declared length or as soon as a streamed one passes it', async () => {
