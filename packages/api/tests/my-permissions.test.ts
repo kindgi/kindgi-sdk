@@ -542,8 +542,9 @@ describe('GET /v1/identity/me/permissions', () => {
       const r = await harness(store)(CAROL_READ_KEY);
       expect(r.status).toBe(200);
       expect(r.body.key).toEqual({ tokenId: 'k-cr', role: 'member', readOnly: true });
-      expect(r.body.projects.length).toBeGreaterThan(0);
-      expect((r.body.projects as { role: string }[]).every((p) => p.role === 'viewer')).toBe(true);
+      const projects = r.body.projects as { role: string }[];
+      expect(projects.length).toBeGreaterThan(0);
+      expect(projects.every((p) => p.role === 'viewer')).toBe(true);
       expect('everyoneCanRunProjects' in r.body).toBe(false);
     });
   });
