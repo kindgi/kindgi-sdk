@@ -421,6 +421,50 @@ values there:
   `secret-provider-unavailable` for up to 10 minutes. Then revoke it with
   `--hard` again to finish the erase, before you set the name again.
 
+### When a hard revoke doesn't finish
+
+What a hard revoke that answers an error leaves depends on the answer. Each
+one comes with a message that says which case it is.
+
+- **`429 secret-provider-rate-limited`, `502 secret-provider-unauthorized`
+  or `503 secret-provider-unavailable`:** your secret manager was limiting
+  the runtime's requests, refused its credentials, or couldn't be reached.
+  The secret is revoked, so reads stop, but its value may still be in the
+  secret manager. Run the hard revoke again once the secret manager
+  answers: it erases the value. A soft revoke that gets one of these isn't
+  made, so run it again too.
+- **`503 secret-provider-unavailable`, because another hard revoke of the
+  secret is still erasing it:** run the revoke again in a few minutes if the
+  secret is still there. A revoke whose runtime stopped partway holds the
+  next one off for up to 10 minutes.
+- **`500 secret-store-error`:** the secrets store or the secret manager
+  failed, so run the revoke again, or the erase in the secret manager
+  didn't finish. The message says which. An erase that didn't finish is one
+  of these:
+  - If writes to the secret kept landing while it erased, the secret stays
+    revoked, so reads stop, and the hard revoke run again finishes the
+    erase.
+  - If the erase took over 10 minutes and a set or another hard revoke came
+    in meanwhile, the secret manager may still hold a value, or a set made
+    since may have lost the value it wrote. Set it again, or run the hard
+    revoke again.
+  - If another secret manager keeps the secret, or its stored name is no
+    longer a valid one, the secret is revoked, but its value stays in that
+    secret manager. Remove it there.
+
+A write of the secret during a hard revoke (a set, a deployment's secret
+sync or a tenant config change) gets one of two answers:
+
+- **`404 secret-revoked`:** the revoke overtook the write, so what it wrote
+  isn't served. The message says what becomes of that value.
+- **`503 secret-provider-unavailable`:** the revoke is still erasing the
+  secret in your secret manager. Write it again in a few minutes. A revoke
+  whose runtime stopped partway holds writes off for up to 10 minutes.
+
+A rotate answers `404 secret-revoked` instead, during a hard revoke or after
+any revoke: a revoked secret can't be rotated. If a hard revoke overtook the
+rotate's write, the message says what becomes of that value.
+
 ## Next
 
 - [The environment variable reference](../../../reference/env-vars/#kindgi_secrets_manager):

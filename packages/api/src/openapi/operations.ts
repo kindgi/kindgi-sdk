@@ -1689,6 +1689,25 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
 };
 
 /**
+ * The authorization check's 503s, for an operation that declares a 503 of
+ * its own: the generator's shared one is added only when it declares none.
+ */
+const AUTHZ_CHECK_UNAVAILABLE =
+  "`authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.";
+
+/**
+ * The 503 of a secrets write that takes an `Idempotency-Key`: the secrets
+ * store's external provider, then the stores the request reads before it
+ * runs. `also` (from ", or") names what else answers
+ * `secret-provider-unavailable`.
+ */
+function secretWriteUnavailable(also: string): ResponseSpec {
+  return ErrorResponse(
+    `\`secret-provider-unavailable\`: the secrets store's external provider can't be reached${also}. \`idempotency-store-unavailable\` (with \`Retry-After\`): the \`Idempotency-Key\` store couldn't be read before the request ran, so nothing was changed. ${AUTHZ_CHECK_UNAVAILABLE}`,
+  );
+}
+
+/**
  * A secrets store's external provider (the router's), answering a read or a
  * write: each at its own status. Each operation that spreads it is a write
  * that takes an `Idempotency-Key`, so its 503 names that store's too.
@@ -1700,18 +1719,34 @@ const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '502': ErrorResponse(
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
-  '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
-  ),
+  '503': secretWriteUnavailable(''),
 };
 
-/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+/**
+ * A write a hard revoke overtook after it began (the router's): what it
+ * wrote isn't served.
+ */
+const SECRET_REVOKED_WHILE_WRITING =
+  "`secret-revoked`: a hard revoke of the secret overtook the write, so what it wrote isn't served; the message names the secret and says what becomes of the value it wrote.";
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), its provider's answer, or a hard revoke that overtook it. */
 const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
   '400': ErrorResponse(
     "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (a new name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
   ),
   ...SecretProviderErrors,
+  '404': ErrorResponse(SECRET_REVOKED_WHILE_WRITING),
+  '503': secretWriteUnavailable(
+    ', or, with a secret manager, a hard revoke of the secret is still erasing it there: write it again in a few minutes (a revoke whose runtime stopped partway holds writes off for up to 10 minutes)',
+  ),
 };
+
+/**
+ * What a revoke the secret manager failed left (the router's): a soft one
+ * wasn't made, and a hard one revoked the secret but may not have erased it.
+ */
+const REVOKE_NOT_ERASED =
+  "A soft revoke isn't made, so revoke it again. A hard one revoked the secret, so reads stop, but its value may still be in the secret manager: a hard revoke again erases it.";
 
 /**
  * `env-not-served` for a value: on a runtime that keeps every value under
@@ -8586,7 +8621,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
       ),
       '404': ErrorResponse(
-        "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+        `No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist. Or ${SECRET_REVOKED_WHILE_WRITING}`,
       ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
@@ -10961,6 +10996,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:write` capability.')),
+      '404': ErrorResponse(
+        `The body's \`scope\` names an org or a project that doesn't exist (\`org-not-found\`, \`project-not-found\`). Or ${SECRET_REVOKED_WHILE_WRITING}`,
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -10997,7 +11035,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       ...SecretProviderErrors,
       '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:rotate` capability.')),
-      '404': ErrorResponse('Unknown secret.'),
+      '404': ErrorResponse(
+        "Unknown secret (`secret-not-found`). `secret-revoked`: the secret is revoked, so it can't be rotated. Or a hard revoke of it overtook the rotate, so what it wrote isn't served; the message says what becomes of that value.",
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
         "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
@@ -11101,8 +11141,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(withLimitedAbove('Bearer token missing revoke capability.')),
       '404': ErrorResponse('Unknown secret.'),
+      '429': ErrorResponse(
+        `\`secret-provider-rate-limited\`: the secret manager is limiting the runtime's requests. ${REVOKE_NOT_ERASED}`,
+      ),
+      '500': ErrorResponse(
+        `\`secret-store-error\`: the secrets store or the secret manager failed, so revoke it again. Or a hard revoke's erase in the secret manager didn't finish, as the message says. If writes to the secret kept landing while it erased, it stays revoked, so reads stop, and a hard revoke again finishes the erase. If the erase took over 10 minutes and a set or another hard revoke came in, the secret manager may still hold a value, or a set made since may have lost the value it wrote: set it again, or revoke it hard again. Or a hard revoke of a secret that another secret manager keeps, or whose stored name is no longer a valid one: it's revoked, but its value is left in that secret manager, to remove there.`,
+      ),
       '501': ErrorResponse(
         "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
+      ),
+      '502': ErrorResponse(
+        `\`secret-provider-unauthorized\`: the secret manager refused the runtime's credentials. ${REVOKE_NOT_ERASED}`,
+      ),
+      '503': ErrorResponse(
+        `\`secret-provider-unavailable\`: the secret manager can't be reached. ${REVOKE_NOT_ERASED} Or another hard revoke of the secret is still erasing it: revoke it again in a few minutes if it's still there (a revoke whose runtime stopped partway holds the next off for up to 10 minutes). ${AUTHZ_CHECK_UNAVAILABLE}`,
       ),
     },
   },
