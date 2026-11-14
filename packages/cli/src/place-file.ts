@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Writing a file a command was asked for (`kindgi artifacts download`,
+ * Writing a file a command was asked for (`kindgi files download`,
  * `kindgi corrections export`): it's written beside its name first, and
  * takes the name only once it's whole.
  */
