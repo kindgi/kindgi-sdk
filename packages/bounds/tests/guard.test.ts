@@ -29,6 +29,10 @@ const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: s
     why: 'the media type grammar, without backtracking, on a type of at most 255 characters',
   },
   'capabilities/src/tool-names.ts': { sites: 1, why: 'tool ids, escaped, as whole tokens' },
+  'connections/src/files.ts': {
+    sites: 1,
+    why: "a list's next token's grammar: one character class, without backtracking",
+  },
   'connections/src/google-calendar-tools.ts': {
     sites: 1,
     why: "a calendar id's grammar, without backtracking, on an id of at most 1024 characters",
@@ -131,6 +135,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'api/src/middleware/public-run-routes.ts: listed, but has none',
       'api/src/routes/stored-bytes.ts: listed, but has none',
       'capabilities/src/tool-names.ts: listed, but has none',
+      'connections/src/files.ts: listed, but has none',
       'connections/src/google-calendar-tools.ts: listed, but has none',
       'connections/src/mail-text.ts: listed, but has none',
       'handler-runtime/src/discovery.ts: listed, but has none',

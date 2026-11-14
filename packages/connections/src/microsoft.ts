@@ -93,6 +93,11 @@ export const microsoft = defineApp({
         'outlook.calendar.view': 0,
         'outlook.calendars.list': 0,
         'outlook.events.get': 0,
+        // A send or a reply goes out; a calendar create or update can send meeting requests.
+        'outlook.send': 1,
+        'outlook.reply': 1,
+        'outlook.events.create': 1,
+        'outlook.events.update': 1,
       },
     },
   ],
