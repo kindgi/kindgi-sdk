@@ -52,6 +52,12 @@ export interface FileListed {
   readonly link?: string;
   /** The folder it's in, when the provider says. */
   readonly folderId?: string;
+  /**
+   * OneDrive's: the drive it's in, when that isn't the connected account's
+   * own (a file another account shares, or a SharePoint library's), for a
+   * list's `driveId`.
+   */
+  readonly driveId?: string;
   /** Whose it is, only when that isn't the connected account's own. */
   readonly owner?: MailPerson;
 }

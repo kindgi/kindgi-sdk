@@ -135,8 +135,9 @@ npx --yes @kindgi/cli@0.6 connections connect google --permissions=gmail.send
   Outlook.
 - [Calendars](calendar/): find events, see when someone is free, and add
   or change events on their Google or Outlook calendar.
-- [Files](files/): find and read files in someone's Google Drive, and add
-  files to it.
+- [Files](files/): find and read files in someone's Google Drive, find
+  files in their OneDrive and their organization's SharePoint libraries,
+  and add files to either drive.
 - [GitHub](github/): create your GitHub App, register it, and install it on
   your organization.
 - [LinkedIn](linkedin/): create your LinkedIn app, register it, and connect

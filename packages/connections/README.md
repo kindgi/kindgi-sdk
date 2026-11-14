@@ -67,6 +67,12 @@ Ready-made tools that act with a connection, one subpath per app:
   Google Doc, Sheet, Slides or Drawing read as Markdown, CSV, text or PNG,
   or as a PDF), and `googleDriveFileCreate` adds a file from text or from a
   file of the run, with a permission that reaches only the files it added.
+- OneDrive and SharePoint, from `@kindgi/connections/microsoft/tools`:
+  `oneDriveFilesList` lists or searches the files in the person's own
+  OneDrive, `oneDriveSharedFilesList` lists the files others share with
+  them and a SharePoint library's, `sharePointLibrariesList` finds their
+  organization's libraries, and `oneDriveFileCreate` adds a file from text
+  or from a file of the run.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.

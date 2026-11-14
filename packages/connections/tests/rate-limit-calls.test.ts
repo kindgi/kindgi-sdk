@@ -10,8 +10,9 @@
  * list on Gmail's, a calendar read on Exchange's 30 sends a minute.
  *
  * The calls are found in the source: every string of the entry's call
- * shape (`gmail.*`, `calendar.*` and `drive.*` for Google, `outlook.*` for
- * Microsoft), but for its permissions' keys and host names. A call named
+ * shape (`gmail.*`, `calendar.*` and `drive.*` for Google; `outlook.*`,
+ * `onedrive.*` and `sharepoint.*` for Microsoft), but for its permissions'
+ * keys and host names. A call named
  * as a permission's key is listed by hand. Known calls of each kind keep
  * the scan honest.
  */
@@ -37,9 +38,15 @@ const ENTRIES = [
   },
   {
     entry: microsoft,
-    shape: /'(outlook\.[A-Za-z.]+)'/g,
+    shape: /'((?:outlook|onedrive|sharepoint)\.[A-Za-z.]+)'/g,
     alsoCalls: [],
-    known: ['outlook.send', 'outlook.events.update', 'outlook.messages.delta'],
+    known: [
+      'outlook.send',
+      'outlook.events.update',
+      'outlook.messages.delta',
+      'onedrive.content.put',
+      'sharepoint.drives.list',
+    ],
   },
 ] as const;
 

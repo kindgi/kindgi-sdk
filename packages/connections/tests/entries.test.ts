@@ -281,7 +281,7 @@ describe('the Microsoft entry', () => {
     }
   });
 
-  it('says what mail and calendar permissions allow, and which change anything', () => {
+  it('says what mail, calendar and file permissions allow, and which change anything', () => {
     expect(microsoft.permissions).toEqual({
       'mail.send': { grants: 'Mail.Send', says: 'Send mail as you', changes: true },
       'mail.read': { grants: 'Mail.Read', says: 'Read your mail', changes: false },
@@ -298,6 +298,26 @@ describe('the Microsoft entry', () => {
       'calendars.read.shared': {
         grants: 'Calendars.Read.Shared',
         says: 'See the events on your calendars, with their details, those others share with you too',
+        changes: false,
+      },
+      'files.read': {
+        grants: 'Files.Read',
+        says: 'See the files in your OneDrive',
+        changes: false,
+      },
+      'files.readwrite': {
+        grants: 'Files.ReadWrite',
+        says: 'See, add and change the files in your OneDrive',
+        changes: true,
+      },
+      'files.read.all': {
+        grants: 'Files.Read.All',
+        says: 'See all the files you can open, those others share with you too',
+        changes: false,
+      },
+      'sites.read.all': {
+        grants: 'Sites.Read.All',
+        says: "See the files and lists on your organization's SharePoint sites",
         changes: false,
       },
     });
@@ -317,9 +337,34 @@ describe('the Microsoft entry', () => {
     expect(microsoft.removal).toEqual({});
   });
 
-  it("paces every call by Graph's mailbox limit, and sends alone by Exchange's", () => {
+  it("paces mail and calendar calls by Graph's mailbox limit, sends alone by Exchange's, and file calls by SharePoint's", () => {
     expect(microsoft.rateLimits).toEqual([
-      { per: 'connection', units: 10_000, perSeconds: 600 },
+      {
+        per: 'connection',
+        units: 10_000,
+        perSeconds: 600,
+        // Every mail and calendar call counts; OneDrive's and SharePoint's don't.
+        costs: {
+          'outlook.messages.list': 1,
+          'outlook.messages.get': 1,
+          'outlook.attachments.get': 1,
+          'outlook.messages.delta': 1,
+          'outlook.folders.get': 1,
+          'outlook.calendar.view': 1,
+          'outlook.calendars.list': 1,
+          'outlook.events.get': 1,
+          'outlook.send': 1,
+          'outlook.reply': 1,
+          'outlook.events.create': 1,
+          'outlook.events.update': 1,
+          'onedrive.items.list': 0,
+          'onedrive.items.search': 0,
+          'onedrive.items.get': 0,
+          'onedrive.content.put': 0,
+          'sharepoint.sites.search': 0,
+          'sharepoint.drives.list': 0,
+        },
+      },
       {
         per: 'connection',
         units: 30,
@@ -340,6 +385,38 @@ describe('the Microsoft entry', () => {
           'outlook.reply': 1,
           'outlook.events.create': 1,
           'outlook.events.update': 1,
+          'onedrive.items.list': 0,
+          'onedrive.items.search': 0,
+          'onedrive.items.get': 0,
+          'onedrive.content.put': 0,
+          'sharepoint.sites.search': 0,
+          'sharepoint.drives.list': 0,
+        },
+      },
+      {
+        per: 'connection',
+        units: 3_000,
+        perSeconds: 300,
+        // SharePoint's 3,000 a person per 5 minutes, for OneDrive's and SharePoint's calls only.
+        costs: {
+          'outlook.messages.list': 0,
+          'outlook.messages.get': 0,
+          'outlook.attachments.get': 0,
+          'outlook.messages.delta': 0,
+          'outlook.folders.get': 0,
+          'outlook.calendar.view': 0,
+          'outlook.calendars.list': 0,
+          'outlook.events.get': 0,
+          'outlook.send': 0,
+          'outlook.reply': 0,
+          'outlook.events.create': 0,
+          'outlook.events.update': 0,
+          'onedrive.items.list': 1,
+          'onedrive.items.search': 1,
+          'onedrive.items.get': 1,
+          'onedrive.content.put': 1,
+          'sharepoint.sites.search': 1,
+          'sharepoint.drives.list': 1,
         },
       },
     ]);
