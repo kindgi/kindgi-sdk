@@ -39,6 +39,20 @@ export interface LicenseClient {
    * @wire `GET /v1/license/usage`
    */
   usage(input: { readonly since: Date | string }): Promise<LicenseUsage>;
+  /**
+   * Hands the running server a renewed license key, so it runs it without
+   * a restart (`kindgi license renew --runtime`). The server checks it
+   * offline: a trusted signature, the same licensee and use as the key it
+   * runs, and newer. The same key again is taken as it is. Answers the
+   * status with the new key. A key it refuses throws 409
+   * `license-key-refused`, with `details.reason`. Only the deployment's own
+   * token, or a system key holding `system:license`; anyone else gets 403
+   * `license-operator-only`. A deployment that doesn't take a key this way
+   * answers 404.
+   *
+   * @wire `PUT /v1/license`
+   */
+  replace(input: { readonly key: string }): Promise<LicenseStatus>;
 }
 
 export function makeLicenseClient(transport: Transport): LicenseClient {
@@ -51,6 +65,13 @@ export function makeLicenseClient(transport: Transport): LicenseClient {
         method: 'GET',
         path: '/v1/license/usage',
         query: { since: since instanceof Date ? since.toISOString() : since },
+      });
+    },
+    async replace({ key }) {
+      return transport.request<LicenseStatus>({
+        method: 'PUT',
+        path: '/v1/license',
+        body: { key },
       });
     },
   };

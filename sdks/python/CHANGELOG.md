@@ -88,6 +88,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `client.runs.list(include=["output", "waitingFor"])`.** The runs list, an
   agent's test cases, the cost records and the people list send a list as
   one comma-separated parameter. One value works as before.
+- `kindgi`: **`client.license.replace(key=...)` hands a running server a renewed license key** (`PUT /v1/license`), with the deployment's own token or a system key holding `system:license`. A server that takes it runs the new key without a restart. Runtime 0.7.0 doesn't serve the route, so it runs a renewed key from its next start. A key the server refuses raises `ConflictError` (`license-key-refused`, with `details["reason"]`); `LicenseKeyBody` is the request. `LicenseStatus` gains `limits` (`LicenseLimits`: `flows` and `agents`, each a `LicenseLimit` with `plan`, `most` and `in_use`), set only when the key carries limits, and only in the operator's view.
 
 ## 0.6.0
 

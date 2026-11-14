@@ -3091,8 +3091,19 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license`, `PUT /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
+  },
+  'license-key-refused': {
+    description:
+      '`PUT /v1/license`: the running server checked the key handed to it, as it does at a start, and refused it. It runs on with the key it has, and `kindgi license renew --runtime` writes nothing.',
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          '`malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`',
+      },
+    ],
   },
   'invalid-provider-config': {
     description:
