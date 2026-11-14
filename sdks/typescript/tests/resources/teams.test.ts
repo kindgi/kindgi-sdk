@@ -24,7 +24,7 @@ describe('teams — wire round-trips', () => {
       { status: 201, body: JSON.stringify({ id: 't1' }) },
       { status: 200, body: JSON.stringify({ data: [SAMPLE_TEAM], hasMore: false }) },
       { status: 200, body: JSON.stringify(SAMPLE_TEAM) },
-      { status: 200, body: JSON.stringify(SAMPLE_TEAM) },
+      { status: 204 },
       { status: 200, body: '{}' },
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
       { status: 201, body: JSON.stringify({ userId: 'u1', role: 'admin' }) },
@@ -35,7 +35,8 @@ describe('teams — wire round-trips', () => {
     await client.teams.create({ name: 'Compliance', slug: 'compliance' });
     await client.teams.list();
     await client.teams.get('t1');
-    await client.teams.update('t1', { name: 'Compliance & Risk' });
+    // The server answers 204: the update resolves to nothing.
+    await expect(client.teams.update('t1', { name: 'Compliance & Risk' })).resolves.toBeUndefined();
     await client.teams.delete('t1');
     await client.teams.memberships.list('t1');
     await client.teams.memberships.add('t1', { userId: 'u1', role: 'admin' });
