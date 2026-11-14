@@ -194,6 +194,24 @@ describe('a transient failure is retried, then the call succeeds', () => {
   });
 });
 
+describe('a connection nothing came back from says why, from its causes', () => {
+  test('the SDK’s "Connection error.", then the failed fetch and its reason', async () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+      code: 'ECONNREFUSED',
+    });
+    const endpoint = scripted([{ throw: new TypeError('fetch failed', { cause: refused }) }]);
+    const error = await rejection(chat(endpoint.fetch, 0).invoke(call));
+    expect(endpoint.seen).toHaveLength(1);
+    expect(error).toBeInstanceOf(ModelProviderError);
+    expect(error).toMatchObject({
+      kind: 'network',
+      status: undefined,
+      message:
+        'Connection error; caused by TypeError: fetch failed; caused by Error: connect ECONNREFUSED 127.0.0.1:443',
+    });
+  });
+});
+
 describe('every call path retries a transient failure up to the attempt budget', () => {
   test('chat — a 429 that never clears is tried the budget (default 3), then fails rate-limited', async () => {
     const endpoint = scripted([RATE_429]);

@@ -122,7 +122,9 @@ describe('createGeminiProvider: the SDK retries transient failures', () => {
     const thrown = await call().catch((error: unknown) => error);
     expect(statuses).toEqual([0]);
     expect(delays).toEqual([]);
+    expect(thrown).toMatchObject({ name: 'ModelProviderError', kind: 'network' });
     expect((thrown as Error).message).toBe('fetch failed');
+    expect(attemptsOf(thrown)).toBe(1);
   });
 
   test('a call aborted as a 503 comes back throws the 503, without backing off', async () => {
