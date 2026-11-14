@@ -14,6 +14,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { SYSTEM_TENANT_ID, createApp, packServiceName } from '../src/index.js';
 import type {
+  ConnectionBinding,
   Deployment,
   DeploymentBinding,
   DeploymentEndpoint,
@@ -22,6 +23,7 @@ import type {
   EnvCloudSecretRecord,
   EnvRecord,
   PackEnvRecordInput,
+  ProviderRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
   SecretError,
@@ -116,6 +118,15 @@ function makeApp(
     readonly logger?: Logger;
     /** A store of the operator's cloud secrets, read with `get`. */
     readonly cloudSecrets?: boolean;
+    /** A texts registration, `acme-texts-app`, whose account key is this name. */
+    readonly textsKey?: string;
+    /** A model provider, `acme-llm`, whose key is this name. */
+    readonly providerKey?: string;
+    /**
+     * An identity provider, `acme-oidc`, whose secret is this name: the
+     * app's own `identityProviderKeys`, with no `identityProvider`.
+     */
+    readonly identityProviderKey?: string;
   } = {},
 ) {
   const withPackEnv = options.withPackEnv ?? true;
@@ -326,6 +337,26 @@ function makeApp(
     envBinding: env,
     ...(options.cloudSecrets === true && { envCloudSecrets: cloudSecrets }),
     ...(options.secrets === true && { secretsBinding: secrets }),
+    ...(options.identityProviderKey !== undefined && {
+      identityProviderKeys: {
+        of: async () => new Map([[options.identityProviderKey as string, 'acme-oidc']]),
+      },
+    }),
+    ...(options.textsKey !== undefined && {
+      connections: {
+        entries: () => [],
+        listApps: async () => ({ data: [] }),
+        keyHolders: async ({ name }: { name: string }) =>
+          name === options.textsKey ? ['acme-texts-app'] : [],
+      } as unknown as ConnectionBinding,
+    }),
+    ...(options.providerKey !== undefined && {
+      providerRegistry: {
+        resolveForRuntime: async () => [
+          { metadata: { id: 'acme-llm' }, secretRef: { name: options.providerKey } },
+        ],
+      } as unknown as ProviderRegistryBinding,
+    }),
     ...(auditEvents !== undefined && { auditEvents }),
     ...(options.logger !== undefined && { logger: options.logger }),
     envName,
@@ -764,6 +795,9 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
     options: {
       readonly audit?: 'ok' | 'refused' | 'throws' | 'none';
       readonly logger?: Logger;
+      readonly textsKey?: string;
+      readonly providerKey?: string;
+      readonly identityProviderKey?: string;
     } = {},
   ) {
     const audit = options.audit ?? 'ok';
@@ -771,6 +805,11 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
       secrets: true,
       ...(audit !== 'none' && { audit }),
       ...(options.logger !== undefined && { logger: options.logger }),
+      ...(options.textsKey !== undefined && { textsKey: options.textsKey }),
+      ...(options.providerKey !== undefined && { providerKey: options.providerKey }),
+      ...(options.identityProviderKey !== undefined && {
+        identityProviderKey: options.identityProviderKey,
+      }),
     });
     a.deployments.set('d', {
       ...deployment('d', staging, ready),
@@ -947,6 +986,42 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
     expect(r.body).not.toHaveProperty('secrets');
     expect(r.text).not.toContain(SENTINEL);
     expect(a.tried).toHaveLength(0);
+  });
+
+  test("a texts registration's account key: 200 pack-env-secret-unreadable, no value, and the store never asked for it", async () => {
+    const a = withSecret({ textsKey: 'ACME_API_KEY' });
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBe('pack-env-secret-unreadable');
+    expect(r.body.names).toContainEqual(
+      expect.objectContaining({ name: 'ACME_API_KEY', kind: 'secret', problem: 'unreadable' }),
+    );
+    expect(r.body).not.toHaveProperty('secrets');
+    expect(r.text).not.toContain(SENTINEL);
+    expect(a.resolved.map((read) => read.name)).not.toContain('ACME_API_KEY');
+  });
+
+  test("an identity provider's secret, from the app's own keys with no sign-in binding: 200 pack-env-secret-unreadable, no value, and the store never asked for it", async () => {
+    const a = withSecret({ identityProviderKey: 'ACME_API_KEY' });
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBe('pack-env-secret-unreadable');
+    expect(r.body.names).toContainEqual(
+      expect.objectContaining({ name: 'ACME_API_KEY', kind: 'secret', problem: 'unreadable' }),
+    );
+    expect(r.body).not.toHaveProperty('secrets');
+    expect(r.text).not.toContain(SENTINEL);
+    expect(a.resolved.map((read) => read.name)).not.toContain('ACME_API_KEY');
+  });
+
+  test("a model provider's key is given as before: the pack env refuses connection keys only", async () => {
+    const a = withSecret({ providerKey: 'ACME_API_KEY' });
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBeUndefined();
+    expect(r.body.secrets).toEqual({
+      ACME_API_KEY: { value: SENTINEL, revision: expect.stringMatching(/^ps1-[0-9a-f]{64}$/) },
+    });
   });
 
   test('a store that is out: 503 pack-env-unavailable', async () => {

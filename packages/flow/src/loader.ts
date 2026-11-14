@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { type NodeId, type Result, mcpExposureIssues } from '@kindgi/types';
+import { BUILT_IN_TOOL_PREFIX, type NodeId, type Result, mcpExposureIssues } from '@kindgi/types';
 
 import { compileInlineSchema, createSpecRegistry } from '@kindgi/schema';
 import type { SpecRegistry } from '@kindgi/schema';
@@ -111,7 +111,8 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
  * Runs in this order (fail-fast; `SEMANTIC_CHECKS` after step 1):
  *   1. JSON-schema conformance against flow.schema.json.
  *   2. Reserved-id check — sentinels ($start/$end/$loop-start/$loop-end) may
- *      not be node ids, at any nesting level.
+ *      not be node ids, and a tool node's `ref` may not name a tool built
+ *      into Kindgi (`kindgi_<verb>`), at any nesting level.
  *   3. GLOBAL uniqueness of node ids across outer flow AND every loop body
  *      at every nesting level.
  *   4. Duplicate edge ids across outer + all bodies.
@@ -335,6 +336,16 @@ function checkReservedIds(flow: Flow): ReservedIdError | undefined {
       return {
         code: 'reserved-id',
         message: `Node id "${node.id}" is reserved as a flow sentinel and may not name a node`,
+        flowId: flow.id,
+        nodeId: node.id,
+      };
+    }
+    // A built-in reaches an agent from its declaration or its run (a text's
+    // run gets the texts tools), never from a step that names it.
+    if (node.kind === 'tool' && node.ref.startsWith(BUILT_IN_TOOL_PREFIX)) {
+      return {
+        code: 'reserved-id',
+        message: `Node "${node.id}": "${node.ref}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): a tool node can't name it; an agent gets it from its declaration or its run`,
         flowId: flow.id,
         nodeId: node.id,
       };

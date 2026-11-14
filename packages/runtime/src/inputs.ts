@@ -22,6 +22,7 @@ import type {
 
 import type { HandlerMissingError } from './errors.js';
 import type { KernelEventBusBinding } from './event-bus.js';
+import { HAND_TO_PERSON_TOOL_ID, type RunTextThread } from './texts.js';
 import type { RunOptions } from './types.js';
 
 /**
@@ -83,7 +84,7 @@ export interface RunReplayRef {
 }
 
 /** Every value of `RunTriggerRef.kind`. */
-export const RUN_TRIGGER_KINDS = ['schedule', 'event', 'webhook', 'mail'] as const;
+export const RUN_TRIGGER_KINDS = ['schedule', 'event', 'webhook', 'mail', 'text'] as const;
 
 /**
  * Marks a run a trigger started: the trigger, the fire that started it,
@@ -104,12 +105,20 @@ export interface RunTriggerRef {
 }
 
 /** Every value of `RunStartedBy`. */
-export const RUN_STARTED_BY = ['person', 'key', 'schedule', 'webhook', 'event', 'mail'] as const;
+export const RUN_STARTED_BY = [
+  'person',
+  'key',
+  'schedule',
+  'webhook',
+  'event',
+  'mail',
+  'text',
+] as const;
 
 /**
  * How a run started, recorded with it and never changed: a person
  * (`person`), a service account's key (`key`), or the kind of trigger
- * that fired it (`schedule`, `webhook`, `event`, `mail`). A child run
+ * that fired it (`schedule`, `webhook`, `event`, `mail`, `text`). A child run
  * takes its parent's. A person's own API key starts runs as that person.
  *
  * Only `person` counts as attended (`runIsAttended`): a run with any other
@@ -189,13 +198,16 @@ export function toolNeedsPersonsYesUnattended(tool: UnattendedRuleTool): boolean
  * - `mail-change`: a mail started the run, and the tool changes something
  *   (it isn't `mutating: false`);
  * - `mail-own-mailbox`: a mail started the run, and the tool uses a
- *   connection of the run's own mailbox, read-only or not.
+ *   connection of the run's own mailbox, read-only or not;
+ * - `text-change`: a text started the run, and the tool changes something
+ *   (it isn't `mutating: false`).
  */
 export type UnattendedWaitReason =
   | 'declared'
   | 'persons-connection'
   | 'mail-change'
-  | 'mail-own-mailbox';
+  | 'mail-own-mailbox'
+  | 'text-change';
 
 /**
  * Why a call of `tool` waits for a person's yes because no person is
@@ -207,11 +219,15 @@ export type UnattendedWaitReason =
  * - a mail started the run (`mail`), and the tool changes something
  *   (`mail-change`: it isn't `mutating: false`), or it uses a connection of
  *   the run's own `mailbox`, its app and kind (`mail-own-mailbox`; any
- *   connection, when the run records no mailbox).
+ *   connection, when the run records no mailbox);
+ * - a text started the run (`text`), and the tool changes something
+ *   (`text-change`: it isn't `mutating: false`), save the built-in
+ *   hand-over to a person (`HAND_TO_PERSON_TOOL_ID`), which only stops the
+ *   trigger's runs for the thread.
  *
  * Unless the trigger that started the run lists the tool in its
- * `toolsAllowedUnattended`: only the runs a webhook, a schedule or a mail
- * trigger started have a list, and on any other one lifts nothing. The one
+ * `toolsAllowedUnattended`: only the runs a webhook, a schedule, a mail or
+ * a text trigger started have a list, and on any other one lifts nothing. The one
  * rule an agent's tool gate and a flow's tool step both apply, so a
  * refusal's message names the reason this gives.
  */
@@ -225,7 +241,10 @@ export function unattendedWaitReason(
   const reason = waitReasonOf(tool, startedBy, mailbox);
   if (reason === undefined) return undefined;
   const listed =
-    (startedBy === 'webhook' || startedBy === 'schedule' || startedBy === 'mail') &&
+    (startedBy === 'webhook' ||
+      startedBy === 'schedule' ||
+      startedBy === 'mail' ||
+      startedBy === 'text') &&
     toolsAllowedUnattended?.includes(tool.id) === true;
   return listed ? undefined : reason;
 }
@@ -252,6 +271,11 @@ function waitReasonOf(
   if (tool.needsApprovalWhenUnattended === true) return 'declared';
   const needs = connectionNeedsOf(tool);
   if (needs.some((need) => need.as === 'person')) return 'persons-connection';
+  if (startedBy === 'text') {
+    return tool.mutating !== false && tool.id !== HAND_TO_PERSON_TOOL_ID
+      ? 'text-change'
+      : undefined;
+  }
   if (startedBy !== 'mail') return undefined;
   if (tool.mutating !== false) return 'mail-change';
   const ownMailbox = needs.some(
@@ -343,8 +367,8 @@ export interface RunFlowInput {
   /**
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
-   * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
-   * started it, as the trigger version it started under has it
+   * `toolsAllowedUnattended` of the webhook, schedule, mail or text trigger
+   * that started it, as the trigger version it started under has it
    * (`RunTriggerRef.version`). The run keeps that version whatever later
    * edits make; a child run takes its parent's. Absent: none.
    */
@@ -356,6 +380,13 @@ export interface RunFlowInput {
    * Absent on every other run.
    */
   readonly mailbox?: RunMailbox;
+  /**
+   * The thread a text trigger's run answers (`RunTextThread`), set when
+   * the trigger fires, on its target only: the triggered run, and the runs
+   * of its flow's agent steps; never inherited by a run an agent's tool or
+   * another step starts. Absent on every other run.
+   */
+  readonly textThread?: RunTextThread;
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -468,6 +499,8 @@ export interface StartRunParams {
   readonly toolsAllowedUnattended?: readonly string[];
   /** The mailbox a mail trigger's run came from; see `RunFlowInput.mailbox`. */
   readonly mailbox?: RunMailbox;
+  /** The thread a text trigger's run answers; see `RunFlowInput.textThread`. */
+  readonly textThread?: RunTextThread;
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */

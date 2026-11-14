@@ -21,6 +21,8 @@
  * `components.schemas` (populated from `schemas.ts`).
  */
 
+import { RUN_STARTED_BY } from '@kindgi/runtime';
+
 import { type JsonSchema, ref } from './schemas.js';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head';
@@ -296,6 +298,42 @@ const RunCreatedBeforeQueryParam: ParameterSpec = {
   required: false,
   description: 'Only runs created strictly before this time.',
   schema: { type: 'string', format: 'date-time' },
+};
+
+const RunCompletedAfterQueryParam: ParameterSpec = {
+  name: 'completedAfter',
+  in: 'query',
+  required: false,
+  description:
+    "Only runs that ended strictly after this time (`Run.completedAt`), or at exactly this time with an id after `afterRunId`. With it or `completedBefore`, the page is sorted `completedAt asc, id asc`, runs that haven't ended aren't listed, and `cursor` can't be given: no `nextCursor` comes back, and the next page is `completedAfter` and `afterRunId` set to the last run's `completedAt` and `id`. Pass `completedAt` as the API returned it, since its fraction of a second is kept.",
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunAfterRunIdQueryParam: ParameterSpec = {
+  name: 'afterRunId',
+  in: 'query',
+  required: false,
+  description:
+    'With `completedAfter`: a run that ended at exactly `completedAfter` is listed when its id sorts after this one. The last run of the previous page.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const RunCompletedBeforeQueryParam: ParameterSpec = {
+  name: 'completedBefore',
+  in: 'query',
+  required: false,
+  description:
+    'Only runs that ended at or before this time (`Run.completedAt`). Sorts and pages as `completedAfter` does.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunStartedByQueryParam: ParameterSpec = {
+  name: 'startedBy',
+  in: 'query',
+  required: false,
+  description:
+    "Only runs started this way (`Run.startedBy`). A child run has its parent's, so `startedBy=schedule&topLevel=true` lists the runs schedules started. Runs from before runs recorded it never match.",
+  schema: { type: 'string', enum: [...RUN_STARTED_BY] },
 };
 
 const RunAgentVersionQueryParam: ParameterSpec = {
@@ -1200,6 +1238,39 @@ const WebhookDeliveryStatusQueryParam: ParameterSpec = {
   schema: { $ref: '#/components/schemas/WebhookDeliveryStatus' },
 };
 
+const DestinationIdPathParam: ParameterSpec = {
+  name: 'destinationId',
+  in: 'path',
+  required: true,
+  description: 'The destination id.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const DestinationDeliveryIdPathParam: ParameterSpec = {
+  name: 'deliveryId',
+  in: 'path',
+  required: true,
+  description: 'The delivery id.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const DestinationDeliveryStatusQueryParam: ParameterSpec = {
+  name: 'status',
+  in: 'query',
+  required: false,
+  description: 'Only deliveries with this status.',
+  schema: { $ref: '#/components/schemas/DestinationDeliveryStatus' },
+};
+
+const DestinationProjectIdQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `host`, `urlRef`, `secretRef` and `projects`; a tenant admin sees every field.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const TriggerStatusFilterQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
@@ -1492,6 +1563,24 @@ const CorrectorGroupIdPathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+/** A texts registration's receiver path: `/v1/texts-inbound/{tenantId}/{appId}`. */
+const TextsInboundPathParams: readonly ParameterSpec[] = [
+  {
+    name: 'tenantId',
+    in: 'path',
+    required: true,
+    description: 'The workspace that owns the registration.',
+    schema: { type: 'string', format: 'uuid' },
+  },
+  {
+    name: 'appId',
+    in: 'path',
+    required: true,
+    description: 'The texts registration id (`appId`).',
+    schema: { type: 'string', format: 'uuid' },
+  },
+];
+
 const correctionQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
   name,
   in: 'query',
@@ -1640,13 +1729,68 @@ export const LIMITED_TRIGGER_PROJECT =
   "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).";
 const withLimitedTrigger = (text: string): string => `${text} ${LIMITED_TRIGGER_PROJECT}`;
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change, by an item's id, that reaches beyond its project:
+ * an item in another project, or served there too, or the workspace's or
+ * an org's. Each operation it holds says so in its 403.
+ */
+export const LIMITED_ITEM_PROJECT =
+  "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).";
+const withLimitedItem = (text: string): string => `${text} ${LIMITED_ITEM_PROJECT}`;
+const LIMITED_ITEM_403 = ErrorResponse(
+  withLimitedItem('`permission-denied`: the caller may not make this change.'),
+);
+/** A pin: held above the caller's project, and beyond the item's. */
+const LIMITED_PIN_403 = ErrorResponse(
+  withLimitedItem(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
+);
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused an act, by a record's id, that a store refuses it in
+ * another project: the record's own (a run, an approval, a correction, a
+ * conversation, an artifact, a deployment, a connection choice), or the
+ * one its item is in (a test run's test set, a suggested change's or an
+ * Improve run's agent). Each operation it holds says so in its 403.
+ */
+export const LIMITED_RECORD_PROJECT =
+  "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this acts in another one, the record's or its agent's or test set's (with a store, that is `permission-denied`, or the record isn't found).";
+const withLimitedRecord = (text: string): string => `${text} ${LIMITED_RECORD_PROJECT}`;
+const LIMITED_RECORD_403 = ErrorResponse(
+  withLimitedRecord('`permission-denied`: the caller may not make this change.'),
+);
+/** A suggested change's pin: held above the caller's project, and beyond the record's. */
+const LIMITED_RECORD_PIN_403 = ErrorResponse(
+  withLimitedRecord(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
+);
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a start of work that a store refuses it beyond its project:
+ * on an item its project doesn't serve (a run, a conversation, a test-set
+ * run and what it runs), in a conversation of another project's, or where
+ * an agent's new versions are made in another one (an Improve run or its
+ * check, a suggested change or its check). Each operation it holds says
+ * so in its 403.
+ */
+export const LIMITED_START_PROJECT =
+  'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).';
+const withLimitedStart = (text: string): string => `${text} ${LIMITED_START_PROJECT}`;
+/** A change that makes new versions of an agent: held where they are made. */
+const LIMITED_START_MADE_IN_403 = ErrorResponse(
+  withLimitedStart(
+    'No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`).',
+  ),
+);
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
 
 /** The 400s of registering or changing an identity provider. */
 const IDENTITY_PROVIDER_REFUSED_SECRETS =
-  "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).";
+  "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `connection-key-refused`: it names the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).";
 
 const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   ...CommonAuthErrors,
@@ -1735,6 +1879,18 @@ const ENV_NOT_SERVED_VALUE =
 const ENV_NOT_SERVED_REFERENCE =
   "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
 
+/** A secret a write names that is a texts connection app registration's account key. */
+const CONNECTION_KEY_REFUSED =
+  '`connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.';
+
+/** A secret a write names that is an identity provider's secret. */
+const IDENTITY_PROVIDER_KEY_REFUSED =
+  "`identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.";
+
+/** A texts registration's key named by another user of the secret (POST and PATCH /v1/connection-apps). */
+const CONNECTION_KEY_IN_USE =
+  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.";
+
 /** The 409 a write answers anyway, and `env-not-served`. */
 function conflictOrEnvNotServed(text: string): ResponseSpec {
   return ErrorResponse(
@@ -1799,10 +1955,13 @@ export function answersAuthzUnavailable(op: OperationSpec): boolean {
   return op.responses['401'] !== undefined;
 }
 
-/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+/**
+ * Adding or changing a provider: the usual conflicts, a secret something
+ * else uses, or a deployment without a secrets store.
+ */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
-    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
   );
 }
 
@@ -1995,7 +2154,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
-        '403': LIMITED_ABOVE_PROJECT_403,
+        '403': LIMITED_PIN_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
         ),
@@ -2020,7 +2179,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
-        '403': LIMITED_ABOVE_PROJECT_403,
+        '403': LIMITED_PIN_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace.`,
         ),
@@ -2112,7 +2271,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Agent or flow not found; or `projectId` names no project of this workspace (`project-not-found`); or `input.conversationId` names no conversation of this workspace (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a turn into it they may not add (a conversation with no participant, or `participant-not-allowed` for its stored participant), or of the 409 for a closed conversation they may not add a turn to.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
+        withLimitedStart(
+          "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
+        ),
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
@@ -2133,7 +2294,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.list',
     summary: 'List runs',
     description:
-      "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
+      "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`; with `completedAfter` or `completedBefore`, `completedAt asc, id asc`, paged by `completedAfter` and `afterRunId` instead of a cursor. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [
@@ -2151,6 +2312,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunStatusQueryParam,
       RunCreatedAfterQueryParam,
       RunCreatedBeforeQueryParam,
+      RunCompletedAfterQueryParam,
+      RunAfterRunIdQueryParam,
+      RunCompletedBeforeQueryParam,
+      RunStartedByQueryParam,
       RunAgentVersionQueryParam,
       RunFlowIdQueryParam,
       RunFlowVersionQueryParam,
@@ -2266,6 +2431,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated run row.', schema: ref('Run') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No run with that id under this workspace.'),
     },
   },
@@ -2288,6 +2454,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('Run'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '400': ErrorResponse(
         "`bad-input`: no `waitpointId`, or a field the body doesn't take. `wait-token-output-invalid` (`details.issues`): the value doesn't fit the tool's output schema, and the wait stays open.",
       ),
@@ -4072,7 +4239,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('CompleteApprovalResult'),
       },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Reviewer role too low, or no reviewer row for this user.'),
+      '403': ErrorResponse(
+        withLimitedRecord(
+          withLimitedAbove('Reviewer role too low, or no reviewer row for this user.'),
+        ),
+      ),
       '404': ErrorResponse('No approval visible to the caller with that id.'),
     },
   },
@@ -4171,7 +4342,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed audit bundle.', schema: ref('ExportAuditBundleResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("The caller isn't a reviewer."),
+      '403': ErrorResponse(withLimitedRecord(withLimitedAbove("The caller isn't a reviewer."))),
       '404': ErrorResponse(
         'Approval not found, signing key id unknown, or signing not configured on this deployment.',
       ),
@@ -4314,6 +4485,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The owner is set.', schema: ref('SetAgentOwnerResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('The body is not `{ "userId": "…" }`.'),
       '404': ErrorResponse(
         'No agent with that id under this workspace (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).',
@@ -4385,6 +4557,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Case added.', schema: ref('TestCase') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
       ),
@@ -4407,6 +4580,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retired.', schema: ref('TestCase') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('`reason` is missing, empty, or over 4000 characters.'),
       '404': ErrorResponse("`test-case-not-found`: the agent's test set has no case by that id."),
       '409': ErrorResponse('`test-case-retired`: the case is retired already.'),
@@ -4424,6 +4598,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-pinned`: the version is the pinned version of the scopes in `details.scopes`; unpin, or pin another version there first.",
       ),
@@ -4444,6 +4619,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateAgentVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -4512,7 +4688,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': LIMITED_PIN_403,
       '400': ErrorResponse(
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
@@ -4770,7 +4946,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': LIMITED_PIN_403,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
@@ -4893,6 +5069,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -4913,6 +5090,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateFlowVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -5018,7 +5196,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
+        `Validation failed (see \`details.issues\`); or \`projectId\` isn't a project id (a UUID). Or \`provider-key-refused\`: the tool names a model provider's key (\`details.secret\`, \`details.providerId\`); store the key it needs under its own name (the same value is fine) and name that. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: the tool names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); those are Kindgi's own. Or \`validation-failed\` for a \`metadata\` key under \`kindgi.\`: those are the runtime's own (\`details.issues\`, at \`/metadata/<key>\`).`,
       ),
       '409': ErrorResponse(
         `\`tool-already-registered\`: that (id, version) is taken. Or \`tool-project-mismatch\`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). Or \`tool-kind-mismatch\`: the tool's active versions are of another kind, an MCP endpoint's tool (\`details.endpointId\`) where this version is published here, or the other way round; a tool's active versions are all one kind, and nothing was written (\`details.toolId\`, \`details.version\`). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
@@ -5041,6 +5219,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -5061,12 +5240,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateToolVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-kind-mismatch`: the tool's active versions are of another kind than this one, an MCP endpoint's tool (`details.endpointId`) or tools published here, so it stays unregistered (`details.toolId`, `details.version`). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No tool at that (id, version) under this workspace.'),
       '400': ErrorResponse(
-        "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`); either way it stays retired; publish a version that names a key of its own.",
+        `\`provider-key-refused\`: the version declares or sends a model provider's key (\`details.secret\`, \`details.providerId\`), or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); either way it stays retired; publish a version that names a key of its own. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} The version stays retired here too.`,
       ),
     },
   },
@@ -5208,6 +5388,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterGuardrailResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -5282,7 +5463,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or `projectId` names no project of this workspace. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the workspace, or `agentVersion` isn't a version that project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/agentId`, whose message names the version). Nothing is opened.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent, or, for an agent more than one project serves opened in one of its projects, no `call` there (`caller` or `editor`); or, otherwise, naming a `projectId` without `write` on it (its turns land there, as a run naming one does); or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project. The rights on the agent and on a named project are checked before `projectId` is looked up, so they answer the same whether or not it names a project.",
+        withLimitedStart(
+          "No `execute` on the agent, or, for an agent more than one project serves opened in one of its projects, no `call` there (`caller` or `editor`); or, otherwise, naming a `projectId` without `write` on it (its turns land there, as a run naming one does); or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project. The rights on the agent and on a named project are checked before `projectId` is looked up, so they answer the same whether or not it names a project.",
+        ),
       ),
     },
   },
@@ -5305,7 +5488,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '403': ErrorResponse(
-        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
+        withLimitedRecord(
+          "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
+        ),
       ),
       '404': ErrorResponse(
         "No conversation with that id under this workspace, or one the caller may not close and can't read: the same answer, byte for byte.",
@@ -5331,7 +5516,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '403': ErrorResponse(
-        'The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).',
+        withLimitedRecord(
+          'The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).',
+        ),
       ),
       '404': ErrorResponse(
         "No conversation with that id under this workspace, or it is unregistered already, or the caller may not unregister it and can't read it: the same answer, byte for byte.",
@@ -5723,6 +5910,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'The Improve run, running.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse(
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
@@ -5749,6 +5937,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Its readiness, and the estimate.', schema: ref('ImproveRunCheck') },
       ...CommonAuthErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse(
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
@@ -5800,6 +5989,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse(
         "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
       ),
@@ -5829,6 +6019,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
@@ -5866,6 +6057,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChangePinAnswer'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_PIN_403,
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
@@ -5896,6 +6088,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse(
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
@@ -5919,6 +6112,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The suggested change, `withdrawn`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse("The suggested change's status doesn't allow it."),
     },
@@ -5981,6 +6175,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The Improve run, cancelled.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No such Improve run.'),
       '409': ErrorResponse('`improve-run-finished`: it has ended already.'),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
@@ -6118,6 +6313,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed bundle.', schema: ref('ExportProvenanceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse(
         'Provenance not found, signing key id unknown, or signing not configured on this deployment.',
       ),
@@ -6285,7 +6481,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteArtifactResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '403': ErrorResponse(
+        withLimitedRecord(withLimitedAbove('No `write` on its project (`permission-denied`).')),
+      ),
       '404': ErrorResponse(
         "An artifact in a project the caller can't read that isn't a file of their own (`blob-not-found`).",
       ),
@@ -6456,10 +6654,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        'Validation failed (see `details.reason`), a `secret_ref.name` under the reserved `kindgi.` prefix among them (`bad-input`).',
+        `Validation failed (see \`details.reason\`), a \`secret_ref.name\` under the reserved \`kindgi.\` prefix among them (\`bad-input\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '409': ErrorResponse(
-        `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
+        `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a destination uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
       ),
       '422': ErrorResponse(
         "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
@@ -6507,7 +6705,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
       ),
       '403': ErrorResponse(
-        '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
+        withLimitedRecord(
+          '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
+        ),
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
@@ -6608,7 +6808,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Removed.', schema: ref('RemoveCorrectionResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedRecord('`permission-denied`.')),
       '404': ErrorResponse('No live correction with that id under this workspace.'),
     },
   },
@@ -6631,7 +6831,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+        withLimitedRecord(
+          "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+        ),
       ),
       '404': ErrorResponse('No live correction with that id under this workspace.'),
       '409': ErrorResponse(
@@ -6752,7 +6954,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated corrector group.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`.')),
       '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
@@ -6769,7 +6971,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retired.', schema: ref('UnregisterCorrectorGroupResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`.')),
       '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
@@ -6823,7 +7025,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`), and so is one of MCP's own headers in `config.headers` (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-…`; reason `transport-header-in-config`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`) or an identity provider's secret (`400 identity-provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`), and so is one of MCP's own headers in `config.headers` (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-…`; reason `transport-header-in-config`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6835,7 +7037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
+        `Validation failed (see \`details.reason\`). Or \`provider-key-refused\`: \`secretRef\` names a model provider's key (\`details.secret\`, \`details.providerId\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`).`,
       ),
       '403': ErrorResponse(
         withLimitedAbove(
@@ -6860,6 +7062,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterMCPEndpointResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
     },
   },
@@ -6934,6 +7137,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Rendered prompt messages.', schema: ref('GetMCPPromptResult') },
       ...CommonAuthErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('Malformed body.'),
       '404': ErrorResponse('No MCP endpoint or prompt with that name.'),
       '502': ErrorResponse('Remote MCP endpoint failed to serve prompts/get.'),
@@ -7464,6 +7668,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterTestSetResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
@@ -7481,6 +7686,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateTestSetVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
@@ -7633,7 +7839,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`: no `write` on the project.')),
       '404': ErrorResponse('`block-not-found`, or already unregistered.'),
     },
   },
@@ -7653,7 +7859,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`: no `write` on the project.')),
       '404': ErrorResponse('`block-not-found`.'),
     },
   },
@@ -7674,6 +7880,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse(
         "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the workspace; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Or `bad-input` for an agent's own test set run with another agent, in another project, or with `flowRef`: the message names the test set this run's agent and project have. Nothing runs.",
+      ),
+      '403': ErrorResponse(
+        withLimitedStart(
+          'No `execute` on the test set, or on the agent or flow it runs, or, for one more than one project serves, run in one of its projects, no `execute` there (`call` for an agent) in its place; or no `write` on `projectId` (`permission-denied`).',
+        ),
       ),
       '404': ErrorResponse(
         'No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).',
@@ -7744,6 +7955,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Cancel accepted.', schema: ref('TestRun') },
       ...CommonAuthErrors,
+      '403': LIMITED_RECORD_403,
       '404': ErrorResponse('No test run with that id under this workspace.'),
       '409': ErrorResponse('Run already terminal.'),
     },
@@ -7763,6 +7975,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'The rescore started.', schema: ref('StartTestRunResult') },
       ...CommonAuthErrors,
+      '403': LIMITED_RECORD_403,
       '400': ErrorResponse(
         "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their corrections again).",
       ),
@@ -7872,7 +8085,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.register',
     summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`) or a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
+      "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`), a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`) or a secret a tool, an endpoint, a webhook trigger, a destination or a connection app registration already uses (`409 identity-provider-key-in-use`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7962,7 +8175,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.update',
     summary: 'Change an identity provider, keeping its sign-in URLs',
     description:
-      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused` or `reserved-name-prefix`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused`, `connection-key-refused` or `reserved-name-prefix`, or `409 identity-provider-key-in-use`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
     tags: ['auth'],
     security: 'bearer',
     parameters: [
@@ -8603,7 +8816,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (`KINDGI_TENANCY=multi`), where each workspace deploys only its own images: `image-not-allowed`, the image is outside the workspace's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check. Or `promote-only-build`: the build is promote-only (the body's `productionEntry`, or a signing key whose id starts with `kindgi-promote-only:` or that has the public key of one the workspace has trusted), and the project is in production, or its production can't be read. It reaches production only by promotion: deploy it into a project before this one in its environment order, then promote it (`details.signerKeyId`, `details.projectId`). Nothing was deployed.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered. Or `connection-key-refused`: a name the pack's `env` declares is the account key of a texts connection app registration (`details.secret`, `details.appId`; the first such name, its required names before its optional ones and each list sorted by name), which only that registration names: use a key of its own, a new API key from the provider stored under its own name; nothing is registered. Or `identity-provider-key-refused`: a name the pack's `env` declares is an identity provider's secret (`details.secret`, `details.identityProviderId`; asked after the texts keys, in the same order), which only sign-in names: use a secret of its own, stored under its own name; nothing is registered.",
       ),
       '403': ErrorResponse(
         withLimitedAbove(
@@ -8791,7 +9004,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse(
-        "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
+        withLimitedRecord(
+          withLimitedAbove(
+            "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
+          ),
+        ),
       ),
       '404': ErrorResponse(
         "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
@@ -11498,6 +11715,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/schedules/:triggerId/deliveries',
+    openapiPath: '/v1/schedules/{triggerId}/deliveries',
+    operationId: 'schedules.listDeliveries',
+    summary: "List where a schedule's results went",
+    description:
+      'Newest first: each message its `sendResultsTo` sent, to a destination or to `me`, and how it went: pending, delivered, failed or skipped, with the reason. Whoever can read the schedule can read them.',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [
+      TriggerIdPathParam,
+      DestinationDeliveryStatusQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': {
+        description: 'Page of deliveries.',
+        schema: ref('DestinationDeliveryCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Unknown `status` (`bad-input`).'),
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse('`trigger-operation-unsupported`: this deployment has no destinations.'),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/schedules/:triggerId/versions',
     openapiPath: '/v1/schedules/{triggerId}/versions',
     operationId: 'schedules.listVersions',
@@ -11569,7 +11813,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
+        "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended`, or a service account or the project's own account named while `sendResultsTo` has `me`, its owner's own email (`bad-input`).",
       ),
       '403': ErrorResponse(
         withLimitedTrigger(
@@ -11603,6 +11847,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Event trigger registered.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
     },
   },
   {
@@ -11650,6 +11895,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11666,6 +11912,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11682,6 +11929,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11698,6 +11946,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('EventTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
     },
   },
   {
@@ -11749,7 +11998,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`), and so are a texts registration's account key (`400 connection-key-refused`) and an identity provider's secret (`400 identity-provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11758,7 +12007,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the workspace, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
+        `A body that fails validation (\`bad-input\`), \`runAsProject\` with \`runAsServiceAccountId\` or for a trigger with no project (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reference-out-of-scope\`: the flow isn't registered in the trigger's project, its org or the workspace, or \`flowVersion\` isn't a version that project runs (\`details.issues\`, at \`/flowId\`, whose message names the version), and nothing is registered. Or, with \`generateSecret\`, a name the secrets store can't write, refused before anything is stored: \`secret-name-invalid\` (a name that isn't 1 to 255 ASCII letters, digits, \`.\`, \`-\` and \`_\` starting with a letter, digit or \`_\`, with any \`.\` between two non-\`.\` characters, or, under \`kindgi dev\`, isn't capital letters, digits and underscores, starts with a digit, or is \`KINDGI_*\`; the message says the rule).`,
       ),
       '409': ErrorResponse(
         "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
@@ -11829,7 +12078,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated webhook trigger.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
+        `A body that fails validation (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reference-out-of-scope\`: the new \`flowVersion\` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (\`details.issues\`, at \`/flowVersion\`, whose message names the version). Nothing changes.`,
       ),
       '403': WebhookChangeRefused,
       '404': ErrorResponse('No webhook trigger with that id.'),
@@ -12219,6 +12468,240 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  // ---------- text triggers (trigger surface) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers',
+    openapiPath: '/v1/text-triggers',
+    operationId: 'textTriggers.register',
+    summary: 'Register a text trigger',
+    description:
+      "Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `kindgi_send_text`, and it's audited (`trigger-tools-allowed-unattended-set`).",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RegisterTextTriggerBody') },
+    responses: {
+      '201': { description: 'Text trigger registered.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `connectionId`, `runsPerHour` and `perSenderPerHour`, a limit out of its range, a `connectionId` naming a person's own live connection of the app, `kindgi_send_text` in `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+      ),
+      '409': ErrorResponse(
+        "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id, and can name a trigger in another project of the workspace). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '404': ErrorResponse(
+        "`config.connectionId` isn't one of the project's company connections of app `texts`, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `config.connectionId`).",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers',
+    openapiPath: '/v1/text-triggers',
+    operationId: 'textTriggers.list',
+    summary: 'List text triggers',
+    description:
+      "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      TriggerStatusFilterQueryParam,
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project's text triggers.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'Page of text triggers.', schema: ref('TextTriggerCollectionPage') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId',
+    openapiPath: '/v1/text-triggers/{triggerId}',
+    operationId: 'textTriggers.get',
+    summary: 'Fetch a text trigger',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam],
+    responses: {
+      '200': { description: 'Text trigger record.', schema: ref('TextTriggerRecord') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No text trigger with that id, or the row was tombstoned.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/text-triggers/:triggerId',
+    openapiPath: '/v1/text-triggers/{triggerId}',
+    operationId: 'textTriggers.update',
+    summary: 'Update a text trigger',
+    description:
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `kindgi_send_text`, and a new target or connection while it lists any must name it again.",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('PatchTextTriggerBody') },
+    responses: {
+      '200': { description: 'Updated text trigger.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST /v1/text-triggers/{triggerId}/owner`), a limit out of its range, a `connectionId` naming a person's own live connection of the app, `kindgi_send_text` in `toolsAllowedUnattended`, or a new target or connection without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+      ),
+      '404': ErrorResponse(
+        "No text trigger with that id. Or the new `connectionId` isn't one of the project's company connections of app `texts` (`connection-not-found`, `details.field` `config.connectionId`).",
+      ),
+      '409': ErrorResponse(
+        "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id, and can name a trigger in another project of the workspace). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/pause',
+    openapiPath: '/v1/text-triggers/{triggerId}/pause',
+    operationId: 'textTriggers.pause',
+    summary: 'Pause a text trigger',
+    description:
+      "A paused trigger answers no texts: one that comes in while it's paused never starts a run. It still holds its connection. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Paused text trigger.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/resume',
+    openapiPath: '/v1/text-triggers/{triggerId}/resume',
+    operationId: 'textTriggers.resume',
+    summary: 'Resume a text trigger',
+    description:
+      'It answers the texts that come in from now on, on the connection it kept while paused. Who may resume it is as for a pause.',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Resumed text trigger.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/unregister',
+    openapiPath: '/v1/text-triggers/{triggerId}/unregister',
+    operationId: 'textTriggers.unregister',
+    summary: 'Soft-delete a text trigger (tombstone)',
+    description:
+      'Who may unregister it is as for a pause. Its connection is free for another text trigger.',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId/fires',
+    openapiPath: '/v1/text-triggers/{triggerId}/fires',
+    operationId: 'textTriggers.fires',
+    summary: "A text trigger's texts",
+    description:
+      'Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: "Page of the trigger's texts.", schema: ref('TextFirePage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+      '501': ErrorResponse(
+        '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId/versions',
+    openapiPath: '/v1/text-triggers/{triggerId}/versions',
+    operationId: 'textTriggers.listVersions',
+    summary: "A text trigger's versions",
+    description:
+      "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('TextTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/text-triggers/{triggerId}/versions/{version}',
+    operationId: 'textTriggers.getVersion',
+    summary: 'Fetch one version of a text trigger',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('TextTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No text trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/owner',
+    openapiPath: '/v1/text-triggers/{triggerId}/owner',
+    operationId: 'textTriggers.takeOwnership',
+    summary: 'Take over a text trigger',
+    description:
+      "The only way a text trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next text. Needs `admin` on the trigger's project and `execute` on its target. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its connection and its `toolsAllowedUnattended`; a body naming the list is refused (change it with PATCH).",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
+    responses: {
+      '200': { description: 'The trigger, with its new owner.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        '`bad-input`: a body naming `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId`.',
+      ),
+      '404': ErrorResponse('No text trigger with that id, or no such service account.'),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: this deployment can't change a trigger's owner, or can't make a project's own account (`runAsProject`).",
+      ),
+    },
+  },
   {
     method: 'post',
     honoPath: '/v1/hooks/:tenantId/:webhookId',
@@ -12451,7 +12934,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist (\`webhook-secret-not-found\`) or is too weak (\`webhook-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('`filter.projectId` names no project (`project-not-found`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -12524,7 +13007,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist or is too weak, it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('No endpoint with that id, or `filter.projectId` names no project.'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -12605,6 +13088,185 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No endpoint with that id.'),
     },
   },
+  // ---------- destinations (where schedules send their results) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/destinations',
+    openapiPath: '/v1/destinations',
+    operationId: 'destinations.create',
+    summary: 'Make a destination',
+    description:
+      "Makes a named place outside Kindgi that schedules send their results to: a Slack, Teams, Google Chat or Discord channel's incoming webhook, a signed webhook, or workspace members' email. A chat webhook URL lets anyone who has it post to that channel, so `url` is write-only: the runtime keeps it in its secrets store, and the API shows only its `host`. Or name a secret you stored with `urlRef`. A `webhook` destination signs its requests as webhook endpoints do, with the secret `secretRef` names. `content: \"answer\"` sends the run's answer too, up to its first 1,000 characters: it needs `projects`, and the `webhook` kind never takes it.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateDestinationBody') },
+    responses: {
+      '201': { description: 'Destination made.', schema: ref('Destination') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        `Malformed body, unknown field (\`unknown-field\`), or fields that don't fit the kind (\`bad-input\`); the deployment lacks what the kind needs (\`bad-input\`, \`details.setting\`); a person in \`people\` is no member of the workspace (\`bad-input\`, \`details.userId\`); the URL is refused (\`destination-url-refused\`); a secret \`urlRef\` or \`secretRef\` names does not exist (\`destination-secret-not-found\`), the signing secret is too weak (\`destination-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
+      ),
+      '404': ErrorResponse('A project in `projects` does not exist (`project-not-found`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/destinations',
+    openapiPath: '/v1/destinations',
+    operationId: 'destinations.list',
+    summary: 'List destinations',
+    description:
+      "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationProjectIdQueryParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of destinations.', schema: ref('DestinationCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a UUID (`bad-input`).'),
+      '403': ErrorResponse(
+        `Not a tenant admin, or, with \`projectId\`, may not make a schedule in that project (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/destinations/:destinationId',
+    openapiPath: '/v1/destinations/{destinationId}',
+    operationId: 'destinations.get',
+    summary: 'Fetch a destination',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam],
+    responses: {
+      '200': { description: 'The destination.', schema: ref('Destination') },
+      ...CommonAuthErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
+      '404': ErrorResponse(
+        'No destination with that id, or it was removed (`destination-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/destinations/:destinationId',
+    openapiPath: '/v1/destinations/{destinationId}',
+    operationId: 'destinations.update',
+    summary: 'Update a destination',
+    description:
+      "Absent fields are kept, and `kind` never changes. A new `url` replaces the stored one; `urlRef` replaces where it's kept. `projects: null` lets every project's schedules use it again. The kind's rules hold for the result: `content: \"answer\"` still needs `projects`.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateDestinationBody') },
+    responses: {
+      '200': { description: 'The updated destination.', schema: ref('Destination') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        `\`destinationId\` is not a destination id (a UUID); malformed body, unknown field (\`unknown-field\`), \`kind\` given, or fields that don't fit the kind (\`bad-input\`); the deployment lacks what the kind needs; a person in \`people\` is no member of the workspace; the URL is refused (\`destination-url-refused\`); a secret \`urlRef\` or \`secretRef\` names does not exist (\`destination-secret-not-found\`), the signing secret is too weak (\`destination-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
+      ),
+      '404': ErrorResponse(
+        'No destination with that id (`destination-not-found`), or a project in `projects` does not exist (`project-not-found`).',
+      ),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/destinations/:destinationId',
+    openapiPath: '/v1/destinations/{destinationId}',
+    operationId: 'destinations.remove',
+    summary: 'Remove a destination (soft delete)',
+    description:
+      'Its stored URL is revoked. Schedules that still name it send it nothing: each of their messages is recorded `skipped`, with the reason `destination-removed`.',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '204': { description: 'Removed. No body.' },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
+      '404': ErrorResponse(
+        'No destination with that id, or it was removed already (`destination-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/destinations/:destinationId/deliveries',
+    openapiPath: '/v1/destinations/{destinationId}/deliveries',
+    operationId: 'destinations.listDeliveries',
+    summary: "List a destination's deliveries",
+    description: 'Newest first.',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [
+      DestinationIdPathParam,
+      DestinationDeliveryStatusQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': {
+        description: 'Page of deliveries.',
+        schema: ref('DestinationDeliveryCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        '`destinationId` is not a destination id (a UUID), or an unknown `status` (`bad-input`).',
+      ),
+      '404': ErrorResponse('No destination with that id (`destination-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/destinations/:destinationId/deliveries/:deliveryId/redeliver',
+    openapiPath: '/v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver',
+    operationId: 'destinations.redeliver',
+    summary: 'Redeliver a message',
+    description:
+      "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, DestinationDeliveryIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'Queued.', schema: ref('DestinationDelivery') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        '`destinationId` is not a destination id, or `deliveryId` a delivery id (a UUID).',
+      ),
+      '404': ErrorResponse(
+        'No destination with that id (`destination-not-found`), or no delivery with that id for it (`destination-delivery-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/destinations/:destinationId/test',
+    openapiPath: '/v1/destinations/{destinationId}/test',
+    operationId: 'destinations.sendTest',
+    summary: 'Send a test message to a destination',
+    description:
+      'Queues a `destination.test` message, to check the destination end to end; follow it in the delivery log. A `failing` destination the test reaches goes back to `active`, and its held deliveries still inside their retry window go out, oldest first.',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'Queued.', schema: ref('DestinationDelivery') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
+      '404': ErrorResponse('No destination with that id (`destination-not-found`).'),
+    },
+  },
   // ---------- connections (accounts at other apps that tools act with) ----------
   {
     method: 'get',
@@ -12656,7 +13318,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.create',
     summary: 'Register an app',
     description:
-      "Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+      "Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12665,10 +13327,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'App registered.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body or unknown field, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (\`connection-app-invalid\`, \`details.field\`); no such app (\`connection-app-unknown-entry\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       ...TenantAdminErrors,
-      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+      '409': conflictOrEnvNotServed(`${CONNECTION_KEY_IN_USE} Or ${ENV_NOT_SERVED_REFERENCE}`),
     },
   },
   {
@@ -12695,7 +13357,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.update',
     summary: 'Update an app registration',
     description:
-      'Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
+      'Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionAppIdPathParam, IdempotencyKeyParam],
@@ -12704,11 +13366,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body, unknown field or an \`app\`, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (\`oauth2.clientId\`, \`oauth2.tenant\`, \`githubApp.appNumber\`, \`githubApp.clientId\` or \`token.provider\`) while it has live connections: disconnect them first (\`connection-app-invalid\`, \`details.field\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       ...TenantAdminErrors,
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
-      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+      '409': conflictOrEnvNotServed(`${CONNECTION_KEY_IN_USE} Or ${ENV_NOT_SERVED_REFERENCE}`),
     },
   },
   {
@@ -12718,7 +13380,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.remove',
     summary: 'Remove an app registration',
     description:
-      'Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.',
+      "Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too, each as a disconnect removes it. A number (`texts`) whose old inbound can't be put back stays `removing`, and so does the registration (`502 inbound-restore-failed`): remove it again to retry, or first disconnect that number with `skipInboundRestore=true`. Tenant admins only.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -12742,6 +13404,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
       '409': ErrorResponse(
         'Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).',
+      ),
+      '502': ErrorResponse(
+        "With `withConnections=true`, a number's (`texts`) old inbound couldn't be put back (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The registration stays: remove it again to retry.",
       ),
     },
   },
@@ -12819,7 +13484,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.connect',
     summary: 'Start a connect',
     description:
-      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
+      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). An app connected without a browser (`texts`) has no consent page: the connect names the account (`number`), the server looks it up with the registration's credential, and the request comes back `connected`, with `connectionId`; its `connectUrl` page only shows it connected, and `expiresAt` ends only a `pending` request. Connecting a number moves its inbound texts onto Kindgi's messaging profile, whose outbound settings then apply; a reconnect names the connection's own number and looks it up again with the registration's current credential, which is how a `credential-refused` connection works again. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12828,7 +13493,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field, a `reconnects` that isn't a UUID or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body, unknown field, a `reconnects` that isn't a UUID, a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators), a `number` that isn't E.164 or a `replaceInbound` that isn't `true` (`bad-input`, `details.field`); `number` missing on a `texts` connect, or `number` or `replaceInbound` on any other app's (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
@@ -12837,7 +13502,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "No registration with that `appId` (`connection-app-not-found`); or `reconnects` names no live connection of the connect's own owner on that registration and environment, whether another owner's, another registration's or environment's, removed or unknown (`connection-not-found`, `details.field` `reconnects`).",
       ),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`). For a number (`texts`): its inbound texts go somewhere else today, `details.host` the webhook's host or else `details.profile` the messaging profile it is on; connect again with `replaceInbound: true` to move it onto Kindgi's (`inbound-in-use`); it is connected through another registration or env of the tenant, `details.appId` and `details.envName` (`number-in-use`); or a reconnect names another number than the connection's, which the message names (`connection-account-mismatch`).",
+      ),
+      '502': ErrorResponse(
+        "The provider refused the registration's credential or the lookup of the number (`connection-app-refused`, with the provider's code in the message). Update the registration's secret, or check the number at the provider, and connect again.",
       ),
     },
   },
@@ -13002,10 +13670,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.disconnect',
     summary: 'Disconnect',
     description:
-      'Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.',
+      "Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. For a number (`texts`), the withdrawal puts the number's inbound back where it was before the connect, or clears what Kindgi set; when that fails the connection stays `removing` (`502 inbound-restore-failed`), and disconnecting again retries. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
-    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    parameters: [
+      ConnectionIdPathParam,
+      IdempotencyKeyParam,
+      {
+        name: 'skipInboundRestore',
+        in: 'query',
+        required: false,
+        description:
+          "A number's (`texts`): set to `true` to remove the connection without putting the number's old inbound back, when it was pointed somewhere by hand; the kept address is destroyed. Ignored for a connection of any other app, which removes as usual.",
+        schema: { type: 'boolean' },
+      },
+    ],
     responses: {
       '200': { description: 'The connection, removed.', schema: ref('Connection') },
       ...CommonMutationErrors,
@@ -13013,6 +13692,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+      '502': ErrorResponse(
+        "A number's (`texts`) old inbound couldn't be put back, or what Kindgi set couldn't be cleared (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The connection stays `removing`: disconnect again to retry, or with `skipInboundRestore=true` to remove it without the restore.",
       ),
       '503': ErrorResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
@@ -13144,7 +13826,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete outcome.', schema: ref('ConnectionChoiceDeleteResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('`choiceId` is not a UUID (`bad-input`).'),
-      '403': ErrorResponse("Reads its project, but isn't an admin of it (`permission-denied`)."),
+      '403': ErrorResponse(
+        withLimitedRecord("Reads its project, but isn't an admin of it (`permission-denied`)."),
+      ),
       '404': ErrorResponse(
         "No live choice with that id in this environment: unknown, already removed, in a project the caller can't read, or another person's (`connection-choice-not-found`).",
       ),
@@ -13294,6 +13978,75 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '503': ErrorResponse(
         "`connection-notice-unavailable`: the notice couldn't be handled just now; the app may send it again.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/texts-inbound/:tenantId/:appId',
+    openapiPath: '/v1/texts-inbound/{tenantId}/{appId}',
+    operationId: 'textsInbound.receive',
+    senderOnly: 'The texting provider posts here, signed its own way; a Kindgi client never does.',
+    summary: 'Receive texts from a provider',
+    description:
+      "Where a texting provider delivers to a texts registration: an inbound text, or a delivery status. No sign-in, and a bearer token, if sent, is never read. The provider's own signature over the URL it called and the body's exact bytes is what the server checks, with the registration's credential, before anything is written. Every request that doesn't prove its sender (an unknown workspace or registration, a bad or missing signature, a body over the cap) is the same `401 texts-inbound-refused`. A client past its refusals this minute gets `429`. If the server couldn't check or take the texts just now, `503 texts-inbound-unavailable`: the provider may send them again.",
+    tags: ['connections'],
+    security: 'public',
+    parameters: TextsInboundPathParams,
+    requestBody: {
+      required: true,
+      description:
+        "The provider's signed delivery, any content type: a form post from one provider, JSON from another.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "Taken. The provider's answer, as it expects one: XML (such as an empty `<Response></Response>`), plain text or JSON.",
+        contentType: ['text/xml', 'text/plain'],
+        schema: { type: 'string' },
+        orJson: {},
+      },
+      '401': ErrorResponse(
+        "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.',
+      ),
+      '503': ErrorResponse(
+        "`texts-inbound-unavailable`: the texts couldn't be checked or taken just now; the provider may send them again. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/texts-inbound/:tenantId/:appId',
+    openapiPath: '/v1/texts-inbound/{tenantId}/{appId}',
+    operationId: 'textsInbound.handshake',
+    senderOnly: 'The texting provider calls here, signed its own way; a Kindgi client never does.',
+    summary: "Answer a provider's handshake",
+    description:
+      "Where a texting provider checks a texts registration's URL before it delivers to it, such as Meta's subscription check, whose query carries a challenge to echo back. No sign-in, and a bearer token, if sent, is never read. The query is the provider's own; the server checks it with the registration's credential. A handshake that doesn't match, or names an unknown workspace or registration, is the same `401 texts-inbound-refused`. A client past its refusals this minute gets `429`. If the server couldn't check it just now, `503 texts-inbound-unavailable`: the provider may try again.",
+    tags: ['connections'],
+    security: 'public',
+    parameters: TextsInboundPathParams,
+    responses: {
+      '200': {
+        description:
+          "Matched. The provider's answer, as it expects one: plain text (such as the challenge, echoed back), XML or JSON.",
+        contentType: ['text/xml', 'text/plain'],
+        schema: { type: 'string' },
+        orJson: {},
+      },
+      '401': ErrorResponse(
+        "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.',
+      ),
+      '503': ErrorResponse(
+        "`texts-inbound-unavailable`: the handshake couldn't be checked just now; the provider may try again. Or the database was too busy to answer in time (`database-busy`, with `Retry-After`), or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`).",
       ),
     },
   },

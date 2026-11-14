@@ -37,7 +37,13 @@ import type { DeploymentBinding } from '../deployment-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, type ItemServing, shownLatest } from '../item-rights.js';
+import {
+  type ItemRights,
+  type ItemServing,
+  heldProjects,
+  limitedItemRefusal,
+  shownLatest,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
@@ -486,6 +492,8 @@ export function blocksRouter(
    * block more than one project serves, on every project the version can
    * run in (a version that doesn't exist: the block's), after reading it
    * (rule 1). `undefined`: allowed, or no such version, for the handler.
+   * Without a store, a key or session limited to a project is held to
+   * the same projects (`limitedItemRefusal`).
    */
   async function mayChangeVersion(
     c: Context<AppEnv>,
@@ -493,6 +501,21 @@ export function blocksRouter(
     blockId: string,
     version: string,
   ): Promise<Response | undefined> {
+    if (authorizer === undefined) {
+      return limitedItemRefusal(c, {
+        kind: 'block',
+        id: blockId,
+        today: 'write',
+        check: { rule: 'every-version', action: 'write', version },
+        held: heldProjects(itemServing, 'block', async () => {
+          const block = await binding.getVersion({ tenantId, blockId, version });
+          if (block === null) return undefined;
+          // A pack read from disk may name none.
+          const own = block.projectId as ProjectId | undefined;
+          return own !== undefined ? [own] : [];
+        }),
+      });
+    }
     const many = await served(c, blockId);
     if (many === 'hidden') return notFound(c, blockId, version);
     if (many !== undefined) {

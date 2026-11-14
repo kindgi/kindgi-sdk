@@ -27,6 +27,7 @@ import type { EnvName, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
 import type {
+  ConnectionBinding,
   ProviderRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
@@ -69,6 +70,13 @@ function setup(
     webhookReceivesPerMinute?: number;
     tenantStates?: TenantStateBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    /** Texts registrations' account keys, by name, with the registrations holding each. */
+    textsKeys?: Map<string, string[]>;
+    /**
+     * Identity providers' secrets, by name, with the provider referencing
+     * each: the app's own `identityProviderKeys`, with no `identityProvider`.
+     */
+    identityProviderKeys?: Map<string, string>;
   } = {},
 ) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT as never });
@@ -134,6 +142,20 @@ function setup(
     },
   } as unknown as SecretBinding;
   const logLines: string[] = [];
+  // Each name the connection binding was asked the holders of.
+  const keyHolderReads: string[] = [];
+  const textsKeys = options.textsKeys;
+  const connections =
+    textsKeys === undefined
+      ? undefined
+      : ({
+          entries: () => [],
+          listApps: async () => ({ data: [] }),
+          keyHolders: async ({ name }: { name: string }) => {
+            keyHolderReads.push(name);
+            return textsKeys.get(name) ?? [];
+          },
+        } as unknown as ConnectionBinding);
   const providerRegistry = {
     resolveForRuntime: async () => [
       { metadata: { id: 'acme-llm' }, secretRef: { name: PROVIDER_KEY } },
@@ -161,6 +183,10 @@ function setup(
     triggerRegistry: registry,
     secretsBinding: secrets,
     providerRegistry,
+    ...(connections !== undefined && { connections }),
+    ...(options.identityProviderKeys !== undefined && {
+      identityProviderKeys: { of: async () => options.identityProviderKeys as Map<string, string> },
+    }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: {
@@ -243,6 +269,7 @@ function setup(
     fires,
     stored,
     resolved,
+    keyHolderReads,
     logLines,
     answers,
     writeSecret,
@@ -499,6 +526,46 @@ describe('a request that does not prove its sender', () => {
       hmacSecretName: PROVIDER_KEY,
     });
     expect(res).toMatchObject({ status: 400, body: { error: { code: 'provider-key-refused' } } });
+  });
+
+  test("a texts registration's account key, held only after the trigger was written: unread at receive, kept unavailable for the TTL", async () => {
+    const textsKeys = new Map<string, string[]>();
+    const { register, deliver, fires, resolved, keyHolderReads } = setup({ textsKeys });
+    const t = await register(WOO);
+    textsKeys.set(WOO_SECRET, ['acme-texts-app']);
+    const before = keyHolderReads.length;
+    for (let i = 0; i < 5; i++) {
+      expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, `t${i}`))).status).toBe(401);
+    }
+    expect(resolved.filter((n) => n === WOO_SECRET)).toEqual([]);
+    expect(keyHolderReads.slice(before)).toEqual([WOO_SECRET]);
+    expect((await fires(t.triggerId)).map((f) => [f.outcome, f.detail])).toEqual(
+      Array.from({ length: 5 }, () => ['refused', 'secret-unavailable']),
+    );
+  });
+
+  test("an identity provider's secret, from the app's own keys with no sign-in binding: refused at register, and unread at receive", async () => {
+    const identityProviderKeys = new Map<string, string>([['acme-oidc-secret', 'acme-oidc']]);
+    const { admin, register, deliver, fires, resolved } = setup({ identityProviderKeys });
+    const res = await admin('POST', '', {
+      flowId: 'acme.refund-review',
+      flowVersion: '1.0.0',
+      hmacSecretName: 'acme-oidc-secret',
+    });
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: { code: 'identity-provider-key-refused' } },
+    });
+    // A trigger written before its secret was an identity provider's.
+    const t = await register(WOO);
+    identityProviderKeys.set(WOO_SECRET, 'acme-oidc');
+    for (let i = 0; i < 3; i++) {
+      expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, `p${i}`))).status).toBe(401);
+    }
+    expect(resolved.filter((n) => n === WOO_SECRET)).toEqual([]);
+    expect((await fires(t.triggerId)).map((f) => [f.outcome, f.detail])).toEqual(
+      Array.from({ length: 3 }, () => ['refused', 'secret-unavailable']),
+    );
   });
 
   test('refusals past 20 a minute only count, on the trigger; the audit takes the first 20', async () => {

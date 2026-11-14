@@ -63,6 +63,12 @@ export type ApiTokenId = Brand<string, 'ApiTokenId'>;
 /** An outbound webhook endpoint id (`client.webhookEndpoints`). */
 export type WebhookEndpointId = Brand<string, 'WebhookEndpointId'>;
 
+/** A destination id: where schedules send their results (`client.destinations`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** A delivery to a destination (`client.destinations.listDeliveries`). */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
+
 /** @unwired SDK-defined id for a pack installation. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 

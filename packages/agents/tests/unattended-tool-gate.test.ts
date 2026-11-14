@@ -7,9 +7,12 @@ import type { ModelMessage } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import type { HitlSpec } from '@kindgi/policy-contract';
 import {
+  HAND_TO_PERSON_TOOL_ID,
+  REPLY_TO_TEXT_TOOL_ID,
   RUN_STARTED_BY,
   type RunMailbox,
   type RunStartedBy,
+  type RunTextThread,
   type UnattendedWaitReason,
   needsPersonsYesUnattended,
   runIsAttended,
@@ -80,10 +83,11 @@ const UNATTENDED: readonly (RunStartedBy | undefined)[] = [
   'webhook',
   'event',
   'mail',
+  'text',
   undefined,
 ];
 /** The runs a trigger with a `toolsAllowedUnattended` list started. */
-const LISTABLE = ['webhook', 'schedule', 'mail'] as const;
+const LISTABLE = ['webhook', 'schedule', 'mail', 'text'] as const;
 
 describe('runIsAttended', () => {
   test('only a person counts', () => {
@@ -106,7 +110,7 @@ describe('needsPersonsYesUnattended — the one rule the gate and the runtime sh
     }
   });
 
-  test("only a webhook's, a schedule's or a mail trigger's run has a list: on any other, one lifts nothing", () => {
+  test("only a webhook's, a schedule's, a mail trigger's or a text trigger's run has a list: on any other, one lifts nothing", () => {
     for (const by of ['key', 'event', undefined] as const) {
       expect(needsPersonsYesUnattended(declared, by, ['pack.refund'])).toBe(true);
     }
@@ -458,6 +462,86 @@ describe('the unattended rule, case by case', () => {
       personMailbox,
       'persons-connection',
     ],
+    [
+      "a text's run: an unlisted change with no connection waits",
+      refund,
+      'text',
+      undefined,
+      undefined,
+      'text-change',
+    ],
+    [
+      "a text's run: a listed change with no connection runs",
+      refund,
+      'text',
+      ['pack.refund'],
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run: a company read runs, a text having no mailbox",
+      companyGithubRead,
+      'text',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run, its list naming another tool: the change still waits",
+      refund,
+      'text',
+      ['pack.other'],
+      undefined,
+      'text-change',
+    ],
+    [
+      "a text's run: an unlisted reply tool waits",
+      companyOutlookReply,
+      'text',
+      undefined,
+      undefined,
+      'declared',
+    ],
+    [
+      "a text's run: a listed reply tool runs",
+      companyOutlookReply,
+      'text',
+      ['pack.reply'],
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run: a change with a person's connection waits for the connection first",
+      { ...personsRead, mutating: true },
+      'text',
+      undefined,
+      undefined,
+      'persons-connection',
+    ],
+    [
+      "a text's run: the built-in hand-over to a person never waits",
+      { id: HAND_TO_PERSON_TOOL_ID, mutating: true },
+      'text',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run: the built-in reply waits unless the trigger lists it",
+      { id: REPLY_TO_TEXT_TOOL_ID, mutating: true },
+      'text',
+      undefined,
+      undefined,
+      'text-change',
+    ],
+    [
+      "a text's run: the built-in reply, listed, runs",
+      { id: REPLY_TO_TEXT_TOOL_ID, mutating: true },
+      'text',
+      [REPLY_TO_TEXT_TOOL_ID],
+      undefined,
+      undefined,
+    ],
   ];
 
   test.each(cases)('%s', (_, tool, startedBy, listed, mailbox, reason) => {
@@ -694,6 +778,16 @@ describe('dispatch-tools — a turn no person started', () => {
     expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
   });
 
+  test("in a text's turn, a change waits unless the trigger lists it, though it declares nothing", async () => {
+    const unlisted = await dispatchStartedBy('text', {});
+    expect(unlisted.enqueued).toHaveLength(1);
+    expect(unlisted.waits).toHaveLength(1);
+    const listed = await dispatchStartedBy('text', {}, ['pack.refund']);
+    expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
+    const read = await dispatchStartedBy('text', { mutating: false });
+    expect([read.enqueued, read.waits, read.ran]).toEqual([[], [], [{ order: '7' }]]);
+  });
+
   test("in a mail's turn, a read of another app's company connection runs at once; one of the mailbox's own waits", async () => {
     const mailbox: RunMailbox = { app: 'google', as: 'company' };
     const read = (app: string): Declared => ({
@@ -757,5 +851,71 @@ describe('a resumed turn', () => {
         'mailbox',
       );
     }
+  });
+
+  test("gets its text's thread from the snapshot, never from whoever resumes it", () => {
+    const thread: RunTextThread = {
+      connectionId: 'conn-1',
+      number: '+15550100100',
+      channel: 'sms',
+      sender: '+15550100200',
+      threadId: 'thread-1',
+      grants: ['texts.reply'],
+    };
+    const other: RunTextThread = { ...thread, sender: '+15550100300', threadId: 'thread-2' };
+    expect(
+      turnInputFromSnapshot(snapshot({ startedBy: 'text', textThread: thread }), {
+        agent: agent(),
+        textThread: other,
+      } as never).textThread,
+    ).toEqual(thread);
+    for (const none of [{}, { textThread: null }]) {
+      expect(turnInputFromSnapshot(snapshot(none), { agent: agent() })).not.toHaveProperty(
+        'textThread',
+      );
+    }
+  });
+});
+
+describe("resolveEffectiveToolHitl: the built-in hand-over in a text's run", () => {
+  const handOver = {
+    id: HAND_TO_PERSON_TOOL_ID,
+    mutating: true,
+    effects: [],
+  } as unknown as AnyTool;
+
+  test('runs with no rule naming it: only the unattended wait is lifted', () => {
+    const gate = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
+      handOver,
+      { startedBy: 'text' },
+    );
+    expect(gate.mode).toBe('never_ask');
+  });
+
+  test("the workspace's floor for it still asks", () => {
+    const gate = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({
+        tenant: { tools: { [HAND_TO_PERSON_TOOL_ID]: 'always_ask' } } as unknown as HitlSpec,
+        agent: agent(),
+      }),
+      handOver,
+      { startedBy: 'text' },
+    );
+    expect(gate.mode).toBe('always_ask');
+  });
+
+  test("the agent's own rule for it still asks", () => {
+    const gate = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({
+        tenant: undefined,
+        agent: agent({
+          hitl: { tools: { overrides: { [HAND_TO_PERSON_TOOL_ID]: 'always_ask' } } },
+        }),
+      }),
+      handOver,
+      { startedBy: 'text' },
+    );
+    expect(gate.mode).toBe('always_ask');
   });
 });

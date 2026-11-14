@@ -2272,7 +2272,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger, or to an agent, flow, tool, block, guardrail, test set, corrector group or MCP endpoint that is in or runs in another project, and any act on another project's run, test run, approval, correction, conversation, artifact, deployment, suggested change, Improve run or connection choice, or on a record whose agent or test set is in another project.",
     details: [
       {
         key: 'keyProjectId',
@@ -2281,7 +2281,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'projectId',
         meaning:
-          'the project the request names, when it names one, or the project of the trigger it changes',
+          'the project the request names, when it names one, or the project of the trigger, item or record it changes',
       },
       {
         key: 'action',
@@ -3644,7 +3644,7 @@ export const ERROR_ENTRIES = {
   },
   'provider-key-refused': {
     description:
-      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name.",
+      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name; an identity provider names a secret of its own instead.",
     details: [
       {
         key: 'secret',
@@ -3656,9 +3656,58 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'connection-key-refused': {
+    description:
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration, an identity provider or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is a registration's account key",
+      },
+      {
+        key: 'appId',
+        meaning: 'id of the connection app registration that owns that key',
+      },
+    ],
+    seeAlso: ['#connection-key-in-use', 'POST /v1/connection-apps'],
+  },
+  'identity-provider-key-refused': {
+    description:
+      "The request names an identity provider's secret (its OIDC client secret, or its SAML signing or decryption key) as a secret for something that isn't sign-in, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, a connection app registration or a pack's `env`. The secret signs the tenant's people in, so only sign-in names it. If one app registration serves both sign-in and a connection, give it a second client secret, store that under its own name and use that name. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is an identity provider's",
+      },
+      {
+        key: 'identityProviderId',
+        meaning: 'id of the identity provider that references that secret',
+      },
+    ],
+    seeAlso: ['#identity-provider-key-in-use', 'POST /v1/auth/providers'],
+  },
+  'identity-provider-key-in-use': {
+    description:
+      "A secret the identity provider being registered or changed references (its OIDC client secret, or its SAML signing or decryption key) is already used by a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration. An identity provider's secret is sign-in's only, so each of them would be refused it from then on. Store the identity provider's own secret under its own name and reference that. If one app registration serves both sign-in and a connection, give it a second client secret. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: [
+      '#identity-provider-key-refused',
+      'POST /v1/auth/providers',
+      'PATCH /v1/auth/providers/{providerId}',
+    ],
+  },
   'provider-key-in-use': {
     description:
-      'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint or webhook trigger. Give each a key of its own.',
+      'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or destination. Give each a key of its own.',
     details: [
       {
         key: 'secret',
@@ -3832,7 +3881,7 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a connection app or an identity provider.",
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a connection app or an identity provider.",
     details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
@@ -3993,6 +4042,20 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/webhooks/start-runs-from-webhooks'],
   },
+  'trigger-connection-taken': {
+    description:
+      "Another live text trigger, active or paused, already answers that connection's number: one live text trigger answers a number. Unregister that trigger first, or pick another connection. The trigger it names can be in another project of the workspace.",
+    details: [
+      {
+        key: 'heldBy',
+        meaning: 'the text trigger that answers the connection',
+      },
+      {
+        key: 'connectionId',
+        meaning: 'the connection asked for',
+      },
+    ],
+  },
   'trigger-already-in-state': {
     description:
       'The trigger is already in the state you asked for, such as pausing a paused trigger or resuming one that is running.',
@@ -4119,6 +4182,56 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'destination-not-found': {
+    description: 'No destination with that id exists in your workspace, or it was removed.',
+    details: [
+      {
+        key: 'destinationId',
+        meaning: 'the destination id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/destinations'],
+  },
+  'destination-delivery-not-found': {
+    description: 'The destination has no delivery with that id.',
+    details: [
+      {
+        key: 'deliveryId',
+        meaning: 'the delivery id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/destinations/{destinationId}/deliveries'],
+  },
+  'destination-url-refused': {
+    description:
+      "The destination's URL is refused: it isn't on the kind's own host (a `slack` URL is on `hooks.slack.com`), or the deployment refuses where it points. The message says why.",
+    details: [
+      {
+        key: 'reason',
+        meaning: 'why the URL was refused',
+      },
+    ],
+  },
+  'destination-secret-not-found': {
+    description:
+      "A secret the destination names in `urlRef` or `secretRef` doesn't exist. Store the secret first, then save the destination.",
+    details: [
+      {
+        key: 'secretRef',
+        meaning: 'the secret reference that was not found (name and environment)',
+      },
+    ],
+  },
+  'destination-secret-too-weak': {
+    description:
+      "A `webhook` destination's signing secret is too weak: it must be `whsec_` followed by base64 of at least 24 random bytes. `POST /v1/webhook-endpoints/generate-secret` makes a valid one.",
+    details: [
+      {
+        key: 'secretRef',
+        meaning: 'the secret reference that was too weak (name and environment)',
+      },
+    ],
+  },
   'connection-app-not-found': {
     description:
       'No app registration with that id in the workspace, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
@@ -4230,7 +4343,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-account-mismatch': {
     description:
-      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account.",
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account. A reconnect of a number (`texts`) that names another number is refused the same way, and the message names the connection's number.",
     details: [],
   },
   'connection-label-taken': {
@@ -4274,12 +4387,74 @@ export const ERROR_ENTRIES = {
   },
   'connection-removing': {
     description:
-      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end, such as a number whose old inbound couldn't be put back. Disconnect it again to finish, then connect.",
     details: [],
+  },
+  'inbound-in-use': {
+    description:
+      "A connect of a number (`texts`) whose texts go somewhere else today: a webhook, or another messaging profile of the business. Connecting moves the number onto Kindgi's messaging profile, so its texts come to Kindgi, and that profile's outbound settings then apply. To go ahead, send it again with `replaceInbound: true`; disconnecting puts the old inbound back. Nothing is stored.",
+    details: [
+      {
+        key: 'host',
+        meaning: "the host of the webhook the number's texts go to, when there is one",
+      },
+      {
+        key: 'profile',
+        meaning:
+          'the name of the messaging profile the number is on, when there is no webhook; exactly one of `host` and `profile` is set',
+      },
+    ],
+    seeAlso: ['POST /v1/connections'],
+  },
+  'number-in-use': {
+    description:
+      "A connect of a number (`texts`) that's already live in another environment of the registration, or under another texts registration of the workspace (two on one provider account). A number is connected in one place at a time: disconnect it there first. Nothing is stored.",
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration the number is live under',
+      },
+      {
+        key: 'envName',
+        meaning: 'the environment the number is live in',
+      },
+    ],
+    seeAlso: ['POST /v1/connections', 'DELETE /v1/connections/{connectionId}'],
+  },
+  'inbound-restore-failed': {
+    description:
+      "A disconnect of a number (`texts`), or a registration's removal with its connections, couldn't put the number's old inbound back at the provider. The connection stays `removing`, and the registration stays. Disconnect again to retry; if you've pointed the number elsewhere yourself, disconnect with `skipInboundRestore=true`, which drops what was kept without putting it back.",
+    details: [
+      {
+        key: 'host',
+        meaning: 'the host of the webhook it was putting back, when there was one',
+      },
+      {
+        key: 'profile',
+        meaning:
+          'the name of the messaging profile it was putting the number back on, when there was no webhook; neither is set when Kindgi kept nothing to put back',
+      },
+    ],
+    seeAlso: ['DELETE /v1/connections/{connectionId}', 'DELETE /v1/connection-apps/{appId}'],
+  },
+  'connection-key-in-use': {
+    description:
+      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger, destination or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: ['POST /v1/connection-apps', 'PATCH /v1/connection-apps/{appId}'],
   },
   'connection-app-refused': {
     description:
-      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. For a number (`texts`), the texting provider refused the registration's API key or the number's lookup: the message gives the provider's code. Start the connect again.",
     details: [],
   },
   'connection-store-failed': {
@@ -4294,6 +4469,16 @@ export const ERROR_ENTRIES = {
   },
   'connection-notice-unavailable': {
     description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
+  },
+  'texts-inbound-refused': {
+    description:
+      "A texting provider's request to `/v1/texts-inbound/{tenantId}/{appId}` didn't prove its sender: a delivery, or a handshake. It's one answer for every reason, such as an unknown workspace or registration, a signature that doesn't check out, or a body over the cap, so the sender learns nothing from it.",
+    details: [],
+  },
+  'texts-inbound-unavailable': {
+    description:
+      "The server couldn't check or take a texting provider's texts just now. The provider sends them again.",
     details: [],
   },
   'token-mint-failed': {

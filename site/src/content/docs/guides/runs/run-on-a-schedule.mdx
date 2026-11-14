@@ -5,6 +5,8 @@ sidebar:
   order: 2.5
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 This guide runs an agent or a flow at set times, and shows each time it ran,
 or why it didn't.
 
@@ -274,6 +276,162 @@ history is newest first, kept for 30 days. Each row has:
 `kindgi runs list --trigger=<schedule-id>` lists the runs it started. Each
 fire also logs one `[schedules]` record, with its outcome and run, as
 [Logs](../../../deploy/self-hosted/logs/) describes.
+
+## Send its results somewhere
+
+A schedule can send word of the runs it starts somewhere outside Kindgi
+(runtime 0.7.0 or later): to its owner's own email, or to a
+**destination**, a place a tenant admin
+[set up](../send-results-to-a-destination/) with `/v1/destinations`, such
+as a Slack, Teams, Google Chat or Discord channel, a webhook, or some of the
+workspace's members by email. An older runtime ignores it.
+
+Its `sendResultsTo` names at most five places, each `{ to, on }`:
+
+- **`to`** is `me`, the owner's own email, or a destination's id.
+- **`on`** says which of its runs send a message: any of `completed`,
+  `failed` and `cancelled`, by how the run ended, and `waiting`, when it
+  waits on a person's approval. All four when it's left out.
+
+Only the runs the schedule started send one, never their replays or the
+runs inside them. From your app, `register` and `update` take it
+(`send_results_to` in Python) in the schedule's body. This code sends its
+failed runs to you, and every run to a destination:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// app/send-results.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+await kindgi.schedules.update('<schedule-id>', {
+  sendResultsTo: [{ to: 'me', on: ['failed'] }, { to: '<destination-id>' }],
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# app/send_results.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+kindgi.schedules.update(
+    "<schedule-id>",
+    send_results_to=[{"to": "me", "on": ["failed"]}, {"to": "<destination-id>"}],
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/SendResults.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PatchScheduleBody;
+import com.kindgi.client.models.ScheduleResultEvent;
+import com.kindgi.client.models.ScheduleResultTargetInput;
+import java.util.List;
+import java.util.UUID;
+
+public final class SendResults {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.schedules().update(UUID.fromString("<schedule-id>"), PatchScheduleBody.builder()
+        .sendResultsTo(List.of(
+            ScheduleResultTargetInput.builder().to("me").on(List.of(ScheduleResultEvent.FAILED)).build(),
+            ScheduleResultTargetInput.builder().to("<destination-id>").build()))
+        .build());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/SendResults.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{PatchScheduleBody, ScheduleResultEvent, ScheduleResultTargetInput}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object SendResults {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.schedules().update(UUID.fromString("<schedule-id>"), PatchScheduleBody.builder()
+      .sendResultsTo(List(
+        ScheduleResultTargetInput.builder().to("me").on(List(ScheduleResultEvent.FAILED).asJava).build(),
+        ScheduleResultTargetInput.builder().to("<destination-id>").build()).asJava)
+      .build())
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+- **A save checks each place.** A destination must exist and be for the
+  schedule's project, or for every project when it names none. `me` needs a
+  personal schedule, since a shared one's service account has no email,
+  and a deployment that sends email. Otherwise it's `400 bad-input`,
+  naming the place and why, such as "`sendResultsTo[1].to`: destination
+  "ops alerts" isn't for this schedule's project". The same place twice is
+  refused too.
+- **`[]` on `update`** stops sending. Left out, it keeps what's there.
+- **Changing it is a change like any other.** It takes what the schedule's
+  label does ([Shared or personal](#shared-or-personal)), makes a new
+  [version](#its-versions), and a project admin's change to a personal
+  schedule is recorded as `trigger-changed-for-owner`, with
+  `sendResultsTo` among the fields changed.
+- **A schedule that sends to `me` stays a person's.** A take-over to a
+  service account is refused until `sendResultsTo` no longer names `me`.
+- **What a message holds** is the destination's `content`: `link`, the
+  run's status and a link to it, or `answer`, which sends the run's answer
+  too.
+- **At most 30 messages an hour** go from one schedule to one place. It
+  skips the rest, and at the hour's end one `rate-cap.summary` message says
+  how many.
+
+To see which destinations a project's schedules may use,
+`destinations.list({ projectId })` (`project_id=` in Python),
+`GET /v1/destinations?projectId=<project-id>`, lists them for anyone who
+may run in the project: each one's `destinationId`, `name`, `kind`,
+`content` and `status`, never where it sends.
+
+### Where its results went
+
+`schedules.listDeliveries('<schedule-id>')` (`list_deliveries` in Python),
+`GET /v1/schedules/{triggerId}/deliveries`, pages a schedule's messages,
+newest first, for whoever can read the schedule. `status` lists the ones
+in one status. Each has its place (`to`), its `event` (`run.finished`,
+`approval.requested` or `rate-cap.summary`), its `runId`, its `attempts`,
+and when it was `deliveredAt`. Its `status` is:
+
+- **`delivered`.**
+- **`pending`:** waiting for its next attempt, or held while its
+  destination is failing.
+- **`skipped`,** with its `reason`: `rate-cap`, `no-access` (the person is
+  no longer a member, or can't read the run's project),
+  `destination-removed`, or `not-for-this-project` (the destination is no
+  longer for the schedule's project).
+- **`failed`,** with its `reason`: `destination-failing`, `window-ended`
+  (not delivered within about a day), `refused` (the place answered with
+  an error a retry won't change), or why the send failed, such as
+  `timeout`.
+
+A `reason` never holds the destination's address.
 
 ## Find your schedules
 

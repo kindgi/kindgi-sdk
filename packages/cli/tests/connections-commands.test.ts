@@ -893,6 +893,146 @@ describe('kindgi connections connect --label and --reconnect', () => {
   });
 });
 
+describe('kindgi connections connect texts: a number, connected at once', () => {
+  const NUMBER = '+15551234567';
+  const NUMBER_ID = '7a8b9caa-7777-4a91-8ca3-000000000007';
+  const CONNECTED = {
+    ...REQUEST,
+    app: 'texts',
+    owner: { kind: 'company' },
+    permissions: ['texts.reply'],
+    says: ['Answer the people who text this number'],
+    state: 'connected',
+    connectionId: NUMBER_ID,
+  };
+  const NUMBER_CONNECTION = {
+    ...CONNECTION,
+    connectionId: NUMBER_ID,
+    app: 'texts',
+    owner: { kind: 'company' },
+    account: { id: 'num-15551234567', label: NUMBER },
+    permissions: ['texts.reply'],
+  };
+  const argv = [
+    'connections',
+    'connect',
+    'texts',
+    '--permissions=texts.reply',
+    '--for-company',
+    `--number=${NUMBER}`,
+  ];
+
+  test('--number and --replace-inbound go on the connect, and the connection is printed', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [...argv, '--replace-inbound'],
+      {
+        connections: {
+          connect: rec('connect', CONNECTED),
+          get: rec('get', NUMBER_CONNECTION),
+        },
+      },
+      waitingSeam([]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'connect',
+        {
+          app: 'texts',
+          permissions: ['texts.reply'],
+          for: 'company',
+          number: NUMBER,
+          replaceInbound: true,
+        },
+      ],
+      ['get', NUMBER_ID],
+    ]);
+    expect(out.stdout).toBe(
+      `Connected ${NUMBER} at texts, the company's account (connection ${NUMBER_ID}).\n`,
+    );
+  });
+
+  test('without --replace-inbound, none is sent; no link is printed or waited on', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(argv, {
+      connections: {
+        connect: rec('connect', CONNECTED),
+        get: rec('get', NUMBER_CONNECTION),
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls[0]).toEqual([
+      'connect',
+      { app: 'texts', permissions: ['texts.reply'], for: 'company', number: NUMBER },
+    ]);
+    expect(out.stdout).not.toContain(CONNECTED.connectUrl);
+  });
+
+  test('--quiet prints the connection id alone', async () => {
+    const { calls, rec } = recorder();
+    const out = await run([...argv, '--quiet'], {
+      connections: { connect: rec('connect', CONNECTED) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${NUMBER_ID}\n`);
+    expect(out.stderr).toBe('');
+    expect(calls.map(([name]) => name)).toEqual(['connect']);
+  });
+
+  test('--json prints the request as it came back', async () => {
+    const { rec } = recorder();
+    const out = await run([...argv, '--json'], {
+      connections: { connect: rec('connect', CONNECTED) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toMatchObject({ state: 'connected', connectionId: NUMBER_ID });
+  });
+
+  test("an inbound-in-use refusal prints the server's words and the flag that goes ahead", async () => {
+    const words =
+      "+15551234567's texts go to hooks.acme.example today. Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply.";
+    const out = await run(argv, {
+      connections: {
+        connect: async () => {
+          throw new KindgiApiError(
+            fromWire(
+              { code: 'inbound-in-use', message: words, details: { host: 'hooks.acme.example' } },
+              409,
+            ),
+          );
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain(words);
+    expect(out.stderr).toMatch(/\nTo go ahead, run it again with --replace-inbound\.\n$/);
+  });
+
+  test('any other refusal is said as usual, with no flag to add', async () => {
+    const out = await run(argv, {
+      connections: {
+        connect: async () => {
+          throw new KindgiApiError(
+            fromWire(
+              {
+                code: 'number-in-use',
+                message: '+15551234567 is live in env prod',
+                details: { appId: APP_ID, envName: 'prod' },
+              },
+              409,
+            ),
+          );
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('+15551234567 is live in env prod');
+    expect(out.stderr).not.toContain('--replace-inbound');
+  });
+});
+
 describe('kindgi connections update', () => {
   async function rename(
     argv: readonly string[],
@@ -1132,6 +1272,23 @@ describe('kindgi connections disconnect', () => {
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toBe('');
     expect(out.stderr).toBe(said);
+  });
+
+  test('--skip-inbound-restore goes on the disconnect; without it, no option is sent', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['connections', 'disconnect', CONNECTION_ID, '--yes', '--skip-inbound-restore'],
+      { connections: { disconnect: rec('disconnect', removed) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['disconnect', CONNECTION_ID, { skipInboundRestore: true }]]);
+  });
+
+  test('--help says --skip-inbound-restore is ignored for any other app', async () => {
+    const out = await run(['connections', 'disconnect', '--help'], {});
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('--skip-inbound-restore');
+    expect(out.stdout).toContain('Ignored for a connection of any other app');
   });
 
   test('--json prints the removed connection', async () => {

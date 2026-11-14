@@ -28,7 +28,13 @@ import type {
   ProviderRuntimeEntry,
   ProviderSecretRef,
 } from '../provider-binding.js';
-import type { SecretUse } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type SecretUse,
+  connectionKeyRefusal,
+  refuseIdentityProviderKeyNames,
+} from '../provider-keys.js';
 import { RESERVED_SECRET_NAME_PREFIX } from '../secrets-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
@@ -76,6 +82,16 @@ export function providersRouter(
   options: {
     /** What in the tenant uses a secret: a provider's key can't be one of them. */
     readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
+    /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /**
      * On a runtime that refuses other envs: a registration whose
      * `secret_ref` names another env answers `409 env-not-served`
@@ -317,10 +333,36 @@ export function providersRouter(
       return c.json(toWireError(unserved, requestId));
     }
 
-    // A model provider's key is used by its provider only: a key a tool, an
-    // endpoint or a webhook trigger already uses would be taken from it, so
-    // say so now.
+    // A texts registration's account key reaches the whole provider account:
+    // it's that registration's only, never a model provider's.
     const keyName = secretRefResult.value?.name;
+    const keyOwner =
+      keyName === undefined || options.connectionKeys === undefined
+        ? undefined
+        : (await options.connectionKeys.holders(tenantId, keyName))[0];
+    if (keyName !== undefined && keyOwner !== undefined) {
+      const refusal = connectionKeyRefusal(keyName, keyOwner, 'a model provider');
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
+    // Nor is an identity provider's secret, which signs the tenant's people in.
+    const signInKey =
+      keyName === undefined
+        ? undefined
+        : await refuseIdentityProviderKeyNames(
+            options.identityProviderKeys,
+            tenantId,
+            [keyName],
+            'a model provider',
+          );
+    if (signInKey !== undefined) {
+      c.status(statusFor(signInKey.code) as never);
+      return c.json(toWireError(signInKey, requestId));
+    }
+
+    // A model provider's key is used by its provider only: a key a tool, an
+    // endpoint, a webhook trigger or a destination already uses would be
+    // taken from it, so say so now.
     const usedBy =
       keyName === undefined || options.secretUsers === undefined
         ? []

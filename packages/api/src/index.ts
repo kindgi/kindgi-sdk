@@ -523,6 +523,40 @@ export type {
   WebhookSecretRef,
   WebhookTestEvent,
 } from './webhook-endpoint-binding.js';
+export {
+  DESTINATION_CONTENTS,
+  DESTINATION_DELIVERY_EVENTS,
+  DESTINATION_DELIVERY_STATUSES,
+  DESTINATION_KINDS,
+  DESTINATION_STATUSES,
+  destinationUrlSecretName,
+} from './destination-binding.js';
+export type {
+  Destination,
+  DestinationBinding,
+  DestinationContent,
+  DestinationCreateInput,
+  DestinationCreateOutcome,
+  DestinationDelivery,
+  DestinationDeliveryEvent,
+  DestinationDeliveryListInput,
+  DestinationDeliveryListOutcome,
+  DestinationDeliveryOutcome,
+  DestinationDeliveryReason,
+  DestinationDeliveryRef,
+  DestinationDeliveryStatus,
+  DestinationKind,
+  DestinationListInput,
+  DestinationPage,
+  DestinationRef,
+  DestinationRefusal,
+  DestinationSecretRef,
+  DestinationStatus,
+  DestinationUpdateInput,
+  DestinationUpdateOutcome,
+  ResultEmail,
+  ScheduleDeliveryListInput,
+} from './destination-binding.js';
 export type {
   CronTriggerRecord,
   EventTriggerRecord,
@@ -1111,8 +1145,11 @@ export type {
   ConnectionRemovedReason,
   ConnectionSetRefusal,
   ConnectionState,
+  ConnectionTextsCount,
   ConnectionWithdrawn,
   SecretRefInput,
+  TextsInboundAnswer,
+  TextsInboundInput,
 } from './connection-binding.js';
 export {
   CURSOR_TTL_MS,
@@ -1428,16 +1465,28 @@ export {
   secretNameGrammarRefusal,
 } from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
-// A model provider's key is used by its provider only.
+// A model provider's key is used by its provider only, a texts
+// registration's account key by its registration only, and an identity
+// provider's secret by sign-in only.
 export {
+  connectionKeyRefusal,
+  connectionKeysOf,
   guardProviderKeys,
+  guardSecretKeys,
+  identityProviderKeyRefusal,
+  identityProviderKeysOf,
+  identityProviderSecretNames,
   providerKeyRefusal,
   providerKeysOf,
+  refuseIdentityProviderKeyNames,
   refuseSecretNames,
   usersOfSecret,
 } from './provider-keys.js';
 export type {
+  ConnectionKeys,
+  IdentityProviderKeys,
   ProviderKeys,
+  SecretKeys,
   SecretUse,
   SecretUser,
   SecretUsersDeps,

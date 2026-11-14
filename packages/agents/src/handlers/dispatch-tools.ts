@@ -6,7 +6,12 @@ import { type TraceCall, type TraceCallResult, guardrailCoversTool } from '@kind
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WAITPOINT_TIMEOUT_REASON, WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { type RunMailbox, type RunStartedBy, needsPersonsYesUnattended } from '@kindgi/runtime';
+import {
+  HAND_TO_PERSON_TOOL_ID,
+  type RunMailbox,
+  type RunStartedBy,
+  needsPersonsYesUnattended,
+} from '@kindgi/runtime';
 import {
   BUILT_IN_TOOL_PREFIX,
   invokeTool,
@@ -95,9 +100,10 @@ import { addPointCheckNodes, addStepToolNodes } from './turn-provenance.js';
  * resolver's output, and adds the floors that sit above the agent's
  * rules: the tenant's, and in a run no person started, the unattended
  * rule (`needsPersonsYesUnattended`: the tool's own
- * `needsApprovalWhenUnattended`, a person's connection, and in a mail's
- * run a change or the run's own mailbox), unless the webhook, schedule or
- * mail trigger that started the run lists the tool.
+ * `needsApprovalWhenUnattended`, a person's connection, in a mail's run a
+ * change or the run's own mailbox, and in a text's run a change but the
+ * built-in hand-over), unless the webhook, schedule, mail or text trigger
+ * that started the run lists the tool.
  */
 export function resolveEffectiveToolHitl(
   effective: EffectiveHitlPolicy,
@@ -684,8 +690,10 @@ const TOOL_AUTHORIZE_RECORD_PREFIX = 'tool-authorize:';
 /**
  * Whether a call is asked of `authorizeToolCall`: a registered tool's,
  * always; a built-in's (`kindgi_<verb>`), only when what it touches
- * reaches beyond the run's project (the rule is in `remember.ts`). A
- * built-in with no rule here is asked.
+ * reaches beyond the run's project (the rule is in `remember.ts`), or
+ * outside Kindgi. A built-in with no rule here is asked: the reply to a
+ * text is. The hand-over to a person isn't: it only stops the run's
+ * trigger answering the thread.
  */
 function asksAuthorization(ctx: TurnContext, toolId: string): boolean {
   if (!toolId.startsWith(BUILT_IN_TOOL_PREFIX)) return true;
@@ -693,7 +701,7 @@ function asksAuthorization(ctx: TurnContext, toolId: string): boolean {
   if (toolId === REMEMBER_TOOL_ID && remember !== undefined) {
     return !rememberStaysInProject(remember);
   }
-  return true;
+  return toolId !== HAND_TO_PERSON_TOOL_ID;
 }
 
 /** At most this many of a step's calls run at the same time. */
