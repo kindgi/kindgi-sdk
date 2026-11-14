@@ -94,6 +94,9 @@ webhook delivery's included. An artifact upload and a webhook delivery have
 size limits of their own
 ([Keep files with a run](../../guides/runs/keep-files-with-a-run/),
 [Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
+Someone who may only run a project uploads files for their own runs within a
+limit per person: by default 1 GiB and 1,000 files in 24 hours in a
+workspace, and `429 upload-limit-reached` past it.
 
 Rendering an agent's instructions template may use 16,777,216 of the
 template engine's memory units, roughly the characters of the strings the

@@ -105,7 +105,12 @@ no `ownerRunId`, an input for a run they start, and download it again;
 download the files a run that acts for them stored; and list a run's files
 with `?ownerRunId=` of a run of their own. Deleting still takes `write`.
 An artifact you can't read answers `404`, as if it weren't there, and lists
-leave it out.
+leave it out. The runtime limits what one person uploads with `run` and no
+`write` in a workspace, by default to 1 GiB and 1,000 files in 24 hours
+(`KINDGI_RUN_UPLOAD_DAILY_BYTES`, `KINDGI_RUN_UPLOAD_DAILY_FILES`).
+Their uploads to projects where they have `write` are never refused, but
+they count toward it too. Past it, the upload answers
+`429 upload-limit-reached`, and `Retry-After` says when it fits.
 
 ## Delete one
 

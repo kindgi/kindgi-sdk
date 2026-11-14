@@ -230,6 +230,7 @@ import { usageRouter } from './routes/usage.js';
 import { waitTokensRouter } from './routes/wait-tokens.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import type { RunUploadLimiter } from './run-upload-limiter.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecondFactorBinding } from './second-factor-binding.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
@@ -782,6 +783,15 @@ export interface CreateAppInput {
    * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
    */
   readonly artifactMaxBytes?: number;
+  /**
+   * The deployment's limit on what one person uploads to
+   * `POST /v1/artifacts` on `run` alone: a file of their own, for a run
+   * they start, in a project they may run but not write. Past it, the
+   * upload is `429 upload-limit-reached`. Without it, only each upload's
+   * size is limited. An upload that passes on `write` is never checked,
+   * though the deployment may count it toward the person's limit.
+   */
+  readonly runUploadLimiter?: RunUploadLimiter;
   /**
    * Optional. When present, mounts the read-only capabilities catalog
    * surface (`/v1/capabilities` list, `/v1/capabilities/:capabilityId`
@@ -2198,6 +2208,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         runBinding,
         ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.runUploadLimiter !== undefined && { runUploadLimiter: input.runUploadLimiter }),
       }),
     );
   }
