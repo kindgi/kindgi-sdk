@@ -10,7 +10,7 @@
  * name (`acme__lookup_order`). An agent's instructions that name a tool
  * by its id then point the model at a name it wasn't given. It writes
  * the call as text, or the server drops it. Measured on local models,
- * that's a quarter of such turns (T311).
+ * that's a quarter of such turns.
  *
  * `nameToolsAsSent` rewrites each declared tool id in `text` to its sent
  * name:

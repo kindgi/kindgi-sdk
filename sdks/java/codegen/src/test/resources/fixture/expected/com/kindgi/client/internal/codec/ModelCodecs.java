@@ -46,6 +46,9 @@ public final class ModelCodecs {
         MeterJson.register(module);
         NodeJson.register(module);
         ScopeSegmentJson.register(module);
+        GateSeparateJson.register(module);
+        GateJson.register(module);
+        GateRuleJson.register(module);
         WidgetsRotateResponseJson.register(module);
         WidgetsRefreshResponseJson.register(module);
         SettingsPutDomainJson.register(module);

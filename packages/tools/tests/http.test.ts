@@ -253,6 +253,46 @@ describe('defineTool({spec: http}) — authorization / secret resolution', () =>
     expect(resolveSecret).toHaveBeenCalledWith({ envName: 'production', name: 'github-token' });
   });
 
+  test('a secretRef that names no env is resolved as given: the runtime reads it in the env it serves', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { number: 1, title: 't' }));
+    const resolveSecret = vi.fn().mockResolvedValue('gh-token-xyz');
+    const tool = buildTool({
+      authorization: { kind: 'bearer', secretRef: { name: 'github-token' } },
+    });
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    await invokeTool(tool.value, { owner: 'a', repo: 'b', number: 1 }, makeCtx({ resolveSecret }));
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer gh-token-xyz');
+    expect(resolveSecret.mock.calls).toStrictEqual([[{ name: 'github-token' }]]);
+  });
+
+  test("a secretRef's env, when named, isn't empty; its name is always there", () => {
+    const manifest = (secretRef: unknown) => ({
+      id: 'acme.lookup',
+      description: 'Look something up.',
+      version: '1.0.0',
+      input: { type: 'object', additionalProperties: true },
+      output: { type: 'object', additionalProperties: true },
+      spec: {
+        kind: 'http',
+        method: 'GET',
+        urlTemplate: 'https://api.example.com/x',
+        authorization: { kind: 'bearer', secretRef },
+      },
+    });
+    for (const secretRef of [{ envName: '', name: 'k' }, { envName: 'production' }, {}]) {
+      const r = validateToolManifest(manifest(secretRef));
+      expect(r.kind, JSON.stringify(secretRef)).toBe('err');
+      if (r.kind === 'err') {
+        expect(r.error.code).toBe('invalid-tool-definition');
+        // An issue at the ref itself (the bearer branch of the authorization's oneOf).
+        expect(JSON.stringify(r.error)).toContain('"/spec/authorization/secretRef');
+      }
+    }
+    expect(validateToolManifest(manifest({ name: 'k' })).kind).toBe('ok');
+    expect(validateToolManifest(manifest({ envName: 'production', name: 'k' })).kind).toBe('ok');
+  });
+
   test('header auth writes the resolved secret to the named header verbatim', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { number: 1, title: 't' }));
     const resolveSecret = vi.fn().mockResolvedValue('sk-abc');
@@ -486,6 +526,24 @@ describe("defineTool({spec: http}) — a header value fetch can't send", () => {
       expect(everything(invoked)).not.toContain('canary');
     },
   );
+
+  test('a secret ref that names no env: the refusal names the secret alone', async () => {
+    vi.unstubAllGlobals();
+    const tool = buildTool({
+      urlTemplate: NOWHERE,
+      authorization: { kind: 'bearer', secretRef: { name: 'acme-key' } },
+    });
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(
+      tool.value,
+      input,
+      makeCtx({ resolveSecret: async () => CANARY }),
+    );
+    expect(invoked.kind === 'err' && invoked.error.message).toBe(
+      'Tool "github.get-issue" handler threw: http-tool "github.get-issue": its secret acme-key for the header "Authorization" has a line break, which a header can\'t carry: store the secret without it',
+    );
+    expect(everything(invoked)).not.toContain('canary');
+  });
 
   test('header auth: a secret that starts with a line break goes out, trimmed by fetch, never quoted', async () => {
     vi.unstubAllGlobals();

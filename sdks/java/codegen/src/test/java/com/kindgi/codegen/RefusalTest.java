@@ -74,9 +74,36 @@ class RefusalTest {
   }
 
   @Test
-  void aNumberBesideObjects() {
+  void twoPlainValuesBesideAnObject() {
     Map<String, Object> o = obj("type", "object", "required", List.of("a"), "properties", Map.of("a", obj("type", "string")));
-    refuses(Map.of("U", obj("oneOf", List.of(obj("type", "number"), o))), "unsupported union variant");
+    refuses(Map.of("U", obj("oneOf", List.of(obj("type", "number"), obj("type", "boolean"), o))), "two plain values beside objects");
+  }
+
+  @Test
+  void aPlainValueBesideObjectsThatCantBeToldApart() {
+    Map<String, Object> v = obj("type", "object", "required", List.of("a"), "properties", Map.of("a", obj("type", "string")));
+    refuses(Map.of("U", obj("oneOf", List.of(obj("type", "boolean"), v, v))), "can't tell this union's variants apart");
+  }
+
+  @Test
+  void textAndAPlainValueBesideAnObject() {
+    Map<String, Object> o = obj("type", "object", "required", List.of("a"), "properties", Map.of("a", obj("type", "string")));
+    refuses(
+        Map.of("U", obj("oneOf", List.of(obj("type", "string"), obj("type", "integer"), o))),
+        "both text and a plain value beside objects");
+  }
+
+  @Test
+  void aFixedPlainValueBesideAnObject() {
+    Map<String, Object> o = obj("type", "object", "required", List.of("a"), "properties", Map.of("a", obj("type", "string")));
+    refuses(Map.of("U", obj("oneOf", List.of(obj("type", "boolean", "const", true), o))), "unsupported union variant");
+  }
+
+  @Test
+  void anArrayBesideObjects() {
+    Map<String, Object> o = obj("type", "object", "required", List.of("a"), "properties", Map.of("a", obj("type", "string")));
+    refuses(
+        Map.of("U", obj("oneOf", List.of(obj("type", "array", "items", obj("type", "string")), o))), "unsupported union variant");
   }
 
   @Test
@@ -112,6 +139,14 @@ class RefusalTest {
     refuses(
         Map.of("U", obj("oneOf", List.of(obj("type", "string"), tagged("a", "x"), tagged("b", "y")))),
         "com.kindgi.client.models.U: a text-or-object union whose objects carry a tag (kind)");
+  }
+
+  /** The same for a plain value beside objects. */
+  @Test
+  void aPlainValueBesideObjectsThatCarryATag() {
+    refuses(
+        Map.of("U", obj("oneOf", List.of(obj("type", "boolean"), tagged("a", "x"), tagged("b", "y")))),
+        "com.kindgi.client.models.U: a scalar-or-object union whose objects carry a tag (kind)");
   }
 
   /** It reads as itself (no type info of its own), so it can't carry another union's. */

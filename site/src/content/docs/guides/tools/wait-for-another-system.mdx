@@ -456,7 +456,9 @@ again.
   fails the turn by default. With `tool-error` in the agent's
   `toolErrors.retryOn` (`tool_errors` in Python), the failure goes back to
   the model up to `maxRetries` times (1 by default), then the turn fails.
-  The model can call the tool again: that call waits on a new link.
+  The model can call the tool again: that call waits on a new link. The
+  list replaces the default one, so name `invalid-arguments` and
+  `unknown-tool` in it too to keep their retries.
 
 ## What a paused run shows
 

@@ -580,10 +580,14 @@ uv run kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_999
   "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_9999",
 ```
 
-In TypeScript, the message goes on to say what caused the error, as Node
-writes it, up to three causes. A `fetch` that failed says why, where it
-said only `fetch failed`:
+The message goes on to say what caused the error, up to three causes. In
+TypeScript, that's as Node writes it, so a `fetch` that failed says why,
+where it said only `fetch failed`:
 `TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)`.
+In Python, the causes are what `raise … from err` sets, and in Java and
+Scala what `getCause()` returns, each by its class's name (in Java and
+Scala, without its package):
+`java.lang.IllegalStateException: lookup failed; caused by ConnectException: Connection refused`.
 The message is masked, its causes included: a Kindgi token, and a URL's
 secret query value such as `?token=` or `X-Amz-Signature=`, show as
 `[redacted]`.

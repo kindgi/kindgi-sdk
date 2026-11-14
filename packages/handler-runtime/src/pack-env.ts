@@ -258,6 +258,16 @@ export const PLATFORM_ENV_PREFIXES: readonly string[] = [
 ];
 
 /**
+ * Names a pack service drops like any other undeclared one, but leaves out
+ * of the names it logs (`env-dropped`): a language's base image sets them
+ * in every pack's image (Python's sets `GPG_KEY`, the fingerprint of the
+ * key Python's releases are signed with), so naming them would warn at
+ * every start. A pack that reads one declares it. Python's (`kindgi.pack`)
+ * and Java's lists are the same; the conformance suite checks all of them.
+ */
+export const QUIETLY_DROPPED_ENV_NAMES: ReadonlySet<string> = new Set(['GPG_KEY']);
+
+/**
  * The names in `environment` that a pack service drops before its pack's
  * code loads: neither declared (`required`, `optional`), nor `KINDGI_*`,
  * nor the platform's ({@link PLATFORM_ENV_NAMES}, {@link PLATFORM_ENV_PREFIXES}).

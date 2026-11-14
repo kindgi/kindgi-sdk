@@ -120,12 +120,15 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_MICROSOFT_CONNECT_SECRET` is the secret's name. The registration
   keeps only this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 If this app registration also signs your people in to Kindgi, the connection
@@ -142,7 +145,7 @@ In the console, open your workspace's **App registrations** page, choose
 
 - **Client id:** the Application (client) ID.
 - **Client secret: its name in Kindgi's secrets:** the environment and name
-  you stored it under, `production/ACME_MICROSOFT_CONNECT_SECRET`.
+  you stored it under, `prod/ACME_MICROSOFT_CONNECT_SECRET`.
 - **Directory:** the one from step 1: the Directory (tenant) ID or the
   domain, or `organizations`, `common` or `consumers`.
 - **Which projects' runs may use it:** leave it empty for all of them.
@@ -153,7 +156,7 @@ step 2.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
+npx --yes @kindgi/cli@0.6 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=prod/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
 ```
 
 `<directory>` is the directory from step 1. The command prints the
@@ -239,7 +242,7 @@ Before yours expires:
 2. **Store it as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next

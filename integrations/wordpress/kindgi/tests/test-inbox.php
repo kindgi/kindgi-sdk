@@ -485,6 +485,16 @@ function test_inbox_a_decided_card_waits_for_nobody_and_names_who_decided(): voi
 	kindgi_assert_same( null, $withdrawn['waitsFor'], 'and waits for nobody' );
 }
 
+function test_inbox_a_card_names_the_run_that_asked(): void {
+	$card = static function ( array $a ): array {
+		return Kindgi_Inbox::card( $a, 'u-me', kindgi_test_reviewer( 'senior' ), kindgi_test_names(), kindgi_test_agent_names() );
+	};
+	kindgi_assert_same( 'run-1', $card( kindgi_test_approval( array( 'provenanceRef' => array( 'runId' => 'run-1' ) ) ) )['runId'], 'for its row on Activity' );
+	kindgi_assert_same( null, $card( kindgi_test_approval() )['runId'], 'none it names' );
+	kindgi_assert_same( null, $card( kindgi_test_approval( array( 'provenanceRef' => array( 'runId' => 7 ) ) ) )['runId'], 'nor one that is no id' );
+	kindgi_assert_same( null, $card( kindgi_test_pin() )['runId'], 'a new version of an agent: no run asked' );
+}
+
 function test_inbox_who_asked_in_words(): void {
 	$names = kindgi_test_names();
 	kindgi_assert_same( 'you', Kindgi_Inbox::asked( 'user:u-me', 'u-me', $names )['kind'], 'you' );

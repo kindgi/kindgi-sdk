@@ -166,7 +166,10 @@ describe("a Java pack's build context", () => {
 
   test('a Java pack root is standalone, with no Node project around it', async () => {
     await files({
-      'kindgi.config.json': JSON.stringify({ language: 'java', pack: { id: 'a', version: '1' } }),
+      'kindgi.config.json': JSON.stringify({
+        language: 'java',
+        pack: { id: 'a', version: '1.0.0' },
+      }),
     });
     expect(await resolvePackRoots({ cwd: packDir })).toEqual({
       kind: 'ok',

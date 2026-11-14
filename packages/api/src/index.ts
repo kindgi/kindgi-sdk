@@ -376,7 +376,12 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
-export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  PersonCapabilitiesBinding,
+  PersonCapabilityChange,
+  PersonCapabilityError,
+  PersonCapabilityErrorCode,
+} from './person-capabilities-binding.js';
 export type {
   SecondFactorBinding,
   SecondFactorConfirmOutcome,
@@ -519,6 +524,11 @@ export type {
   ToolFileUpdateAnswer,
   ToolFileUpdateInput,
 } from './tool-files-binding.js';
+export type {
+  VersionLock,
+  VersionLocksBinding,
+  VersionLocksInput,
+} from './version-locks-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {
   CompleteWaitTokenInput,
@@ -1516,6 +1526,7 @@ export {
   secretNameGrammarRefusal,
 } from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
+export type { SecretLocate } from './secret-scope.js';
 // A model provider's key is used by its provider only, a texts
 // registration's account key by its registration only, and an identity
 // provider's secret by sign-in only.

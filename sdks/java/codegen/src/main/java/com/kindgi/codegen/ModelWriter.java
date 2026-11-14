@@ -275,12 +275,14 @@ final class ModelWriter {
         b.addMethod(
             setter(bn, f.java, ft, fdoc).addStatement("this.$N = $N", f.java, f.java).addStatement("return this").build());
       }
-      Ir.UnionDecl textUnion = textUnion(f.type);
-      if (textUnion != null) {
-        Ir.Variant text = textUnion.textVariant();
+      Ir.UnionDecl valueUnion = valueUnion(f.type);
+      if (valueUnion != null) {
+        Ir.Variant text = valueUnion.textVariant() != null ? valueUnion.textVariant() : valueUnion.scalarVariant();
+        TypeName form = text.text() ? ModelPlanner.STRING : text.scalar();
+        String formName = text.text() ? "text" : scalarName(text.scalar());
         CodeBlock wrap = CodeBlock.of("new $T($N)", text.type(), f.java);
         b.addMethod(
-            setter(bn, f.java, ModelPlanner.STRING, "The text form of {@link #" + f.java + "(" + textUnion.name.simpleName() + ")}.")
+            setter(bn, f.java, form, "The " + formName + " form of {@link #" + f.java + "(" + valueUnion.name.simpleName() + ")}.")
                 .addStatement(
                     f.triState ? "this.$N = $T.of($L)" : "this.$N = $L",
                     f.triState ? new Object[] {f.java, OPTIONAL_NULLABLE, wrap} : new Object[] {f.java, wrap})
@@ -364,14 +366,24 @@ final class ModelWriter {
     return m;
   }
 
-  private Ir.UnionDecl textUnion(TypeName t) {
+  /** The union {@code t} names when it has a text or a plain-value variant, or null. */
+  private Ir.UnionDecl valueUnion(TypeName t) {
     if (t instanceof ClassName) {
       Ir.Decl d = planner.index.get(t);
-      if (d instanceof Ir.UnionDecl && ((Ir.UnionDecl) d).textVariant() != null) {
+      if (d instanceof Ir.UnionDecl
+          && (((Ir.UnionDecl) d).textVariant() != null || ((Ir.UnionDecl) d).scalarVariant() != null)) {
         return (Ir.UnionDecl) d;
       }
     }
     return null;
+  }
+
+  /** The JSON name of a plain value's Java type: boolean, integer or number. */
+  static String scalarName(TypeName scalar) {
+    if (scalar.equals(TypeName.BOOLEAN)) {
+      return "boolean";
+    }
+    return scalar.equals(TypeName.LONG) ? "integer" : "number";
   }
 
   /**
@@ -651,6 +663,8 @@ final class ModelWriter {
         doc.append(": {@code ").append(u.tagWire).append("} is ").append(String.join(" or ", v.tags().stream().map(t -> "<code>" + Docs.javadoc(t) + "</code>").toList()));
       } else if (v.text()) {
         doc.append(": text").append(v.allowed() == null ? "" : ", <code>" + Docs.javadoc(String.join("|", v.allowed())) + "</code>");
+      } else if (v.scalar() != null) {
+        doc.append(": ").append(scalarName(v.scalar()).equals("integer") ? "an " : "a ").append(scalarName(v.scalar()));
       } else if (v.uniqueRequired() != null) {
         doc.append(": has {@code ").append(v.uniqueRequired().get(0)).append("}");
       }
@@ -693,22 +707,7 @@ final class ModelWriter {
               .addParameter(ModelPlanner.STRING, "text")
               .addStatement("return new $T(text)", text.type())
               .build());
-      MethodSpec.Builder object =
-          MethodSpec.methodBuilder("object")
-              .addAnnotation(delegatingCreator())
-              .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
-              .returns(cn);
-      if (u.objectInterface == null) {
-        ClassName only = u.variants.stream().filter(v -> !v.text()).findFirst().orElseThrow().type();
-        object.addJavadoc("How an app's own Jackson reads an object: as {@link $T}.\n", only)
-            .addParameter(only, "value")
-            .addStatement("return value");
-      } else {
-        object.addJavadoc("How an app's own Jackson reads an object: by the properties it has.\n")
-            .addParameter(u.objectInterface, "value")
-            .addStatement("return ($T) value", cn);
-      }
-      ib.addMethod(object.build());
+      ib.addMethod(objectCreator(u));
       if (text.allowed() != null && text.allowed().size() == 1) {
         ib.addField(
             FieldSpec.builder(text.type(), Names.constant(text.allowed().get(0)), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
@@ -718,10 +717,74 @@ final class ModelWriter {
       }
       ib.addType(textVariant(u, text));
     }
+    if (u.kind == Ir.UnionKind.SCALAR_OR_OBJECT) {
+      Ir.Variant value = u.scalarVariant();
+      ib.addMethod(
+          MethodSpec.methodBuilder("of")
+              .addJavadoc("The $L variant.\n", scalarName(value.scalar()))
+              .addAnnotation(delegatingCreator())
+              .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+              .returns(cn)
+              .addParameter(value.scalar(), "value")
+              .addStatement("return new $T(value)", value.type())
+              .build());
+      if (value.scalar().equals(TypeName.LONG) || value.scalar().equals(TypeName.DOUBLE)) {
+        ib.addMethod(numberCreator(u, TypeName.INT));
+      }
+      if (value.scalar().equals(TypeName.DOUBLE)) {
+        ib.addMethod(numberCreator(u, TypeName.LONG));
+      }
+      ib.addMethod(objectCreator(u));
+      ib.addType(scalarVariant(u, value));
+    }
     for (Ir.Decl n : u.nested) {
       ib.addType(type(n));
     }
     return ib.build();
+  }
+
+  /**
+   * How an app's own Jackson reads an object of a text-or-object or a scalar-or-object union: as
+   * its one object, or through its hidden {@code <Union>Object}. Its Jackson reads the text or the
+   * plain value through the union's {@code of}.
+   */
+  private static MethodSpec objectCreator(Ir.UnionDecl u) {
+    MethodSpec.Builder object =
+        MethodSpec.methodBuilder("object")
+            .addAnnotation(delegatingCreator())
+            .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+            .returns(u.name);
+    if (u.objectInterface == null) {
+      ClassName only = u.variants.stream().filter(v -> !v.text() && v.scalar() == null).findFirst().orElseThrow().type();
+      object.addJavadoc("How an app's own Jackson reads an object: as {@link $T}.\n", only)
+          .addParameter(only, "value")
+          .addStatement("return value");
+    } else {
+      object.addJavadoc("How an app's own Jackson reads an object: by the properties it has.\n")
+          .addParameter(u.objectInterface, "value")
+          .addStatement("return ($T) value", u.name);
+    }
+    return object.build();
+  }
+
+  /**
+   * A private creator beside a scalar-or-object union's {@code of}, for an app's own Jackson: with
+   * the object creator there, it hands a JSON int or long to that creator unless one takes an
+   * {@code int} or a {@code long}. It reads the number through {@code of}.
+   */
+  private static MethodSpec numberCreator(Ir.UnionDecl u, TypeName from) {
+    boolean isInt = from.equals(TypeName.INT);
+    return MethodSpec.methodBuilder(isInt ? "ofInt" : "ofLong")
+        .addJavadoc(
+            isInt
+                ? "How an app's own Jackson reads an int: it hands a number to the object creator unless an int creator is here.\n"
+                : "How an app's own Jackson reads a long: it needs a long creator to, as {@code of} takes a double.\n")
+        .addAnnotation(delegatingCreator())
+        .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+        .returns(u.name)
+        .addParameter(from, "value")
+        .addStatement("return of(($T) value)", u.scalarVariant().scalar())
+        .build();
   }
 
   /**
@@ -760,9 +823,10 @@ final class ModelWriter {
   }
 
   /**
-   * A text-or-object union's hidden {@code <Union>Object}: the type info that tells its objects
-   * apart for an app's own Jackson, which the union's {@code object} creator reads them through.
-   * On the union itself, a text would be read as a type id too.
+   * A text-or-object or a scalar-or-object union's hidden {@code <Union>Object}: the type info
+   * that tells its objects apart for an app's own Jackson, which the union's {@code object} creator
+   * reads them through. On the union itself, a text or a plain value would be read as a type id
+   * too.
    */
   private static TypeSpec objectInterface(Ir.UnionDecl u) {
     TypeSpec.Builder ib =
@@ -772,13 +836,15 @@ final class ModelWriter {
                     + "it doesn't know as {@link $T}. Not part of the API.\n",
                 u.name,
                 u.unrecognized);
-    typeInfo(ib, Ir.UnionKind.DEDUCED, null, u.unrecognized, u.variants.stream().filter(v -> !v.text()).toList());
+    typeInfo(
+        ib, Ir.UnionKind.DEDUCED, null, u.unrecognized, u.variants.stream().filter(v -> !v.text() && v.scalar() == null).toList());
     return ib.build();
   }
 
   /**
-   * An object of a text-or-object union reads as itself where it's the declared type: it would
-   * otherwise inherit its hidden interface's type info, and deduce (Unrecognized) another variant.
+   * An object of a text-or-object or a scalar-or-object union reads as itself where it's the
+   * declared type: it would otherwise inherit its hidden interface's type info, and deduce
+   * (Unrecognized) another variant.
    */
   static AnnotationSpec noTypeInfo() {
     return AnnotationSpec.builder(JSON_TYPE_INFO).addMember("use", "$T.Id.NONE", JSON_TYPE_INFO).build();
@@ -937,6 +1003,27 @@ final class ModelWriter {
         .addJavadoc("The text variant.\n\n@param value the text\n")
         .recordConstructor(ctor)
         .addMethod(validate.build())
+        .build();
+  }
+
+  private TypeSpec scalarVariant(Ir.UnionDecl u, Ir.Variant value) {
+    MethodSpec ctor =
+        MethodSpec.compactConstructorBuilder()
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(ParameterSpec.builder(value.scalar(), "value").addAnnotation(JSON_VALUE).build())
+            .build();
+    MethodSpec validate =
+        MethodSpec.methodBuilder("validate")
+            .addAnnotation(Override.class)
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(CHECKS, "checks")
+            .build();
+    return TypeSpec.recordBuilder(value.type())
+        .addModifiers(modifiers(value.type()))
+        .addSuperinterface(u.name)
+        .addJavadoc("The $L variant.\n\n@param value the value\n", scalarName(value.scalar()))
+        .recordConstructor(ctor)
+        .addMethod(validate)
         .build();
   }
 }

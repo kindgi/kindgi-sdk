@@ -20,13 +20,16 @@ import { fullAppInput } from './support/full-app.js';
  * `tenantLimits`, from `TenantSummary.limits`): `429 rate-limit-exceeded`
  * past it, with `Retry-After`; on `/s3`, counted in the same minute, S3's
  * `503 SlowDown`. A tenant without one, and a system key, are never counted.
- * A frozen tenant's writes are refused before they're counted.
+ * A frozen tenant's writes are refused before they're counted. A request
+ * past the limit, or a frozen tenant's write, is refused before its body
+ * is read.
  */
 
 const TOKEN = 'tenant-key';
 const SYSTEM = 'kgi_sy_limits';
 const S3_KEY = 'AKIAKINDGITEST000009';
 const S3_SECRET = 'kindgi-test-secret-key-0000000000000009';
+const MiB = 1024 * 1024;
 
 function makeApp(setup: {
   readonly limits: () => TenantLimits | undefined;
@@ -120,22 +123,47 @@ function makeApp(setup: {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  /** An S3 request signed with the tenant's S3 key (aws4, as S3 clients sign). */
-  const s3 = async (method: string, path: string, body = '') => {
+  /** An upload streamed to `POST /v1/artifacts` with the tenant's key. */
+  const upload = async (body: ReadableStream<Uint8Array>) => {
+    const res = await app.request('/v1/artifacts', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        'content-type': 'multipart/form-data; boundary=x',
+      },
+      body,
+      duplex: 'half',
+    } as RequestInit);
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  /**
+   * An S3 request signed with the tenant's S3 key (aws4, as S3 clients
+   * sign). A streamed body is signed as S3 clients stream one:
+   * `UNSIGNED-PAYLOAD`.
+   */
+  const s3 = async (
+    method: string,
+    path: string,
+    body: string | ReadableStream<Uint8Array> = '',
+  ) => {
+    const streamed = typeof body !== 'string';
     const opts = {
       host: 'localhost',
       method,
       path,
       service: 's3',
       region: 'us-east-1',
-      headers: { host: 'localhost' } as Record<string, string>,
-      body,
+      headers: {
+        host: 'localhost',
+        ...(streamed && { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' }),
+      } as Record<string, string>,
+      body: streamed ? '' : body,
     };
     new aws4.RequestSigner(opts, { accessKeyId: S3_KEY, secretAccessKey: S3_SECRET }).sign();
     const res = await app.request(`http://localhost${path}`, {
       method,
       headers: Object.fromEntries(Object.entries(opts.headers).map(([k, v]) => [k, String(v)])),
-      ...(body.length > 0 && { body, duplex: 'half' }),
+      ...((streamed || body.length > 0) && { body, duplex: 'half' }),
     } as RequestInit);
     return {
       status: res.status,
@@ -152,7 +180,20 @@ function makeApp(setup: {
     });
     return { status: res.status };
   };
-  return { get, post, s3, setLimits };
+  return { get, post, upload, s3, setLimits };
+}
+
+/** A body streamed in `chunk`-byte pieces up to `total`, counting what was pulled. */
+function counted(total: number, chunk = 64 * 1024) {
+  let pulled = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulled >= total) return controller.close();
+      pulled += chunk;
+      controller.enqueue(new Uint8Array(chunk).fill(0x78));
+    },
+  });
+  return { stream, pulled: () => pulled };
 }
 
 function clock(start = Date.parse('2026-11-02T09:00:00Z')) {
@@ -249,6 +290,43 @@ describe("a tenant's API requests a minute", () => {
     expect((await get()).status).toBe(200);
     expect((await get()).status).toBe(200);
     expect((await get()).status).toBe(429);
+  });
+
+  test("past its minute, or frozen, a tenant's S3 write is refused before its body is read", async () => {
+    const c = clock();
+    const limited = makeApp({
+      limits: () => ({ apiRequestsPerMinute: 1 }),
+      tenantLimits: { now: c.now, store: createInMemoryRateLimitStore(c.now) },
+    });
+    expect((await limited.get()).status).toBe(200);
+    const late = counted(20 * MiB);
+    expect(await limited.s3('PUT', '/s3/artifacts/report.bin', late.stream)).toMatchObject({
+      status: 503,
+      code: 'SlowDown',
+    });
+    // A stream pulls its first piece when it starts; nothing after that was read.
+    expect(late.pulled()).toBeLessThanOrEqual(64 * 1024);
+
+    const frozen = makeApp({ limits: () => undefined, state: 'suspended' });
+    const refused = counted(20 * MiB);
+    expect(await frozen.s3('PUT', '/s3/artifacts/report.bin', refused.stream)).toMatchObject({
+      status: 403,
+      code: 'AllAccessDisabled',
+    });
+    expect(refused.pulled()).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  test('past its minute, an upload to /v1 is refused before its body is read', async () => {
+    const c = clock();
+    const { get, upload } = makeApp({
+      limits: () => ({ apiRequestsPerMinute: 1 }),
+      tenantLimits: { now: c.now, store: createInMemoryRateLimitStore(c.now) },
+    });
+    expect((await get()).status).toBe(200);
+    const late = counted(20 * MiB);
+    const refused = await upload(late.stream);
+    expect([refused.status, refused.body.error?.code]).toEqual([429, 'rate-limit-exceeded']);
+    expect(late.pulled()).toBeLessThanOrEqual(64 * 1024);
   });
 
   test('a store that fails counts nothing and refuses no one; a failed read keeps the last limits', async () => {

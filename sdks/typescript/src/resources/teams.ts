@@ -57,7 +57,7 @@ export interface TeamsClient {
     teamId: string,
     input: UpdateTeamInput,
     options?: { readonly idempotencyKey?: string },
-  ): Promise<TeamShape>;
+  ): Promise<void>;
   /**
    * With authorization on, the team's members' roles and its project
    * grants go with it.
@@ -125,7 +125,7 @@ export function makeTeamsClient(transport: Transport): TeamsClient {
       });
     },
     async update(teamId, input, options) {
-      return transport.request<TeamShape>({
+      return transport.request<void>({
         method: 'PATCH',
         path: `/v1/teams/${seg(teamId)}`,
         body: input,

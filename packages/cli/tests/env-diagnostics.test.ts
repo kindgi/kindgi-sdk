@@ -13,7 +13,7 @@ describe('describeEnvDiagnostics', () => {
   const packDir = '/work/acme';
   const source = join(packDir, '.env');
 
-  test('a key that refers to itself and that the environment lacks says so (T377)', () => {
+  test('a key that refers to itself and that the environment lacks says so', () => {
     expect(
       describeEnvDiagnostics(packDir, [
         { kind: 'unresolved', key: 'ANTHROPIC_API_KEY', ref: 'ANTHROPIC_API_KEY', source },

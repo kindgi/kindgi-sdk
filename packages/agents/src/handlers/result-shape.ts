@@ -42,6 +42,8 @@ export interface AgentTurnWarning {
    * kept none.
    * Any other code is a provider's own warning about its answers
    * (`ModelCallResult.warnings`), such as dev-echo's `dev-echo-not-a-model`.
+   * A guardrail judge's call warns the same way, its message starting with
+   * the guardrail (`Guardrail "<id>"'s judge: `). One warning per code.
    */
   readonly code:
     | 'fallback-provider'

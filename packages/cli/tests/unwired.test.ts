@@ -46,7 +46,7 @@ describe('commands the API does not wire yet', () => {
     expect(root).not.toMatch(/^ {2}observations /m);
     // Wired with `kindgi improve`.
     expect(root).toMatch(/^ {2}improve /m);
-    // Wired in 0.1.5 (T252): the runtime serves both.
+    // Wired in 0.1.5: the runtime serves both.
     expect(root).toMatch(/^ {2}artifacts /m);
     expect(root).toMatch(/^ {2}capabilities /m);
 
@@ -63,7 +63,7 @@ describe('commands the API does not wire yet', () => {
     const memoryRef = reference.find((c) => c.name === 'memory')!;
     const factsRef = memoryRef.subcommands.find((s) => s.name === 'facts')!;
     expect(factsRef.subcommands.map((s) => s.name)).toContain('retrieve');
-    // `runs resume` is wired (T272): it says what a run waits for.
+    // `runs resume` is wired: it says what a run waits for.
     const runsRef = reference.find((c) => c.name === 'runs')!;
     expect(runsRef.subcommands.map((s) => s.name)).toContain('resume');
   });

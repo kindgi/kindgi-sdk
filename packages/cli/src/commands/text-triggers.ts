@@ -398,7 +398,7 @@ const get: LeafCommand = {
       const id = requiredPositional(ctx, 0, 'trigger-id');
       const version = triggerVersionPositional(ctx, 1);
       const client = ctx.client().textTriggers;
-      return version === undefined ? await client.get(id) : await client.getVersion(id, version);
+      return version === undefined ? await client.get(id) : await client.versions.get(id, version);
     }),
 };
 
@@ -460,7 +460,7 @@ const versions: LeafCommand = {
       async () =>
         await ctx
           .client()
-          .textTriggers.versions(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
+          .textTriggers.versions.list(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
       TRIGGER_VERSIONS_TABLE,
     ),
 };

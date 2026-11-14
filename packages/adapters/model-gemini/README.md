@@ -26,6 +26,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 - **Structured output.** `structuredOutput` becomes `responseMimeType: 'application/json'` plus `responseJsonSchema`.
 - `temperature`, `maxOutputTokens` (the call's, else the model's `ModelInfo.maxOutputTokens`) and `abortSignal` are passed through.
 - **Retries.** A call that fails with a transient status (408, 429, 500, 502, 503, 504) is retried: three attempts in all, backing off from a second, with jitter. The `@google/genai` client retries only when it's told to, and the adapter tells it. A failed connection isn't retried. The result's `attempts` counts every attempt; a call that still fails throws the last error, and `attemptsOf(error)` (`@kindgi/capabilities/attempts`) counts them. An injected `client` keeps its own settings.
+- **Errors.** A failed call throws `ModelProviderError` (`kind`, `status`; [`@kindgi/adapter-model-shared`](../model-shared/)), with what the `@google/genai` client threw as its `cause`, as the other adapters' do. A response that refuses the call has its kind from the status and the vendor's words, and the client's message. A call nothing came back from (a dropped or refused connection, DNS, TLS) is `network`, with no `status`: the client's `fetch failed`, then what its causes add, masked (`fetch failed; caused by AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:443, connect ECONNREFUSED 127.0.0.1:443`). A connection the runtime refuses (its egress or body-size rule) says the refusal's own words. A call stopped by its `abortSignal` throws what the client threw.
 - **`finishReason`:**
   - a response with function calls → `tool-use`;
   - `STOP` or unspecified → `stop`;
@@ -38,7 +39,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 `costUsd` is computed from the response's usage against the picked model's `cost`:
 
 - uncached prompt tokens at `promptUsdPer1kTokens`;
-- cached prompt tokens at `promptUsdPer1kTokens × cachedPromptMultiplier` (default `0.25`, Gemini 2.5's implicit-cache discount);
+- cached prompt tokens at `promptUsdPer1kTokens × cachedPromptMultiplier`. Google bills Gemini 3.x's cached prompt tokens at a tenth of the input price, so set `0.1` for them; left out, it's `0.25`, Gemini 2.5's implicit-cache discount;
 - completion tokens, thinking included, at `completionUsdPer1kTokens`;
 - `longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }`: a call whose prompt exceeds the threshold bills entirely at those rates, for a model whose price rises past a prompt size.
 
@@ -88,8 +89,12 @@ const gemini = createGeminiProvider({
         contextWindow: 1_048_576,
         features: ['tool-use', 'structured-output', 'long-context'],
         maxOutputTokens: 8_192,
-        // Rates from Google's published pricing.
-        cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
+        // Rates from Google's published pricing; cached prompt tokens bill at a tenth.
+        cost: {
+          promptUsdPer1kTokens: 0.00075,
+          completionUsdPer1kTokens: 0.00375,
+          cachedPromptMultiplier: 0.1,
+        },
       },
     ],
   },

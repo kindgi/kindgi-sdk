@@ -60,6 +60,8 @@ final class ModelPlanner {
     String tag;
     final List<Schema> objects = new ArrayList<>();
     Schema text;
+    /** A SCALAR_OR_OBJECT's one plain value: a boolean, an integer or a number. */
+    Schema scalar;
     final Map<Schema, List<String>> tags = new HashMap<>();
     final Map<Schema, List<String>> unique = new HashMap<>();
   }
@@ -152,8 +154,9 @@ final class ModelPlanner {
 
   /**
    * An app's own Jackson reads a variant by the type info its unions carry, so a variant of two
-   * unions needs them to tell variants apart the same way. A text-or-object union's object
-   * carries none of its own ({@code @JsonTypeInfo(use = NONE)}), so it's in no other typed union.
+   * unions needs them to tell variants apart the same way. A text-or-object or a scalar-or-object
+   * union's object carries none of its own ({@code @JsonTypeInfo(use = NONE)}), so it's in no other
+   * typed union.
    */
   private void typeInfoOnce(ClassName variant, Set<ClassName> unions) {
     List<ClassName> typed = new ArrayList<>();
@@ -165,8 +168,9 @@ final class ModelPlanner {
     for (ClassName union : typed) {
       if (objectInterfaces.containsKey(union) && typed.size() > 1) {
         ClassName other = typed.get(typed.get(0).equals(union) ? 1 : 0);
+        String kind = objectInterfaces.get(union).kind == Ir.UnionKind.TEXT_OR_OBJECT ? "text" : "scalar";
         throw new GenerationException(
-            variant + " is an object of the text-or-object union " + unionOf(union) + " and a variant of "
+            variant + " is an object of the " + kind + "-or-object union " + unionOf(union) + " and a variant of "
                 + unionOf(other) + ", whose type info an app's own Jackson would read it by");
       }
     }
@@ -377,6 +381,9 @@ final class ModelPlanner {
         sig.append(o.ref()).append(',');
       }
       sig.append('|').append(plan.text == null ? "" : plan.text.raw.toString());
+      if (plan.scalar != null) {
+        sig.append("|scalar:").append(plan.scalar.raw);
+      }
       ClassName shared = unionsBySignature.get(sig.toString());
       if (shared != null) {
         return shared;
@@ -536,7 +543,13 @@ final class ModelPlanner {
   // Unions
   // ---------------------------------------------------------------------------------------------
 
-  /** How a union's variants are told apart; fails on any union the generator can't handle. */
+  /**
+   * How a union's variants are told apart; fails on any union the generator can't handle. The
+   * objects are told apart by a tag (TAGGED) or by their properties (DEDUCED). Beside them there
+   * may be one string (TEXT_OR_OBJECT) or one plain value, a boolean, an integer or a number with
+   * no fixed values (SCALAR_OR_OBJECT); either is read by the JSON token and written back as it.
+   * Null beside them makes the value nullable.
+   */
   UnionPlan analyze(Schema s) {
     UnionPlan plan = new UnionPlan();
     for (Schema v : nonNull(s.variants())) {
@@ -548,14 +561,22 @@ final class ModelPlanner {
           throw new GenerationException(s + ": a union with two text variants beside objects");
         }
         plan.text = v;
+      } else if (sh == Shape.SCALAR && scalarType(v) != null) {
+        if (plan.scalar != null) {
+          throw new GenerationException(s + ": a union with two plain values beside objects");
+        }
+        plan.scalar = v;
       } else {
         throw new GenerationException(
             s + ": unsupported union variant " + v + " (" + sh + "); the generator supports"
                 + " objects told apart by a tag or by their properties, optionally beside one"
-                + " string");
+                + " string or one boolean, integer or number");
       }
     }
-    if (plan.objects.isEmpty() || (plan.objects.size() == 1 && plan.text == null)) {
+    if (plan.text != null && plan.scalar != null) {
+      throw new GenerationException(s + ": a union with both text and a plain value beside objects");
+    }
+    if (plan.objects.isEmpty() || (plan.objects.size() == 1 && plan.text == null && plan.scalar == null)) {
       throw new GenerationException(s + ": not a union of objects");
     }
     if (plan.objects.size() >= 2) {
@@ -578,8 +599,36 @@ final class ModelPlanner {
                 + " variant, and no required property unique to each");
       }
     }
-    plan.kind = plan.text != null ? Ir.UnionKind.TEXT_OR_OBJECT : plan.objectKind;
+    plan.kind =
+        plan.text != null
+            ? Ir.UnionKind.TEXT_OR_OBJECT
+            : plan.scalar != null ? Ir.UnionKind.SCALAR_OR_OBJECT : plan.objectKind;
     return plan;
+  }
+
+  /**
+   * The Java type of a SCALAR_OR_OBJECT's plain value: {@code boolean}, {@code long} or
+   * {@code double}; null for anything else, a value with fixed values among it.
+   */
+  TypeName scalarType(Schema v) {
+    Schema r = v.ref() != null ? component(v.ref()) : v;
+    if (r.ref() != null) {
+      return scalarType(r);
+    }
+    if (!r.variants().isEmpty() || !r.allOf().isEmpty() || r.enumValues() != null || r.hasConst()) {
+      return null;
+    }
+    String type = r.type();
+    if ("boolean".equals(type)) {
+      return TypeName.BOOLEAN;
+    }
+    if ("integer".equals(type)) {
+      return TypeName.LONG;
+    }
+    if ("number".equals(type)) {
+      return TypeName.DOUBLE;
+    }
+    return null;
   }
 
   private String findTag(UnionPlan plan, String preferred) {
@@ -691,14 +740,15 @@ final class ModelPlanner {
       u.tagWire = plan.tag;
       u.tagJava = Names.camel(plan.tag);
     }
-    if (plan.kind == Ir.UnionKind.TEXT_OR_OBJECT && plan.objects.size() >= 2) {
+    if ((plan.kind == Ir.UnionKind.TEXT_OR_OBJECT || plan.kind == Ir.UnionKind.SCALAR_OR_OBJECT)
+        && plan.objects.size() >= 2) {
       // An app's own Jackson reads the objects through a hidden interface that carries their type
-      // info; on the union, a text would be read as a type id too. Only objects told apart by
-      // their properties are proven to read that way.
+      // info; on the union, a text or a plain value would be read as a type id too. Only objects
+      // told apart by their properties are proven to read that way.
       if (plan.objectKind == Ir.UnionKind.TAGGED) {
         throw new GenerationException(
-            cn + ": a text-or-object union whose objects carry a tag (" + plan.tag + "), which an app's own"
-                + " Jackson can't read yet");
+            cn + ": a " + (plan.kind == Ir.UnionKind.TEXT_OR_OBJECT ? "text" : "scalar") + "-or-object union"
+                + " whose objects carry a tag (" + plan.tag + "), which an app's own Jackson can't read yet");
       }
       u.objectInterface = reserveTop(String.join("", cn.simpleNames()) + "Object");
       objectInterfaces.put(u.objectInterface, u);
@@ -740,12 +790,15 @@ final class ModelPlanner {
         }
         scope.add(rd);
       }
-      u.variants.add(new Ir.Variant(vt, tags, unique, false, null));
+      u.variants.add(new Ir.Variant(vt, tags, unique, false, null, null));
     }
     if (plan.text != null) {
       List<String> allowed = tagValues(plan.text);
       String name = allowed != null && allowed.size() == 1 ? Names.pascal(allowed.get(0)) : "Text";
-      u.variants.add(new Ir.Variant(scope.nested(name), null, null, true, allowed));
+      u.variants.add(new Ir.Variant(scope.nested(name), null, null, true, allowed, null));
+    }
+    if (plan.scalar != null) {
+      u.variants.add(new Ir.Variant(scope.nested("Value"), null, null, false, null, scalarType(plan.scalar)));
     }
     if (plan.objectKind == Ir.UnionKind.TAGGED || plan.objectKind == Ir.UnionKind.DEDUCED) {
       u.unrecognized = scope.nested("Unrecognized");
@@ -782,7 +835,7 @@ final class ModelPlanner {
     }
     for (Map.Entry<ClassName, Schema> v : variants.entrySet()) {
       Schema s = v.getValue();
-      u.variants.add(new Ir.Variant(v.getKey(), plan.tags.get(s), plan.unique.get(s), false, null));
+      u.variants.add(new Ir.Variant(v.getKey(), plan.tags.get(s), plan.unique.get(s), false, null, null));
       implementsMap.computeIfAbsent(v.getKey(), k -> new LinkedHashSet<>()).add(cn);
     }
     register(u, true);

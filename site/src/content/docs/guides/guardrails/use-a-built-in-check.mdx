@@ -5,6 +5,8 @@ sidebar:
   order: 4
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 This guide puts one of Kindgi's built-in checks on an agent, instead of a
 check you write. It lists the settings each one reads, and where in the turn
 each one runs.
@@ -16,8 +18,9 @@ shipping a check you [write yourself](../write-a-guardrail/).
 
 ## Before you start
 
-- **A TypeScript pack,** with Kindgi 0.2's SDK, on a runtime such as
-  `kindgi dev`. A Python, Java or Scala pack can't name a built-in.
+- **A pack** on a runtime such as `kindgi dev`: a TypeScript pack with
+  Kindgi 0.2's SDK, or a Python, Java or Scala pack with an SDK that has
+  `built_in_guardrail` (Python) or `builtInCheck` (Java and Scala).
 - **An agent to put the guardrail on.**
 
 ## Name a built-in
@@ -28,6 +31,9 @@ coding agent: "I want a guardrail, with a built-in check, that stops an
 answer promising a guarantee." Kindgi's skills in your pack tell it how
 ([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
 guardrail looks like this:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```ts
 // guardrails/no-guarantees/index.ts
@@ -42,6 +48,86 @@ export default {
 };
 ```
 
+</TabItem>
+<TabItem label="Python">
+
+```python
+# guardrails/no_guarantees.py
+from kindgi import built_in_guardrail
+
+no_guarantees = built_in_guardrail(
+    id="my-pack.no-guarantees",
+    name="Never promise a guarantee",
+    check="forbidden-substring",
+    config={"patterns": ["guaranteed", "we promise"]},
+    on_violation="halt",
+    severity="error",
+)
+```
+
+`built_in_guardrail` declares the guardrail at module level, like
+`@guardrail`, with no function. Calling it in Python raises: only the
+runtime runs a built-in.
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/guardrails/NoGuarantees.java
+package mypack.guardrails;
+
+import com.kindgi.pack.Guardrail;
+import java.util.List;
+import java.util.Map;
+
+public final class NoGuarantees {
+  public static final Guardrail<Map<String, Object>> GUARDRAIL = Guardrail.define("my-pack.no-guarantees")
+      .name("Never promise a guarantee")
+      .onViolation("halt")
+      .severity("error")
+      .builtInCheck("forbidden-substring", Map.of("patterns", List.of("guaranteed", "we promise")));
+
+  private NoGuarantees() {}
+}
+```
+
+`builtInCheck` finishes the builder in place of `check(...)`.
+`builtInCheck("must-cite")`, with no config, takes the built-in's
+defaults. Its `evaluate` throws: only the runtime runs a built-in.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/guardrails/NoGuarantees.scala
+package mypack.guardrails
+
+import com.kindgi.pack.scaladsl._
+
+object NoGuarantees {
+  val guardrail: Guardrail[Map[String, Any]] = Guardrail.json("my-pack.no-guarantees")
+    .name("Never promise a guarantee")
+    .onViolation("halt")
+    .severity("error")
+    .builtInCheck("forbidden-substring", Map("patterns" -> List("guaranteed", "we promise")))
+}
+```
+
+`builtInCheck` finishes the builder in place of `check`. It starts from
+`Guardrail.json`: a built-in's config is the runtime's to check, so it has
+no config type.
+
+</TabItem>
+</Tabs>
+
+The config is keyed as on the wire, as [The built-in checks](#the-built-in-checks)
+lists it. Python, Java and Scala refuse the guardrail where it's defined
+if its check isn't one of the built-ins, or nothing says what a failing
+check does. Java's and Scala's `builtInCheck` also refuse what a built-in
+doesn't take: a config given twice, a config type or schema, a `checkId`,
+a `kind` other than `zero-llm`, `judgeCapabilities`, `sandbox`, `limits`
+or `network`.
+
 Put it on an agent by its id, as with any guardrail, as
 [Put it on an agent](../write-a-guardrail/#put-it-on-an-agent) shows. With
 `halt`, an answer containing "guaranteed" stops the turn, as
@@ -52,11 +138,6 @@ citation:
 ```text
 Error [guardrail-violation]: Turn blocked by guardrail 'acme.cite-or-halt': expected >= 1 citations, found 0
 ```
-
-A Python, Java or Scala pack can't name a built-in: a guardrail there is
-always defined with its own check. Python's `@guardrail` decorates a check
-function. Write the rule as your own check, and use
-[The built-in checks](#the-built-in-checks) for what each built-in checks.
 
 ## The built-in checks
 
@@ -86,7 +167,8 @@ describes.
 ## Where each check runs
 
 Every built-in runs at the final answer, and some at other points of the
-turn too. A guardrail that names one can set `at` to any of its points
+turn too. A guardrail that names one can set `at` to any of its points:
+`at=` in Python, `set("at", …)` in Java and Scala
 ([Where in the turn it runs](../configure-a-guardrail/#where-in-the-turn-it-runs)):
 
 | Check | Runs at |

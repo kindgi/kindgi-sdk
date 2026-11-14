@@ -48,7 +48,7 @@ import type { RegExpEngine, RegExpLike } from 'ajv/dist/types/index.js';
 
 import { CompileBudget, SchemaCompileBudgetError } from './compile-budget.js';
 import type { JsonSchemaDialect } from './dialect.js';
-import { linearUniqueItems } from './unique-items.js';
+import { useLinearUniqueItems } from './unique-items.js';
 
 type AnyAjv = Ajv | Ajv2019 | Ajv2020;
 
@@ -120,8 +120,8 @@ export function boundedAjv(
     // without building RE2's program: data can carry thousands of values.
     ajv.addFormat('regex', (input: string) => tenantPatternSyntaxProblem(input) === undefined);
     ajv.addFormat('url', linearUrl());
-    ajv.removeKeyword('uniqueItems');
-    ajv.addKeyword(linearUniqueItems());
+    // In the place Ajv's own has: strict mode and the errors keep its order.
+    useLinearUniqueItems(ajv);
   } else {
     addFormats(ajv);
   }

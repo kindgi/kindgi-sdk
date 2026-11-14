@@ -10,7 +10,11 @@ The same rules as the TypeScript SDK's `createClient()`:
 3. outside production, the running `kindgi dev`, from the nearest
    `.kindgirc.json` at or above the working directory (it records the
    runtime's `apiUrl` and the dev `token`), with a one-time warning to put
-   them in the app's env file;
+   them in the app's env file. The two go together: a token set without a
+   URL never goes to the file's `apiUrl`, and the file's token goes only to
+   its own `apiUrl`. With only one of them set, and the URL not the file's
+   own, the client takes nothing from the file and raises, naming it and
+   what to set;
 4. otherwise, an error that says what to set.
 
 Production (`KINDGI_ENV` or `NODE_ENV` set to `production`) never reads
@@ -82,6 +86,9 @@ def resolve_settings(
     secret = token or environ.get("KINDGI_API_TOKEN") or None
 
     if (url is None or secret is None) and dev is not None:
+        half_set = _half_set_refusal(base_url, token, url, secret, dev)
+        if half_set is not None:
+            raise ValueError(half_set)
         used: list[str] = []
         if url is None:
             url = dev.api_url
@@ -121,6 +128,40 @@ def resolve_settings(
         )
 
     return url, secret
+
+
+def _half_set_refusal(
+    base_url: str | None,
+    token: str | None,
+    url: str | None,
+    secret: str | None,
+    dev: DevRuntime,
+) -> str | None:
+    """Why the client takes nothing from the running `kindgi dev`'s file, or `None` when it may.
+
+    Only one of the URL and the token is set: a token set without a URL would
+    go to the file's `apiUrl`, and the file's token goes only to its own
+    `apiUrl`. A URL that is the file's own takes the file's token, as with
+    neither set.
+    """
+    fix = (
+        f"Set KINDGI_API_URL and KINDGI_API_TOKEN in {_ENV_FILE_HINT}, or pass base_url= and "
+        "token=. To use the running kindgi dev, set neither."
+    )
+    if url is None and secret is not None:
+        given = "`token=` is passed" if token else "KINDGI_API_TOKEN is set"
+        return (
+            f"Kindgi(): {given}, and KINDGI_API_URL isn't set. The client won't send that token "
+            f"to the URL in {dev.path}, the running kindgi dev's. {fix}"
+        )
+    if url is not None and secret is None and not _same_url(url, dev.api_url):
+        given = "`base_url=` is passed" if base_url else "KINDGI_API_URL is set"
+        return (
+            f"Kindgi(): {given}, and KINDGI_API_TOKEN isn't set. The token in {dev.path} is the "
+            f"running kindgi dev's, for {dev.api_url} only, so the client won't send it to "
+            f"another URL. {fix}"
+        )
+    return None
 
 
 def find_dev_runtime(start: Path) -> DevRuntime | None:

@@ -846,7 +846,7 @@ describe('kindgi runs start', () => {
     return { out, started };
   }
 
-  test('--agent-version and --flow-version name the version to run (T245)', async () => {
+  test('--agent-version and --flow-version name the version to run', async () => {
     const agent = await start(['--agent=pack.agent', '--agent-version=1.0.0']);
     expect(agent.out.exitCode, agent.out.stderr).toBe(0);
     expect(agent.started).toEqual([
@@ -871,7 +871,7 @@ describe('kindgi runs start', () => {
     ]);
   });
 
-  test('a version for the other kind is refused, and nothing starts (T245)', async () => {
+  test('a version for the other kind is refused, and nothing starts', async () => {
     for (const [flags, message] of [
       [
         ['--flow=pack.flow', '--agent-version=1.0.0'],

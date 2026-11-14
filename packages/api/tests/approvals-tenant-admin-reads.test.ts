@@ -71,17 +71,31 @@ const resolveToken: TokenResolver = async (token) => {
       tokenProjectId: MINE,
     };
   }
+  // The standard reviewer's key limited to a project.
+  if (token === 'standard-project-key') {
+    return {
+      tenantId,
+      userId: STANDARD,
+      tokenId: 'key-sp' as never,
+      tokenRole: 'member',
+      tokenProjectId: MINE,
+    };
+  }
   return null;
 };
 
 /** Who is the tenant's admin, by the binding: every caller but the member and the standard reviewer. */
 const TENANT_ADMINS = new Set<string>([ADMIN, ADMIN_STANDARD, ADMIN_REVIEWER, KEY]);
 
-function approval(id: string, requiredRole: Approval['requiredRole'], projectId: string): Approval {
+function approval(
+  id: string,
+  requiredRole: Approval['requiredRole'],
+  projectId?: string,
+): Approval {
   return {
     id,
     tenantId,
-    projectId,
+    ...(projectId !== undefined && { projectId }),
     subjectKind: 'tool-call:pending',
     subjectRef: {},
     requiredRole,
@@ -95,6 +109,8 @@ const APPROVALS = [
   approval('appr-admin', 'admin', MINE),
   approval('appr-theirs', 'standard', THEIRS),
 ];
+/** One with no project and no run: checked on the whole workspace. */
+const WORKSPACE_APPROVAL = approval('appr-workspace', 'standard');
 
 interface Check {
   readonly actor: string;
@@ -104,14 +120,18 @@ interface Check {
   readonly correlationId: string | undefined;
 }
 
-function harness() {
+/** `readsWorkspace`: every caller reads the tenant, and the approvals hold `WORKSPACE_APPROVAL`. */
+function harness(options: { readsWorkspace?: boolean } = {}) {
+  const readsWorkspace = options.readsWorkspace === true;
+  const approvals = readsWorkspace ? [...APPROVALS, WORKSPACE_APPROVAL] : APPROVALS;
   const checks: Check[] = [];
   const recorded: Check[] = [];
   const decide = (p: Principal, action: Action, r: ResourceRef): Decision => {
     const allowed =
       action === 'admin'
         ? r.type === 'tenant' && TENANT_ADMINS.has(p.actor.id)
-        : action === 'read' && r.type === 'project' && r.id === MINE;
+        : action === 'read' &&
+          ((r.type === 'project' && r.id === MINE) || (readsWorkspace && r.type === 'tenant'));
     return {
       allowed,
       reason: allowed ? 'test: granted' : 'test: not granted',
@@ -155,13 +175,13 @@ function harness() {
     listApprovals: async (input: { requiredRole?: Approval['requiredRole'] }) => ({
       kind: 'ok',
       value: {
-        approvals: APPROVALS.filter(
+        approvals: approvals.filter(
           (a) => input.requiredRole === undefined || a.requiredRole === input.requiredRole,
         ),
       },
     }),
     getApproval: async (_t: TenantId, id: string) => {
-      const found = APPROVALS.find((a) => a.id === id);
+      const found = approvals.find((a) => a.id === id);
       return found === undefined
         ? { kind: 'err', error: { code: 'approval-not-found', message: 'x' } }
         : { kind: 'ok', value: found };
@@ -354,5 +374,28 @@ describe('who still reads nothing', () => {
     const answer = await h.call('member', 'GET', '/v1/approvals');
     expect(answer.status).toBe(403);
     expect(answer.json.error).toMatchObject({ code: 'permission-denied' });
+  });
+});
+
+describe('an approval with no project or run: the whole workspace reads it', () => {
+  test('a reviewer who reads the workspace: listed, and found', async () => {
+    const h = harness({ readsWorkspace: true });
+    const answer = await h.call('standard', 'GET', '/v1/approvals');
+    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-workspace']);
+    expect((await h.call('standard', 'GET', '/v1/approvals/appr-workspace')).status).toBe(200);
+  });
+
+  test("the same reviewer's key limited to a project: its project's only, and the workspace's not found", async () => {
+    const h = harness({ readsWorkspace: true });
+    const answer = await h.call('standard-project-key', 'GET', '/v1/approvals');
+    expect(answer.status).toBe(200);
+    expect(h.ids(answer.json)).toEqual(['appr-standard']);
+    // Not found, as one in another project: nothing says it exists.
+    const got = await h.call('standard-project-key', 'GET', '/v1/approvals/appr-workspace');
+    expect(got.status).toBe(404);
+    expect(got.json.error).toMatchObject({ code: 'approval-not-found' });
+    expect(
+      (await h.call('standard-project-key', 'GET', '/v1/approvals/appr-standard')).status,
+    ).toBe(200);
   });
 });

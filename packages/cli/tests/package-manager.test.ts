@@ -95,7 +95,7 @@ describe('binCommand — runs the project-local bin, never downloads', () => {
   });
 });
 
-describe('usablePackageManager (T280)', () => {
+describe('usablePackageManager', () => {
   const pnpmProject = { '/app/pnpm-workspace.yaml': '' };
   test('the declared manager when it runs here', async () => {
     expect(

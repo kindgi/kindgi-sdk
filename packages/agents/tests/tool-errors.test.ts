@@ -13,6 +13,7 @@ import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
+import { UNREADABLE_DECISION } from '../src/handlers/gate-decision.js';
 import {
   DEFAULT_TOOL_ERRORS,
   type ToolErrorPolicy,
@@ -349,13 +350,44 @@ describe('dispatch-tools — a rejected tool approval', () => {
     expect(ran).toBe(false);
     expect(out.nextMessages.at(-1)).toEqual({
       role: 'tool',
-      content: JSON.stringify({ status: 'rejected', rationale: 'not this one' }),
+      content: JSON.stringify({ status: 'rejected', by: 'reviewer', rationale: 'not this one' }),
       toolCallId: 'call-0',
     });
-    expect(persisted.find((m) => m.role === 'tool')).toMatchObject({
+    const stored = persisted.find((m) => m.role === 'tool');
+    expect(stored).toMatchObject({
       role: 'tool',
-      content: { status: 'rejected', rationale: 'not this one' },
       toolCall: { toolId: 'pack.lookup', invocationId: 'call-0' },
     });
+    expect(stored?.content).toEqual({
+      status: 'rejected',
+      by: 'reviewer',
+      rationale: 'not this one',
+    });
+  });
+
+  test('says a reviewer decided, with no rationale when they gave none', async () => {
+    const { dispatch } = turn(strictTool(), undefined, {
+      agent: {
+        conversationPolicy: { hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } } } },
+      },
+      waitForToken: async () => ({ decided: 'reject' }),
+    });
+    const out = await dispatch([{ name: 'pack.lookup', arguments: { q: 'x' } }]);
+    expect(out.nextMessages.at(-1)?.content).toBe(
+      JSON.stringify({ status: 'rejected', by: 'reviewer' }),
+    );
+  });
+
+  test("an answer that isn't a decision blocks, naming no reviewer", async () => {
+    const { dispatch } = turn(strictTool(), undefined, {
+      agent: {
+        conversationPolicy: { hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } } } },
+      },
+      waitForToken: async () => ({ maxCostUsd: 1.5 }),
+    });
+    const out = await dispatch([{ name: 'pack.lookup', arguments: { q: 'x' } }]);
+    expect(out.nextMessages.at(-1)?.content).toBe(
+      JSON.stringify({ status: 'rejected', rationale: UNREADABLE_DECISION }),
+    );
   });
 });

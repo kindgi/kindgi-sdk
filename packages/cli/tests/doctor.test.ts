@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
+/** `kindgi doctor`: each check, from fakes of the tools, Docker, the runtime and the client. */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -627,6 +627,36 @@ describe('a TypeScript project', () => {
       'azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)',
     );
   });
+
+  test("a key limited to a project (403): not checked, the key's limit named, no restart", async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const limited = Object.assign(
+      new Error('Permission denied: the API key is limited to project prj_acme'),
+      { code: 'auth', reason: 'forbidden' },
+    );
+    const { out, check } = await doctor({ fetchImpl: healthy, providers: limited });
+    expect(check('provider')).toMatchObject({
+      status: 'skip',
+      message:
+        "Not checked: the key in .kindgirc.json can't list the providers (Permission denied: the API key is limited to project prj_acme).",
+      fix: "Check them with a key that reads the workspace's settings: a key limited to a project, say, doesn't.",
+    });
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('any other failure to list them: a failure, and the restart advice', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor({
+      fetchImpl: healthy,
+      providers: new Error('socket hang up'),
+    });
+    expect(check('provider')).toMatchObject({
+      status: 'fail',
+      message: "Couldn't list the providers: socket hang up",
+      fix: 'Run doctor again once kindgi dev has finished starting; if it persists, restart kindgi dev.',
+    });
+    expect(out.exitCode).toBe(1);
+  });
 });
 
 describe("a registration the runtime can't build: its problems, from GET /v1/providers/{id}/check", () => {
@@ -1224,7 +1254,7 @@ describe('a Scala project (kindgi.config.json, "language": "scala")', () => {
   });
 });
 
-describe('under kindgi-cli, the PyPI build (T127)', () => {
+describe('under kindgi-cli, the PyPI build', () => {
   const PYPI = { KINDGI_CLI_INSTALL: 'pypi' };
 
   test("Node is the wheel's and npm isn't needed: neither fails, with no node or npm on PATH", async () => {

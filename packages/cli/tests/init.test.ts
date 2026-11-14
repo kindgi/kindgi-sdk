@@ -124,7 +124,16 @@ describe('kindgi init — minimal template', () => {
     expect(files).toEqual([
       '.agents/skills/kindgi-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.agents/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.agents/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.agents/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.agents/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.agents/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.agents/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -167,7 +176,16 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.claude/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.claude/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.claude/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.claude/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.claude/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.claude/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -244,7 +262,7 @@ describe('kindgi init — minimal template', () => {
   });
 
   test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up', 'returns-helper'])(
-    "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
+    "the %s template decides esbuild's install script for npm and pnpm alike: off",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
       const pkg = JSON.parse(await readFile(join(cwd, 'my-pack', 'package.json'), 'utf8')) as {
@@ -753,7 +771,7 @@ describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () =
   });
 });
 
-describe('kindgi init — a machine without pnpm (T280)', () => {
+describe('kindgi init — a machine without pnpm', () => {
   test('the next steps install and run with npm, never naming pnpm', async () => {
     const out = await runCli(
       baseInputs({
@@ -775,7 +793,7 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
   });
 });
 
-describe("kindgi init — the README's commands are the Next steps' (T279)", () => {
+describe("kindgi init — the README's commands are the Next steps'", () => {
   const NO_PNPM = {
     pnpmVersion: async () => {
       throw new Error('spawn pnpm ENOENT');
@@ -997,6 +1015,7 @@ describe('kindgi init — python template', () => {
       '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-python-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-python-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-python-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.agents/skills/kindgi-python-authoring-tools/SKILL.md',
       '.agents/skills/kindgi-python-getting-started/SKILL.md',
@@ -1035,6 +1054,7 @@ describe('kindgi init — python template', () => {
       '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-python-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-python-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-python-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-python-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-python-getting-started/SKILL.md',
@@ -1105,6 +1125,7 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-java-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-java-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-java-getting-started/SKILL.md',
@@ -1204,6 +1225,7 @@ describe('kindgi init — scala template', () => {
       '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-scala-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-scala-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.agents/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.agents/skills/kindgi-scala-getting-started/SKILL.md',
@@ -1240,6 +1262,7 @@ describe('kindgi init — scala template', () => {
       '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-scala-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-scala-getting-started/SKILL.md',
@@ -1322,7 +1345,16 @@ describe('kindgi init — sample template', () => {
     expect(files).toEqual([
       '.agents/skills/kindgi-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.agents/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.agents/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.agents/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.agents/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.agents/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.agents/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -1365,7 +1397,16 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.claude/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.claude/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.claude/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.claude/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.claude/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.claude/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',

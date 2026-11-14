@@ -149,6 +149,9 @@ terraform apply -var-file=dev.tfvars \
 
 - `dev.tfvars` holds this deployment's variables. `example.tfvars` lists
   them.
+- `kindgi_env` is the env the runtime serves: set it to `staging`, as
+  here. The secrets your tools declare resolve under it
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `-backend-config` tells `init` where the state goes: the storage account
   and container you made, and `<this deployment>.tfstate`, its own key.
   `use_azuread_auth=true` reads it as you, with no storage key.
@@ -156,7 +159,8 @@ terraform apply -var-file=dev.tfvars \
   roles, with what they need.
 
 The image variables need only a digest-shaped placeholder here.
-`secrets_aad_key_version` and `erasure_ledger_key_version` may stay empty.
+`secrets_aad_key_version`, `erasure_ledger_key_version` and
+`pagination_key_version` may stay empty.
 The plan creates 22 resources. In the verification run, the apply took 6
 minutes 47 seconds. The database's admin password is write-only: Terraform
 sends a random one that nobody keeps, and it never reaches the state. You set
@@ -196,8 +200,8 @@ digest, with every platform it was built for:
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
   | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
-docker buildx imagetools create --tag "$ACR/runtime:0.3.0" \
-  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
+docker buildx imagetools create --tag "$ACR/runtime:0.6.0" \
+  registry.kindgi.com/kindgi/runtime:0.6.0@sha256:5c2817be229130df77c0822d583849edadc0527065d1b20e14574645b30958e9
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -223,13 +227,13 @@ most of an hour.
 Then build and push your pack's image, signed:
 
 ```sh
-pnpm exec kindgi build --local --push --env dev
+pnpm exec kindgi build --local --push --env staging
 ```
 
 - `--local` builds the image on your machine.
-- `--push` pushes it to the `registry` of your pack's `dev` environment
+- `--push` pushes it to the `registry` of your pack's `staging` environment
   block, here the module's.
-- `--env dev` names that environment block.
+- `--env staging` names that environment block.
 
 It prints the build as JSON, then each step. The last steps:
 
@@ -245,7 +249,7 @@ It prints the build as JSON, then each step. The last steps:
       key: acme-dev
 
   Deploy envelope written to …/.kindgi/build/deploy-envelope.json
-  Run `kindgi deploy --env=dev` to POST it.
+  Run `kindgi deploy --env=staging` to POST it.
 ```
 
 Set `server_image` and `pack_image` in `dev.tfvars` to the two images by
@@ -280,10 +284,12 @@ openssl rand -hex 32 | tr -d '\n' | put pack-service-token
 # The first API token.
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | put api-token
 
-# The AAD key and the erasure ledger's key: 32 bytes, base64. Each prints the
-# secret's id; its last segment is the version to pin.
+# The AAD key, the erasure ledger's key and the page-cursor key: 32 bytes,
+# base64, each its own. Each prints the secret's id; its last segment is the
+# version to pin.
 openssl rand 32 | base64 | tr -d '\n' | put secrets-aad-key
 openssl rand 32 | base64 | tr -d '\n' | put erasure-ledger-key
+openssl rand 32 | base64 | tr -d '\n' | put pagination-key
 
 # The key that signs public run tokens.
 openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put public-token-key
@@ -305,11 +311,14 @@ read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | put license-key && unset LI
 - `openssl genpkey -algorithm ed25519` makes an Ed25519 private key.
 - `read -rs` reads the license key you paste, without showing it.
 
-Put the two keys' versions in `secrets_aad_key_version` and
-`erasure_ledger_key_version`. The server reads those versions, never the
-latest. Every secret stored in Postgres is bound to the AAD key, and
-erasures replay after a backup restore only with the same ledger key. The
-module refuses anything else:
+Put the three keys' versions in `secrets_aad_key_version`,
+`erasure_ledger_key_version` and `pagination_key_version`. The server reads
+those versions, never the latest. Every secret stored in Postgres is bound
+to the AAD key, and erasures replay after a backup restore only with the
+same ledger key. A page cursor opens only with the key that sealed it: with
+the key pinned, a cursor outlives a restart and a new revision, where a
+new version read without one would reach the server within 30 minutes and
+break every cursor out there. The module refuses anything else:
 
 ```text
 Error: Invalid value for variable
@@ -340,12 +349,12 @@ See [Export signed evidence](../../../guides/observability/export-signed-evidenc
 **The database login** is the server's admin, a member of `azure_pg_admin`
 with `CREATEROLE`, which is what the runtime needs.
 
-**Your pack's own secrets:** `kindgi env plan --env dev` lists what your pack
+**Your pack's own secrets:** `kindgi env plan --env staging` lists what your pack
 needs. Create each one in the same vault with `put`. The module passes them
 to the pack's service, which gets read access to exactly those:
 
 ```sh
-pnpm exec kindgi env plan --env dev > pack-env.json
+pnpm exec kindgi env plan --env staging > pack-env.json
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
@@ -401,7 +410,7 @@ Then the lines name the license and the pack's service it reached:
 
 ```text
   License: … · non-production · until 2026-11-20
-  Env: dev (tool secrets resolve in it)
+  Env: staging (tool secrets resolve in it)
   …
   Pack service: https://acme-pack.internal.… — acme (artifact 20261008.211554), protocol 2, 3 tools, 1 check
 ```
@@ -491,10 +500,10 @@ It prints the key the runtime now trusts, then says so:
 - `--url` is the runtime's address. The commands send the API token from
   the vault, exported as `KINDGI_API_TOKEN`, which keeps it off the command
   line. `kindgi deploy` takes the address as `--endpoint`.
-- `--env dev` deploys the pack's `dev` environment block.
+- `--env staging` deploys the pack's `staging` environment block.
 
 ```sh
-pnpm exec kindgi deploy --env dev --endpoint "$URL"
+pnpm exec kindgi deploy --env staging --endpoint "$URL"
 ```
 
 It prints the deployment as JSON, then each step. The last steps:
@@ -683,12 +692,27 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
   forward: never run two runtime versions on one database, and go back by
   restoring the backup.
 - **Rotate a secret:** add a version with `put` again. The apps read their
-  secrets when they start. The module references every secret but the two
-  pinned keys without a version. So a replica that starts after Container
-  Apps picks up the new version gets it
+  secrets when they start. The module references every secret but the
+  three pinned keys without a version. So a replica that starts after
+  Container Apps picks up the new version gets it
   ([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)
   says when that happens). Never rotate the AAD key or the erasure ledger's
   key this way: they're pinned.
+- **Rotate the page-cursor key** yearly: one apply switches the key, and a
+  second, a day later, drops the one before. It's pinned too.
+  1. Add a version, in the shell from [3. The secrets](#3-the-secrets):
+     `openssl rand 32 | base64 | tr -d '\n' | put pagination-key`. Its id's
+     last segment is the new version.
+  2. Set `pagination_key_version` to it, and put the version before it in
+     `server_secret_env`:
+     `KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "pagination-key", version = "<the one before>" }`.
+     Then apply. The new version seals, and the one before it still opens
+     the cursors it sealed.
+  3. After at least a day (a cursor's life), take that entry out and apply
+     again.
+
+  A previous key without `pagination_key_version`, at the version the
+  server seals with, or at `latest`, is refused at plan.
 - **Rotate the wrapping key:** with `key_rotation_days`, 90 by default, Key
   Vault adds a key version on schedule. New secrets use it, and the ones
   stored before keep unwrapping with theirs. In the verification run, a secret
@@ -786,6 +810,18 @@ identity that deploys the module. `<rg>` is the resource group, and
    image, the license renewal job's too with `license_renewal_schedule`,
    and what the release notes say. A plan that removes the pack's env was
    made without its file ([3. The secrets](#3-the-secrets)).
+
+   From a module copy without the page-cursor key, the plan also makes a
+   second grant wait (`time_sleep.secret_grants_changed`), so the apply
+   waits a minute more. It sets no key yet: with `pagination_key_version`
+   empty, the server makes one at each start, as before. Afterwards, add
+   the key's first version as in [3. The secrets](#3-the-secrets), set
+   `pagination_key_version` to the version `put` printed, and apply again.
+   Don't set it before the secret has that version: the server's new
+   revision wouldn't start. A deployment whose `server_secret_env` sets
+   `KINDGI_PAGINATION_KEY` itself is refused at plan. The module's README
+   has the steps that keep its key, under
+   [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps#upgrading).
 
    The plan holds your variables' values: `umask 077` keeps it readable by
    you alone, and you delete it once it's applied.

@@ -181,7 +181,7 @@ export interface ProjectsClient {
     projectId: string,
     input: UpdateProjectInput,
     options?: { readonly idempotencyKey?: string },
-  ): Promise<ProjectShape>;
+  ): Promise<void>;
   /**
    * Delete the project. It's kept, not erased: from then on it's gone from
    * `get`, `list` and its memberships, nobody can reach what's in it, and
@@ -328,7 +328,7 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
       });
     },
     async update(projectId, input, options) {
-      return transport.request<ProjectShape>({
+      return transport.request<void>({
         method: 'PATCH',
         path: `/v1/projects/${seg(projectId)}`,
         body: input,

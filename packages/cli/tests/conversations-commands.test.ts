@@ -132,7 +132,7 @@ async function conversations(argv: readonly string[]) {
   return { out, calls };
 }
 
-describe('kindgi conversations get / open / close / messages (T238)', () => {
+describe('kindgi conversations get / open / close / messages', () => {
   test('get <conversation-id>', async () => {
     const { out, calls } = await conversations(['get', 'c-1']);
     expect(out.exitCode, out.stderr).toBe(0);

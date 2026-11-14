@@ -23,6 +23,7 @@
 
 import { RUN_STARTED_BY } from '@kindgi/runtime';
 
+import { frozenTenantMay } from '../middleware/tenant-state-rules.js';
 import { type JsonSchema, ref } from './schemas.js';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head';
@@ -60,6 +61,12 @@ export interface ResponseSpec {
   readonly contentType?: string | readonly string[];
   /** A JSON body the status may carry instead of `contentType`'s (`application/json`). */
   readonly orJson?: JsonSchema;
+  /**
+   * The answer, or some of the codes its text names, sends `Retry-After`
+   * (whole seconds, at least 1). Emitted as the shared header
+   * (`components.headers.RetryAfter`); the text names the codes that send it.
+   */
+  readonly retryAfter?: true;
 }
 
 export interface OperationSpec {
@@ -465,6 +472,19 @@ const PinScopeKindQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
 };
 
+/**
+ * `scopeKind` where it names what the answer is for, not a filter: a route
+ * that takes it answers `400` without one.
+ */
+const PinScopeKindRequiredQueryParam: ParameterSpec = {
+  name: 'scopeKind',
+  in: 'query',
+  required: true,
+  description:
+    'The scope a pin would be for: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`).',
+  schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
+};
+
 const PinChangeIdPathParam: ParameterSpec = {
   name: 'changeId',
   in: 'path',
@@ -497,6 +517,16 @@ const IncludeTombstonedQueryParam: ParameterSpec = {
   required: false,
   description:
     'When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only).',
+  schema: { type: 'boolean', default: false },
+};
+
+/** A trigger read's: a removed trigger too (schedules, webhook triggers, mail triggers, text triggers). */
+const IncludeUnregisteredTriggerQueryParam: ParameterSpec = {
+  name: 'includeUnregistered',
+  in: 'query',
+  required: false,
+  description:
+    'With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there).',
   schema: { type: 'boolean', default: false },
 };
 
@@ -1734,13 +1764,43 @@ const ErrorResponse = (description: string): ResponseSpec => ({
   schema: ref('WireError'),
 });
 
+/** An `ErrorResponse` whose text names `Retry-After`, which it, or some of its codes, sends. */
+const RetryAfterResponse = (description: string): ResponseSpec => ({
+  ...ErrorResponse(description),
+  retryAfter: true,
+});
+
+/**
+ * A workspace's API requests a minute, spent: on a runtime that sets
+ * workspace limits, any request of its key or session past it is refused
+ * (`answersRequestLimit`). The generator's shared 429 says it, and an
+ * operation's own 429 names it after its own codes (`withRequestLimit`).
+ */
+export const REQUEST_LIMIT_TEXT =
+  '`rate-limit-exceeded` with `details.limit: "api-requests"`, on a runtime that sets workspace limits (Kindgi Cloud): this workspace\'s limit on API requests a minute is reached, so the request wasn\'t run; `Retry-After` says when to send it again.';
+
+/** An operation's own 429 text, then the workspace's request limit. */
+const withRequestLimit = (text: string): string => `${text} Or ${REQUEST_LIMIT_TEXT}`;
+
+/**
+ * A write the frozen-workspace gate checks, refused because the workspace's
+ * state couldn't be read (`answersTenantStateUnavailable`). The generator
+ * names it in the shared 503, and an operation's own 503 names it after its
+ * own codes (`withTenantState`).
+ */
+export const TENANT_STATE_UNAVAILABLE_TEXT =
+  "`tenant-state-unavailable` (with `Retry-After`), on a runtime serving many workspaces: the workspace's state couldn't be read, so nothing was changed.";
+
+/** An operation's own 503 text, then the workspace's state unread. */
+const withTenantState = (text: string): string => `${text} Or ${TENANT_STATE_UNAVAILABLE_TEXT}`;
+
 /**
  * A request that publishes schemas, refused by its tenant's compile
  * budget before it stored anything.
  */
 const SCHEMA_COMPILE_BUDGET_TEXT =
   '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this workspace\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.';
-const SCHEMA_COMPILE_BUDGET = ErrorResponse(SCHEMA_COMPILE_BUDGET_TEXT);
+const SCHEMA_COMPILE_BUDGET = RetryAfterResponse(withRequestLimit(SCHEMA_COMPILE_BUDGET_TEXT));
 
 /**
  * A publish through the API into a later environment of an environment
@@ -1839,9 +1899,14 @@ const IDEMPOTENCY_STORE_UNAVAILABLE_TOO =
  */
 const AUTHZ_UNAVAILABLE_TOO =
   "Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.";
-/** A keyed write's 503: the plan count, its `Idempotency-Key` store, or the authorization check. */
-const PLAN_COUNT_BUSY_503 = ErrorResponse(
-  `${PLAN_COUNT_BUSY} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+/**
+ * A keyed write's 503: the plan count, its `Idempotency-Key` store, the
+ * authorization check, or the workspace's state unread.
+ */
+const PLAN_COUNT_BUSY_503 = RetryAfterResponse(
+  withTenantState(
+    `${PLAN_COUNT_BUSY} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+  ),
 );
 /** A publish's 403: `permission-denied`, the plan limits, or a key limited to a project. */
 const PUBLISH_403 = ErrorResponse(
@@ -1856,10 +1921,13 @@ const SUGGESTED_CHANGE_KEEPS =
 const SUGGESTED_CHANGE_COUNTS = `Here it's the agent version a check makes that counts, in the project it's made in. ${SUGGESTED_CHANGE_KEEPS}`;
 /**
  * A suggested change's check, pin or add-as-Latest 503: the plan count, its
- * `Idempotency-Key` store, or the authorization check.
+ * `Idempotency-Key` store, the authorization check, or the workspace's state
+ * unread.
  */
-const SUGGESTED_CHANGE_BUSY_503 = ErrorResponse(
-  `${PLAN_COUNT_BUSY} ${SUGGESTED_CHANGE_KEEPS} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+const SUGGESTED_CHANGE_BUSY_503 = RetryAfterResponse(
+  withTenantState(
+    `${PLAN_COUNT_BUSY} ${SUGGESTED_CHANGE_KEEPS} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+  ),
 );
 /**
  * A reinstate's 403: `permission-denied`, the plan limits (only a retired
@@ -1981,29 +2049,68 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
 };
 
 /**
+ * The authorization check's 503s, for an operation that declares a 503 of
+ * its own: the generator's shared one is added only when it declares none.
+ */
+const AUTHZ_CHECK_UNAVAILABLE =
+  "`authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.";
+
+/**
+ * The 503 of a secrets write that takes an `Idempotency-Key`: the secrets
+ * store's external provider, then the stores the request reads before it
+ * runs. `also` (from ", or") names what else answers
+ * `secret-provider-unavailable`.
+ */
+function secretWriteUnavailable(also: string): ResponseSpec {
+  return RetryAfterResponse(
+    withTenantState(
+      `\`secret-provider-unavailable\`: the secrets store's external provider can't be reached${also}. \`idempotency-store-unavailable\` (with \`Retry-After\`): the \`Idempotency-Key\` store couldn't be read before the request ran, so nothing was changed. ${AUTHZ_CHECK_UNAVAILABLE}`,
+    ),
+  );
+}
+
+/**
  * A secrets store's external provider (the router's), answering a read or a
  * write: each at its own status. Each operation that spreads it is a write
  * that takes an `Idempotency-Key`, so its 503 names that store's too.
  */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
-  '429': ErrorResponse(
-    "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+  '429': RetryAfterResponse(
+    withRequestLimit(
+      "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+    ),
   ),
   '502': ErrorResponse(
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
-  '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
-  ),
+  '503': secretWriteUnavailable(''),
 };
 
-/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+/**
+ * A write a hard revoke overtook after it began (the router's): what it
+ * wrote isn't served.
+ */
+const SECRET_REVOKED_WHILE_WRITING =
+  "`secret-revoked`: a hard revoke of the secret overtook the write, so what it wrote isn't served; the message names the secret and says what becomes of the value it wrote.";
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), its provider's answer, or a hard revoke that overtook it. */
 const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
   '400': ErrorResponse(
     "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (a new name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
   ),
   ...SecretProviderErrors,
+  '404': ErrorResponse(SECRET_REVOKED_WHILE_WRITING),
+  '503': secretWriteUnavailable(
+    ', or, with a secret manager, a hard revoke of the secret is still erasing it there: write it again in a few minutes (a revoke whose runtime stopped partway holds writes off for up to 10 minutes)',
+  ),
 };
+
+/**
+ * What a revoke the secret manager failed left (the router's): a soft one
+ * wasn't made, and a hard one revoked the secret but may not have erased it.
+ */
+const REVOKE_NOT_ERASED =
+  "A soft revoke isn't made, so revoke it again. A hard one revoked the secret, so reads stop, but its value may still be in the secret manager: a hard revoke again erases it.";
 
 /**
  * `env-not-served` for a value: on a runtime that keeps every value under
@@ -2015,6 +2122,10 @@ const ENV_NOT_SERVED_VALUE =
 /** `env-not-served` for a registration that names its secret under another env. */
 const ENV_NOT_SERVED_REFERENCE =
   "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
+
+/** `env-not-served` for a tool whose `authorization.secretRef` names another env. */
+const ENV_NOT_SERVED_TOOL_SECRET =
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and a tool's `authorization.secretRef` names another. Leave its `envName` out to read it under `details.servedEnv`. Nothing is stored.";
 
 /** A secret a write names that is a texts connection app registration's account key. */
 const CONNECTION_KEY_REFUSED =
@@ -2070,18 +2181,61 @@ export function answersDatabaseBusy(op: OperationSpec): boolean {
 }
 
 /**
- * Whether a served operation can answer `503 idempotency-store-unavailable`:
- * a write that takes an `Idempotency-Key`, which `idempotencyMiddleware`
- * answers so when the key's store fails before the write runs. The spec
- * generator injects the 503 for these (unless the operation declares a 503
- * of its own, which then names it too), and a test holds every one of them
- * to it.
+ * Whether a served operation is a write that takes an `Idempotency-Key`,
+ * which `idempotencyMiddleware` answers `503 idempotency-store-unavailable`
+ * when the key's store fails before the write runs, and `409
+ * idempotency-key-in-flight` when the same key's first request still runs,
+ * each with `Retry-After`. The spec generator injects the 503 for these
+ * (unless the operation declares a 503 of its own, which then names it too)
+ * and names the 409 in theirs, and a test holds every one of them to it.
  */
-export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
+export function takesIdempotencyKey(op: OperationSpec): boolean {
   return (
     op.method !== 'get' &&
     op.method !== 'head' &&
     (op.parameters ?? []).some((p) => p.in === 'header' && p.name === IdempotencyKeyParam.name)
+  );
+}
+
+/**
+ * Whether a workspace's key or session calls the operation: it takes one, and
+ * it isn't the operator's (`/v1/system`).
+ */
+function workspaceCalls(op: OperationSpec): boolean {
+  return op.security !== 'public' && !/^\/v1\/system(?:\/|$)/.test(op.openapiPath);
+}
+
+/**
+ * Whether a served operation counts against a workspace's API requests a
+ * minute, and so can answer `429 rate-limit-exceeded` (`details.limit:
+ * "api-requests"`) with `Retry-After`, on a runtime that sets workspace
+ * limits: one a workspace's key or session calls. The limiter counts a
+ * request that has a `tenantId` and isn't a system principal's
+ * (`countApiRequest`, `tenant-limits.ts`); only a key's or a session's
+ * authentication sets `tenantId`, so the spec reads it from the operation's
+ * security. The generator injects the 429 for these (unless the operation
+ * declares a 429 of its own, which then names it too), and a test holds
+ * every one of them to it.
+ */
+export function answersRequestLimit(op: OperationSpec): boolean {
+  return workspaceCalls(op);
+}
+
+/**
+ * Whether a served operation can answer `503 tenant-state-unavailable` with
+ * `Retry-After`: a write of a workspace's key or session that the
+ * frozen-workspace gate (`tenantStateGate`) checks, which answers so when the
+ * workspace's state can't be read, on a runtime serving many workspaces. The
+ * gate lets reads, deletes and the `POST`s in `ALLOWED_POSTS` through
+ * (`tenant-state-rules.ts`), matched here with each `{param}` filled in, as
+ * the gate sees a request's path. The generator names the code in the
+ * shared 503 of these (an operation that declares a 503 of its own names it
+ * itself), and a test holds every one of them to it.
+ */
+export function answersTenantStateUnavailable(op: OperationSpec): boolean {
+  return (
+    workspaceCalls(op) &&
+    !frozenTenantMay(op.method.toUpperCase(), op.openapiPath.replace(/\{[^}]+\}/g, 'x'))
   );
 }
 
@@ -2425,8 +2579,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the workspace (`details.issues`).",
       ),
-      '429': ErrorResponse(
-        "A limit of the workspace's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`, with the limit in `details.runsPending`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`), when the call waits for the run (with `options.wait: false`, the call answers 202 and the run fails with that code). On a server with budgets kept per workspace (Kindgi Cloud), also `rate-limit-exceeded` when work the agent's turn needed was refused, because this workspace's work of that kind took `details.budgetMs` in the last 60 seconds: `details.limit` names the budget, `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "A limit of the workspace's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`, with the limit in `details.runsPending`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`), when the call waits for the run (with `options.wait: false`, the call answers 202 and the run fails with that code). On a server with budgets kept per workspace (Kindgi Cloud), also `rate-limit-exceeded` when work the agent's turn needed was refused, because this workspace's work of that kind took `details.budgetMs` in the last 60 seconds: `details.limit` names the budget, `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
+        ),
       ),
     },
   },
@@ -2815,10 +2971,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`for` names a project's own service account, which has no keys (`service-account-project-owned`). Or Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '403': ErrorResponse(
-        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); an operator's capability, which is a system key's: a system scope (`system:*`) anywhere, and `kindgi:system` on a runtime serving many tenants or on a key limited to a project (`capability-not-mintable`, its `details.capabilities` the ones refused).",
+        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); a key that only reads, which mints no keys (`read-only-key`); an operator's capability, which is a system key's: a system scope (`system:*`) anywhere, and `kindgi:system` on a runtime serving many tenants or on a key limited to a project (`capability-not-mintable`, its `details.capabilities` the ones refused).",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+      ),
+      '501': ErrorResponse(
+        "`readOnly` asked of a runtime whose key store can't keep it (`read-only-unsupported`): no key was made.",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
@@ -2897,7 +3056,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Revoked.', schema: ref('RevokeTokenResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
+        "A caller with no keys of its own that is not a tenant admin, or a key that only reads, which revokes no keys (`read-only-key`). Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
       ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
@@ -2927,7 +3086,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -2981,7 +3140,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3014,7 +3173,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Another tenant has the slug, or a create whose setup is pending holds it with another request (`tenant-slug-taken`); or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body; or that key's replay, when the first answer held the admin key (`idempotency-key-replay-withheld`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3100,7 +3259,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3132,7 +3291,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3168,7 +3327,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3205,7 +3364,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3251,7 +3410,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3346,7 +3505,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "The tenant is closing (`tenant-closing`); the domain is verified for another tenant (`join-domain-verified-elsewhere`); no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`); or an Idempotency-Key reused with another body.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3392,7 +3551,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); a raise for a domain since verified for another tenant (`join-domain-verified-elsewhere`); or an Idempotency-Key reused with another body.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3436,7 +3595,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`), or an Idempotency-Key reused with another body.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3506,7 +3665,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '502': ErrorResponse(
         "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3868,7 +4027,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -3947,7 +4106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4038,7 +4197,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "The runtime isn't keeping repos for projects without a GitHub repo now (`kept-repos-off`): `KINDGI_KEPT_REPOS` is off. Nothing was requested.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4104,7 +4263,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         'This server keeps no orchestrator round (`orchestrator-round-unsupported`): whatever runs its pack services keeps one pass at a time itself.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4134,7 +4293,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         'This server keeps no orchestrator round (`orchestrator-round-unsupported`).',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4172,7 +4331,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '422': ErrorResponse(
         "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4230,7 +4389,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`). Or the database was too busy to answer in time (`database-busy`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4266,7 +4425,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4294,7 +4453,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4327,7 +4486,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4357,7 +4516,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -4911,7 +5070,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/agents/{agentId}/test-set/cases',
     operationId: 'agents.testSet.addCase',
     summary: "Add a case to an agent's test set",
-    description: `A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
+    description: `A case by hand, from a correction's body on one of the agent's runs that completed with an output. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -4924,7 +5083,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output yet.'),
+      '409': ErrorResponse(
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).',
+      ),
       '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
     },
   },
@@ -5064,8 +5225,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '422': ErrorResponse(
         "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`). With the gate's `cases` rule, `details.passing` and `details.needs` come with `minPassing`, and `details.newlyFailing` (the cases that passed before and fail now) with `noNewFailures`.",
       ),
-      '429': ErrorResponse(
-        "`approvals-pending-limit`: the gate wants an approval, and the workspace's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "`approvals-pending-limit`: the gate wants an approval, and the workspace's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
+        ),
       ),
       '501': ErrorResponse(
         "`pin-gate-unsupported`: a release gate applies, and the deployment can't record a gated pin.",
@@ -5108,7 +5271,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the workspace), at its latest active version. `releaseGate: null` when none applies.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, PinScopeKindQueryParam, ScopeIdQueryParam, SegmentQueryParam],
+    parameters: [
+      AgentIdPathParam,
+      PinScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      SegmentQueryParam,
+    ],
     responses: {
       '200': { description: 'The release gate, or null.', schema: ref('ReleaseGateResolution') },
       ...CommonAuthErrors,
@@ -5566,7 +5734,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         `Validation failed (see \`details.issues\`); or \`projectId\` isn't a project id (a UUID). Or \`provider-key-refused\`: the tool names a model provider's key (\`details.secret\`, \`details.providerId\`); store the key it needs under its own name (the same value is fine) and name that. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: the tool names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); those are Kindgi's own. Or \`validation-failed\` for a \`metadata\` key under \`kindgi.\`: those are the runtime's own (\`details.issues\`, at \`/metadata/<key>\`).`,
       ),
       '409': ErrorResponse(
-        `\`tool-already-registered\`: that (id, version) is taken. Or \`tool-project-mismatch\`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). Or \`tool-kind-mismatch\`: the tool's active versions are of another kind, an MCP endpoint's tool (\`details.endpointId\`) where this version is published here, or the other way round; a tool's active versions are all one kind, and nothing was written (\`details.toolId\`, \`details.version\`). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
+        `\`tool-already-registered\`: that (id, version) is taken. Or \`tool-project-mismatch\`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). Or \`tool-kind-mismatch\`: the tool's active versions are of another kind, an MCP endpoint's tool (\`details.endpointId\`) where this version is published here, or the other way round; a tool's active versions are all one kind, and nothing was written (\`details.toolId\`, \`details.version\`). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead. Or ${ENV_NOT_SERVED_TOOL_SECRET}`,
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`).",
@@ -6361,8 +6529,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
           `${MADE_IN_DENIED} Or the suggested change is made, but its check didn't start (\`details.suggestedChangeId\`; check it again with \`POST /v1/suggested-changes/{suggestedChangeId}/check\`): ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`,
         ),
       ),
-      '503': ErrorResponse(
-        `\`plan-count-busy\` (with \`Retry-After\`): the suggested change and its edit's block version are made (\`details.suggestedChangeId\`), but counting the flows and agents in production for its check took too long; check it again. ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+      '503': RetryAfterResponse(
+        withTenantState(
+          `\`plan-count-busy\` (with \`Retry-After\`): the suggested change and its edit's block version are made (\`details.suggestedChangeId\`), but counting the flows and agents in production for its check took too long; check it again. ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+        ),
       ),
       '400': ErrorResponse(
         "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
@@ -6811,8 +6981,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '413': ErrorResponse(
         'Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).',
       ),
-      '429': ErrorResponse(
-        "An upload passing on `run` alone, past what one person may upload that way in the window (`upload-limit-reached`). `details` carries the limit (`maxBytes`, `maxFiles`), what's used (`usedBytes`, `usedFiles`), `windowSeconds` and `retryAt`; `Retry-After` says when this upload fits. Nothing is stored.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "An upload passing on `run` alone, past what one person may upload that way in the window (`upload-limit-reached`). `details` carries the limit (`maxBytes`, `maxFiles`), what's used (`usedBytes`, `usedFiles`), `windowSeconds` and `retryAt`; `Retry-After` says when this upload fits. Nothing is stored.",
+        ),
       ),
     },
   },
@@ -7429,7 +7601,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.create',
     summary: 'Correct a run',
     description:
-      "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+      "Records whether the decisions and answer of a run that completed with an output were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7446,7 +7618,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
+      '409': ErrorResponse(
+        '`run-not-finished`: the run has no output. It is still going, or it ended without one (`failed`, `cancelled`, or `completed` with none).',
+      ),
       '410': ErrorResponse(
         "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to correct.",
       ),
@@ -8784,7 +8958,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The ways to sign in (possibly none).', schema: ref('SignInOptions') },
       '400': ErrorResponse('`email` is not an email address.'),
-      '429': ErrorResponse('Too many lookups from this client.'),
+      '429': RetryAfterResponse(
+        'Too many lookups from this client; `Retry-After` says when to try again.',
+      ),
     },
   },
   {
@@ -8794,7 +8970,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.tokenSignIn',
     summary: 'Sign in to the console with an API token',
     description:
-      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, one project, or reads only), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -9304,8 +9480,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.',
       ),
-      '429': ErrorResponse(
-        '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
+        ),
       ),
     },
   },
@@ -9345,8 +9523,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
     },
   },
@@ -9373,8 +9553,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'No new key to confirm, or it is over an hour old (`second-factor-not-started`), or an idempotency conflict.',
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
     },
   },
@@ -9397,8 +9579,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
       '409': ErrorResponse(
         'No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.',
@@ -9427,8 +9611,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.',
       ),
-      '429': ErrorResponse(
-        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+        ),
       ),
     },
   },
@@ -9518,8 +9704,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
       ),
-      '503': ErrorResponse(
-        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`, with `Retry-After`): try again.",
+      '503': RetryAfterResponse(
+        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`); either way `Retry-After` says when to try again.",
       ),
     },
   },
@@ -9605,6 +9791,83 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/capabilities',
+    openapiPath: '/v1/identity/users/{userId}/capabilities',
+    operationId: 'identity.users.giveCapabilities',
+    summary: 'Give a tenant admin capabilities',
+    description:
+      "A tenant admin gives another tenant admin capabilities their own person holds now, such as `env:write` or `signing-keys:write`. What a key was minted with never counts, so a service account or a system key gives none. No person gives `secrets:reveal` or a system capability. Written before the call answers, so the person's next request holds them. Tenant admins only.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PersonCapabilitiesBody') },
+    responses: {
+      '200': {
+        description: "The person's grants, after, with the capabilities they hold.",
+        schema: ref('PersonGrants'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "Not a tenant admin; asked by a service account or a system key (`caller-not-a-person`); a capability no person gives (`capability-not-givable`); or one the caller's own person doesn't hold now (`capability-not-held`, naming the missing ones).",
+      ),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The person was removed from the workspace (`identity-user-unregistered`), isn't a tenant admin (`receiver-not-tenant-admin`: make them one first), or an idempotency conflict.",
+      ),
+      '501': ErrorResponse(
+        "The runtime has no authorization store (`person-grants-unsupported`), or doesn't give capabilities (`person-capabilities-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/identity/users/:userId/capabilities/:capability',
+    openapiPath: '/v1/identity/users/{userId}/capabilities/{capability}',
+    operationId: 'identity.users.takeBackCapability',
+    summary: "Take back a person's capability",
+    description:
+      "A tenant admin whose own person holds the capability takes it back from someone. A person drops their own with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is a no-op.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      {
+        name: 'capability',
+        in: 'path',
+        required: true,
+        description: 'The capability, URL-encoded (`env%3Awrite`).',
+        schema: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: "The person's grants, after, with the capabilities they hold.",
+        schema: ref('PersonGrants'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The capability in the path is longer than 100 characters.'),
+      '403': ErrorResponse(
+        "Neither a tenant admin nor the person with a full API key or session; asked by a service account or a system key (`caller-not-a-person`); or a capability the caller's own person doesn't hold now (`capability-not-held`).",
+      ),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The person was removed from the workspace (`identity-user-unregistered`), or an idempotency conflict.',
+      ),
+      '501': ErrorResponse(
+        "The runtime has no authorization store (`person-grants-unsupported`), or doesn't take back capabilities (`person-capabilities-unsupported`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/identity/whoami',
     openapiPath: '/v1/identity/whoami',
@@ -9642,7 +9905,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (`KINDGI_TENANCY=multi`), where each workspace deploys only its own images: `image-not-allowed`, the image is outside the workspace's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check. Or `promote-only-build`: the build is promote-only (the body's `productionEntry`, or a signing key whose id starts with `kindgi-promote-only:` or that has the public key of one the workspace has trusted), and the project is in production, or its production can't be read. It reaches production only by promotion: deploy it into a project before this one in its environment order, then promote it (`details.signerKeyId`, `details.projectId`). Nothing was deployed.",
+        `Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (\`KINDGI_TENANCY=multi\`), where each workspace deploys only its own images: \`image-not-allowed\`, the image is outside the workspace's repository (\`details.imagePrefix\`, its own), or \`image-prefix-unset\`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or \`tool-project-mismatch\`, \`agent-project-mismatch\`, \`flow-project-mismatch\` or \`block-project-mismatch\`: one of the image's tools, agents, flows or data blocks belongs to another project (\`details.primitive\`, \`details.id\`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or \`block-already-registered\`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (\`details.primitive\` is \`block\`, \`details.id\` is \`<id>@<version>\`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or \`tool-already-registered\`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (\`details.primitive\` is \`tool\`, \`details.id\` is \`<id>@<version>\`, \`details.fields\` the fields of its definition that differ: the manifest's top-level fields, and \`modulePath\` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or \`tool-kind-mismatch\`: one of the image's tools has the id of an MCP endpoint's tool (\`details.endpointId\`; \`details.primitive\`, \`details.id\`), whose active versions are all the endpoint's; nothing was deployed. Or \`project-suspended\`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or \`environment-takes-promotions\`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (\`details.firstProjectId\`, when you can read that project; \`details.position\`, the project's place from 0). Nothing is written. Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead. Or \`deploy-would-put-back-older-blocks\`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's \`replace\` doesn't name it. \`details.blocks\` lists each (\`DeployCheckStop\`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check. Or \`promote-only-build\`: the build is promote-only (the body's \`productionEntry\`, or a signing key whose id starts with \`kindgi-promote-only:\` or that has the public key of one the workspace has trusted), and the project is in production, or its production can't be read. It reaches production only by promotion: deploy it into a project before this one in its environment order, then promote it (\`details.signerKeyId\`, \`details.projectId\`). Nothing was deployed. Or ${ENV_NOT_SERVED_TOOL_SECRET}`,
       ),
       '400': ErrorResponse(
         "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered. Or `connection-key-refused`: a name the pack's `env` declares is the account key of a texts connection app registration (`details.secret`, `details.appId`; the first such name, its required names before its optional ones and each list sorted by name), which only that registration names: use a key of its own, a new API key from the provider stored under its own name; nothing is registered. Or `identity-provider-key-refused`: a name the pack's `env` declares is an identity provider's secret (`details.secret`, `details.identityProviderId`; asked after the texts keys, in the same order), which only sign-in names: use a secret of its own, stored under its own name; nothing is registered.",
@@ -9656,8 +9919,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '503': PLAN_COUNT_BUSY_503,
-      '429': ErrorResponse(
-        `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+        ),
       ),
     },
   },
@@ -9841,7 +10106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '404': ErrorResponse(
-        "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+        `No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist. Or ${SECRET_REVOKED_WHILE_WRITING}`,
       ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
@@ -9853,7 +10118,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.values.list',
     summary: 'List the values a deployment needs in a project',
     description:
-      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the workspace, as every deployments route does.",
+      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a secret of a tool version made there is read where a run reads it: at the scope the version recorded, or the workspace's when it recorded none. Any other value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the workspace, as every deployments route does.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -9931,11 +10196,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
-      '429': ErrorResponse(
-        "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+        ),
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
-      '503': ErrorResponse(`${PLAN_COUNT_BUSY} ${AUTHZ_UNAVAILABLE_TOO}`),
+      '503': RetryAfterResponse(withTenantState(`${PLAN_COUNT_BUSY} ${AUTHZ_UNAVAILABLE_TOO}`)),
       '501': ErrorResponse(
         "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
       ),
@@ -11457,7 +11724,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        "The caller lacks `admin` on the project, or gives `owner` without `delete` on it, which an owner of the project, an admin of its org or a tenant admin holds, checked before the person named is looked up (`permission-denied`); or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
         'No project with that id under this workspace (`project-not-found`), or the person named is not a member of this workspace (`identity-user-not-found`).',
@@ -11721,7 +11988,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '403': ErrorResponse(
-        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        'The caller lacks `admin` on the project, or the member holds `owner` and the caller lacks `delete` on the project, which an owner of the project, an admin of its org or a tenant admin holds (`permission-denied`); or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
       ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
@@ -11760,7 +12027,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        "The caller lacks `admin` on the project, or gives `owner`, or changes the role of a member who holds it, without `delete` on the project, which an owner of the project, an admin of its org or a tenant admin holds (`permission-denied`); or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this workspace.',
@@ -11857,7 +12124,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.config.upsert',
     summary: 'Upsert a workspace config entry',
     description:
-      'Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
+      'Requires the `secrets:write` capability to write a secret (or an entry sent with `sensitive: true`), and `env:write` to write an `env` or `config` entry. Each write is recorded in the audit log as `env-set` (an `env` or `config` entry) or `secret-set` (a secret, or an entry sent with `sensitive: true`), never with its value. Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12288,6 +12555,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:write` capability.')),
+      '404': ErrorResponse(
+        `The body's \`scope\` names an org or a project that doesn't exist (\`org-not-found\`, \`project-not-found\`). Or ${SECRET_REVOKED_WHILE_WRITING}`,
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -12324,7 +12594,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       ...SecretProviderErrors,
       '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:rotate` capability.')),
-      '404': ErrorResponse('Unknown secret.'),
+      '404': ErrorResponse(
+        "Unknown secret (`secret-not-found`). `secret-revoked`: the secret is revoked, so it can't be rotated. Or a hard revoke of it overtook the rotate, so what it wrote isn't served; the message says what becomes of that value.",
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
         "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
@@ -12428,8 +12700,22 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(withLimitedAbove('Bearer token missing revoke capability.')),
       '404': ErrorResponse('Unknown secret.'),
+      '429': RetryAfterResponse(
+        withRequestLimit(
+          `\`secret-provider-rate-limited\`: the secret manager is limiting the runtime's requests. ${REVOKE_NOT_ERASED}`,
+        ),
+      ),
+      '500': ErrorResponse(
+        `\`secret-store-error\`: the secrets store or the secret manager failed, so revoke it again. Or a hard revoke's erase in the secret manager didn't finish, as the message says. If writes to the secret kept landing while it erased, it stays revoked, so reads stop, and a hard revoke again finishes the erase. If the erase took over 10 minutes and a set or another hard revoke came in, the secret manager may still hold a value, or a set made since may have lost the value it wrote: set it again, or revoke it hard again. Or a hard revoke of a secret that another secret manager keeps, or whose stored name is no longer a valid one: it's revoked, but its value is left in that secret manager, to remove there.`,
+      ),
       '501': ErrorResponse(
         "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
+      ),
+      '502': ErrorResponse(
+        `\`secret-provider-unauthorized\`: the secret manager refused the runtime's credentials. ${REVOKE_NOT_ERASED}`,
+      ),
+      '503': RetryAfterResponse(
+        `\`secret-provider-unavailable\`: the secret manager can't be reached. ${REVOKE_NOT_ERASED} Or another hard revoke of the secret is still erasing it: revoke it again in a few minutes if it's still there (a revoke whose runtime stopped partway holds the next off for up to 10 minutes). ${AUTHZ_CHECK_UNAVAILABLE}`,
       ),
     },
   },
@@ -12471,13 +12757,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.list',
     summary: 'List cron schedules',
     description:
-      "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
+      "Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       ScheduleProjectIdQueryParam,
     ],
     responses: {
@@ -12495,18 +12782,22 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [
       TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'upcoming',
         in: 'query',
         required: false,
-        description: 'Include the next N occurrences (`upcoming`), 1 to 20.',
+        description:
+          'Include the next N occurrences (`upcoming`), 1 to 20. A removed schedule has none.',
         schema: { type: 'integer', minimum: 1, maximum: 20 },
       },
     ],
     responses: {
       '200': { description: 'Schedule record.', schema: ref('ScheduleRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cron trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -12577,7 +12868,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.unregister',
     summary: 'Soft-delete a cron schedule (tombstone)',
     description:
-      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -12597,11 +12888,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.',
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of fires.', schema: ref('ScheduleFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cron trigger with that id.'),
+      '404': ErrorResponse(
+        "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
       ),
@@ -12641,14 +12939,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.listVersions',
     summary: "A schedule's versions",
     description:
-      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of versions, newest first.', schema: ref('ScheduleVersionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cron trigger with that id.'),
+      '404': ErrorResponse(
+        "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -12657,6 +12962,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/schedules/{triggerId}/versions/{version}',
     operationId: 'schedules.getVersion',
     summary: 'Fetch one version of a schedule',
+    description:
+      "A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -12665,7 +12972,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No cron trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -12730,7 +13037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.register',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Register an event trigger',
     description:
       'Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.',
@@ -12749,7 +13056,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.list',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'List event triggers',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12764,7 +13071,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.get',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Fetch an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12780,7 +13087,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.update',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Update an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12798,7 +13105,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/pause',
     openapiPath: '/v1/event-triggers/{triggerId}/pause',
     operationId: 'eventTriggers.pause',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Pause an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12815,7 +13122,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/resume',
     openapiPath: '/v1/event-triggers/{triggerId}/resume',
     operationId: 'eventTriggers.resume',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Resume an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12832,7 +13139,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/unregister',
     openapiPath: '/v1/event-triggers/{triggerId}/unregister',
     operationId: 'eventTriggers.unregister',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Soft-delete an event trigger (tombstone)',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12848,7 +13155,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/versions',
     openapiPath: '/v1/event-triggers/{triggerId}/versions',
     operationId: 'eventTriggers.listVersions',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: "An event trigger's versions",
     description:
       "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). An event trigger from before versions has none until its next change or its first fire. The versions keep every input the event trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the event trigger can read its versions.",
@@ -12869,7 +13176,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/versions/:version',
     openapiPath: '/v1/event-triggers/{triggerId}/versions/{version}',
     operationId: 'eventTriggers.getVersion',
-    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    unserved: "Event triggers aren't served yet.",
     summary: 'Fetch one version of an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -12918,13 +13225,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.list',
     summary: 'List webhook triggers',
     description:
-      "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'projectId',
         in: 'query',
@@ -12949,11 +13257,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [TriggerIdPathParam, IncludeUnregisteredTriggerQueryParam],
     responses: {
       '200': { description: 'Webhook record.', schema: ref('WebhookTriggerRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No webhook trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13021,7 +13331,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.unregister',
     summary: 'Soft-delete a webhook trigger (tombstone)',
     description:
-      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.",
+      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -13041,11 +13351,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or workspace suspended, or its workspace closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of deliveries.', schema: ref('WebhookFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No webhook trigger with that id.'),
+      '404': ErrorResponse(
+        "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no delivery history.',
       ),
@@ -13058,17 +13375,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.listVersions',
     summary: "A webhook trigger's versions",
     description:
-      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of versions, newest first.',
         schema: ref('WebhookTriggerVersionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No webhook trigger with that id.'),
+      '404': ErrorResponse(
+        "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13077,6 +13401,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/webhooks/{triggerId}/versions/{version}',
     operationId: 'webhooks.getVersion',
     summary: 'Fetch one version of a webhook trigger',
+    description:
+      "A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -13085,7 +13411,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No webhook trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -13161,13 +13487,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.list',
     summary: 'List mail triggers',
     description:
-      "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'projectId',
         in: 'query',
@@ -13189,11 +13516,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a mail trigger',
     tags: ['mail-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [TriggerIdPathParam, IncludeUnregisteredTriggerQueryParam],
     responses: {
       '200': { description: 'Mail trigger record.', schema: ref('MailTriggerRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No mail trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13265,7 +13594,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/mail-triggers/{triggerId}/unregister',
     operationId: 'mailTriggers.unregister',
     summary: 'Soft-delete a mail trigger (tombstone)',
-    description: 'Who may unregister it is as for a pause.',
+    description:
+      'Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).',
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -13286,11 +13616,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.',
     tags: ['mail-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: "Page of the trigger's mail.", schema: ref('MailFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No mail trigger with that id.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
       ),
@@ -13303,17 +13640,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.listVersions',
     summary: "A mail trigger's versions",
     description:
-      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
+      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['mail-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of versions, newest first.',
         schema: ref('MailTriggerVersionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No mail trigger with that id.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13322,6 +13666,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/mail-triggers/{triggerId}/versions/{version}',
     operationId: 'mailTriggers.getVersion',
     summary: 'Fetch one version of a mail trigger',
+    description:
+      "A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -13330,7 +13676,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No mail trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -13399,13 +13745,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'textTriggers.list',
     summary: 'List text triggers',
     description:
-      "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed text triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
     tags: ['text-triggers'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'projectId',
         in: 'query',
@@ -13427,11 +13774,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a text trigger',
     tags: ['text-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [TriggerIdPathParam, IncludeUnregisteredTriggerQueryParam],
     responses: {
       '200': { description: 'Text trigger record.', schema: ref('TextTriggerRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No text trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13501,7 +13850,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'textTriggers.unregister',
     summary: 'Soft-delete a text trigger (tombstone)',
     description:
-      'Who may unregister it is as for a pause. Its connection is free for another text trigger.',
+      'Who may unregister it is as for a pause. Its connection is free for another text trigger. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.',
     tags: ['text-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -13521,11 +13870,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.',
     tags: ['text-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: "Page of the trigger's texts.", schema: ref('TextFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No text trigger with that id.'),
+      '404': ErrorResponse(
+        "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
       ),
@@ -13538,17 +13894,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'textTriggers.listVersions',
     summary: "A text trigger's versions",
     description:
-      "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.",
+      "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions. A removed text trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['text-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of versions, newest first.',
         schema: ref('TextTriggerVersionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No text trigger with that id.'),
+      '404': ErrorResponse(
+        "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13557,6 +13920,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/text-triggers/{triggerId}/versions/{version}',
     operationId: 'textTriggers.getVersion',
     summary: 'Fetch one version of a text trigger',
+    description:
+      "A removed text trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the text trigger since. Reading it takes what reading the text trigger does.",
     tags: ['text-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -13565,7 +13930,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No text trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No text trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -13654,10 +14019,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '413': ErrorResponse(
         "`webhook-body-too-large`: past the trigger's `bodyLimitBytes` (or 1 MiB, before any lookup).",
       ),
-      '429': ErrorResponse(
-        "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
+      '429': RetryAfterResponse(
+        '`rate-limit-exceeded`: past the trigger\'s `rateLimitPerMinute`, or too many refused requests from this client, or, on a runtime that sets workspace limits (Kindgi Cloud), past this workspace\'s limit on webhook deliveries a minute (`details.limit: "webhook-receives"`); `Retry-After` says when.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the workspace's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
       ),
     },
@@ -13710,10 +14075,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '415': ErrorResponse(
         '`unsupported-media-type`: a body sent without a JSON content type (`application/json`).',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
       ),
     },
@@ -13758,10 +14123,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was stored. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was stored. `Retry-After` says when to store the file again.",
       ),
     },
@@ -13801,10 +14166,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended.',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
       ),
     },
@@ -13867,10 +14232,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was added. Told only for a token that matches.',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was added. `Retry-After` says when to send the version again.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was added. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was added. `Retry-After` says when to send the version again.",
       ),
     },
@@ -14278,7 +14643,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.create',
     summary: 'Register an app',
     description:
-      "Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+      "Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes its registration itself (`via: 'kindgi'`), and refuses one here (`connection-app-invalid`, `details.field` `app`). Tenant admins only.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -14317,7 +14682,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.update',
     summary: 'Update an app registration',
     description:
-      'Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
+      "Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. A registration `via: 'kindgi'` has no client of its own: only its label and projects change. Tenant admins only.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionAppIdPathParam, IdempotencyKeyParam],
@@ -14476,7 +14841,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.finish',
     summary: 'Finish a connect',
     description:
-      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
+      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; `state` with no `code` from Kindgi's connect step; or `error`, from any of them, when the connect didn't happen). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`). An app through Kindgi's own app picks the account up from Kindgi's connect step instead of exchanging a code; when the business shared several accounts that fit and none was picked, it answers `kind: 'pick-account'`: the request stays `pending` with its `accounts` to pick from (start it again with `accountId`). A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -14485,7 +14850,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The outcome.', schema: ref('ConnectFinish') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body, unknown field or no `state`; or neither `code` nor `error` (`bad-input`, `details.field`).',
+        "Malformed body, unknown field or no `state`; or neither `code` nor `error` from an app that doesn't connect through Kindgi's own app (`bad-input`, `details.field`).",
       ),
       '403': ErrorResponse(
         "Someone other than whoever started the request (`connection-not-yours`); or a GitHub App's person whose GitHub account doesn't reach the installation, or any (`connection-installation-unreachable`, with `details.connectRequestId`: start that request again with `newInstallation` to install the app on their account).",
@@ -14500,8 +14865,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '502': ErrorResponse(
         "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
       ),
-      '503': ErrorResponse(
-        "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      '503': RetryAfterResponse(
+        withTenantState(
+          "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+        ),
       ),
     },
   },
@@ -14532,7 +14899,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.requests.start',
     summary: 'Start a connect request',
     description:
-      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
+      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`. One through Kindgi's own app goes to Kindgi's connect step, and the finish connects the account picked with `accountId`, one of the request's `accounts`. A key or session limited to a project is refused, `403 permission-denied`: a connection reaches every project.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectRequestIdPathParam, IdempotencyKeyParam],
@@ -14542,7 +14909,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('A key or session limited to a project (`permission-denied`).'),
       '400': ErrorResponse(
-        '`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`; or either on a request whose app is not a GitHub App (`bad-input`, `details.field`).',
+        "`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`, or `accountId` with either; either on a request whose app is not a GitHub App; or `accountId` on one whose app doesn't connect through Kindgi's own app (`bad-input`, `details.field`).",
       ),
       '404': ErrorResponse(
         "No request with that id, or not the caller's (`connection-request-not-found`).",
@@ -14618,8 +14985,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
       ),
-      '503': ErrorResponse(
-        "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      '503': RetryAfterResponse(
+        withTenantState(
+          "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+        ),
       ),
     },
   },
@@ -14656,7 +15025,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '502': ErrorResponse(
         "A number's (`texts`) old inbound couldn't be put back, or what Kindgi set couldn't be cleared (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The connection stays `removing`: disconnect again to retry, or with `skipInboundRestore=true` to remove it without the restore.",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -14757,8 +15126,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No such project (`project-not-found`); the agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`); or a connection isn't a candidate, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `connectionId` or `connectionIds`).",
       ),
-      '503': ErrorResponse(
-        "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      '503': RetryAfterResponse(
+        withTenantState(
+          "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+        ),
       ),
     },
   },
@@ -14792,7 +15163,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No live choice with that id in this environment: unknown, already removed, in a project the caller can't read, or another person's (`connection-choice-not-found`).",
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
@@ -14933,7 +15304,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         '`connection-notice-invalid`: the notice was not accepted (the same answer whatever the reason).',
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many refused notices from this client; `Retry-After` says when.',
       ),
       '503': ErrorResponse(
@@ -14971,10 +15342,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '401': ErrorResponse(
         "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`texts-inbound-unavailable`: the texts couldn't be checked or taken just now; the provider may send them again. `authz-backend-unavailable` (with `Retry-After`): the authorization store couldn't be reached, so the request wasn't run. `database-busy` (with `Retry-After`): the database was too busy for the authorization check, so the request wasn't run.",
       ),
     },
@@ -15002,10 +15373,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '401': ErrorResponse(
         "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
       ),
-      '429': ErrorResponse(
+      '429': RetryAfterResponse(
         '`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.',
       ),
-      '503': ErrorResponse(
+      '503': RetryAfterResponse(
         "`texts-inbound-unavailable`: the handshake couldn't be checked just now; the provider may try again. Or the database was too busy to answer in time (`database-busy`, with `Retry-After`), or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`).",
       ),
     },
@@ -15271,7 +15642,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The key was retired at this site, or at another site in the workspace at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
       ),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
-      '429': ErrorResponse('Too many failures from this client.'),
+      '429': RetryAfterResponse(
+        'Too many failures from this client; `Retry-After` says when to try again.',
+      ),
     },
   },
   {
@@ -15290,7 +15663,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("A malformed body, or a statement that isn't a compact JWS."),
       '401': ErrorResponse('The statement was refused (`site-sign-in-refused`, `details.reason`).'),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
-      '429': ErrorResponse('Too many requests from this client or for this site.'),
+      '429': RetryAfterResponse(
+        'Too many requests from this client or for this site; `Retry-After` says when to try again.',
+      ),
     },
   },
 ] as const;

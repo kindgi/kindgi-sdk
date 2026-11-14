@@ -35,6 +35,16 @@ export async function readHistory(ctx: TurnContext): Promise<readonly Conversati
 }
 
 /**
+ * The turn's history (`readHistory`), read once and kept on the turn:
+ * `build-initial-messages` gives it to the model, and the checks of a
+ * guardrail that sees the conversation read the same messages.
+ */
+export async function turnHistory(ctx: TurnContext): Promise<readonly ConversationMessage[]> {
+  ctx.history ??= await readHistory(ctx);
+  return ctx.history;
+}
+
+/**
  * Where the prompt's history starts: `same-conversation` recall reads
  * only older messages. `undefined` when the prompt carries the whole
  * conversation (no `historyLimit`).

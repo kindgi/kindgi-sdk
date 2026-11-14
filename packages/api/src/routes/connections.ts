@@ -75,6 +75,7 @@ const MAX_PROJECTS = 500;
 const MAX_PERMISSIONS = 64;
 const MAX_FINISH_FIELD_LENGTH = 2048;
 const MAX_INSTALLATION_ID_LENGTH = 64;
+const MAX_ACCOUNT_ID_LENGTH = 64;
 const MINUTE_MS = 60_000;
 /** A number in E.164: `+`, a country code that doesn't start with 0, 7 to 15 digits in all. */
 const E164_RE = /^\+[1-9][0-9]{6,14}$/;
@@ -1428,24 +1429,43 @@ function parsePermissions(raw: unknown): Parsed<readonly string[]> {
   return { kind: 'ok', value: raw as string[] };
 }
 
-/** A GitHub App's pick: an installation to attach, or a new one. The body is optional. */
-function parseStartBody(
+/** An id a start's body may give: a non-empty string of at most `max` characters. */
+function badId(
   body: Record<string, unknown>,
-): Parsed<{ readonly installationId?: string; readonly newInstallation?: true }> {
-  const unknown = unknownField(body, new Set(['installationId', 'newInstallation']), '');
+  field: string,
+  max: number,
+): Parsed<never> | undefined {
+  const value = body[field];
+  if (value === undefined) return undefined;
+  return typeof value !== 'string' || value.length === 0 || value.length > max
+    ? bad(`\`${field}\` must be a non-empty string of at most ${max} characters`, field)
+    : undefined;
+}
+
+/**
+ * A GitHub App's pick: an installation to attach, or a new one. Or the
+ * account picked for an app through Kindgi's own app. The body is optional.
+ */
+function parseStartBody(body: Record<string, unknown>): Parsed<{
+  readonly installationId?: string;
+  readonly newInstallation?: true;
+  readonly accountId?: string;
+}> {
+  const unknown = unknownField(
+    body,
+    new Set(['installationId', 'newInstallation', 'accountId']),
+    '',
+  );
   if (unknown !== undefined) return unknown;
-  const { installationId, newInstallation } = body;
-  if (
-    installationId !== undefined &&
-    (typeof installationId !== 'string' ||
-      installationId.length === 0 ||
-      installationId.length > MAX_INSTALLATION_ID_LENGTH)
-  ) {
-    return bad(
-      `\`installationId\` must be a non-empty string of at most ${MAX_INSTALLATION_ID_LENGTH} characters`,
-      'installationId',
-    );
-  }
+  const badInstallation = badId(body, 'installationId', MAX_INSTALLATION_ID_LENGTH);
+  if (badInstallation !== undefined) return badInstallation;
+  const badAccount = badId(body, 'accountId', MAX_ACCOUNT_ID_LENGTH);
+  if (badAccount !== undefined) return badAccount;
+  const { installationId, newInstallation, accountId } = body as {
+    readonly installationId?: string;
+    readonly newInstallation?: unknown;
+    readonly accountId?: string;
+  };
   if (newInstallation !== undefined && typeof newInstallation !== 'boolean') {
     return bad('`newInstallation` must be `true` or `false`', 'newInstallation');
   }
@@ -1455,11 +1475,18 @@ function parseStartBody(
       'newInstallation',
     );
   }
+  if (accountId !== undefined && (installationId !== undefined || newInstallation === true)) {
+    return bad(
+      "`accountId` picks an account through Kindgi's own app: leave out `installationId` and `newInstallation`",
+      'accountId',
+    );
+  }
   return {
     kind: 'ok',
     value: {
       ...(installationId !== undefined && { installationId }),
       ...(newInstallation === true && { newInstallation }),
+      ...(accountId !== undefined && { accountId }),
     },
   };
 }
@@ -1958,6 +1985,7 @@ function serializeApp(app: ConnectionAppRecord): Record<string, unknown> {
   return {
     appId: app.appId,
     app: app.app,
+    ...(app.via !== undefined && { via: app.via }),
     ...(app.label !== undefined && { label: app.label }),
     ...(app.oauth2 !== undefined && {
       oauth2: {
@@ -2060,6 +2088,9 @@ function serializeRequest(request: ConnectRequestRecord): Record<string, unknown
         installationId,
         account: { id: account.id, label: account.label },
       })),
+    }),
+    ...(request.accounts !== undefined && {
+      accounts: request.accounts.map(({ id, label }) => ({ id, label })),
     }),
     ...(request.connectionId !== undefined && { connectionId: request.connectionId }),
     connectUrl: request.connectUrl,

@@ -12,12 +12,13 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.9"
+version: "0.5.10"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
   - packages/tools/src/types.ts
   - packages/tools/src/define.ts
+  - packages/schema/src/zod.ts
 ---
 
 # Authoring Kindgi tools
@@ -64,6 +65,7 @@ makes `defineTool` return an `invalid-tool-definition` error.
 
 | Your case | Read |
 |---|---|
+| `input` and `output`: a zod 4 schema or a JSON Schema object, and an app on zod 3 | [imperative-handler.md](imperative-handler.md) |
 | A `handler`: what it gets (`input`, `ctx`), and logging | [imperative-handler.md](imperative-handler.md) |
 | A date or a time: the workspace's time zone (`ctx.timeZone`), and a date and time tool | [imperative-handler.md](imperative-handler.md) |
 | An env value, a workspace's secret, or acting in another app (a connection) | [secrets-and-connections.md](secrets-and-connections.md) |

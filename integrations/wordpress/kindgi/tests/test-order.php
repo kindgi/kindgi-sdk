@@ -22,6 +22,16 @@ function kindgi_test_jane_at_work( bool $edits_orders = true ): WP_User {
 	return $jane;
 }
 
+/** A refund approval whose call names no order, and whose context says nothing it's about. */
+function kindgi_test_approval_no_order( array $changes = array() ): array {
+	$a                            = kindgi_test_approval( $changes );
+	$a['subjectRef']['arguments'] = array(
+		'amount' => 210,
+		'reason' => 'One of the two vases arrived broken.',
+	);
+	return $a;
+}
+
 /** Kindgi's answer to `/v1/identity/me/permissions` for a standard reviewer. */
 function kindgi_test_answer_reviewer(): void {
 	kindgi_test_answer(
@@ -68,6 +78,94 @@ function test_order_an_approval_is_about_an_order_when_its_tool_says(): void {
 	kindgi_assert_same( null, Kindgi_Order::of( null ), 'about nothing it says' );
 	$card = Kindgi_Inbox::card( kindgi_test_approval( array( 'context' => kindgi_test_about_order( '18' ) ) ), 'u-me', kindgi_test_reviewer(), kindgi_test_names() );
 	kindgi_assert_same( '18', $card['about']['id'], 'the card says what it is about' );
+}
+
+/*
+ * Kindgi doesn't yet say what a tool's call is about: until it does, a
+ * call's own top-level `orderId` names the order, when that order is on
+ * this store. What Kindgi says, when it says it, wins.
+ */
+function test_order_a_call_names_the_order_on_this_store_when_its_approval_says_nothing(): void {
+	$card = static function ( array $a ): array {
+		return Kindgi_Inbox::card( $a, 'u-me', kindgi_test_reviewer(), kindgi_test_names() );
+	};
+	$about_18 = array(
+		'kind' => 'woocommerce.order',
+		'id'   => '18',
+	);
+
+	$off = $card( kindgi_test_approval() );
+	kindgi_assert_same( null, $off['about'], 'order 18 is not on the store: no order' );
+	kindgi_assert_same(
+		array(
+			array(
+				'label' => 'Order ID',
+				'value' => '18',
+			),
+			array(
+				'label' => 'Amount',
+				'value' => '210',
+			),
+		),
+		$off['facts'],
+		'and the call shows as it is'
+	);
+
+	$GLOBALS['kindgi_test']['orders'][18] = new WC_Order( 18, 'processing', '', 'EUR' );
+	$on                                   = $card( kindgi_test_approval() );
+	kindgi_assert_same( $about_18, $on['about'], 'on the store, the call names its order' );
+	kindgi_assert_same(
+		array(
+			array(
+				'label' => 'Amount',
+				'value' => '€210.00',
+			),
+		),
+		$on['facts'],
+		"its amount in the order's currency and the store's price format, and no Order ID: the card names the order"
+	);
+	kindgi_assert_same( $about_18, Kindgi_Inbox::about_of( kindgi_test_approval() ), "so the order's box and its note find it too" );
+
+	$as_text                                           = kindgi_test_approval();
+	$as_text['subjectRef']['arguments']['orderId']     = '18';
+	$as_text['subjectRef']['arguments']['refundAmount'] = 12.5;
+	$as_text['subjectRef']['arguments']['tax_amount']  = 2;
+	$as_text['subjectRef']['arguments']['amount']      = '210';
+	$as_text['subjectRef']['arguments']['items']       = 3;
+	kindgi_assert_same(
+		array( 'Amount 210', 'Refund amount €12.50', 'Tax amount €2.00', 'Items 3' ),
+		array_map(
+			static function ( array $f ): string {
+				return $f['label'] . ' ' . $f['value'];
+			},
+			$card( $as_text )['facts']
+		),
+		"an order number as text names it too; only a number in an amount's field is money"
+	);
+
+	foreach ( array( 0, -18, '018', '18a', 18.0, null, array( 18 ) ) as $id ) {
+		$a                                       = kindgi_test_approval();
+		$a['subjectRef']['arguments']['orderId'] = $id;
+		kindgi_assert_same( null, Kindgi_Inbox::about_of( $a ), 'no order number: ' . wp_json_encode( $id ) );
+	}
+	kindgi_assert_same( null, Kindgi_Inbox::about_of( kindgi_test_approval_no_order() ), 'a call that names no order' );
+	$nested                            = kindgi_test_approval_no_order();
+	$nested['subjectRef']['arguments'] = array( 'order' => array( 'orderId' => 18 ) );
+	kindgi_assert_same( null, Kindgi_Inbox::about_of( $nested ), 'only a top-level orderId' );
+
+	$GLOBALS['kindgi_test']['orders'][19] = new WC_Order( 19, 'processing', '', 'GBP' );
+	$said                                 = $card( kindgi_test_approval( array( 'context' => kindgi_test_about_order( '19' ) ) ) );
+	kindgi_assert_same( '19', $said['about']['id'], 'what Kindgi says it is about wins' );
+	kindgi_assert_same(
+		array( 'Order ID 18', 'Amount £210.00' ),
+		array_map(
+			static function ( array $f ): string {
+				return $f['label'] . ' ' . $f['value'];
+			},
+			$said['facts']
+		),
+		"then the call's own order stays among its fields, and its amount is in that order's currency"
+	);
 }
 
 function test_order_a_count_says_which_orders_wait_and_for_whom(): void {
@@ -206,7 +304,8 @@ function test_order_the_box_lists_what_is_about_the_order_for_someone_who_edits_
 						'context' => kindgi_test_about_order( '19' ),
 					)
 				),
-				kindgi_test_approval( array( 'id' => 'ap-none' ) ),
+				kindgi_test_approval( array( 'id' => 'ap-18-call' ) ),
+				kindgi_test_approval_no_order( array( 'id' => 'ap-none' ) ),
 			),
 			'hasMore' => false,
 		)
@@ -232,7 +331,7 @@ function test_order_the_box_lists_what_is_about_the_order_for_someone_who_edits_
 		)
 	);
 	$answer = Kindgi_Rest::order( new WP_REST_Request( array( 'order' => '18', 'signIn' => false ) ) );
-	kindgi_assert_same( array( 'ap-18' ), array_column( $answer['waiting'], 'id' ), 'what waits about order 18 only' );
+	kindgi_assert_same( array( 'ap-18', 'ap-18-call' ), array_column( $answer['waiting'], 'id' ), 'what waits about order 18 only: said so, or its call names it' );
 	kindgi_assert_same( 'you', $answer['waiting'][0]['waitsFor'], 'hers to decide' );
 	kindgi_assert_same( array( 'ap-18-done' ), array_column( $answer['closed'], 'id' ), 'and what was decided about it' );
 	kindgi_assert_same( true, $answer['more'], 'another page may hold older ones' );
@@ -272,10 +371,28 @@ function test_order_a_decision_on_this_site_leaves_a_private_note_on_the_order()
 
 	$GLOBALS['kindgi_test']['orders'][18] = new WC_Order( 18 );
 	$elsewhere                            = $approved;
-	$elsewhere['approval']['context']     = array();
+	$elsewhere['approval']                = kindgi_test_approval_no_order( array_diff_key( $approved['approval'], array( 'context' => true ) ) );
 	kindgi_test_answer( 200, $elsewhere );
 	Kindgi_Rest::decide( new WP_REST_Request( array( 'id' => 'ap-1', 'decision' => 'approve', 'reason' => '' ) ) );
 	kindgi_assert_same( array(), $GLOBALS['kindgi_test']['orders'][18]->notes, 'an approval about no order leaves no note' );
+
+	$by_call                          = $approved;
+	$by_call['approval']['context']   = array();
+	kindgi_test_answer( 200, $by_call );
+	Kindgi_Rest::decide( new WP_REST_Request( array( 'id' => 'ap-1', 'decision' => 'approve', 'reason' => '' ) ) );
+	kindgi_assert_same(
+		array( array( 'Kindgi: Refund large. Approved by Jane.', 0, true ) ),
+		$GLOBALS['kindgi_test']['orders'][18]->notes,
+		"one whose call names an order on the store notes it there"
+	);
+
+	$GLOBALS['kindgi_test']['orders'][18]           = new WC_Order( 18 );
+	$gone                                           = $by_call;
+	$gone['approval']['subjectRef']['arguments']['orderId'] = 404;
+	kindgi_test_answer( 200, $gone );
+	$decided = Kindgi_Rest::decide( new WP_REST_Request( array( 'id' => 'ap-1', 'decision' => 'approve', 'reason' => '' ) ) );
+	kindgi_assert_same( true, $decided['waitpointResolved'], 'one naming an order not on the store is decided, with no error' );
+	kindgi_assert_same( array(), $GLOBALS['kindgi_test']['orders'][18]->notes, 'and notes nothing' );
 
 	kindgi_test_jane_at_work( false );
 	kindgi_test_answer( 200, $approved );

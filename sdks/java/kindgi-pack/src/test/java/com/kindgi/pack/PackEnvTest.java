@@ -78,10 +78,12 @@ class PackEnvTest {
   @Test
   void theLauncherDropsTheUndeclaredBeforeTheJvmStarts() throws Exception {
     Map<String, String> out = runProbe(Map.of(PackEnv.DECLARED_VAR, "A_URL,CACHE_DIR", "A_URL", "postgres://db",
-        "ACME_UNDECLARED_KEY", "fake-not-a-key", "OTEL_SERVICE_NAME", "pack"));
+        "ACME_UNDECLARED_KEY", "fake-not-a-key", "GPG_KEY", "fake-not-a-key", "OTEL_SERVICE_NAME", "pack"));
     Set<String> names = Set.of(out.get("names").split(","));
-    assertThat(names).contains("A_URL", "OTEL_SERVICE_NAME", PackEnv.DECLARED_VAR).doesNotContain("ACME_UNDECLARED_KEY");
-    assertThat(out.get("dropped").split(",")).contains("ACME_UNDECLARED_KEY").doesNotContain("A_URL");
+    assertThat(names).contains("A_URL", "OTEL_SERVICE_NAME", PackEnv.DECLARED_VAR)
+        .doesNotContain("ACME_UNDECLARED_KEY", "GPG_KEY");
+    // The JVM gets every dropped name; the service leaves out those a base image sets.
+    assertThat(out.get("dropped").split(",")).contains("ACME_UNDECLARED_KEY", "GPG_KEY").doesNotContain("A_URL");
     assertThat(out.get("dropped")).doesNotContain("fake-not-a-key");
     // Whatever this test runs under, the JVM sees only what the service allows.
     assertThat(PackEnv.reachingTheJvm(DECLARED, toMap(names))).isEmpty();
@@ -101,12 +103,22 @@ class PackEnvTest {
   void theServiceLogsTheDroppedNames() throws IOException {
     List<Map<String, Object>> records = new CopyOnWriteArrayList<>();
     Object loaded = Serve.load(config("on"), Map.of("A_URL", "postgres://db", PackEnv.DECLARED_VAR, "A_URL,CACHE_DIR"),
-        "ZETA_KEY,ACME_UNDECLARED_KEY", getClass().getClassLoader(), logs(records));
+        "ZETA_KEY,GPG_KEY,ACME_UNDECLARED_KEY", getClass().getClassLoader(), logs(records));
     assertThat(loaded).isInstanceOf(PackService.class);
     ((PackService) loaded).close();
     Map<String, Object> dropped = records.stream().filter(r -> "env-dropped".equals(r.get("event"))).findFirst().orElseThrow();
     assertThat(dropped).containsEntry("level", "warn").containsEntry("kind", "env-dropped")
         .containsEntry("names", List.of("ACME_UNDECLARED_KEY", "ZETA_KEY")).containsEntry("packId", "acme");
+  }
+
+  @Test
+  void theServiceDoesntNameWhatABaseImageSets() throws IOException {
+    List<Map<String, Object>> records = new CopyOnWriteArrayList<>();
+    Object loaded = Serve.load(config("on"), Map.of("A_URL", "postgres://db", PackEnv.DECLARED_VAR, "A_URL,CACHE_DIR"),
+        "GPG_KEY", getClass().getClassLoader(), logs(records));
+    assertThat(loaded).isInstanceOf(PackService.class);
+    ((PackService) loaded).close();
+    assertThat(records).noneMatch(r -> "env-dropped".equals(r.get("event")));
   }
 
   @Test

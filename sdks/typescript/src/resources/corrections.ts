@@ -19,8 +19,9 @@ import type {
 } from '../types.js';
 
 /**
- * Corrections resource: whether a finished run's decisions and answer were
- * right, and what was right instead. Each one is sorted when it's saved
+ * Corrections resource: whether the decisions and answer of a run that
+ * completed with an output were right, and what was right instead. Each
+ * one is sorted when it's saved
  * (to Improve, to the agent's owner, or left open), and moves through its
  * statuses until it's fixed.
  *
@@ -30,7 +31,7 @@ import type {
  */
 export interface CorrectionsClient {
   /**
-   * Correct a finished run.
+   * Correct a run that completed with an output.
    *
    * @wire `POST /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/post`.
    */

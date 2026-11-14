@@ -183,8 +183,9 @@ It prints the trigger, with its `id`.
 
 From your app, the clients have the same calls on `textTriggers`:
 `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`,
-`versions`, `getVersion`, `takeOwnership` and `unregister`
-(`text_triggers` and `take_ownership` in Python). The request's `config`
+`versions.list`, `versions.get`, `takeOwnership` and `unregister`
+(`text_triggers`, `list_versions`, `get_version` and `take_ownership` in
+Python). The request's `config`
 holds `connectionId`, `runsPerHour` and `perSenderPerHour`.
 
 ## What a run gets
@@ -308,6 +309,25 @@ with:
 comes in while it's paused never starts a run. `resume` starts it again.
 `update` changes what it runs, the number, its limits, its label or what
 it may call unattended, and keeps its owner. `unregister` removes it.
+
+A removed text trigger keeps its versions and its fires. One version reads
+as before (`versions.get`, `get_version`), with `unregisteredAt` saying
+when the trigger was removed, so a run's `trigger.version` resolves
+whatever became of its trigger. The rest reads when you ask with
+`?includeUnregistered=true`:
+
+- `GET /v1/text-triggers/{triggerId}?includeUnregistered=true`, the trigger
+  as it was, with `unregisteredAt`;
+- the same on `…/versions` (each version with `unregisteredAt`) and
+  `…/fires`;
+- `GET /v1/text-triggers?includeUnregistered=true`, which lists removed ones
+  too. `?status=` matches the status a removed one had.
+
+Nothing changes a removed trigger: an `update`, a pause or a take-over of
+it is `404 trigger-not-found`. A runtime whose registry doesn't read
+removed triggers answers these reads `404 trigger-not-found` too. The
+versions and fires stay until the workspace is purged
+([retention](../../../deploy/retention/#triggers-versions)).
 
 ## Disconnecting
 

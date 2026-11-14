@@ -4,7 +4,7 @@
 /**
  * Trigger routes and authorization.
  *
- * Event triggers (T243 A): the flow a trigger fires decides who may see or
+ * Event triggers: the flow a trigger fires decides who may see or
  * change it (an event trigger has no parent tuple of its own). `read` on
  * the flow to list or get it, or its versions; `write` to pause, resume
  * or unregister it; `write` and `execute` to register it or change it,

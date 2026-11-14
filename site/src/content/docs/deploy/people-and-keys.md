@@ -143,8 +143,11 @@ With sign-in off, nobody is [invited](#their-invitation):
 Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
-An email another person already has is refused with
-`409 identity-user-email-taken`.
+An email another of the workspace's people already has is refused with
+`409 identity-user-email-taken`. Other workspaces' people don't count: one
+email can be a person in several workspaces, added to each by one of its
+admins. At sign-in, they
+[choose a workspace](../../guides/sso/sign-in/#your-email-first).
 
 With authorization on, give them a role on a project next. A tenant admin,
 or an admin of that project, adds them by email or by id:
@@ -381,8 +384,9 @@ npx --yes @kindgi/cli@0.6 people ungrant <user-id> --tenant-admin
 holds from their next request.
 
 `kindgi people grants <user-id> --table` lists what someone holds, as
-granted directly: tenant admin, tenant member, project and team roles, and a
-reviewer role. What a team or an org gives isn't expanded. Sam, newly added,
+granted directly: tenant admin, tenant member, project and team roles, a
+reviewer role, and the capabilities they hold. What a team or an org gives
+isn't expanded. Sam, newly added,
 holds only the tenant membership:
 
 ```text
@@ -418,13 +422,14 @@ where they aren't an admin. A key they made for another tenant admin, or
 for a service account that's one, keeps working.
 
 Making the first admin a tenant admin again doesn't give their own
-capabilities back, so the console offers them none. A key that carries
-capabilities makes new keys with them
+capabilities back. Another tenant admin who holds them can give them back
+([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)).
+A key that carries capabilities also makes new keys with them
 (`kindgi tokens create --capability=<cap>`, in [API keys](#api-keys)):
 their own keys, once they're an admin again, or one made for another
 tenant admin or a service account that's one. Before you revoke the last
 key that carries a capability, or let it expire, make its replacement with
-it. If the first admin doesn't hold a capability and no key in the workspace
+it. If no tenant admin holds a capability and no key in the workspace
 carries it, contact support. On a runtime you run yourself,
 [`kindgi-runtime tenants give-capabilities`](#what-only-the-runtimes-token-does)
 gives a tenant admin the first admin's capabilities again.
@@ -482,6 +487,7 @@ link:
 
 They hold no capability yet, so they can't trust signing keys, write
 secrets or change environment variables. To give them those, see
+[Give a tenant admin capabilities](#give-a-tenant-admin-capabilities) and
 [What only the runtime's token does](#what-only-the-runtimes-token-does).
 
 **Without an authorization store, it can't be done.** `people grant`
@@ -508,7 +514,9 @@ make-admin` makes ([Create a tenant](../self-hosted/serve-many-tenants/#create-a
 They make the others, as above. Those others hold no capability:
 `kindgi-runtime tenants give-capabilities`, run with the workspace's id,
 gives one what a workspace's first admin holds
-([What only the runtime's token does](#what-only-the-runtimes-token-does)).
+([What only the runtime's token does](#what-only-the-runtimes-token-does)),
+and a tenant admin who holds a capability can give it
+([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)).
 
 ### What only the runtime's token does
 
@@ -516,11 +524,11 @@ On a runtime serving one tenant, the runtime's API token acts as the seed
 user. It's a tenant admin, and it holds more than any person you make one:
 
 - **Every capability,** `secrets:reveal` among them. A person you make a
-  tenant admin holds none. So their sign-in can't trust signing keys, store,
-  rotate or revoke secrets, or change environment variables, and the keys
-  they make carry none either. Such a request is refused with `403`, naming
-  the capability: "Bearer token is missing the `secrets:write` capability
-  required for this route."
+  tenant admin holds none until one is given them. So their sign-in can't
+  trust signing keys, store, rotate or revoke secrets, or change environment
+  variables, and the keys they make carry none either. Such a request is
+  refused with `403`, naming the capability: "Bearer token is missing the
+  `secrets:write` capability required for this route."
 - **Reading secret values** (`secrets:reveal`). No person is ever given it,
   so only a key that carries it does that.
 - **The system keys,** `/v1/system/keys`, such as the license renewal's
@@ -535,9 +543,12 @@ user. It's a tenant admin, and it holds more than any person you make one:
   with `kindgi:system`, adds, changes or removes them
   ([Who manages a workspace's identity providers](../self-hosted/sign-in/#who-manages-a-workspaces-identity-providers)).
 
-To give the capabilities to a person who's a tenant admin, choose one of two
-ways:
+To give the capabilities to a person who's a tenant admin, choose one of
+three ways:
 
+- **A tenant admin who holds them gives them,** with the API
+  ([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)):
+  any their own person holds, but `secrets:reveal`.
 - **`kindgi-runtime tenants give-capabilities`** (runtime 0.1.8 or later)
   gives them what a workspace's first admin holds: every capability but
   `secrets:reveal`. Their sign-in then carries those capabilities, and the
@@ -581,6 +592,48 @@ ways:
   sign-in still carries none. Don't name `kindgi:system`. A key with it
   reads the whole license and manages the identity providers as the token
   does. On a runtime serving many tenants, every key loses it.
+
+### Give a tenant admin capabilities
+
+A tenant admin gives another tenant admin capabilities their own person
+holds now, such as `env:write` or `signing-keys:write`. What their key was
+made with never counts, so a service account or a system key gives none.
+Make the person a tenant admin first.
+
+In TypeScript, that's `users.giveCapabilities(userId, ['env:write'])` and
+`users.takeBackCapability(userId, 'env:write')`, and in Python
+`identity.users.give_capabilities` and
+`identity.users.take_back_capability`. Over HTTP, it's
+`POST /v1/identity/users/{userId}/capabilities` with
+`{"capabilities": [...]}`, 1 to 32 of them, and
+`DELETE /v1/identity/users/{userId}/capabilities/{capability}`. Each answers
+with the person's grants after, `capabilities` included.
+
+A sign-in session holds what its person holds, read on each request, so a
+change reaches it at once. An API key keeps the capabilities it was made
+with: to take one away from a person's keys too, revoke those keys.
+
+A tenant admin takes back only what their own person holds. A person may
+drop their own capability with a full API key or session, but not with a
+`member` one, nor with one limited to a project. The last holder's may go
+too, so before you take back the last one, give it to someone else first.
+One the person doesn't hold is left as it is.
+
+Giving or taking back is refused in these cases, and nothing changes:
+
+- `403 permission-denied`: you aren't a tenant admin. Taking back your own
+  needs no admin, but it does need a full API key or session: a `member`
+  one, or one limited to a project, is refused, and the message names which.
+- `403 capability-not-held`: your own person doesn't hold one of them now.
+  The message names the ones you lack. Taking back one you don't hold is
+  refused the same way, unless it's your own.
+- `403 capability-not-givable`: `secrets:reveal` or a system capability
+  (`kindgi:system`, `system:*`). No person gives these.
+- `403 caller-not-a-person`: a service account's key or a system key asked.
+- `409 receiver-not-tenant-admin`: the person isn't a tenant admin. Make
+  them one first.
+- `501 person-capabilities-unsupported`: the runtime doesn't give or take
+  back capabilities.
 
 ### Tenant admins by email
 
@@ -641,8 +694,9 @@ a role.
     `assignedTo`, and which is absent without a roster row;
   - the approvals' roles you may decide: your rank and those under it;
   - whether you can decide at all.
-- **`key`:** when you call with an API key, its role and the project it's
-  limited to.
+- **`key`:** when you call with an API key, its role, the project it's
+  limited to, and `readOnly`: whether it only reads
+  ([A key that only reads](#a-key-that-only-reads)).
 - **`tokenCapabilities`:** what your token itself carries for secret, env,
   config-entry and signing-key writes. A sign-in session carries the ones you
   hold as a person.
@@ -688,9 +742,11 @@ a role.
   most 280 characters. Setting it takes `env:write`, as every config entry
   does ([Who can do what](#who-can-do-what)).
 
-A key limited to a project sees that project alone. A `member` key is never
-a tenant admin. You see only what you may read: no project you can't read,
-and no one else's role.
+A key limited to a project sees that project alone (in memory, it also reads
+its person's own facts that name no other project:
+[Who sees what](../../guides/agents/memory-reference/#who-sees-what)). A
+`member` key is never a tenant admin. You see only what you may read: no
+project you can't read, and no one else's role.
 
 The console hides actions by it
 ([The console, by role](../authorization/#the-console-by-role)). The server
@@ -765,6 +821,15 @@ console signed in through SSO, a social sign-in or an emailed link.
   which goes by the fact's scope, as writing one does.
   A key limited to a project can't carry `kindgi:system`: that mint is
   refused, `403 capability-not-mintable`.
+
+  Such a key reads its project's work and what that work needs: the
+  workspace's release gates and the org its project is in, but no team.
+  The workspace's settings answer it `403`: providers, policies, adapters,
+  capabilities, signing keys and sign-in providers. A row with no project,
+  such as an approval or a cost record with none, is the whole workspace's:
+  a list leaves it out, and asked for alone it answers as another project's
+  row does. A cost total it asks for counts only its project's records, and
+  one for another org's scope answers `403`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -854,6 +919,30 @@ of your keys beyond its limits answers `403`, naming its own limit
 (`key-project-mismatch`, or `permission-denied` for an `admin` key), and
 says nothing about that key. A key or session without limits sees what it
 did before: a tenant admin's, every key; anyone else's, all of their own.
+
+### A key that only reads
+
+A key minted with `readOnly: true` reads and changes nothing: for a tool
+that should look at a workspace and never act in it. The CLI's
+`tokens create` has no flag for it. Mint it with `POST /v1/tokens` and
+`{"readOnly": true}`, or with the TypeScript client's
+`tokens.create({ readOnly: true })`. Its other limits apply as for any key:
+its role, its project and its capabilities.
+
+- Every request it makes but a `GET` or a `HEAD` is refused with
+  `403 read-only-key`, before any route runs. The one exception is an
+  agent's pin check, `POST /v1/agents/{agentId}/pinned/check`, which writes
+  nothing.
+- It mints and revokes no keys, its own included, and it doesn't open a
+  console session: a sign-in with it is refused with `403 read-only-key`,
+  as any other post is.
+- Its record carries `readOnly: true`. Called with it,
+  `GET /v1/identity/whoami` answers `readOnly: true`, and
+  [What you may do](#what-you-may-do) has `key.readOnly` and shows each of
+  its projects' roles as `viewer`, and its org and team `admin` roles as
+  `member`.
+- A server whose key store can't keep the limit makes no such key: the mint
+  answers `501 read-only-unsupported`, with no secret.
 
 ## Service accounts
 

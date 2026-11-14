@@ -472,8 +472,8 @@ What to check before you upgrade, and what's different after:
     If your code reads one of them, declare it
     ([Declare the environment your code reads](../../../guides/secrets/pack-env/)).
     To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
-    the pack service. A Python pack's image always names `GPG_KEY`: its base
-    image sets it, and nothing reads it.
+    the pack service. The line leaves out `GPG_KEY`, which Python's base image
+    sets: the service drops it too, so declare it if your code reads it.
   - **A tool call has an idempotency key,** `ctx.idempotencyKey`, the same
     every time the same call runs. Pass it to the system a tool writes to, so
     a step that runs again doesn't refund or email twice
@@ -763,7 +763,8 @@ and set `server_image` to its digest.
 **If you removed someone from a project or a team on an earlier version,
 after re-adding them with another role,** they may still hold that role.
 Remove them again on 0.1.5.1: the removal now clears it. For a leftover
-`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+`owner` on a project, as a tenant admin, add the person as `owner`, then
+remove them. 0.1.6
 adds a check that finds who needs it.
 
 ### From 0.1.4 to 0.1.5
@@ -1051,17 +1052,20 @@ and what's different after:
 - **Safari can't sign in to `kindgi dev`'s console.** The console's sign-in
   is a `Secure` cookie, and Safari doesn't keep one over plain `http`, even at
   `http://localhost`, where Chrome and Firefox do. Open the local console in
-  Chrome or Firefox. A fix is planned. A deployment's console needs `https`
-  in every browser (above).
+  Chrome or Firefox. 0.1.6 fixes it
+  ([upgrading to 0.1.6](#from-015-to-016)). A deployment's console needs
+  `https` in every browser (above).
 - **Run one runtime instance.** Several aren't supported yet (the Cloud Run
   module runs one). For one thing, a guardrail change reaches other instances
   only when they restart: registering, unregistering or deploying a guardrail
   takes effect at once on the instance that took the request, and other
   instances keep the guardrails they had. If you run several anyway, restart
-  the others after changing a guardrail. A fix is planned.
+  the others after changing a guardrail. 0.1.6 fixes it
+  ([0.1.6's known limitations](#known-limitations-in-016)).
 - **Cancelling a flow while it runs a loop can let a few more of the loop's
   steps start** before it stops: in our tests up to a few dozen, within
-  seconds. The run still ends `cancelled`. A later release fixes it.
+  seconds. The run still ends `cancelled`. 0.1.6 fixes it
+  ([upgrading to 0.1.6](#from-015-to-016)).
 
 ### Runtime 0.1.4.2
 

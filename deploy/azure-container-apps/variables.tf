@@ -344,6 +344,17 @@ variable "erasure_ledger_key_version" {
   }
 }
 
+variable "pagination_key_version" {
+  description = "The version of the `pagination-key` secret the server reads (`az keyvault secret set` prints it): KINDGI_PAGINATION_KEY, the key page cursors are sealed with. Pinned, never `latest`: a versionless reference is picked up again within 30 minutes of a new version, and the server restarts on it, so every cursor sealed before would break at a time nobody chose. Add the secret before you set it (README, step 3). Empty (the default): the module sets no KINDGI_PAGINATION_KEY and grants nothing on the secret, and the server makes a key at each start, so a page cursor doesn't outlive a restart or a new revision."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.pagination_key_version == "" || can(regex("^[0-9a-f]{32}$", var.pagination_key_version))
+    error_message = "pagination_key_version: a 32-hex Key Vault secret version id."
+  }
+}
+
 variable "database_url_version" {
   description = "The version of the `database-url` secret the server reads, pinned: a new revision then reads exactly that version, not whatever Key Vault's refresh has picked up. upgrade.sh's way back sets it to the version that names the restored server. Leave it empty otherwise (the server reads the latest version), and clear it once the restored server is the one you keep; upgrade.sh refuses to start while it's set."
   type        = string
@@ -378,13 +389,13 @@ variable "server_env" {
     error_message = "server_env: a name is upper-case letters, digits and underscores."
   }
   validation {
-    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$", name))])
-    error_message = "server_env: a secret (a *SECRET* name, or the SMTP URL with its password) goes in server_secret_env, by reference to Key Vault, so its value isn't in the plan, the state or the app's configuration."
+    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$|^KINDGI_PAGINATION_PREVIOUS_KEY$", name))])
+    error_message = "server_env: a secret (a *SECRET* name, the SMTP URL with its password, or the previous page-cursor key) goes in server_secret_env, by reference to Key Vault, so its value isn't in the plan, the state or the app's configuration."
   }
 }
 
 variable "server_secret_env" {
-  description = "The server's secret settings, by reference to this module's Key Vault: `KINDGI_AUTH_SECRET`, `KINDGI_AUTH_EMAIL_SMTP_URL`, ... Each a secret name (`secret`) and its version (`latest`, or a version id). The operator creates each secret; the server gets read access to exactly these. A name the module sets itself is refused."
+  description = "The server's secret settings, by reference to this module's Key Vault: `KINDGI_AUTH_SECRET`, `KINDGI_AUTH_EMAIL_SMTP_URL`, ... and, after a rotation of the page-cursor key, `KINDGI_PAGINATION_PREVIOUS_KEY` (README, Operating it). Each a secret name (`secret`) and its version (`latest`, or a version id). The operator creates each secret; the server gets read access to exactly these, but for the module's own pagination-key, which it reads already. A name the module sets itself is refused."
   type = map(object({
     secret  = string
     version = string

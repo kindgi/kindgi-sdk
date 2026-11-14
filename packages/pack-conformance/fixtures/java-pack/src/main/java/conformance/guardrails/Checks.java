@@ -39,4 +39,10 @@ public final class Checks {
       .judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))
       .onViolation("log-only")
       .check((config, trace) -> CheckResult.pass());
+
+  // Names a built-in check: the runtime runs it, and the pack ships no check for it.
+  public static final Guardrail<Map<String, Object>> NO_GUARANTEES = Guardrail.define("conformance.no-guarantees")
+      .set("at", "model-step")
+      .onViolation("halt")
+      .builtInCheck("forbidden-substring", Map.of("patterns", List.of("guaranteed", "we promise")));
 }

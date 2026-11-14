@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Test runs and authorization (T243 A). Starting one needs `execute` on
+ * Test runs and authorization. Starting one needs `execute` on
  * the test set, `write` on the project it lands in and `execute` on what it
  * evaluates (the agent or the flow), asked in that order by the start
  * route itself (the test-sets router's admin check skips it). A test run is read through its test set:

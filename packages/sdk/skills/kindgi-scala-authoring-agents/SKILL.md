@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.11"
+version: "0.1.13"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -129,8 +129,8 @@ object BriefWriter {
 ## Field by field
 
 - **`id`:** `<pack-id>.<name>`; see Naming above.
-- **`version`:** an exact semver. Conversations pin the version they started
-  on.
+- **`version`:** an exact semver with no build metadata (`1.2.3`,
+  `1.2.3-rc.1`). Conversations pin the version they started on.
 - **`name`, `description`**, and `set("tags", List(…))`: for people and
   listings. The model never sees the description.
 - **`instructions`:** a LiquidJS template. `{{ variable }}` comes from
@@ -210,7 +210,8 @@ object BriefWriter {
   default kinds are `invalid-arguments` and `unknown-tool` (nothing ran). Add
   `tool-error` only when retrying the tool is safe, and `tool-failed` to send
   back a tool's failure on purpose (`ToolFailureException`) with its code and
-  words. Each retry costs a step.
+  words. The list replaces the default, so keep `invalid-arguments` and
+  `unknown-tool` in it. Each retry costs a step.
 - **`set("parallelToolCalls", false)`:** when a model step asks for several
   calls at once, an agent runs calls to read-only tools (`mutating(false)`, no
   changing effect) that come one after another at the same time, up to 8 of

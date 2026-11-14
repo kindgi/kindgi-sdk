@@ -39,6 +39,7 @@ import {
 } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { type ServedEnvRule, refuseUnservedToolSecret } from '../served-env.js';
 import type {
   ToolKindMismatch,
   ToolRecord,
@@ -47,6 +48,7 @@ import type {
   ToolVersionRow,
 } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import type { VersionLocksBinding } from '../version-locks-binding.js';
 import { includeRetiredOf } from './include-retired.js';
 import { clampLimit } from './pagination.js';
 import {
@@ -58,6 +60,7 @@ import {
 } from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
 import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
+import { lockedByField } from './version-locks.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
@@ -114,6 +117,11 @@ export function toolsRouter(
     /** The env the runtime serves: where the secrets a tool's code declares are read. */
     readonly envName?: EnvName;
     /**
+     * A runtime that refuses other envs: a tool whose `secretRef` names
+     * another env is refused (`refuseUnservedToolSecret`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
+    /**
      * The tenant's environment orders: a publish into a later environment is
      * refused (`environment-entry.ts`). Absent: no project is a later
      * environment.
@@ -127,6 +135,8 @@ export function toolsRouter(
     readonly referenceScope?: ReferenceScopeBinding;
     /** The tools' pinned versions; absent → no pin routes, and a lock takes the newest version. */
     readonly pinnedVersions?: PinnedVersionBinding;
+    /** What can still run a version, for the unregister answer's `lockedBy`; absent → no `lockedBy`. */
+    readonly versionLocks?: VersionLocksBinding;
   } = {},
 ): Hono<AppEnv> {
   const { itemRights, pinnedVersions } = options;
@@ -271,7 +281,7 @@ export function toolsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...includeRetiredOf(c),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    // Only what the caller may read, as `GET …/:id` asks.
     const visible =
       authorizer === undefined
         ? page.data
@@ -548,6 +558,11 @@ export function toolsRouter(
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
     }
+    const unserved = refuseUnservedToolSecret(options.servedEnv, validated.value);
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
 
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
@@ -661,10 +676,21 @@ export function toolsRouter(
         // See publish path — hooks are advisory.
       }
     }
+    const locks = await lockedByField(
+      c,
+      { versionLocks: options.versionLocks, authorizer, itemRights },
+      {
+        tenantId,
+        kind: 'tool',
+        id: toolId as unknown as string,
+        version: version as unknown as string,
+      },
+    );
     return c.json({
       toolId: toolId as unknown as string,
       version: version as unknown as string,
       unregistered: true,
+      ...locks,
     });
   });
 

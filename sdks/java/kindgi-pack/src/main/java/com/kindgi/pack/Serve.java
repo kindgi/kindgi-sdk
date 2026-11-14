@@ -220,13 +220,15 @@ final class Serve {
     pack.put("packId", index.get("packId"));
     pack.put("artifactVersion", index.get("artifactVersion"));
     // Before a class of the pack's loads: only the names it declares (and Kindgi's and the
-    // platform's) may reach it. The launcher dropped the rest; the service checks.
+    // platform's) may reach it. The launcher dropped the rest; the service checks, and names
+    // what it dropped but those a base image sets.
     if (config.envFilter().equals("on")) {
       List<String> problems = envProblems(index.get("env"), environ);
       if (!problems.isEmpty()) {
         return problems;
       }
       List<String> dropped = new ArrayList<>(PackEnv.names(envDropped == null ? "" : envDropped));
+      dropped.removeAll(PackEnv.QUIETLY_DROPPED_ENV_NAMES);
       if (!dropped.isEmpty()) {
         Collections.sort(dropped);
         Map<String, Object> fields = new LinkedHashMap<>();

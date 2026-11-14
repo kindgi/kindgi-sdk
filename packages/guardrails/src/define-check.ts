@@ -148,22 +148,19 @@ export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(
   let zodSchema: ZodLikeSchema | undefined;
 
   if (spec.configSchema !== undefined) {
-    if (isZodSchema(spec.configSchema)) {
-      zodSchema = spec.configSchema;
-      const converted = toJSONSchemaSync(spec.configSchema, converter, 'input');
-      if (converted.kind === 'err') {
-        const err: InvalidCheckDefinitionError = {
-          code: 'invalid-check-definition',
-          message: `Check "${spec.id}" configSchema Zod conversion failed: ${converted.error.message}`,
-          checkId: spec.id,
-          cause: converted.error.cause,
-        };
-        throw errorFromDefinition(err);
-      }
-      jsonSchema = converted.value;
-    } else {
-      jsonSchema = spec.configSchema as Readonly<Record<string, unknown>>;
+    if (isZodSchema(spec.configSchema)) zodSchema = spec.configSchema;
+    // A JSON Schema object comes back as is; a zod 3 schema is refused by name.
+    const converted = toJSONSchemaSync(spec.configSchema, converter, 'input');
+    if (converted.kind === 'err') {
+      const err: InvalidCheckDefinitionError = {
+        code: 'invalid-check-definition',
+        message: `Check "${spec.id}" configSchema Zod conversion failed: ${converted.error.message}`,
+        checkId: spec.id,
+        cause: converted.error.cause,
+      };
+      throw errorFromDefinition(err);
     }
+    jsonSchema = converted.value;
     const validator = compileValidator(jsonSchema, spec.id);
     derivedValidator = (config: unknown) => {
       if (!validator(config)) {

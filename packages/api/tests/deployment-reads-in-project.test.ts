@@ -82,8 +82,21 @@ function decide(user: string, action: Action, resource: ResourceRef): Decision {
   };
 }
 
+/** `viewerA`'s key limited to project A: the same person, within the key's project. */
+const VIEWER_A_KEY = 'viewerA-key-a';
+
 const resolveToken: TokenResolver = async (token) =>
-  token in CALLERS ? { tenantId, userId: token as UserId, capabilities: ['secrets:write'] } : null;
+  token === VIEWER_A_KEY
+    ? {
+        tenantId,
+        userId: 'viewerA' as UserId,
+        tokenId: 'key-va' as never,
+        tokenRole: 'member',
+        tokenProjectId: A,
+      }
+    : token in CALLERS
+      ? { tenantId, userId: token as UserId, capabilities: ['secrets:write'] }
+      : null;
 
 let minute = 0;
 function deployment(id: string, projectId?: ProjectId): Deployment {
@@ -162,6 +175,8 @@ function harness(
     readonly packEnvServed?: false;
     readonly ignoresProject?: true;
     readonly counted?: true;
+    /** A tenant with no default project: a deployment naming none serves no project. */
+    readonly noDefault?: true;
   } = {},
 ) {
   const asked: string[] = [];
@@ -182,7 +197,7 @@ function harness(
     projectBinding: {
       get: async (_t: TenantId, id: ProjectId) =>
         [A, B, DEFAULT].includes(id) ? { id, tenantId } : null,
-      getDefault: async () => ({ id: DEFAULT, tenantId }),
+      getDefault: async () => (opts.noDefault === true ? null : { id: DEFAULT, tenantId }),
     } as never,
     secretsBinding: {
       get: async () => null,
@@ -415,6 +430,25 @@ describe('POST /v1/deployments/{id}/secrets: the deployment’s read, then `admi
     const admin = await h.call('admin', '/v1/deployments/d-none/secrets', SYNC);
     expect(admin.body).toEqual(SYNCED);
     expect(h.written).toEqual(['tenant ACME_API_KEY']);
+  });
+});
+
+describe('a deployment that serves no project: the whole workspace reads it', () => {
+  test('a person reads it; their key limited to a project lists its project’s, and finds no other', async () => {
+    const h = harness({ noDefault: true });
+    expect(await h.listed('viewerA')).toEqual(['d-a', 'd-none']);
+    expect((await h.call('viewerA', '/v1/deployments/d-none')).status).toBe(200);
+    expect(await h.listed(VIEWER_A_KEY)).toEqual(['d-a']);
+    const none = await h.call(VIEWER_A_KEY, '/v1/deployments/d-none');
+    expect(none.status, none.text).toBe(404);
+    expect(none.body.error).toMatchObject(notFound('d-none'));
+    expect((await h.call(VIEWER_A_KEY, '/v1/deployments/d-a')).status).toBe(200);
+  });
+
+  test('with a default project, the key reads one naming none as the default’s, as before', async () => {
+    const h = harness();
+    expect(await h.listed(VIEWER_A_KEY)).toEqual(['d-a']);
+    expect((await h.call(VIEWER_A_KEY, '/v1/deployments/d-none')).status).toBe(404);
   });
 });
 

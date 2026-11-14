@@ -37,6 +37,9 @@ System.out.println(client.runs().get(run.id()).status());
 `Kindgi.create()` reads `KINDGI_API_URL` and `KINDGI_API_TOKEN`. In
 development, when they're unset, it uses the running `kindgi dev` (the
 nearest `.kindgirc.json`) and logs a warning to put them in your env file.
+The two go together: with only one of them set, it throws, naming the file
+and what to set, and takes nothing from `.kindgirc.json`. A URL that is that
+`kindgi dev`'s own is the exception: it takes the file's token.
 Production (`KINDGI_ENV` or `NODE_ENV` set to `production`) never reads
 `.kindgirc.json`. `Kindgi.builder()` sets the URL, the token, the timeout
 (60 s), the retries (2), extra headers or your own `HttpClient`.
@@ -82,10 +85,20 @@ Every cursor-paginated list also has `…All`, a lazy `Stream` of every item:
 (`run-not-found`); `code()` is the category, as in the TypeScript and
 Python clients.
 
-**Retries:** a connection error, a timeout, or a 429 / 502 / 503 / 504 is
-retried with backoff (honouring `Retry-After`) when the call is safe to
-repeat: a `GET`, or a call with an idempotency key. The client generates the
-key when you give none, so a retried start never runs twice.
+**Retries** (`maxRetries`, 2 by default, with backoff honouring
+`Retry-After`), only for a call that's safe to repeat: a `GET`, or a call
+with an idempotency key. The client generates the key when you give none.
+
+- **A `GET`** is retried after a connection error or timeout, or a 429, 502,
+  503 or 504.
+- **Any other call** is retried only when nothing can have run: a failure to
+  connect (or a connect timeout), or a 429 or 503.
+- **Once a call was sent,** a timeout, a dropped connection or a proxy's 502
+  or 504 is thrown at once. The call may still be running on the server: a
+  repeat would be refused while it runs, and its answer would never arrive.
+- **A waited `runs().start` that times out** says so, and that the run may
+  still be going. Start a run that can take longer than the timeout (60 s by
+  default) with `wait_(false)` in its options, and follow it.
 
 ## The models
 

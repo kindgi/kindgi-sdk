@@ -302,7 +302,7 @@ const versions: LeafCommand = {
       const projectId = await projectIdFlag(ctx);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().projects.queueRules.versions(projectId, ruleId, {
+      return await ctx.client().projects.queueRules.versions.list(projectId, ruleId, {
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
       });

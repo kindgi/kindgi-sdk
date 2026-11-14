@@ -48,6 +48,7 @@ import { scopeResourceRef } from './routes/scope-params.js';
 import type {
   SecretBinding,
   SecretError,
+  SecretGetInput,
   SecretRecord,
   SecretResolveInput,
   SecretResolveOutcome,
@@ -65,6 +66,16 @@ export function secretScopeChain(item: Scope, orgId: OrgId | undefined): readonl
     tenant,
   ];
 }
+
+/**
+ * Where a secret store's `resolve` would read a secret, revoked or not;
+ * `null`: nowhere. `get` never answers a revoked one, so this is how a
+ * check tells revoked from unset. The runtime supplies its stores'
+ * `locate`.
+ */
+export type SecretLocate = (
+  input: SecretGetInput,
+) => Promise<{ scope: Scope; revokedAt?: string } | null>;
 
 export interface NamedSecretScopeInput {
   readonly secrets: Pick<SecretBinding, 'get'>;
@@ -273,10 +284,11 @@ export interface NamedSecret {
 
 /**
  * The secrets a tool names, with the env each is read in: a declarative
- * tool's `secretRef` in its own env, and the ones its code declares in the
- * env the runtime serves (`envName`; absent, each is recorded without a
- * lookup). Scopes are recorded by name: a declared secret with the name of
- * the `secretRef` shares its record, decided in the `secretRef`'s env.
+ * tool's `secretRef` in the env it names, else in the env the runtime
+ * serves, and the ones its code declares in the env the runtime serves
+ * (`envName`; absent, each is recorded without a lookup). Scopes are
+ * recorded by name: a declared secret with the name of the `secretRef`
+ * shares its record, decided in the `secretRef`'s env.
  */
 export function toolSecretRefs(
   manifest: Pick<ToolManifest, 'needsSpec' | 'spec'>,
@@ -286,7 +298,8 @@ export function toolSecretRefs(
   const auth = manifest.spec?.authorization;
   // A connection's authorization sends the connection's token, not a secret.
   if (auth !== undefined && auth.kind !== 'connection') {
-    refs.push({ envName: auth.secretRef.envName as EnvName, name: auth.secretRef.name });
+    const own = auth.secretRef.envName as EnvName | undefined;
+    refs.push({ envName: own ?? envName, name: auth.secretRef.name });
   }
   for (const name of Object.keys(manifest.needsSpec?.secrets ?? {})) {
     if (!refs.some((r) => r.name === name)) refs.push({ envName, name });

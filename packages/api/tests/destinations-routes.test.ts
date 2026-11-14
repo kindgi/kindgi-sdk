@@ -46,7 +46,7 @@ const TOKEN_MEMBER = 'destinations-token-member';
 const KNOWN_PROJECT = randomUUID() as ProjectId;
 const OTHER_PROJECT = randomUUID() as ProjectId;
 const KNOWN_PERSON = randomUUID() as UserId;
-const SLACK_URL = 'https://hooks.slack.com/services/T000/B000/acme-private-path';
+const SLACK_URL = 'https://hooks.slack.com/services/T00000000/B00000000/acme-private-path';
 const URL_REF = { envName: 'local', name: 'ACME_SLACK_URL' };
 const SECRET_REF = { envName: 'local', name: 'ACME_WEBHOOK_SECRET' };
 /** The account key of tenant A's texts registration `acme-texts-app` (`keyHolders`). */
@@ -706,7 +706,7 @@ describe('list, get, update, remove', () => {
     const id = await createId(app, { ...SLACK, projects: [KNOWN_PROJECT] });
     const res = await call(app, 'PATCH', `/v1/destinations/${id}`, {
       name: 'Acme night shift',
-      url: 'https://hooks.slack.com/services/T000/B000/rotated-path',
+      url: 'https://hooks.slack.com/services/T00000000/B00000000/rotated-path',
       content: 'answer',
     });
     expect(res.status).toBe(200);

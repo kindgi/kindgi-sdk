@@ -4,7 +4,9 @@
 
 - A handler, whole, and three things about `ctx`
 - A date and time tool
+- Schemas: zod 4 or a JSON Schema object
 - What the handler receives
+- Failing a call on purpose
 - Logging from the handler
 
 ```ts
@@ -115,6 +117,16 @@ export default defined.value;
 
 Test it with `timeZone: 'Asia/Tokyo'` in the context you pass `invokeTool`. Docs:
 https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
+
+## Schemas: zod 4 or a JSON Schema object
+
+`input` and `output` take a zod 4 schema (`import { z } from 'zod'`) or a
+JSON Schema object (Draft 2020-12): `{ type: 'object', properties:
+{ orderId: { type: 'string' } }, required: ['orderId'] }`. With JSON
+Schema, type the handler with `defineTool<Input, Output>`. An app on
+zod 3: write JSON Schema objects, and don't move its zod unless the
+person asks. A zod 3 schema fails, from zod 3 or `zod/v3`, and so
+does `zod/v4` from zod 3.
 
 ## What the handler receives
 

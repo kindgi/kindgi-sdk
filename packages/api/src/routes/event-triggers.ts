@@ -29,7 +29,7 @@ import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
  * Nine routes, mirroring the schedules surface. This surface registers
  * triggers; it does not publish events.
  *
- * With an authorizer (T243 A), the trigger's flow decides who may see or
+ * With an authorizer, the trigger's flow decides who may see or
  * change it, and for a flow more than one project serves, the project its
  * runs are filed in (`trigger-access.ts`).
  */
@@ -144,14 +144,14 @@ export function eventTriggersRouter(
   r.get('/:triggerId/versions', async (c) => {
     const found = await readable(c);
     if (found instanceof Response) return found;
-    return versionsPage(c, binding, found, 'event', versionsJson);
+    return versionsPage(c, binding, { triggerId: found }, 'event', versionsJson);
   });
 
   // ---------- GET /:triggerId/versions/:version ----------
   r.get('/:triggerId/versions/:version', async (c) => {
     const found = await readable(c);
     if (found instanceof Response) return found;
-    return versionOne(c, binding, found, 'event', versionsJson);
+    return versionOne(c, binding, { triggerId: found }, 'event', versionsJson);
   });
 
   // ---------- PATCH /:triggerId (update) ----------

@@ -72,7 +72,7 @@ export interface ReleaseGateSpec {
     readonly separateApprover?: boolean;
   };
   /**
-   * Only corrections recorded under an expert group count (T200):
+   * Only corrections recorded under an expert group count:
    * the comparison must be weighted `experts-only`, so a group anyone
    * may assert can't move the gate.
    */

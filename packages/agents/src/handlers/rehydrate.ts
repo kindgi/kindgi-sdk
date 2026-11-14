@@ -72,6 +72,7 @@ import {
   addPointCheckNodes,
   addRetrievalNodes,
   addStepToolNodes,
+  agentActor,
   noteCallKeys,
 } from './turn-provenance.js';
 import type { FileRead, PointCheckNode, ToolApproval } from './turn-provenance.js';
@@ -349,6 +350,7 @@ function rebuildProvenance(
       { step, callId, provider, finishReason: finishReason ?? 'stop', at, files },
       input.sequence,
       [...(ctx.toolResultIds ?? [])],
+      agentActor(ctx.input.agent),
     );
     addStepToolNodes(ctx, step, storedByStep.get(step) ?? []);
     addPointCheckNodes(ctx, checksByStep.get(step) ?? []);

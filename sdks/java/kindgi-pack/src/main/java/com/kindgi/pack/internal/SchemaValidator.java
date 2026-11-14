@@ -28,7 +28,9 @@ import org.jspecify.annotations.Nullable;
  * <p>Like Ajv's strict mode as the runtime compiles a schema, it refuses a schema with a keyword
  * or a format it doesn't know, rather than ignoring it, and what strict mode's type and
  * {@code required} rules refuse: a keyword with no {@code type} it applies to, a {@code type} its
- * context can't be, and a {@code required} property nothing defines.
+ * context can't be, and a {@code required} property nothing defines. It also refuses a property
+ * name holding a lone surrogate, under a schema the runtime compiles: the runtime can't write that
+ * name into the schema's path.
  */
 public final class SchemaValidator {
   /** The keywords this validator checks or carries. */
@@ -196,6 +198,11 @@ public final class SchemaValidator {
       props.keySet().stream().filter(k -> !k.equals("__proto__")).forEach(defined::add);
       // Nothing after them reads the names the runtime counts as defined.
       for (Map.Entry<String, Object> p : props.entrySet()) {
+        if (!passesAnything(p.getValue()) && hasLoneSurrogate(p.getKey())) {
+          // The runtime writes the name into the path of the schema it compiles for it, URI
+          // encoded, and JavaScript can't encode a lone surrogate.
+          throw new SchemaException(at + "/properties: URI malformed: a name holds a lone surrogate");
+        }
         compile(p.getValue(), at + "/properties/" + escape(p.getKey()), List.of(), new HashSet<>());
       }
     }
@@ -931,6 +938,11 @@ public final class SchemaValidator {
 
   static String escape(String key) {
     return key.replace("~", "~0").replace("/", "~1");
+  }
+
+  /** Whether {@code name} holds a lone surrogate, which JavaScript's {@code encodeURIComponent} refuses. */
+  private static boolean hasLoneSurrogate(String name) {
+    return name.codePoints().anyMatch(c -> c >= Character.MIN_SURROGATE && c <= Character.MAX_SURROGATE);
   }
 
   private static Map<String, Object> issue(String instancePath, String schemaPath, String keyword, Map<String, Object> params, String message) {

@@ -354,7 +354,7 @@ describe('envVarsForTarget — the license report', () => {
   });
 });
 
-describe('envVarsForTarget — the retention sweeper (T236)', () => {
+describe('envVarsForTarget — the retention sweeper', () => {
   test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')).toMatchObject({
@@ -370,7 +370,7 @@ describe('envVarsForTarget — the retention sweeper (T236)', () => {
   });
 });
 
-describe('envVarsForTarget — the compliance classifier (T250)', () => {
+describe('envVarsForTarget — the compliance classifier', () => {
   test("the server's, optional, in core; it says plainly that audit events are purged by kind", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     const setting = server.get('KINDGI_COMPLIANCE_CLASSIFIER');
@@ -597,13 +597,14 @@ describe('validateEnvForTarget', () => {
     expect(server.get('KINDGI_DATABASE_SERVER_CA')?.example).toBe('');
   });
 
-  test("the database timeouts are the server's, none required, each example its default", () => {
+  test("the database timeouts and pool size are the server's, none required, each example its default", () => {
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
     for (const [name, example] of [
       ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
       ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
       ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '30000'],
       ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
+      ['KINDGI_DB_POOL_SIZE', '10'],
     ] as const) {
       expect(server.get(name)?.required, name).toBe(false);
       expect(server.get(name)?.example, name).toBe(example);

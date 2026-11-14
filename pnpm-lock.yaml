@@ -324,6 +324,9 @@ importers:
 
   packages/adapters/model-openai-compat:
     dependencies:
+      '@kindgi/adapter-model-shared':
+        specifier: workspace:*
+        version: link:../model-shared
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
@@ -337,9 +340,6 @@ importers:
         specifier: ^7.17.0
         version: 7.17.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(ws@8.21.3)(zod@4.6.7)
     devDependencies:
-      '@kindgi/adapter-model-shared':
-        specifier: workspace:*
-        version: link:../model-shared
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3
@@ -358,6 +358,9 @@ importers:
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../../log
     devDependencies:
       '@types/node':
         specifier: ^22.10.5

@@ -91,7 +91,8 @@ export interface IndexFileError {
  *   and a record per call with its ids and the caller's trace.
  * - `env-filter`: only the names the pack declares (and Kindgi's and the
  *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
- *   service names the ones it dropped (`env-dropped`).
+ *   service names the ones it dropped (`env-dropped`), but for one a base
+ *   image sets (`GPG_KEY`).
  * - `pause`: a tool that declares `pauses` gets the call's wait token and
  *   may answer with a pause (pack protocol 2.8.0); the fixture pack has
  *   `conformance.pause`.
@@ -648,13 +649,17 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         if (updatesFiles(target)) toolIds.push(FIXTURE_UPDATE_TOOL_ID);
         expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
-        expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
-          ...FIXTURE_CHECK_IDS,
-        ]);
+        expect(
+          index.guardrails
+            .filter((g) => g.checkBuiltIn !== true)
+            .map((g) => g.checkId ?? g.id)
+            .sort(),
+        ).toEqual([...FIXTURE_CHECK_IDS]);
         expect(index.guardrails.map((g) => g.id)).toEqual([
           'conformance.check-throws',
           'conformance.judged',
           'conformance.min-length',
+          'conformance.no-guarantees',
         ]);
         expect(index.agents.map((a) => a.id)).toEqual(['conformance.echo-agent']);
         expect(index.agents[0]?.tools).toEqual([{ id: 'conformance.echo', version: '1.0.0' }]);
@@ -728,6 +733,23 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           action: { 'on-violation': 'log-only' },
           config: { rubric: 'The reply answers the message.', responseFormat: 'pass-fail' },
           judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+        });
+      });
+
+      test('a guardrail that names a built-in check indexes the same in every SDK', () => {
+        // The runtime runs a built-in and checks its config: the entry marks it, with no
+        // configSchema and no checkPoints, and its module is only where it's declared.
+        const { checkModulePath, ...entry } =
+          index.guardrails.find((g) => g.id === 'conformance.no-guarantees') ?? {};
+        expect(typeof checkModulePath).toBe('string');
+        expect(entry).toEqual({
+          id: 'conformance.no-guarantees',
+          kind: 'zero-llm',
+          action: { 'on-violation': 'halt' },
+          at: 'model-step',
+          checkId: 'forbidden-substring',
+          checkBuiltIn: true,
+          config: { patterns: ['guaranteed', 'we promise'] },
         });
       });
 
@@ -1084,6 +1106,22 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
               expect.arrayContaining(['AWS_SECRET_ACCESS_KEY', 'CONFORMANCE_UNDECLARED']),
             );
             expect(dropped.names).not.toContain('CONFORMANCE_A');
+            expect(running.stderr.join('\n')).not.toContain(UNDECLARED_VALUE);
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test("a base image's name (GPG_KEY) is dropped without being named", async () => {
+          const running = await startService(target, await declaredIndexPath(), {
+            CONFORMANCE_A: 'a',
+            GPG_KEY: UNDECLARED_VALUE,
+          });
+          try {
+            expect(await namesIn(running)).not.toContain('GPG_KEY');
+            // An env-dropped line comes before `listening`, which startService waited for.
+            expect(running.events.map((e) => e.kind)).not.toContain('env-dropped');
+            expect(running.stderr.join('\n')).not.toContain('GPG_KEY');
             expect(running.stderr.join('\n')).not.toContain(UNDECLARED_VALUE);
           } finally {
             await running.terminate();
@@ -1940,6 +1978,20 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           kind: 'error',
           code: 'check-not-in-pack',
           checkId: 'conformance.checks.nope',
+        });
+      });
+
+      test('a built-in check: check-not-in-pack, since the runtime runs it', async () => {
+        const answer = response(
+          await invoke(
+            service,
+            checkCall('forbidden-substring', { patterns: ['guaranteed'] }, 'guaranteed'),
+          ),
+        );
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'check-not-in-pack',
+          checkId: 'forbidden-substring',
         });
       });
 

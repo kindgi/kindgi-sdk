@@ -15,7 +15,7 @@ import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type {
@@ -74,7 +74,7 @@ export interface ProvenanceRouterOptions {
    * DAGs. Absent = the export omits messages (empty array).
    */
   readonly conversationBinding?: ConversationBinding;
-  /** Where a run's project is read, for the per-run checks (T243 A). */
+  /** Where a run's project is read, for the per-run checks. */
   readonly runBinding?: RunBinding;
 }
 
@@ -88,7 +88,7 @@ export function provenanceRouter(
   binding: ProvenanceBinding,
   options: ProvenanceRouterOptions = {},
   /**
-   * With one (T243 A): a run's provenance (and its export) needs `read`
+   * With one: a run's provenance (and its export) needs `read`
    * on the run's project, or, for a run of the caller's own (`isOwnRun`),
    * `run` there; the list holds only records whose project the caller may
    * read (the tenant, for one with no project).
@@ -209,10 +209,12 @@ export function provenanceRouter(
     const visible =
       authorizer === undefined
         ? records
-        : await authorizer.filterByCan(c, 'read', records, (rec) =>
+        : // A record with no project is the whole workspace's, which a key
+          // limited to a project doesn't read.
+          await authorizer.filterByCan(c, 'read', records, (rec) =>
             rec.projectId !== undefined
               ? ref('project', rec.projectId as unknown as string)
-              : ref('tenant', tenantId as unknown as string),
+              : tenantWide(tenantId as unknown as string),
           );
     return c.json({
       data: visible.map(serializeRecordMetadata),

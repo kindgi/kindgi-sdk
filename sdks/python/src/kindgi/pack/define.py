@@ -74,6 +74,7 @@ __all__ = [
     "Guardrail",
     "Primitive",
     "Tool",
+    "built_in_guardrail",
     "guardrail",
     "http_tool",
     "tool",
@@ -82,11 +83,16 @@ __all__ = [
 P = ParamSpec("P")
 R = TypeVar("R")
 
-SEMVER = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
-    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
-)
+_CORE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+_PRERELEASE = r"(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+
+VERSION = re.compile(_CORE + rf"(?:-{_PRERELEASE}(?:\.{_PRERELEASE})*)?")
+"""An agent's or a flow's version, matched in full: an exact semver with no
+build metadata (`1.2.3`, `1.2.3-rc.1`). A deploy takes no build metadata."""
+
+TOOL_VERSION = re.compile(_CORE)
+"""A tool's version, matched in full: MAJOR.MINOR.PATCH only (`1.2.3`). A
+deploy's tool manifest takes no more."""
 
 
 class DefinitionError(ValueError):
@@ -318,10 +324,12 @@ def http_tool(
     The Python counterpart of `defineTool({ spec: { kind: 'http', ... } })`;
     the pack's index carries the spec. `{name}` placeholders in `url_template`
     (and in a `text` request body's `template`) are filled from the input's
-    fields, URL-encoded. `authorization` and `request_body` take the spec's
-    JSON shape:
+    fields, URL-encoded. The URL starts with `http://` or `https://` and a
+    host, and its placeholders go in the path and query only, never in the
+    host or port. `authorization` and `request_body` take the spec's JSON
+    shape:
 
-        authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "ACME_TOKEN"}}
+        authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}}
         request_body={"kind": "json-input"}
 
     The runtime resolves the secret on every call (`local`: the pack's `.env`
@@ -355,6 +363,9 @@ def http_tool(
     if issues:
         found = "; ".join(f"{i['instancePath'] or '/'} {i['message']}" for i in issues)
         raise DefinitionError(f"{where}: not a valid HTTP tool spec: {found}")
+    bad_url = _url_template_problem(url_template)
+    if bad_url is not None:
+        raise DefinitionError(f"{where} spec.urlTemplate {bad_url}")
     templates = [url_template]
     if request_body is not None and request_body.get("kind") == "text":
         templates.append(str(request_body.get("template", "")))
@@ -397,6 +408,25 @@ def http_tool(
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 """A `{name}` placeholder, as the runtime's HTTP tool fills it."""
 
+_URL_ORIGIN = re.compile(r"(https?)://([^/?#]*)", re.IGNORECASE | re.ASCII)
+"""A URL's scheme and its host and port, as `defineTool` reads them: the scheme
+in any case, of ASCII letters only, as JavaScript's `i` flag compares them."""
+
+
+def _url_template_problem(url_template: str) -> str | None:
+    """What is wrong with an HTTP tool's URL, as `defineTool` says it; `None` when it starts
+    with `http://` or `https://` and a host, and fills placeholders in its path and query
+    only. In the host or port, a run's input (or a model's arguments) would choose where the
+    runtime sends the request."""
+    origin = _URL_ORIGIN.match(url_template)
+    if origin is None:
+        return "must start with http:// or https:// and a host"
+    if "{" in origin[2] or "}" in origin[2]:
+        return "fills {placeholders} in its path and query only, never in its host or port"
+    if origin[2] == "":
+        return "must name a host"
+    return None
+
 
 @cache
 def _http_spec_validator() -> SchemaValidator:
@@ -420,7 +450,7 @@ CheckFn = Callable[..., Any]
 #: The built-in checks' ids (`BUILT_IN_CHECK_IDS` in the TypeScript `@kindgi/guardrails`). The
 #: runtime runs the built-in for a guardrail naming one, so a pack can't ship its own check under
 #: one: a `@guardrail` always ships its check, so its check id (`check_id=`, or the guardrail's
-#: own id) can't be one of these.
+#: own id) can't be one of these. A `built_in_guardrail` names one, and ships no check.
 RESERVED_CHECK_IDS = frozenset(
     {
         "must-cite",
@@ -433,10 +463,19 @@ RESERVED_CHECK_IDS = frozenset(
     }
 )
 
+#: Where in a turn a guardrail may run (`GUARDRAIL_POINTS` in the TypeScript `@kindgi/guardrails`).
+_GUARDRAIL_POINTS = ("before-tool", "after-tool", "model-step", "final-answer")
+
+#: A `scope.tools` entry: a tool id, or a prefix with a trailing `*` (`SCOPE_TOOL` in TypeScript).
+_SCOPE_TOOL = re.compile(r"^[^*]*\*?$")
+
 
 @dataclass(frozen=True, eq=False)
 class Guardrail:
-    """A guardrail whose check is this module's function. Calling it calls the check."""
+    """A guardrail and its check: this module's function, or a built-in the runtime runs.
+
+    Calling it calls the check. A built-in's (`built_in_guardrail`) raises: it runs in Kindgi.
+    """
 
     id: str
     check: CheckFn
@@ -457,11 +496,18 @@ class Guardrail:
     network: Mapping[str, Any] | None = None
     judge_capabilities: Mapping[str, Any] | None = None
     """An `llm-judge` guardrail's judge: what its model is routed by (wire keys)."""
+    at: str | None = None
+    """Where in the turn it runs (`built_in_guardrail`'s `at=`); `None` is the final answer."""
     module: str = ""
     _config_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
 
     def __call__(self, config: Any, trace: Any) -> Any:
         return self.check(config, trace)
+
+    @property
+    def built_in(self) -> bool:
+        """Whether its check is a built-in, which the runtime runs (`built_in_guardrail`)."""
+        return self.check_id in RESERVED_CHECK_IDS
 
     def parse_config(self, value: Mapping[str, Any]) -> Any:
         return (
@@ -578,6 +624,94 @@ def guardrail(
     return decorate
 
 
+def built_in_guardrail(
+    *,
+    id: str,
+    check: str,
+    config: Mapping[str, Any] | None = None,
+    on_violation: str | None = None,
+    action: Mapping[str, Any] | None = None,
+    name: str | None = None,
+    severity: str | None = None,
+    scope: Mapping[str, Any] | None = None,
+    at: str | None = None,
+) -> Guardrail:
+    """Declare a guardrail whose check is a built-in — no check function: the runtime runs it.
+
+    The Python counterpart of a TypeScript guardrail's `check: 'forbidden-substring'`.
+    `check` is one of `RESERVED_CHECK_IDS`, and `config=` is its settings, keyed as on
+    the wire (`{"patterns": ["guaranteed"]}`); without it the built-in takes its
+    defaults. `on_violation=` and `action=` are `@guardrail`'s. `at=` is where in the
+    turn it runs: `"before-tool"`, `"after-tool"`, `"model-step"` or `"final-answer"`
+    (left out: the final answer). The runtime checks the settings, and that the
+    built-in runs at that point, when the pack is registered and deployed. Calling
+    the guardrail in Python raises: it runs in Kindgi.
+    """
+    where = f'Guardrail "{id}"'
+    _require_id(id, where)
+    if check not in RESERVED_CHECK_IDS:
+        raise DefinitionError(
+            f'{where}: "{check}" isn\'t a built-in check. The built-ins are '
+            f"{', '.join(sorted(RESERVED_CHECK_IDS))}; a check of your own is a @guardrail."
+        )
+    if (on_violation is None) == (action is None):
+        raise DefinitionError(f"{where}: pass exactly one of on_violation= or action=")
+    resolved_action: Mapping[str, Any] = (
+        action if action is not None else {"on-violation": on_violation}
+    )
+    violation = resolved_action.get("on-violation")
+    if not isinstance(violation, str):
+        raise DefinitionError(f'{where}: action needs a string "on-violation"')
+    # TypeScript's indexer refuses the same, at build (`guardrailPointIssues`).
+    point = at if at is not None else "final-answer"
+    if point not in _GUARDRAIL_POINTS:
+        raise DefinitionError(f"{where}: at= must be one of {', '.join(_GUARDRAIL_POINTS)}")
+    tools = None if scope is None else scope.get("tools")
+    if (
+        scope is not None
+        and "tools" in scope
+        and not (
+            isinstance(tools, (list, tuple))
+            and len(cast("Sequence[object]", tools)) > 0
+            and all(
+                isinstance(t, str) and t != "" and _SCOPE_TOOL.match(t) is not None
+                for t in cast("Sequence[object]", tools)
+            )
+        )
+    ):
+        raise DefinitionError(
+            f"{where}: scope.tools must name one or more tool ids, each with at most a trailing '*'"
+        )
+    if violation in ("escalate", "compensate") and point != "final-answer":
+        raise DefinitionError(
+            f'{where}: "{violation}" is recorded at the final answer only, not at "{point}"'
+        )
+    if scope is not None and "tools" in scope and point not in ("before-tool", "after-tool"):
+        raise DefinitionError(
+            f'{where}: scope.tools is for "before-tool" and "after-tool", not "{point}"'
+        )
+
+    def runs_in_kindgi(_config: Any, _trace: Any) -> NoReturn:
+        raise RuntimeError(
+            f'{where} names the built-in check "{check}": the Kindgi runtime runs it, not'
+            " Python. Run it through Kindgi (an agent, a flow, `kindgi dev`)."
+        )
+
+    return Guardrail(
+        id=id,
+        check=runs_in_kindgi,
+        check_id=check,
+        kind="zero-llm",
+        action=dict(resolved_action),
+        name=name,
+        severity=severity,
+        scope=scope,
+        config=None if config is None else dict(config),
+        at=at,
+        module=_defined_in(1),
+    )
+
+
 def check_result_to_wire(result: Any) -> dict[str, Any] | None:
     """The wire `CheckResult` for what a check returned, or `None` if it isn't one."""
     if isinstance(result, bool):
@@ -666,8 +800,7 @@ class Agent:
             self.module = _defined_in(2)
         where = f'Agent "{self.id}"'
         _require_id(self.id, where)
-        if not SEMVER.match(self.version):
-            raise DefinitionError(f"{where}: version must be an exact semver, got {self.version!r}")
+        _check_exact_version(self.version, where)
         if not isinstance(self.instructions, str):
             ref: Mapping[str, Any] = self.instructions
             if not isinstance(ref.get("prompt"), str) or not isinstance(ref.get("version"), str):
@@ -706,6 +839,7 @@ class Flow:
             self.module = _defined_in(2)
         where = f'Flow "{self.id}"'
         _require_id(self.id, where)
+        _check_exact_version(self.version, where)
         _check_mcp(self.mcp, self.id, "flow", where)
 
 
@@ -718,9 +852,19 @@ Primitive = Tool[..., Any] | Guardrail | Agent | Flow
 
 
 def _check_version(version: str | None, where: str) -> None:
-    if version is not None and not SEMVER.match(version):
+    """A tool's own version, when it sets one (else it takes the pack's)."""
+    if version is not None and not TOOL_VERSION.fullmatch(version):
         raise DefinitionError(
-            f"{where}: version must be an exact semver (e.g. 1.2.3), got {version!r}"
+            f"{where}: version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got {version!r}"
+        )
+
+
+def _check_exact_version(version: str, where: str) -> None:
+    """An agent's or a flow's version."""
+    if not VERSION.fullmatch(version):
+        raise DefinitionError(
+            f"{where}: version must be an exact semver with no build metadata"
+            f" (e.g. 1.2.3 or 1.2.3-rc.1), got {version!r}"
         )
 
 

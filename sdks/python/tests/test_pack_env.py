@@ -106,7 +106,7 @@ def test_a_bad_declaration_fails_indexing(
 def test_env_must_be_a_table(make_pack: Callable[..., Path]) -> None:
     root = make_pack(
         {"tools/echo.py": ECHO},
-        pyproject='[tool.kindgi]\nenv = ["A"]\n\n[tool.kindgi.pack]\nid = "acme"\nversion = "1"\n',
+        pyproject='[tool.kindgi]\nenv = ["A"]\n\n[tool.kindgi.pack]\nid = "acme"\nversion = "1.0.0"\n',
     )
     assert run_indexer(root, **PINS)["error"]["code"] == "config-invalid"
 

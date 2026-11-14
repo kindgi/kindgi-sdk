@@ -78,8 +78,12 @@ export function hangingFetch(): FetchStub {
   return { fetch: stub, calls };
 }
 
+/**
+ * Answers each call with the next queued response. A response with no `body`
+ * has none, as a `204 No Content` answer does.
+ */
 export function recordingFetch(
-  responses: readonly { status: number; body: string; headers?: Record<string, string> }[],
+  responses: readonly { status: number; body?: string; headers?: Record<string, string> }[],
 ): FetchStub {
   const calls: RecordedRequest[] = [];
   let cursor = 0;
@@ -99,7 +103,7 @@ export function recordingFetch(
       throw new Error(`No mock response queued for ${method} ${url}`);
     }
     cursor += 1;
-    return new Response(next.body, {
+    return new Response(next.body ?? null, {
       status: next.status,
       headers: {
         'content-type': 'application/json',

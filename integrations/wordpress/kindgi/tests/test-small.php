@@ -169,19 +169,115 @@ function test_rest_a_long_conversation_shows_its_newest_messages(): void {
 	kindgi_assert( is_wp_error( $failed ), 'a failed page fails the read' );
 }
 
+/*
+ * Kindgi's messages don't name their run, and its runs list doesn't filter
+ * by conversation: one page of the agent's newest top-level runs is read,
+ * and the conversation's kept, each with when it started and ended.
+ */
+function test_rest_a_conversations_runs_come_from_one_page_of_its_agents(): void {
+	kindgi_test_jane_at_work();
+	$conversation = array(
+		'id'            => 'c-1',
+		'agentId'       => 'acme-desk.store-agent',
+		'projectId'     => '5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817',
+		'participantId' => KINDGI_TEST_JANE,
+	);
+	$messages     = array(
+		'data'    => array(
+			array(
+				'sequence'  => 1,
+				'role'      => 'agent',
+				'content'   => array( 'text' => 'Order 27 ships Thursday.' ),
+				'createdAt' => '2026-11-04T09:00:05Z',
+			),
+		),
+		'hasMore' => false,
+	);
+	kindgi_test_answer( 200, $conversation );
+	kindgi_test_answer( 200, $messages );
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array(
+				array(
+					'id'          => 'run-3',
+					'agent'       => array( 'conversationId' => 'c-1' ),
+					'createdAt'   => '2026-11-04T09:10:00Z',
+					'completedAt' => null,
+				),
+				array(
+					'id'          => 'run-2',
+					'agent'       => array( 'conversationId' => 'c-other' ),
+					'createdAt'   => '2026-11-04T09:05:00Z',
+					'completedAt' => '2026-11-04T09:05:09Z',
+				),
+				array(
+					'id'          => 'run-1',
+					'agent'       => array( 'conversationId' => 'c-1' ),
+					'createdAt'   => '2026-11-04T09:00:00Z',
+					'completedAt' => '2026-11-04T09:00:07Z',
+				),
+				array(
+					'id'    => 'run-0',
+					'agent' => array( 'conversationId' => 'c-1' ),
+				),
+			),
+			'hasMore' => true,
+		)
+	);
+	$answer = Kindgi_Rest::messages( new WP_REST_Request( array( 'id' => 'c-1' ) ) );
+	kindgi_assert_same(
+		array(
+			array(
+				'id'          => 'run-3',
+				'createdAt'   => '2026-11-04T09:10:00Z',
+				'completedAt' => null,
+			),
+			array(
+				'id'          => 'run-1',
+				'createdAt'   => '2026-11-04T09:00:00Z',
+				'completedAt' => '2026-11-04T09:00:07Z',
+			),
+		),
+		$answer['runs'],
+		"this conversation's, each with when it ran; one still running has no end, and one with no start is left out"
+	);
+	kindgi_assert_same( '2026-11-04T09:00:05Z', $answer['messages'][0]['createdAt'], 'and each message says when, to find its run' );
+	$asked = $GLOBALS['kindgi_test']['requests'][2][0];
+	foreach ( array( '/v1/runs?', 'agentId=acme-desk.store-agent', 'topLevel=true', 'limit=100', 'scopeKind=project', 'scopeId=5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817' ) as $part ) {
+		kindgi_assert( false !== strpos( $asked, $part ), "one page of its agent's newest runs in the site's project: {$part}" );
+	}
+	kindgi_assert_same( 3, count( $GLOBALS['kindgi_test']['requests'] ), 'one page only, though more may follow' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, array_diff_key( $conversation, array( 'projectId' => true ) ) );
+	kindgi_test_answer( 200, $messages );
+	$failed = Kindgi_Rest::messages( new WP_REST_Request( array( 'id' => 'c-1' ) ) );
+	kindgi_assert_same( array(), $failed['runs'], 'a runs list Kindgi does not answer is none: no reply links a run' );
+	kindgi_assert_same( 1, count( $failed['messages'] ), 'and the conversation shows anyway' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], 'scopeId=5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817' ), "a conversation in no project: its agent's runs in the site's project, the only ones Activity opens" );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, array( 'projectId' => 'p-other' ) + $conversation );
+	kindgi_test_answer( 200, $messages );
+	$elsewhere = Kindgi_Rest::messages( new WP_REST_Request( array( 'id' => 'c-1' ) ) );
+	kindgi_assert_same( array(), $elsewhere['runs'], "a conversation in another project: no reply links a run, since Activity can't open it" );
+	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'and its runs are never asked for' );
+}
+
 function test_admin_the_page_needs_more_than_writing_posts(): void {
 	kindgi_assert_same( 'edit_others_posts', Kindgi_Admin::capability(), 'without WooCommerce: editors and administrators' );
 }
 
-function test_admin_the_privacy_guide_has_the_staffs_part_then_the_shoppers_with_the_placeholder_as_text(): void {
+function test_admin_the_privacy_guide_has_the_staffs_part_then_the_shoppers_with_the_privacy_policys_address(): void {
 	$text = Kindgi_Admin::privacy_policy_text();
 	$staff = strpos( $text, '<p class="privacy-policy-tutorial">Use this part if your site&#039;s staff use the Kindgi pages.' );
 	$shoppers = strpos( $text, '<p class="privacy-policy-tutorial">Use this part if your store sends Kindgi WooCommerce webhooks' );
 	kindgi_assert( 0 === $staff, 'the staff\'s part comes first, its note to the owner in the guide\'s tutorial class' );
 	kindgi_assert( false !== $shoppers && $shoppers > $staff, 'then the shoppers\' part' );
 	kindgi_assert( 2 === substr_count( $text, '<strong class="privacy-policy-tutorial">Suggested text: </strong>' ), 'each part has its suggested text' );
-	kindgi_assert( 2 === substr_count( $text, 'Its privacy policy is at &lt;privacy URL&gt;.]' ), 'the placeholder shows as text in both' );
-	kindgi_assert( false === strpos( $text, '<privacy URL>' ), 'never as a tag' );
+	kindgi_assert( 2 === substr_count( $text, 'Its privacy policy is at https://www.kindgi.com/privacy.]' ), 'both give the privacy policy\'s address' );
+	kindgi_assert( false === strpos( $text, 'privacy URL' ), 'no placeholder is left, as text or as a tag' );
 }
 
 function test_admin_a_retired_key_set_by_hand_says_where_to_set_a_new_one_and_anything_else_keeps_kindgis_words(): void {

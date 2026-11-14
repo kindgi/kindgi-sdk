@@ -25,14 +25,17 @@ describe('orgs — wire round-trips', () => {
       { status: 201, body: JSON.stringify({ id: 'org-1' }) },
       { status: 200, body: JSON.stringify(page) },
       { status: 200, body: JSON.stringify(SAMPLE_ORG) },
-      { status: 200, body: JSON.stringify(SAMPLE_ORG) },
+      { status: 204 },
       { status: 200, body: '{}' },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     await client.orgs.create({ name: 'Litigation', slug: 'litigation' });
     await client.orgs.list();
     await client.orgs.get('org-1');
-    await client.orgs.update('org-1', { name: 'Litigation & Compliance' });
+    // The server answers 204: the update resolves to nothing.
+    await expect(
+      client.orgs.update('org-1', { name: 'Litigation & Compliance' }),
+    ).resolves.toBeUndefined();
     await client.orgs.delete('org-1');
     expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
       'POST /v1/orgs',

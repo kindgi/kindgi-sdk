@@ -12,13 +12,18 @@
  * invalid answer with repairs left keeps the turn going, with the answer
  * and a repair message (the same words, and what didn't fit) appended to
  * the conversation sent to the model. Repairs are counted from those
- * messages, so a replayed turn counts the same.
+ * messages, the ones the turn's loop added (`loopMessages`), so a
+ * replayed turn counts the same, and a message of the person's that
+ * starts with the marker, this turn's or one in the history, counts for
+ * nothing.
  */
 
 import type { ModelMessage } from '@kindgi/capabilities';
 import { type CompiledInlineSchema, compileInlineSchema } from '@kindgi/schema';
 
 import type { AgentOutputSpec } from '../types.js';
+import type { TurnContext } from './context.js';
+import { loopMessages } from './history.js';
 
 /** Default number of repair attempts. */
 export const DEFAULT_MAX_REPAIRS = 1;
@@ -98,9 +103,13 @@ export function isRepairMessage(m: ModelMessage): boolean {
   return m.role === 'user' && typeof m.content === 'string' && m.content.startsWith(REPAIR_MARKER);
 }
 
-/** How many repairs this turn has asked for so far. */
-export function repairsSoFar(messages: readonly ModelMessage[]): number {
-  return messages.filter(isRepairMessage).length;
+/**
+ * How many repairs this turn has asked for so far: the repair messages
+ * the turn's loop added to `messages` (`loopMessages`). One before them,
+ * the person's or an earlier turn's, isn't this turn's repair.
+ */
+export function repairsSoFar(ctx: TurnContext, messages: readonly ModelMessage[]): number {
+  return loopMessages(ctx, messages, "the turn's output repairs").filter(isRepairMessage).length;
 }
 
 /**

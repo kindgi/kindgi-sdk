@@ -77,9 +77,12 @@ export type EvaluationOutcome =
 export async function evaluateGuardrail(
   guardrail: Guardrail,
   checks: CheckRegistry,
-  trace: RunTrace,
+  given: RunTrace,
   bindings: EvaluationBindings = {},
 ): Promise<EvaluationOutcome> {
+  // The earlier turns reach only a guardrail that asks for them (`sees`):
+  // its check, its judge and its action read the same trace.
+  const trace = seenBy(guardrail, given);
   const scope = checkScope(guardrail, trace);
   if (scope !== null) return { kind: 'skip', reason: scope };
 
@@ -212,6 +215,17 @@ function thrownMessage(thrown: unknown): string {
   return line.length > THROWN_MESSAGE_MAX ? `${line.slice(0, THROWN_MESSAGE_MAX)}…` : line;
 }
 const THROWN_MESSAGE_MAX = 500;
+
+/**
+ * The trace as `guardrail` sees it: with the earlier turns only when it
+ * says `sees: 'conversation'`, so a trace built for one guardrail that
+ * asks for them gives them to no other.
+ */
+function seenBy(guardrail: Guardrail, trace: RunTrace): RunTrace {
+  if (guardrail.sees === 'conversation' || trace.earlier === undefined) return trace;
+  const { earlier: _earlier, ...turn } = trace;
+  return turn;
+}
 
 /**
  * Evaluate every guardrail in the list against a trace. Order-independent —

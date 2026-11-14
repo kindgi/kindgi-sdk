@@ -5,7 +5,7 @@
  * `kindgi console`: open the console of the runtime the CLI points at
  * (`.kindgirc.json`, which `kindgi dev` writes; `--url`; `KINDGI_API_URL`;
  * `kindgi auth login`) in the browser, after checking that the runtime
- * serves one (T374). `--no-open` only prints its URL.
+ * serves one. `--no-open` only prints its URL.
  */
 
 import { openUrlInBrowser } from '../open-url.js';

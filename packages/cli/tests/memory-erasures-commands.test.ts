@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi memory erasures create / get / list / export / replay`
- * (T273 M-5), through the client's `memory.erasures`.
+ * `kindgi memory erasures create / get / list / export / replay`,
+ * through the client's `memory.erasures`.
  */
 
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -78,7 +78,7 @@ async function erasures(argv: readonly string[]) {
   return { out, calls };
 }
 
-describe('kindgi memory erasures (T273 M-5)', () => {
+describe('kindgi memory erasures', () => {
   test.each([
     [['--participant=end-7'], { subject: { kind: 'participant', id: 'end-7' } }],
     [['--external=ext-1'], { subject: { kind: 'external', id: 'ext-1' } }],

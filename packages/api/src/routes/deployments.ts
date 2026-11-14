@@ -140,13 +140,19 @@ import {
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import {
+  type SecretLocate,
   callerAdministers,
   deploymentSecretScope,
   secretScopesFor,
   toolSecretRefs,
 } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
-import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
+import {
+  type ServedEnvRule,
+  readReferencesOnce,
+  refuseUnservedToolSecret,
+  refuseUnservedValue,
+} from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { DeployCardsInput, DeployCardsOutcome } from '../suggested-change-service.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
@@ -341,6 +347,12 @@ export interface DeploymentsRouterBindings {
    */
   readonly secretsBinding?: SecretBinding;
   /**
+   * Where `secretsBinding` would read a secret, revoked or not
+   * (`SecretLocate`), for the values check (`valuesDepsFor`). Absent: the
+   * check reads as `get` answers.
+   */
+  readonly secretLocate?: SecretLocate;
+  /**
    * OPTIONAL at the type level, but REQUIRED at runtime any time
    * `validated.agents.length > 0` OR `validated.flows.length > 0`
    * OR `validated.tools.length > 0` OR `validated.guardrails.length > 0`.
@@ -376,16 +388,21 @@ export interface DeploymentsRouterBindings {
   readonly cloudSecrets?: Pick<EnvCloudSecretBinding, 'get'>;
   /**
    * On a runtime that refuses other envs: a secret sync under another env
-   * answers `409 env-not-served` before any write (`refuseUnservedValue`).
-   * Absent: any env.
+   * answers `409 env-not-served` before any write (`refuseUnservedValue`),
+   * and so does a deploy with a tool whose `secretRef` names another env
+   * (`refuseUnservedToolSecret`). Absent: any env.
    */
   readonly servedEnv?: ServedEnvRule;
   /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
    * that caches the catalogs (its tool and guardrail bridges) sees the
-   * deployment at once rather than at restart. Advisory: a failing hook
-   * doesn't fail the deployment.
+   * deployment at once rather than at restart. Called too for each one a
+   * failed deployment's rollback undid (`rollback`), so a cache that read
+   * the deployment's write before the undo doesn't keep serving it. One
+   * whose undo failed is told too, with the same kind: a cache reads the
+   * catalog again on a notice, rather than taking its kind as what's there.
+   * Advisory: a failing hook doesn't fail the deployment.
    */
   readonly onToolWrite?: ToolWriteHook;
   readonly onGuardrailWrite?: GuardrailWriteHook;
@@ -484,8 +501,10 @@ export function deploymentsRouter(
   // an agent there does; a tenant-wide deploy, the tenant's. Every read
   // here needs `read` on the tenant, and a read of one deployment `read` on
   // the project it serves as well (`readableDeployment`). (A key limited to
-  // another project was already refused, `refuseOtherProjectForKey`.)
-  const tenantAccess = tenantResourceAccess(authorizer);
+  // another project was already refused, `refuseOtherProjectForKey`.) The
+  // tenant is read here as its projects' root, which a key limited to a
+  // project reads (`projectsRoot`).
+  const tenantAccess = tenantResourceAccess(authorizer, { projectsRoot: true });
   // What this runtime offers a deploy refused as another project's: the fix
   // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
   const packRuntime = {
@@ -723,14 +742,17 @@ export function deploymentsRouter(
     // In a project other than its own, the one a promotion would take it
     // to, a tool's secret counts only at a scope the caller administers, as
     // their promotion would record it, so the list says what that
-    // promotion's check would. In its own project, every scope counts: the
-    // list says where a run there finds each value.
+    // promotion's check would. In its own project, the list says where a
+    // run there finds each value: a tool version made there has its secrets
+    // read where it recorded them, or at the tenant when it recorded none
+    // (`asRecorded`); any other value is looked for at every scope.
     const administers = projectId === own ? undefined : callerAdministers(c, authorizer, tenantId);
     const { carried } = await carriedFor(bindings, record);
     const data = await deploymentValues(valuesDepsFor(bindings, administers), {
       deployment: record,
       carried,
       projectId,
+      ...(projectId === own && { asRecorded: true }),
     });
     return c.json({ data });
   });
@@ -1292,6 +1314,17 @@ export function deploymentsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
+    // A tool whose `secretRef` names another env than the one this runtime
+    // serves would never have its secret read: refused before any write,
+    // whether the deploy publishes it or keeps a version already registered.
+    for (const tool of validated.tools) {
+      const unserved = refuseUnservedToolSecret(bindings.servedEnv, tool);
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
+      }
+    }
+
     // Every schema a deploy compiles is compiled before its first write,
     // so a compile its tenant's budget refuses leaves nothing stored. The
     // pack's data blocks are checked against the registry here (a settings
@@ -1441,6 +1474,7 @@ export function deploymentsRouter(
                   primitive: 'tool',
                   id: `${toolId}@${version}`,
                   undo: 'unregister',
+                  notice: { toolId, version, kind: 'unregister' },
                   run: async () => {
                     await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
                   },
@@ -1480,6 +1514,7 @@ export function deploymentsRouter(
                   primitive: 'guardrail',
                   id: guardrailId,
                   undo: 'unregister',
+                  notice: { guardrailId, kind: 'unregister' },
                   run: async () => {
                     await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
                   },
@@ -1500,6 +1535,7 @@ export function deploymentsRouter(
                     primitive: 'guardrail',
                     id: guardrailId,
                     undo: 'unregister',
+                    notice: { guardrailId, kind: 'unregister' },
                     run: async () => {
                       await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
                     },
@@ -1558,7 +1594,7 @@ export function deploymentsRouter(
           }
         });
       } catch (cause) {
-        await rollback(rolled, c.get('log'));
+        await rollback(rolled, c.get('log'), tenantId, bindings);
         return deployWriteRefusal(c, requestId, cause, packRuntime);
       }
       return undefined;
@@ -1622,13 +1658,13 @@ export function deploymentsRouter(
           ...(replaced.length > 0 && { replaced }),
         });
       } catch (cause) {
-        await rollback(rolled, c.get('log'));
+        await rollback(rolled, c.get('log'), tenantId, bindings);
         // To the central error handler: a 500 with no raw text; the error is logged.
         throw cause;
       }
 
       if (outcome.kind === 'error') {
-        await rollback(rolled, c.get('log'));
+        await rollback(rolled, c.get('log'), tenantId, bindings);
         // To the central error handler: a 500 with no raw text; the outcome's
         // code and message go to the log.
         throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
@@ -1636,7 +1672,7 @@ export function deploymentsRouter(
       if (outcome.kind === 'project-in-production') {
         // The project went into production after the check above: the
         // registry's own step saw it, and nothing was recorded.
-        await rollback(rolled, c.get('log'));
+        await rollback(rolled, c.get('log'), tenantId, bindings);
         return {
           kind: 'answer',
           response: promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId),
@@ -1649,7 +1685,7 @@ export function deploymentsRouter(
         // at the primitive layer too, so `ok` outcomes only happen when
         // the primitive was DIFFERENT this run, which is an inconsistent
         // wire body).
-        await rollback(rolled, c.get('log'));
+        await rollback(rolled, c.get('log'), tenantId, bindings);
         c.status(200);
         return { kind: 'answer', response: c.json(serializeDeployment(outcome.deployment)) };
       }
@@ -2633,6 +2669,7 @@ async function refreshToolCode(
     primitive: 'tool',
     id: `${tool.id}@${tool.version}`,
     undo: 'put back the code pointer of',
+    notice: { toolId: tool.id, version, kind: 'publish' },
     run: async () => {
       await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
     },
@@ -2683,6 +2720,7 @@ async function reinstateRetiredTool(
     primitive: 'tool',
     id: `${toolId}@${version}`,
     undo: 'unregister',
+    notice: { toolId, version, kind: 'unregister' },
     run: async () => {
       await registry.unregister({ tenantId, toolId, version });
     },
@@ -2814,6 +2852,7 @@ async function refreshGuardrailFields(
     primitive: 'guardrail',
     id: guardrail.id,
     undo: 'put back the code pointer, config schema and check points of',
+    notice: { guardrailId: guardrail.id, kind: 'register' },
     run: async () => {
       await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
     },
@@ -3335,8 +3374,21 @@ export interface RollbackAction {
   readonly id: string;
   /** What `run` does to it, as the warn says it: `unregister`, `put back the code pointer of`. */
   readonly undo: string;
+  /**
+   * For a tool version or a guardrail: what the catalog caches are told
+   * once the rollback has run, as `onToolWrite` and `onGuardrailWrite`
+   * take it. Putting back what a refresh changed is told as the deploy
+   * tells the refresh: `publish` for a tool version, `register` for a
+   * guardrail.
+   */
+  readonly notice?: RollbackNotice;
   readonly run: () => Promise<void>;
 }
+
+/** What a rollback tells the catalog caches about one undo (`RollbackAction.notice`). */
+export type RollbackNotice =
+  | { readonly toolId: ToolId; readonly version: string; readonly kind: 'publish' | 'unregister' }
+  | { readonly guardrailId: GuardrailId; readonly kind: 'register' | 'unregister' };
 
 /** The refusal of a deploy whose agents or flows use versions nothing published takes. */
 function unpinnableResponse(
@@ -3678,8 +3730,19 @@ function atAgent(i: number, agent: Agent, issues: readonly UnpinnableRef[]): Unp
  * mirror sequence of their creation. An undo that fails doesn't stop the
  * rest: it's warned, naming what it couldn't undo, which stays as the
  * deploy left it for an operator to reconcile.
+ *
+ * Then the catalog caches are told about each tool version and guardrail
+ * it undid, in the same order (`notifyUndone`): a cache that read the
+ * deploy's write before its undo would otherwise serve it until the next
+ * write or a restart. One whose undo failed is told too, since no cache
+ * was told about the write it kept either.
  */
-async function rollback(actions: readonly RollbackAction[], log: Logger): Promise<void> {
+async function rollback(
+  actions: readonly RollbackAction[],
+  log: Logger,
+  tenantId: TenantId,
+  bindings: DeploymentsRouterBindings,
+): Promise<void> {
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
     if (action === undefined) continue;
@@ -3690,6 +3753,28 @@ async function rollback(actions: readonly RollbackAction[], log: Logger): Promis
         `deploy rollback: couldn't ${action.undo} ${action.primitive} "${action.id}", so it stays as this deploy left it`,
         { primitive: action.primitive, id: action.id, err: cause },
       );
+    }
+  }
+  await notifyUndone(tenantId, actions, bindings);
+}
+
+/** Tell the catalog caches about each write a rollback undid, last first (advisory). */
+async function notifyUndone(
+  tenantId: TenantId,
+  actions: readonly RollbackAction[],
+  bindings: DeploymentsRouterBindings,
+): Promise<void> {
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const notice = actions[i]?.notice;
+    if (notice === undefined) continue;
+    try {
+      if ('toolId' in notice) {
+        await bindings.onToolWrite?.({ tenantId, ...notice });
+      } else {
+        await bindings.onGuardrailWrite?.({ tenantId, ...notice });
+      }
+    } catch {
+      // Advisory, as for a deployment that lands (`notifyWrites`).
     }
   }
 }

@@ -47,6 +47,10 @@ retry-after: 33
 {"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
+Any `/v1` call your workspace's keys and sessions make can get it, and the
+[API reference](../../reference/api/) names it on each. It also names
+`Retry-After` on every answer that can send it: whole seconds, at least 1.
+
 On `/s3`, a request past the limit gets S3's own `503 SlowDown`, with
 `Retry-After`, which S3 clients back off from and retry.
 

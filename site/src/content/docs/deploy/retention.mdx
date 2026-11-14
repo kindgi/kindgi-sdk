@@ -55,6 +55,13 @@ each one by the name in the second column.
 `memory` and `conversation` hold people's words, so their retention is
 opt-in. A `*` policy doesn't reach them. Only a policy that names them does.
 
+An unregistered tool, agent or flow version that something can still run
+is kept past its grace (runtime X.Y.Z or later): while another agent or
+flow version locks it, registered or not, or a run in flight still runs it.
+It's purged at the first sweep after the last of them goes. An unregistered
+version that locks it goes when its own domain's policy purges it, and a
+`*` policy reaches them all.
+
 No domain covers deleted projects: Kindgi keeps a deleted project's record,
 so a workspace admin can restore it
 ([Delete and restore a project](../../guides/projects/organize-by-org-and-project/#delete-and-restore-a-project)).
@@ -115,9 +122,10 @@ input.
 ### Triggers' versions
 
 A schedule's, webhook trigger's or mail trigger's versions (runtime 0.3.0
-or later) keep each input and label it had, whatever the policies say.
-Erasing a person doesn't clear them, as it doesn't clear the trigger
-itself. A removed trigger's versions stay as the trigger does, and go when
+or later), and a text trigger's, keep each input and label it had, whatever
+the policies say. Erasing a person doesn't clear them, as it doesn't clear
+the trigger itself. A removed trigger's versions stay as the trigger does,
+and go when
 [the tenant is purged](../self-hosted/serve-many-tenants/#close-and-purge-a-tenant).
 
 ## 1. Set a policy

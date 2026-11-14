@@ -21,7 +21,7 @@ import type { ConversationMessage } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { admitHistoryFiles, asMessageFile } from './files.js';
-import { readHistory } from './history.js';
+import { turnHistory } from './history.js';
 import { outputSection } from './structured-output.js';
 
 /**
@@ -61,7 +61,7 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     // the closure by render-prompt through the local field `renderedPrompt`).
     void input;
 
-    const history = await readHistory(ctx);
+    const history = await turnHistory(ctx);
     // The run's rule, asked again for each earlier message's files.
     const historyFiles = await admitHistoryFiles(
       ctx,

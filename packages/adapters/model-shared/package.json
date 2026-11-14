@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "@ai-sdk/provider": "4.0.25",
-    "@kindgi/capabilities": "workspace:*"
+    "@kindgi/capabilities": "workspace:*",
+    "@kindgi/log": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

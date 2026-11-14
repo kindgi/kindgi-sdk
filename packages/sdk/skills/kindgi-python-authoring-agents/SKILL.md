@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.15"
+version: "0.1.17"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -97,9 +97,10 @@ brief_writer = Agent(
 - A file may define several agents; each must be assigned at module
   level (an agent built inside a function is invisible to the indexer).
 - `Agent(...)` checks the id (non-empty) and the version (an exact
-  semver) where it is written. Everything else is checked when Kindgi
-  reads the pack: `uv run python -m kindgi.pack index --pack-dir .`
-  shows what it sees, and `kindgi dev` reports a problem with its file.
+  semver with no build metadata) where it is written. Everything else
+  is checked when Kindgi reads the pack:
+  `uv run python -m kindgi.pack index --pack-dir .` shows what it sees,
+  and `kindgi dev` reports a problem with its file.
 
 ## Naming
 
@@ -123,8 +124,8 @@ brief_writer = Agent(
 ## Field by field
 
 - **`id`** — `<pack-id>.<name>`; see Naming above.
-- **`version`** — exact semver. Conversations pin the version they
-  started on.
+- **`version`** — exact semver with no build metadata (`1.2.3`,
+  `1.2.3-rc.1`). Conversations pin the version they started on.
 - **`name`**, **`description`**, **`tags`** — for people and listings.
 - **`instructions`** — a LiquidJS template. `{{ variable }}` comes from
   `parameters` or the runtime's own variables (`today`, `now`,
@@ -205,7 +206,9 @@ brief_writer = Agent(
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
   (nothing ran); add `tool-error` only when retrying the tool is safe,
   and `tool-failed` to send back a tool's failure on purpose
-  (`ToolFailure`) with its code and words. Each retry costs a step.
+  (`ToolFailure`) with its code and words. The list replaces the
+  default, so keep `invalid-arguments` and `unknown-tool` in it. Each
+  retry costs a step.
 - **`parallel_tool_calls`** — default on: when a model step asks for several
   calls at once, calls to read-only tools (`mutating=False`, no changing
   effect) that come one after another run at the same time, up to 8 of them,

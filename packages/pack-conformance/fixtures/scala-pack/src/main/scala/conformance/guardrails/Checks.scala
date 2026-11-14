@@ -32,4 +32,10 @@ object Checks {
     .judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))
     .onViolation("log-only")
     .check((_, _) => CheckResult.pass)
+
+  // Names a built-in check: the runtime runs it, and the pack ships no check for it.
+  val noGuarantees: Guardrail[Map[String, Any]] = Guardrail.json("conformance.no-guarantees")
+    .set("at", "model-step")
+    .onViolation("halt")
+    .builtInCheck("forbidden-substring", Map("patterns" -> List("guaranteed", "we promise")))
 }

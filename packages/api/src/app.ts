@@ -74,6 +74,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { refuseWritesForReadOnlyKey } from './middleware/key-read-only.js';
 import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
@@ -257,6 +258,7 @@ import { webhooksRouter } from './routes/webhooks.js';
 import type { RunUploadLimiter } from './run-upload-limiter.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecondFactorBinding } from './second-factor-binding.js';
+import type { SecretLocate } from './secret-scope.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import { type ServedEnvRule, secretReferencesOf } from './served-env.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
@@ -275,6 +277,7 @@ import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
+import type { VersionLocksBinding } from './version-locks-binding.js';
 import type { WaitTokenBinding } from './wait-token-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
@@ -472,6 +475,9 @@ export interface CreateAppInput {
    * writes that need one, and for the keys they mint (`POST /v1/tokens`
    * grants only what the minter holds). Read on each session request.
    * Without it a session carries none, and only API keys hold capabilities.
+   * Its optional `give` and `takeBack` serve `POST` and `DELETE
+   * /v1/identity/users/:userId/capabilities`, which also need
+   * `personGrants`.
    */
   readonly personCapabilities?: PersonCapabilitiesBinding;
   /**
@@ -1084,6 +1090,12 @@ export interface CreateAppInput {
    */
   readonly blockUse?: BlockUseBinding;
   /**
+   * What can still run a tool or agent version (a deployment's registries
+   * answer it): the unregister answers of both list it as `lockedBy`.
+   * Absent: they answer without `lockedBy`.
+   */
+  readonly versionLocks?: VersionLocksBinding;
+  /**
    * The pull requests opened to bring block versions back into a pack's
    * files: `GET /v1/blocks/:blockId/runs-in` reads them for each row's
    * `inYourFiles`. Absent: a row says only what the newest deployment of
@@ -1488,6 +1500,14 @@ export interface CreateAppInput {
    */
   readonly secretsBinding?: SecretBinding;
   /**
+   * Optional. Where `secretsBinding` would read a secret, revoked or not
+   * (`SecretLocate`); the runtime supplies its store's `locate`. With it, a
+   * deployment's values in its own project call a tool's secret `revoked`
+   * when it's revoked where its version recorded it. Absent: they read as
+   * `get` answers, which never answers a revoked one.
+   */
+  readonly secretLocate?: SecretLocate;
+  /**
    * Optional. The order a tenant runs a project through on its way to live
    * — its "environments". When present, mounts `/v1/environment-orders`,
    * and a later environment of an order refuses deploys, API publishes and
@@ -1829,8 +1849,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // And its work is the tenant's: a schema it compiles again counts
   // against the tenant's compile budget.
   v1.use('*', tenantScopeMiddleware());
+  // A key limited to a project reads its project's own org: the authorizer
+  // looks the project up once per request.
   const authorizer: Authorizer | undefined =
-    input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+    input.authz !== undefined
+      ? createAuthorizer(input.authz.authzCheckBinding, {
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        })
+      : undefined;
   // Rights on an item more than one project serves (`item-rights.ts`).
   const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
   // With no authorizer, which projects serve an item still decides what
@@ -1875,6 +1901,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   );
   // A closing or suspended tenant reads, exports and deletes; nothing else.
   v1.use('*', tenantStateGate(input.tenantStates));
+  // The tenant's API requests a minute are counted before any body is
+  // read, so a request past the limit is refused unread.
+  if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   // A write's body is read once, as the bytes it came with, before
   // anything parses it: the checks below, idempotency and the route all
   // read that copy. An upload is read under its own size limit, any
@@ -1885,14 +1914,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', refuseDeepJson(ownBodyLimits));
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer, ownBodyLimits));
+  // A key that only reads makes no request but a read, with or without an
+  // authorization store.
+  v1.use('*', refuseWritesForReadOnlyKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
-  if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
   // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
-  // names no project (T247).
+  // names no project.
   const projectRef = refuseBadProjectId(input.projectBinding);
   for (const path of PROJECT_REF_ROUTES) v1.use(path, projectRef);
   v1.route(
@@ -2033,6 +2064,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
+        input.versionLocks,
         planGate,
       ),
     );
@@ -2138,6 +2170,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
         ...(input.environmentOrders !== undefined && {
           environmentOrders: input.environmentOrders,
         }),
@@ -2145,6 +2178,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(itemServing !== undefined && { itemServing }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
+        ...(input.versionLocks !== undefined && { versionLocks: input.versionLocks }),
       }),
     );
   }
@@ -2452,6 +2486,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.personCapabilities !== undefined && {
+        personCapabilities: input.personCapabilities,
+      }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
       ...(input.license !== undefined && { license: input.license }),
@@ -2873,6 +2910,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
       ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
+      // Its writes are recorded as `/v1/env` and `/v1/secrets` record theirs.
+      ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
       ...(input.egress !== undefined && { egress: input.egress }),
       // From a file store that counts what the tenant's files take.
@@ -3039,6 +3078,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
           ...(secretsBinding !== undefined && { secretsBinding }),
+          ...(input.secretLocate !== undefined && { secretLocate: input.secretLocate }),
           ...(servedEnv !== undefined && { envName: servedEnv }),
           // A runtime running a pack service per deployment gives each the
           // env its pack declares, from the env store.
@@ -3332,12 +3372,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const s3 = new Hono<AppEnv>();
     s3.use(
       '*',
-      sigv4Middleware(input.s3Credentials, input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+      sigv4Middleware(input.s3Credentials, input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES, {
+        // Once SigV4 names the tenant, and before the body is read: a frozen
+        // tenant's artifacts are read, not written, here too, and the
+        // tenant's API requests a minute count here too. A write either one
+        // refuses is answered unread.
+        beforeBody: [
+          tenantStateGate(input.tenantStates, { surface: 's3' }),
+          ...(tenantLimiter !== undefined ? [tenantS3RequestLimit(tenantLimiter)] : []),
+        ],
+      }),
     );
-    // A frozen tenant's artifacts are read, not written, here too.
-    s3.use('*', tenantStateGate(input.tenantStates, { surface: 's3' }));
-    // The tenant's API requests a minute count here too, once SigV4 names it.
-    if (tenantLimiter !== undefined) s3.use('*', tenantS3RequestLimit(tenantLimiter));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }

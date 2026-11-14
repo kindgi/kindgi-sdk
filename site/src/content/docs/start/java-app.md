@@ -148,6 +148,12 @@ in your env file, as the first lines show. In production (`KINDGI_ENV` or `NODE_
 `production`) it never reads `.kindgirc.json`. `Kindgi.builder()` sets the
 URL, the token, the timeout or your own `HttpClient`.
 
+Set both, or neither. With only the token set, the client never sends it to
+the URL in `.kindgirc.json`, and with only a URL other than `kindgi dev`'s,
+it never sends that file's token there. Either way it takes nothing from the
+file, and `Kindgi.create()` (or the builder's `build()`) throws an
+`IllegalStateException`, naming the file and what to set.
+
 ## 3. Find your way around
 
 **The methods follow the API's operations.** The operation
@@ -178,10 +184,15 @@ try {
 }
 ```
 
-A call that's safe to repeat (a read, or a call that takes an idempotency
-key, such as starting a run: the client adds one for you) is retried, with
-backoff, after a dropped connection, a timeout, or a 429, 502, 503 or 504
-answer.
+A read is retried, with backoff, after a dropped connection, a timeout, or a
+429, 502, 503 or 504 answer. A call that changes something and takes an
+idempotency key, such as starting a run (the client adds one for you), is
+retried only when nothing can have run: a failure to connect, or a 429 or
+503 answer. Once it was sent, a timeout, a dropped connection or a 502 or
+504 is thrown at once, since the call may still be running on the server. A
+waited start that times out says so: start a run that can take longer than
+the client's timeout (60 s) with `wait_(false)` in its options, and follow
+it.
 
 **Async:** `client.async()` has the same methods, answering
 `CompletableFuture`s.

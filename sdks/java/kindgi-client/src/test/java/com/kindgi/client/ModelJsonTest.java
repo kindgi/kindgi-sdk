@@ -9,6 +9,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.kindgi.client.models.AgentInstructions;
 import com.kindgi.client.models.TestRunBaseline;
 import com.kindgi.client.models.AgentPinScope;
+import com.kindgi.client.models.ConversationHitlPolicy;
+import com.kindgi.client.models.ConversationHitlPolicySeparateApprover;
+import com.kindgi.client.models.SeparateApproverPolicy;
 import com.kindgi.client.models.PinScopeTenant;
 import com.kindgi.client.models.PatchScheduleBody;
 import com.kindgi.client.models.PromptRef;
@@ -107,6 +110,25 @@ class ModelJsonTest {
     assertThat(json.readValue("{\"agentId\":\"a\",\"version\":\"2\"}", TestRunBaseline.class)).isInstanceOf(TestRunBaseline.WithAgentId.class);
     assertThat(json.readValue("{\"pinned\":{}}", TestRunBaseline.class)).isInstanceOf(TestRunBaseline.WithPinned.class);
     assertThat(json.readValue("{\"somethingElse\":1}", TestRunBaseline.class)).isInstanceOf(TestRunBaseline.Unrecognized.class);
+  }
+
+  @Test
+  void aPlainValueOrObjectUnionReadsAndWritesBoth() {
+    for (boolean b : new boolean[] {true, false}) {
+      ConversationHitlPolicySeparateApprover value = json.readValue(Boolean.toString(b), ConversationHitlPolicySeparateApprover.class);
+      assertThat(value).isEqualTo(ConversationHitlPolicySeparateApprover.of(b));
+      assertThat(json.writeValueAsString(value)).isEqualTo(Boolean.toString(b));
+    }
+    String rule = "{\"default\":true,\"overrides\":{\"deploy\":false}}";
+    ConversationHitlPolicySeparateApprover policy = json.readValue(rule, ConversationHitlPolicySeparateApprover.class);
+    assertThat(policy).isInstanceOf(SeparateApproverPolicy.class);
+    assertThat(json.writeValueAsString(policy)).isEqualTo(rule);
+    assertThatThrownBy(() -> json.readValue("1", ConversationHitlPolicySeparateApprover.class)).isInstanceOf(KindgiJsonException.class);
+
+    // As a property, set through the builder's plain-value form.
+    ConversationHitlPolicy set = ConversationHitlPolicy.builder().separateApprover(true).build();
+    assertThat(json.writeValueAsString(set)).isEqualTo("{\"separateApprover\":true}");
+    assertThat(json.readValue("{\"separateApprover\":true}", ConversationHitlPolicy.class)).isEqualTo(set);
   }
 
   @Test

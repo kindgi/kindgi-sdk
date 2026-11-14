@@ -89,7 +89,7 @@ import {
 import { statusFor, toWireError } from '../errors.js';
 import type { GateCheck } from '../gate.js';
 import { agentPinChangeRefusal, pinChangeRefusal } from '../item-rights.js';
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import type { PlanAdding, PlanWarning } from '../plan-limits-binding.js';
@@ -112,10 +112,11 @@ import { scopeResourceRef } from './scope-params.js';
 
 /**
  * The values check's deps (`deploymentValues`), from the router's
- * bindings: the env it serves, secrets, projects, tools and agents, with
- * `values` for the rest. `administers`: whether the caller administers a
- * scope, where a tool's secret is recorded only at one they do (as at a
- * promotion's target); absent, every scope (where a run finds it).
+ * bindings: the env it serves, secrets and where one is (`secretLocate`),
+ * projects, tools and agents, with `values` for the rest. `administers`:
+ * whether the caller administers a scope, where a tool's secret is
+ * recorded only at one they do (as at a promotion's target); absent,
+ * every scope (where a run finds it).
  */
 export function valuesDepsFor(
   bindings: DeploymentsRouterBindings,
@@ -125,6 +126,7 @@ export function valuesDepsFor(
     ...bindings.values,
     ...(bindings.envName !== undefined && { envName: bindings.envName }),
     ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+    ...(bindings.secretLocate !== undefined && { secretLocate: bindings.secretLocate }),
     ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
     ...(bindings.toolRegistry !== undefined && { tools: bindings.toolRegistry }),
     ...(bindings.agentRegistry !== undefined && { agents: bindings.agentRegistry }),
@@ -159,11 +161,13 @@ async function servingProjectsOf(
 
 /**
  * What reading a deployment asks: `read` on the project it serves, or on
- * the tenant without a project binding to find the default.
+ * the whole workspace (`tenantWide`) when it serves none that's known: no
+ * project binding to find the default, or a tenant with no default
+ * project. A key limited to a project doesn't read those.
  */
 function readRef(tenantId: TenantId, projectId: ProjectId | undefined) {
   return projectId === undefined
-    ? ref('tenant', tenantId as unknown as string)
+    ? tenantWide(tenantId as unknown as string)
     : ref('project', projectId as unknown as string);
 }
 

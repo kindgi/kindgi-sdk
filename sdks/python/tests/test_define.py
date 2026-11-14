@@ -57,7 +57,12 @@ def test_an_async_tool_with_a_context() -> None:
     ("kwargs", "message"),
     [
         ({"id": ""}, "id must be a non-empty string"),
-        ({"id": "acme.x", "version": "1.0"}, "exact semver"),
+        (
+            {"id": "acme.x", "version": "1.0"},
+            r"version must be MAJOR\.MINOR\.PATCH \(e\.g\. 1\.2\.3\), got '1\.0'",
+        ),
+        ({"id": "acme.x", "version": "1.2.3-rc.1"}, r"MAJOR\.MINOR\.PATCH .*got '1\.2\.3-rc\.1'"),
+        ({"id": "acme.x", "version": "1.2.3+b1"}, r"MAJOR\.MINOR\.PATCH .*got '1\.2\.3\+b1'"),
     ],
 )
 def test_bad_tool_declarations_fail_where_declared(kwargs: dict[str, Any], message: str) -> None:
@@ -397,6 +402,21 @@ def test_an_exposed_flow_needs_an_id_that_makes_a_tool_name() -> None:
     flow("kindgi.intake")  # its tool is flow.kindgi.intake
     with pytest.raises(DefinitionError, match="at most 123 characters"):
         flow("a" * 124)
+
+
+@pytest.mark.parametrize("version", ["1.0", "1.2.3+b1", "1.2.3-rc.1+b1", "01.2.3"])
+def test_an_agent_or_a_flow_version_is_an_exact_semver_with_no_build_metadata(version: str) -> None:
+    rule = r"version must be an exact semver with no build metadata \(e\.g\. 1\.2\.3 or 1\.2\.3-rc\.1\)"
+    with pytest.raises(DefinitionError, match=rf'Agent "acme\.desk": {rule}, got'):
+        Agent(id="acme.desk", version=version, name="Desk", instructions="Help.")
+    with pytest.raises(DefinitionError, match=rf'Flow "acme\.route": {rule}, got'):
+        Flow(id="acme.route", version=version, nodes=[], edges=[])
+
+
+def test_an_agent_or_a_flow_may_be_a_prerelease() -> None:
+    agent = Agent(id="acme.desk", version="1.2.3-rc.1", name="Desk", instructions="Help.")
+    flow = Flow(id="acme.route", version="1.2.3-rc.1", nodes=[], edges=[])
+    assert (agent.version, flow.version) == ("1.2.3-rc.1", "1.2.3-rc.1")
 
 
 def test_an_agent_keeps_parallel_tool_calls() -> None:

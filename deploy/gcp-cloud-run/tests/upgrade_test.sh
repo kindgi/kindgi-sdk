@@ -196,7 +196,8 @@ case "${1:-}" in
     # later file over an earlier one and -var over both, as terraform reads
     # them; STUB_PLAN_CHANGES adds resource changes; STUB_SERVER_ENV
     # ({before, after, after_unknown}) adds env entries to the server's own
-    # change; STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
+    # change, and STUB_SERVER_PROBE ({before, after}) its startup probe;
+    # STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
     out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
@@ -220,17 +221,19 @@ case "${1:-}" in
     if [[ -n $out ]]; then
       jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
         --arg pold "${STUB_PACK_BEFORE:-}" --arg pnew "${pack:-${STUB_PACK_BEFORE:-}}" \
-        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" '
-        def svc($n; $addr; $b; $a; $env):
+        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" \
+        --argjson sprobe "${STUB_SERVER_PROBE:-null}" '
+        def probe($p): if $p == null then {} else {startup_probe: [$p]} end;
+        def svc($n; $addr; $b; $a; $env; $probe):
           {name: "KINDGI_ENV", value: "dev", value_source: []} as $base
           | {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
-           change: {actions: (if $b == $a and $env == null then ["no-op"] else ["update"] end),
-             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))}]}]},
-             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))}]}]},
+           change: {actions: (if $b == $a and $env == null and $probe == null then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))} + probe($probe.before)]}]},
+             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))} + probe($probe.after)]}]},
              after_unknown: {template: [{containers: [{env: ([{}] + ($env.after_unknown // []))}]}]}}};
         {format_version: "1.2",
-         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv)]
-           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null)] end)
+         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv; $sprobe)]
+           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null; null)] end)
            + $extra)}' >"$out"
     fi
     exit "${STUB_PLAN_RC:-0}" ;;
@@ -312,7 +315,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_EXPORT_403 STUB_EXPORT_403_OTHER STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
-        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
+        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_SERVER_PROBE STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
         STUB_REMOVED_RC STUB_SERVICES STUB_LIST_RC \
         V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV \
         V_PACK_ACCOUNTS V_PACK_TENANTS V_PACK_SHARED
@@ -2210,10 +2213,10 @@ assert_file_has "$OUT" "  check identity-provider-keys isn't run: the 0.4.0 runt
 if [[ $(grep -c -- "--args=check," "$STUB_JOBS_LOG") -eq 3 ]]; then pass; else fail "the run didn't make exactly 3 check jobs"; fi
 if grep -q -e "-ipk " -e "--args=check,identity-provider-keys" "$STUB_JOBS_LOG"; then fail "a job for identity-provider-keys was made"; else pass; fi
 
-# 85. The same script knowing 0.6.0 and 0.7.0, which this copy doesn't list
-# yet, so no real run reaches them: a target of 0.7.0 or its rc makes the
-# identity-provider-keys job too, and its dry run lists 4 jobs and leaves
-# nothing out.
+# 85. The script from a copy whose releases end at 0.7.0, as this one's do
+# now, so the row holds when a later release is added: a target of 0.7.0 or
+# its rc makes the identity-provider-keys job too, and its dry run lists 4
+# jobs and leaves nothing out.
 IPK_SCRIPT="$TMP/upgrade-ipk.sh"
 sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")/' "$SCRIPT" >"$IPK_SCRIPT"
 chmod +x "$IPK_SCRIPT"
@@ -2549,6 +2552,30 @@ if grep -q "\[\"$T_B\"\]: deleted" "$OUT"; then fail "the removed tenant's delet
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
 SCRIPT="$REAL_SCRIPT"
+
+# --- the server's startup probe ---------------------------------------------
+
+# 105. The server's startup probe at 10 minutes, 120 tries 5 s apart (from
+# 24), passes the check on a run from before 0.7.0, the release that ships
+# it, since the module makes 0.7.0's changes on any such run. It stops a
+# server fix of 0.7.0, which crosses no release.
+SERVER_PROBE='{"before":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":24},"after":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":120}}'
+case_start "the server's 10-minute startup probe, on a server fix of 0.7.0"
+reset_env; export STUB_TAGS="0.7.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.7.0.1
+assert_rc 1 "the probe change stops a server fix"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.startup_probe.failure_threshold" "the threshold named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+case_start "the server's 10-minute startup probe, crossing its release"
+reset_env; export STUB_TAGS="0.6.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.7.0
+assert_rc 0 "the probe change passes"
+assert_out "crossing: 0.7.0$"
+assert_out "its startup probe allows"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

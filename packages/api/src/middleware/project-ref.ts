@@ -12,13 +12,13 @@ import type { AppEnv } from '../types.js';
 
 /**
  * The write routes whose body names a project (`projectId`), and refuse
- * one they can't use before it reaches a binding (T247): before, an
+ * one they can't use before it reaches a binding: before, an
  * unknown project failed the runtime's insert as a 500 that named a
  * table and a foreign key, and one that wasn't a UUID failed deeper still.
  *
  * `POST /v1/conversations` isn't here: it checks its own `projectId` and
  * answers `400 bad-input` for an unknown one, documented and shipped, so
- * it keeps that until 0.2 unifies on `404 project-not-found` (T223).
+ * it keeps that until 0.2 unifies on `404 project-not-found`.
  * `projectRefRoutes.test.ts` holds this list to the OpenAPI spec.
  */
 export const PROJECT_REF_ROUTES: readonly string[] = [

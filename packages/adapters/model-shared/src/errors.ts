@@ -6,6 +6,8 @@
  * library sends the request.
  */
 
+import { describeCauses } from '@kindgi/log';
+
 /** What a failed call came to, for a caller that branches on it. */
 export type ModelProviderErrorKind =
   | 'invalid-request'
@@ -87,4 +89,17 @@ export function modelProviderError(failure: FailedResponse, cause: unknown): Mod
     status !== undefined ? `${status} ${words}` : words,
     { cause },
   );
+}
+
+/**
+ * A failure's words when nothing came back from the endpoint, with what its causes add
+ * (`; caused by Name [code]: message`, masked, from `@kindgi/log`'s `describeCauses`). A library's
+ * own words for a failed connection say only `fetch failed`, `Cannot connect to API: ` (Node's
+ * refused connection has an empty message) or `Connection error.`; the reason is in the causes. A
+ * dangling `:` or `.` goes before them. Only for a call with no response: a vendor's answer is
+ * said as it came.
+ */
+export function withCauses(words: string, error: unknown): string {
+  const causes = describeCauses(error);
+  return causes === '' ? words : `${words.replace(/[:.]\s*$/, '')}${causes}`;
 }

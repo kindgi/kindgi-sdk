@@ -145,9 +145,11 @@ readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
-# How long to wait for the new revision to become ready (step 6).
+# How long to wait for the new revision to become ready (step 6): longer
+# than the server's startup probe (10 minutes), so a start the platform
+# still lets run is never reported as failed.
 readonly POLL_INTERVAL=10
-readonly POLL_TRIES=60
+readonly POLL_TRIES=90
 # <<<
 
 # How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
@@ -1263,7 +1265,8 @@ EOT
       # The 0.4.0 release notes' Upgrade steps, but for three: the core file
       # limit is set in compose, docker run or systemd, which neither module
       # runs, and the two on Cloud Run's packs are that module's own changes,
-      # which it prints with its plan and after its apply.
+      # which it prints with its plan and after its apply. The first start's
+      # 10 minutes, after the lock lines, came after the notes.
       cat <<'EOT'
    - Eighteen new migrations: four new tables (block_version_prs,
      env_cloud_secrets, run_files and tool_file_tokens), new columns that
@@ -1285,7 +1288,11 @@ EOT
      A long transaction holding one of those tables makes the new revision
      fail after about a minute, naming the session that holds it (end it
      with pg_terminate_backend, or let it finish). The old revision keeps
-     serving meanwhile.
+     serving meanwhile. The first start has 10 minutes to run the
+     migrations (the module's startup probe): one that runs longer is
+     restarted and runs them again from the start, so it may never
+     finish. With many judgments or test runs, time the upgrade on a
+     copy of the database first.
    - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
      identity the server reads it as storage.buckets.get on that bucket
      first: the 0.4.0 runtime reads the bucket's settings at start, and
@@ -1634,7 +1641,10 @@ EOT
      <name_prefix>-license-renewer (or license_renewer_secret), which
      kindgi license enroll fills once. It gives the server two plain env
      vars, KINDGI_LICENSE_KEY_REF and KINDGI_LICENSE_RENEWER_REF, so its
-     expiry warning names the exact kindgi license renew. Nothing else.
+     expiry warning names the exact kindgi license renew.
+   - The plan also changes the server in place: its startup probe allows
+     10 minutes, 120 tries 5 s apart, so a first start has that long to run
+     the migrations.
    - Turn on the renewal job (license_renewal_schedule) after this
      upgrade, in an apply of its own: its job, schedule and alerts are
      more than this release's plan check allows.
@@ -1964,6 +1974,8 @@ plan_allowed_changes() {
           "google_secret_manager_secret.license_renewer (created)" \
           "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_KEY_REF" \
           "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_RENEWER_REF"
+        # The server's startup probe.
+        printf '%s\n' "google_cloud_run_v2_service.server template.containers.startup_probe.failure_threshold"
         ;;
     esac
   done

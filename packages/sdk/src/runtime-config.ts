@@ -9,7 +9,11 @@
  *   2. outside production, the running `kindgi dev`, from the nearest
  *      `.kindgirc.json` at or above the working directory (it records the
  *      runtime's `apiUrl` and the dev `token`), with a one-time warning to
- *      put them in the app's env file;
+ *      put them in the app's env file. The two go together: a token set
+ *      without a URL never goes to the file's `apiUrl`, and the file's
+ *      token goes only to its own `apiUrl`. With only one of them set, and
+ *      the URL not the file's own, the client takes nothing from the file
+ *      and throws, naming it and what to set;
  *   3. otherwise, an error that says what to set.
  *
  * Production (`NODE_ENV` or `KINDGI_ENV` set to `production`) never reads
@@ -85,6 +89,8 @@ export function resolveClientOptions(
       : undefined);
 
   if ((apiUrl === undefined || auth === undefined) && dev !== undefined) {
+    const halfSet = halfSetRefusal(options, apiUrl, auth, dev);
+    if (halfSet !== undefined) throw new Error(halfSet);
     const used: string[] = [];
     if (apiUrl === undefined) {
       apiUrl = dev.apiUrl;
@@ -126,6 +132,31 @@ export function resolveClientOptions(
   }
 
   return { ...options, apiUrl, auth };
+}
+
+/**
+ * Why the client takes nothing from the running `kindgi dev`'s file when
+ * only one of the URL and the token is set, or `undefined` when it may: a
+ * token set without a URL would go to the file's `apiUrl`, and the file's
+ * token goes only to its own `apiUrl`. A URL that is the file's own takes
+ * the file's token, as with neither set.
+ */
+function halfSetRefusal(
+  options: Partial<ClientOptions>,
+  apiUrl: string | undefined,
+  auth: AuthConfig | undefined,
+  dev: DevRuntime,
+): string | undefined {
+  const fix = `Set KINDGI_API_URL and KINDGI_API_TOKEN in ${ENV_FILE_HINT}, or pass { apiUrl, auth }. To use the running kindgi dev, set neither.`;
+  if (apiUrl === undefined && auth !== undefined) {
+    const given = options.auth !== undefined ? '`auth` is passed' : 'KINDGI_API_TOKEN is set';
+    return `createClient(): ${given}, and KINDGI_API_URL isn't set. The client won't send that token to the URL in ${dev.path}, the running kindgi dev's. ${fix}`;
+  }
+  if (apiUrl !== undefined && auth === undefined && !sameUrl(apiUrl, dev.apiUrl)) {
+    const given = options.apiUrl !== undefined ? '`apiUrl` is passed' : 'KINDGI_API_URL is set';
+    return `createClient(): ${given}, and KINDGI_API_TOKEN isn't set. The token in ${dev.path} is the running kindgi dev's, for ${dev.apiUrl} only, so the client won't send it to another URL. ${fix}`;
+  }
+  return undefined;
 }
 
 /**

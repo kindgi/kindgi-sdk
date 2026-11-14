@@ -218,6 +218,19 @@ describe('defineCheck — Zod-optional authoring surface', () => {
     }).toThrow(/configSchema/);
   });
 
+  test('a configSchema from zod 3 throws, naming zod 3', () => {
+    // zod 3's shape: `_def` and `safeParse`, no `_zod`.
+    const zod3 = { _def: { typeName: 'ZodObject' }, safeParse: () => ({ success: true }) };
+    expect(() => {
+      defineCheck({
+        id: 'zod-3',
+        kind: 'zero-llm',
+        configSchema: zod3,
+        evaluate: async () => ({ passed: true }),
+      });
+    }).toThrow(/^Check "zod-3" configSchema Zod conversion failed: The schema is from zod 3 /);
+  });
+
   test('wire form: configJsonSchema is a plain JSON Schema object regardless of authoring', () => {
     const zodCheck = defineCheck({
       id: 'wire-1',

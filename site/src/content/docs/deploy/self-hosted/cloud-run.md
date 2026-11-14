@@ -164,8 +164,8 @@ digest, with every platform it was built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.3.0" \
-  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
+docker buildx imagetools create --tag "$REPO/runtime:0.6.0" \
+  registry.kindgi.com/kindgi/runtime:0.6.0@sha256:5c2817be229130df77c0822d583849edadc0527065d1b20e14574645b30958e9
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -258,10 +258,11 @@ OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
-# The first API token, and the two keys, base64.
+# The first API token, and the three keys, base64.
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-   # version 1 (not with secrets_backend = "none")
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-    # version 1, its own key (never the AAD key or the erasure ledger key)
 # Only with export_signing = "secret": the key that signs exports.
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
@@ -291,6 +292,14 @@ refuses `latest`:
 ```text
 secrets_aad_key_version is a version number ("1" for a new deployment), never "latest": every secret stored in Postgres is bound to the key it names.
 ```
+
+The page-cursor key's version goes in `pagination_key_version` the same way.
+It's `"1"`, the one you added, and the example files have it too. Every
+instance and every revision of the server seals page cursors with that key,
+so a cursor outlives a restart, and any instance opens one another made. The
+module pins it and refuses `latest`, which each instance would read again
+when it starts. The server's startup lines then say
+`Page cursors: sealed (key from KINDGI_PAGINATION_KEY)`.
 
 **The database user** is a built-in Cloud SQL user. It isn't a superuser. But
 it has `CREATEROLE`, and owns the database through `cloudsqlsuperuser`, which
@@ -1214,8 +1223,19 @@ to, so set it to the deployment's before any `gcloud` command for it
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it. From a module copy that set
-  only Terraform's deletion protection, the next apply also turns on
+  it, `terraform plan` stops and asks for it. From a module copy without
+  the page-cursor key, the next apply makes `$N-pagination-key` and the
+  server's read access to it, but sets no key yet. With
+  `pagination_key_version` unset, the server makes one at each start, as
+  before, and a server of one instance works as it did. Add the key's first
+  version as in [3. The secrets](#3-the-secrets), set
+  `pagination_key_version = "1"`, and apply again. Don't set it before the
+  secret has that version: the server's new revision wouldn't start. A
+  deployment whose `server_secret_env` sets `KINDGI_PAGINATION_KEY` itself
+  is refused at plan. The module's README has the steps that keep its key,
+  under
+  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading). From
+  a module copy that set only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
   is on (the default). From a module copy that doesn't turn on Cloud
   Scheduler's API, the next apply turns it on (and, with
@@ -1298,9 +1318,15 @@ to, so set it to the deployment's before any `gcloud` command for it
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
   - the switch, and the way back.
-- **Rotate a secret:** add a version, then roll a new revision of the
-  runtime's service
-  (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`).
+- **Rotate a secret:** add a version, then set `server_rotation` to a value
+  it hasn't had, such as the date and time (`"2026-11-06-1530"`), and apply.
+  The runtime's service rolls a new revision, which reads each secret it
+  takes at `"latest"` again. A `server_secret_env` entry pinned to a version
+  is rotated by setting its `version` instead. Roll it through Terraform,
+  not `gcloud run services update`: the next apply would take back what
+  gcloud set. A rotation made with gcloud before shows once in the next
+  plan, which sets the revision's labels and client fields back: apply that
+  plan before the next `./upgrade.sh`, whose plan check stops on it.
   The orchestrator's key is pinned: mint a new one as in
   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator), add it as
   the secret's next version, set `orchestrator_key_version` to it and apply.
@@ -1310,6 +1336,20 @@ to, so set it to the deployment's before any `gcloud` command for it
   `POST /v1/system/keys/{keyId}/revoke`, with the old key's id from
   `GET /v1/system/keys`
   ([Serve many tenants](../serve-many-tenants/)).
+- **Rotate the page-cursor key** yearly: one apply switches the key, and a
+  second, a day later, drops the one before. It's pinned too.
+  1. Add a version:
+     `openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-`.
+  2. Set `pagination_key_version` to it, and put the version before it in
+     `server_secret_env`:
+     `KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "<prefix>-pagination-key", version = "<the one before>" }`.
+     Then apply. The new version seals, and the one before it still opens
+     the cursors it sealed.
+  3. After at least a day (a cursor's life), take that entry out and apply
+     again.
+
+  A previous key without `pagination_key_version`, at the version the
+  server seals with, or at `latest`, is refused at plan.
 - **A pack service's logs:** each deployment's service logs under its own
   `kp-…` name, and the orchestrator's passes under the Job,
   `$N-pack-orchestrator`.
@@ -1337,6 +1377,26 @@ to, so set it to the deployment's before any `gcloud` command for it
   transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
   for off). An instance from before that variable gets the flag at the next
   apply, in place: Cloud SQL lists it as needing no restart
+  ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
+- **Database connections** (the setting needs runtime 0.7.0 or later): each
+  server copy keeps a pool of up to 10 connections, opened as queries need
+  them and closed after 30 s idle. `KINDGI_DB_POOL_SIZE` in `server_env`
+  changes it: a whole number from 1 to 262143, Postgres's own ceiling. The
+  start-up log's `Database timeouts:` line ends with the size in effect.
+  Everything that connects must fit under the instance's `max_connections`:
+  - every server copy's pool (up to `server_max_instances` copies, 1 by
+    default), and the old revision's copies' too, which a deploy keeps up
+    while the new ones start;
+  - up to 5 more for each system tenant purge in flight, up to 10 for each
+    admin command that runs (`kindgi-runtime tenants …`, `check …`), and a
+    pool of this size for a `kindgi-runtime erasures …` run;
+  - OpenFGA's own, when its store is on the same instance;
+  - a reserve.
+
+  Cloud SQL sets `max_connections` from the tier's memory: 100 on the
+  module's default `database_tier`, `db-custom-1-3840`. With one server copy
+  and the default pool, the server takes up to 20 of them during a deploy.
+  `SHOW max_connections;` in `psql` reads the value in effect
   ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
   it erased, so it can be replayed after you restore a backup. The key goes

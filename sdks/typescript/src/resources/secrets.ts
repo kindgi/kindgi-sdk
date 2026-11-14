@@ -28,14 +28,24 @@ import type { Transport } from '../transport.js';
  *
  * Wire-safety: `value` NEVER returns from any read path. The
  * only method that accepts plaintext is `set` (and `rotate` when a
- * caller passes `newValue`). `getVersion` + `listVersions` return
+ * caller passes `newValue`). `versions.get` + `versions.list` return
  * metadata only; the `value` field on the wire is always `null` for
  * those routes.
  */
 export interface SecretsClient {
   list(input: SecretListInput): Promise<SecretListPage>;
   get(input: SecretGetInput): Promise<SecretRecord | null>;
+  /** A secret's versions: list and get, metadata only. */
+  readonly versions: SecretVersionsClient;
+  /**
+   * @deprecated Use `secrets.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   getVersion(input: SecretGetVersionInput): Promise<SecretVersionRecord | null>;
+  /**
+   * @deprecated Use `secrets.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
   listVersions(input: SecretListVersionsInput): Promise<SecretVersionPage>;
   set(input: SecretSetInput): Promise<SecretSetOutcome>;
   /**
@@ -48,6 +58,23 @@ export interface SecretsClient {
   revoke(input: SecretRevokeInput): Promise<SecretRevokeOutcome>;
 
   readonly rotations: SecretRotationsClient;
+}
+
+export interface SecretVersionsClient {
+  /**
+   * One version of a secret, metadata only (`value` is `null`). A version
+   * that isn't there answers `null`, where the other resources'
+   * `versions.get` throws a not-found.
+   *
+   * @wire GET /v1/secrets/:name/versions/:versionId
+   */
+  get(input: SecretGetVersionInput): Promise<SecretVersionRecord | null>;
+  /**
+   * A secret's versions, metadata only (`value` is `null`).
+   *
+   * @wire GET /v1/secrets/:name/versions
+   */
+  list(input: SecretListVersionsInput): Promise<SecretVersionPage>;
 }
 
 export interface SecretRotationsClient {
@@ -408,6 +435,47 @@ async function pollForRotationTerminal(
 // -------------------- factory --------------------
 
 export function makeSecretsClient(transport: Transport): SecretsClient {
+  const versions: SecretVersionsClient = {
+    async get(input) {
+      const q = scopeToQuery(input.scope);
+      try {
+        return await transport.request<SecretVersionRecord>({
+          method: 'GET',
+          path: `/v1/secrets/${encodeURIComponent(input.name)}/versions/${input.versionId}`,
+          query: {
+            envName: input.envName as unknown as string,
+            scopeKind: q.scopeKind,
+            ...(q.scopeId !== undefined && { scopeId: q.scopeId }),
+          },
+        });
+      } catch (err) {
+        if (isKindOfNotFound(err, 'secret-version-not-found', 'secret-version')) return null;
+        throw err;
+      }
+    },
+
+    async list(input) {
+      const q = scopeToQuery(input.scope);
+      const page = await transport.request<WireSecretVersionPage>({
+        method: 'GET',
+        path: `/v1/secrets/${encodeURIComponent(input.name)}/versions`,
+        query: {
+          envName: input.envName as unknown as string,
+          scopeKind: q.scopeKind,
+          ...(q.scopeId !== undefined && { scopeId: q.scopeId }),
+          ...(input.cursor !== undefined && { cursor: input.cursor as unknown as string }),
+          ...(input.limit !== undefined && { limit: input.limit }),
+        },
+      });
+      return {
+        data: page.data,
+        hasMore: page.hasMore ?? page.nextCursor !== undefined,
+        ...(page.nextCursor !== undefined && {
+          nextCursor: page.nextCursor as unknown as Cursor,
+        }),
+      };
+    },
+  };
   return {
     async list(input) {
       const q = scopeToQuery(input.scope);
@@ -451,45 +519,9 @@ export function makeSecretsClient(transport: Transport): SecretsClient {
       }
     },
 
-    async getVersion(input) {
-      const q = scopeToQuery(input.scope);
-      try {
-        return await transport.request<SecretVersionRecord>({
-          method: 'GET',
-          path: `/v1/secrets/${encodeURIComponent(input.name)}/versions/${input.versionId}`,
-          query: {
-            envName: input.envName as unknown as string,
-            scopeKind: q.scopeKind,
-            ...(q.scopeId !== undefined && { scopeId: q.scopeId }),
-          },
-        });
-      } catch (err) {
-        if (isKindOfNotFound(err, 'secret-version-not-found', 'secret-version')) return null;
-        throw err;
-      }
-    },
-
-    async listVersions(input) {
-      const q = scopeToQuery(input.scope);
-      const page = await transport.request<WireSecretVersionPage>({
-        method: 'GET',
-        path: `/v1/secrets/${encodeURIComponent(input.name)}/versions`,
-        query: {
-          envName: input.envName as unknown as string,
-          scopeKind: q.scopeKind,
-          ...(q.scopeId !== undefined && { scopeId: q.scopeId }),
-          ...(input.cursor !== undefined && { cursor: input.cursor as unknown as string }),
-          ...(input.limit !== undefined && { limit: input.limit }),
-        },
-      });
-      return {
-        data: page.data,
-        hasMore: page.hasMore ?? page.nextCursor !== undefined,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
-    },
+    versions,
+    getVersion: (input) => versions.get(input),
+    listVersions: (input) => versions.list(input),
 
     async set(input) {
       try {

@@ -206,7 +206,6 @@ import type { TurnEvent } from '@kindgi/agents';
  * `GET /v1/runs/{runId}/journal` for callers that want the full record.
  */
 export type RunEventKind =
-  | 'run.queued'
   | 'run.started'
   | 'run.step-started'
   | 'run.step-completed'
@@ -214,15 +213,8 @@ export type RunEventKind =
   | 'run.step-retry-scheduled'
   | 'run.iteration-started'
   | 'run.iteration-completed'
-  | 'run.tool-invoked'
-  | 'run.tool-result'
-  | 'run.model-token'
-  | 'run.artifact-produced'
-  | 'run.guardrail-violated'
   | 'run.wait-suspended'
   | 'run.wait-resumed'
-  | 'run.approval-requested'
-  | 'run.approval-completed'
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled';
@@ -253,7 +245,7 @@ export interface RunEvent {
   readonly kind: RunEventKind;
   /** Monotonic within-run sequence. */
   readonly sequence?: number;
-  /** For step-scoped events (`run.step-*`, `run.tool-invoked`, …). */
+  /** For step-scoped events (`run.step-*`, `run.iteration-*`, …). */
   readonly nodeId?: string;
   /** Kind-specific opaque JSON payload; shape mirrors `@kindgi/specs/run-event.schema.json` by kind. */
   readonly payload?: unknown;
@@ -2149,8 +2141,9 @@ export interface UnregisterUserResult {
  * with one); session-token callers additionally see `sessionId`,
  * `providerId`, `scopes`, and `expiresAt`. When the token carries a
  * `userId`, the identity directory adds `user: UserRecord`. `principal`
- * says whom the caller acts as; an API key adds `tokenId`, its `role` and
- * the `projectId` it is limited to.
+ * says whom the caller acts as; an API key adds `tokenId`, its `role`,
+ * the `projectId` it is limited to, and `readOnly`: whether it only reads
+ * (absent from older servers).
  */
 export interface WhoamiResult {
   readonly tenantId: import('@kindgi/types').TenantId;
@@ -2164,6 +2157,7 @@ export interface WhoamiResult {
   readonly tokenId?: string;
   readonly role?: ApiTokenRole;
   readonly projectId?: string;
+  readonly readOnly?: boolean;
 }
 
 /**
@@ -2384,6 +2378,8 @@ export interface ApiToken {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /** `true`: the key only reads (`ApiTokenSpec.readOnly`). Absent on any other key. */
+  readonly readOnly?: true;
   /** Who minted it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
@@ -2419,6 +2415,14 @@ export interface ApiTokenSpec {
    * refused (`key-project-mismatch`).
    */
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /**
+   * `true`: the key only reads. Its every request but a `GET` or a `HEAD`
+   * is refused (`read-only-key`), apart from an agent's pin check
+   * (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It
+   * mints and revokes no keys. A server whose key store can't keep
+   * the limit makes no key (`read-only-unsupported`).
+   */
+  readonly readOnly?: boolean;
 }
 
 /**
@@ -2509,6 +2513,12 @@ export interface PersonGrants {
   }[];
   readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+  /**
+   * The capabilities the person holds, such as `env:write` or
+   * `signing-keys:write`. Absent when the runtime doesn't report them:
+   * unknown, not none.
+   */
+  readonly capabilities?: readonly string[];
 }
 
 /** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */
@@ -2747,9 +2757,8 @@ export interface RegisterMcpEndpointInput {
 /**
  * @unwired SDK-defined event shapes; the API has no event emission or
  * subscription routes (`client.events.*` throws `not-yet-wired`).
- * Event triggers, which would start runs from events, aren't served yet:
- * the runtime fires schedules only. Filters are declarative predicates
- * over event fields.
+ * Event triggers, which would start runs from events, aren't served yet.
+ * Filters are declarative predicates over event fields.
  */
 export interface Event {
   readonly id: import('@kindgi/types').EventId;

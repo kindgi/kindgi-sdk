@@ -53,7 +53,7 @@ describe('devPackEnv', () => {
     });
   });
 
-  test("a file's ${VAR} references, a key's reference to itself included, take the shell's value; nothing else does (T377)", async () => {
+  test("a file's ${VAR} references, a key's reference to itself included, take the shell's value; nothing else does", async () => {
     await writeFile(
       join(dir, '.env'),
       'ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\nACME_URL=https://${ACME_HOST}/v1\nMISSING=${NOT_IN_SHELL}\n',

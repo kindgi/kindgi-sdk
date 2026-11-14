@@ -109,8 +109,9 @@ function routeAnswer(url: URL, answer: Records | undefined): Response {
 async function cli(
   fake: ReturnType<typeof server>,
   args: readonly string[] = [],
-  extra: { stopSignal?: AbortSignal } = {},
+  extra: { stopSignal?: AbortSignal; stream?: boolean } = {},
 ) {
+  // Each kind's line as it ends (`ctx.progress`), as the CLI streams it to stderr.
   const progress: string[] = [];
   const pauses: number[] = [];
   const waits: number[] = [];
@@ -120,8 +121,8 @@ async function cli(
     cwd,
     home,
     fetchImpl: fake.fetchImpl,
+    ...(extra.stream !== false && { progress: (text: string) => progress.push(text) }),
     exportsSeam: {
-      progress: (line) => progress.push(line),
       now: () => new Date('2026-10-15T12:00:00.000Z'),
       pause: async (ms) => {
         pauses.push(ms);
@@ -374,6 +375,29 @@ describe('kindgi exports create', () => {
     expect(await lines('connection-choices')).toEqual([
       { parent: { projectId: 'proj-1' }, item: choice },
     ]);
+  });
+
+  test('a removed trigger is read too, with its fires and its versions', async () => {
+    const removed = { triggerId: 'sched-1', unregisteredAt: '2026-10-14T09:00:00.000Z' };
+    const fake = server({
+      '/v1/schedules': (url) =>
+        json(200, {
+          data: url.searchParams.get('includeUnregistered') === 'true' ? [removed] : [],
+          hasMore: false,
+        }),
+      '/v1/schedules/sched-1/fires': [{ runId: 'run-1', version: 1 }],
+      '/v1/schedules/sched-1/versions': [{ triggerId: 'sched-1', version: 1 }],
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(await lines('schedules')).toEqual([removed]);
+    expect(fake.calls).toEqual(
+      expect.arrayContaining([
+        'GET /v1/schedules?includeUnregistered=true&limit=100',
+        'GET /v1/schedules/sched-1/fires?includeUnregistered=true&limit=100',
+        'GET /v1/schedules/sched-1/versions?includeUnregistered=true&limit=100',
+      ]),
+    );
   });
 
   test('a 429 is waited out; a 5xx is sent again three times, then that kind fails and the rest go on', async () => {
@@ -941,6 +965,20 @@ describe('kindgi exports create', () => {
     const quiet = await cli(server(answers), ['--quiet']);
     expect(quiet).toMatchObject({ exitCode: 0, stdout: '', stderr: '', progress: [] });
     expect((await manifest()).kinds.agents).toMatchObject({ status: 'ok', records: 1 });
+  });
+
+  test("given no progress to stream to, each kind's line comes in the outcome's stderr, as it would have streamed", async () => {
+    const answers = { '/v1/agents': [{ id: 'agent-a' }] };
+    const streamed = await cli(server(answers));
+    expect(streamed.exitCode, streamed.stderr).toBe(0);
+
+    await rm(out, { recursive: true, force: true });
+    const kept = await cli(server(answers), [], { stream: false });
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(kept.progress).toEqual([]);
+    expect(kept.stderr).toContain('agents: 1 record\n');
+    expect(kept.stderr).toBe(`${streamed.progress.join('')}${streamed.stderr}`);
+    expect(kept.stdout).toBe(streamed.stdout);
   });
 
   test('--quiet: a kind that fails says its line alone, then how to read it again', async () => {
