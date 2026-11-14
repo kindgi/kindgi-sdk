@@ -18,10 +18,12 @@ const defined = defineTool({
     kind: 'http',
     method: 'GET',
     urlTemplate: 'https://api.shop.example/orders/{orderId}',
-    // Every {placeholder} MUST be a key on the input schema
+    // Every {placeholder} MUST be a key on the input schema, and sit in the
+    // path or query: defineTool refuses one in the host or port
     authorization: {
       kind: 'bearer',
-      secretRef: { envName: 'production', name: 'shop-api-token' },
+      // Read in the env the runtime serves; `envName` would pin one env.
+      secretRef: { name: 'shop-api-token' },
     },
     successStatus: { min: 200, max: 299 },
   },

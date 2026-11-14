@@ -12,10 +12,14 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.net.ConnectException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -46,9 +50,18 @@ import tools.jackson.databind.ObjectMapper;
  *   <li>{@code Authorization: Bearer <token>} on every call.
  *   <li>An operation that takes an {@code Idempotency-Key} gets one generated when the caller
  *       passes none, so a retry can never run it twice.
- *   <li>Retries: a connection error or timeout, or 429 / 502 / 503 / 504, only for a call that's
- *       safe to repeat (a GET, or one with an idempotency key), with exponential backoff that
- *       honours {@code Retry-After}.
+ *   <li>Retries, with exponential backoff that honours {@code Retry-After}, only for a call that's
+ *       safe to repeat (a GET, or one with an idempotency key):
+ *       <ul>
+ *         <li>a GET after a connection error or timeout, or a 429 / 502 / 503 / 504;
+ *         <li>any other call only when nothing can have run: a failure to connect (or a connect
+ *             timeout), or a 429 / 503. Once a call was sent, a timeout, a dropped connection or a
+ *             proxy's 502 / 504 may mean it is still running on the server. A repeat is then
+ *             refused while it runs ({@code idempotency-key-in-flight}), so its answer never
+ *             arrives, and once its key is freed a repeat could run it again.
+ *       </ul>
+ *   <li>A waited {@code runs.start} that times out says so: the run may still be going, and its id
+ *       didn't arrive.
  *   <li>A 2xx answer is read into the operation's model; anything else throws a typed {@link
  *       KindgiApiException}.
  *   <li>A stream ({@code text/event-stream}) reconnects with {@code Last-Event-Id} after a drop
@@ -63,6 +76,8 @@ public final class Transport {
   /** Retries after the first attempt. */
   public static final int DEFAULT_MAX_RETRIES = 2;
   static final Set<Integer> RETRY_STATUSES = Set.of(429, 502, 503, 504);
+  /** A call other than a GET: only the answers that say nothing ran. */
+  static final Set<Integer> RETRY_STATUSES_UNSENT = Set.of(429, 503);
   static final int STREAM_ATTEMPTS = 10;
 
   private final String baseUrl;
@@ -202,21 +217,72 @@ public final class Transport {
       try {
         response = http.send(p.request(timeout, "application/json"), HttpResponse.BodyHandlers.ofByteArray());
       } catch (IOException e) {
-        if (p.safe && attempt <= maxRetries) {
+        if (p.safe && mayRetry(p, e) && attempt <= maxRetries) {
           sleep(backoff(attempt, null));
           continue;
         }
-        throw new NetworkException(p.operation.id() + ": " + e.getClass().getSimpleName() + ": " + e.getMessage(), null, e);
+        throw networkException(p, e);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new NetworkException(p.operation.id() + ": interrupted", null, e);
       }
-      if (RETRY_STATUSES.contains(response.statusCode()) && p.safe && attempt <= maxRetries) {
+      if (retryStatuses(p).contains(response.statusCode()) && p.safe && attempt <= maxRetries) {
         sleep(backoff(attempt, response.headers().firstValue("retry-after").orElse(null)));
         continue;
       }
       return check(p.operation, response);
     }
+  }
+
+  /** Whether a call that failed with {@code cause} may be sent again (see the class doc). */
+  private static boolean mayRetry(Prepared p, Throwable cause) {
+    return p.operation.method().equals("GET") || notSent(cause);
+  }
+
+  /** A failure before the request reached the server, so nothing can have run. */
+  private static boolean notSent(Throwable cause) {
+    return cause instanceof ConnectException || cause instanceof HttpConnectTimeoutException;
+  }
+
+  private static Set<Integer> retryStatuses(Prepared p) {
+    return p.operation.method().equals("GET") ? RETRY_STATUSES : RETRY_STATUSES_UNSENT;
+  }
+
+  /** The {@link NetworkException} for a call that failed with {@code cause}. */
+  private NetworkException networkException(Prepared p, Throwable cause) {
+    String id = p.operation.id();
+    if (!(cause instanceof HttpTimeoutException) || notSent(cause)) {
+      return new NetworkException(id + ": " + cause.getClass().getSimpleName() + ": " + cause.getMessage(), null, cause);
+    }
+    if (id.equals("runs.start") && waits(p.body)) {
+      return new NetworkException(
+          "The run didn't end within " + seconds(timeout) + ", the client's timeout (timeout). A waited start answers only when"
+              + " the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with"
+              + " `wait_(false)` in its options: the answer carries its id at once. Then follow it with `runs().follow(runId)`"
+              + " or `runs().get(runId)`. Or raise `timeout`.",
+          null,
+          cause);
+    }
+    return new NetworkException(id + ": no answer within " + seconds(timeout) + ", the client's timeout (timeout).", null, cause);
+  }
+
+  /** A run start that waits for its run: its {@code options.wait} isn't {@code false}. */
+  private boolean waits(byte @Nullable [] body) {
+    if (body == null) {
+      return true;
+    }
+    JsonNode wait;
+    try {
+      wait = mapper.readTree(body).path("options").path("wait");
+    } catch (RuntimeException e) {
+      return true;
+    }
+    return !wait.isBoolean() || wait.booleanValue();
+  }
+
+  /** A duration as the other clients write it: {@code 60 s}, {@code 0.025 s}. */
+  static String seconds(Duration d) {
+    return BigDecimal.valueOf(d.toNanos(), 9).stripTrailingZeros().toPlainString() + " s";
   }
 
   private <B> HttpResponse<B> check(Operation op, HttpResponse<B> response) {
@@ -455,13 +521,12 @@ public final class Transport {
             (response, failure) -> {
               if (failure != null) {
                 Throwable cause = failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
-                if (cause instanceof IOException && p.safe && attempt <= maxRetries) {
+                if (cause instanceof IOException && p.safe && mayRetry(p, cause) && attempt <= maxRetries) {
                   return later(backoff(attempt, null)).thenCompose(x -> attemptAsync(p, attempt + 1));
                 }
-                return CompletableFuture.<HttpResponse<byte[]>>failedFuture(
-                    new NetworkException(p.operation.id() + ": " + cause.getClass().getSimpleName() + ": " + cause.getMessage(), null, cause));
+                return CompletableFuture.<HttpResponse<byte[]>>failedFuture(networkException(p, cause));
               }
-              if (RETRY_STATUSES.contains(response.statusCode()) && p.safe && attempt <= maxRetries) {
+              if (retryStatuses(p).contains(response.statusCode()) && p.safe && attempt <= maxRetries) {
                 return later(backoff(attempt, response.headers().firstValue("retry-after").orElse(null)))
                     .thenCompose(x -> attemptAsync(p, attempt + 1));
               }

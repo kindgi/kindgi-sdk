@@ -6,14 +6,14 @@ description: >
   again, inputMapping from runInput / nodeOutputs, typed agent output in
   a flow, the flow's declared output, loops (foreach / while) and fanout,
   per-edge retry and timeout, and running a flow (kindgi runs start
-  --flow, in the background, as a dry run) and reading its journal. Load
-  this whenever you are authoring or editing code inside a pack's flows/
-  directory, defining a flow, or when the user asks to add, change or
-  debug one. Tools are covered by kindgi-authoring-tools, agents by
-  kindgi-authoring-agents.
+  --flow, in the background, as a dry run) and reading its journal, and
+  starting one from a schedule, a new mail or a webhook. Load this whenever
+  you are authoring or editing code inside a pack's flows/ directory,
+  defining a flow, or when the user asks to add, change or debug one. Tools
+  are covered by kindgi-authoring-tools, agents by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -269,6 +269,12 @@ kindgi runs cancel <run-id>
   `emits-event` or `external-side-effect` effect. The first other tool
   stops the run with `dry-run-effectful-tool`, and everything before it
   really ran. That's useful for checking the wiring without the writes.
+
+A schedule, a new mail or a webhook can start the runs instead, with no
+one typing a command. Before making one for a flow, read
+[start-from-a-trigger.md](start-from-a-trigger.md): what each gives the
+flow as its input, which ones the runtime serves, and the tool steps
+those runs refuse.
 
 ## Iterating on a flow
 

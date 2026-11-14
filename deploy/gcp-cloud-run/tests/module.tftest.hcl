@@ -85,6 +85,11 @@ run "defaults_keep_kms_and_the_own_repository" {
     condition     = contains(keys(google_project_service.apis), "cloudresourcemanager.googleapis.com")
     error_message = "The module turns Cloud Resource Manager on, for a root beside it that reads the project billed to the project."
   }
+  # C-RT-4: the first start has 10 minutes to run the migrations, Cloud Run's most.
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].containers[0].startup_probe[0].period_seconds == 5 && google_cloud_run_v2_service.server.template[0].containers[0].startup_probe[0].failure_threshold == 120
+    error_message = "C-RT-4: the server's startup probe waits 600 s, 120 tries 5 s apart."
+  }
 }
 
 run "secrets_backend_none_seals_endpoint_tokens_under_the_key" {
@@ -505,11 +510,12 @@ run "public_url_refuses_a_path" {
 run "the_refused_names_cover_every_option_secret_signing" {
   command = plan
   variables {
-    export_signing       = "secret"
-    cors_origins         = ["https://app.acme.example"]
-    openfga_api_url      = "http://openfga.acme.internal:8080"
-    pack_call_timeout_ms = 300000
-    public_url           = "https://kindgi.acme.example"
+    export_signing         = "secret"
+    cors_origins           = ["https://app.acme.example"]
+    openfga_api_url        = "http://openfga.acme.internal:8080"
+    pack_call_timeout_ms   = 300000
+    public_url             = "https://kindgi.acme.example"
+    pagination_key_version = "1"
   }
   assert {
     condition = alltrue([
@@ -524,6 +530,7 @@ run "the_refused_names_cover_every_option_kms_signing" {
   variables {
     export_signing         = "kms"
     export_signing_kms_key = "projects/acme-app-dev/locations/northamerica-northeast2/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1"
+    pagination_key_version = "1"
   }
   assert {
     condition = alltrue([
@@ -531,6 +538,101 @@ run "the_refused_names_cover_every_option_kms_signing" {
     ])
     error_message = "A name the module sets on the server is missing from server_module_env."
   }
+}
+
+# The page-cursor key is the module's (tests/pagination-key.tftest.hcl has
+# its steps): pinned to a version, and set by no other map. The key before
+# it, while one rotates, is the operator's, through server_secret_env.
+run "pagination_key_version_refuses_latest" {
+  command = plan
+  variables {
+    pagination_key_version = "latest"
+  }
+  expect_failures = [var.pagination_key_version]
+}
+
+run "the_pagination_key_is_the_modules" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PAGINATION_KEY = { secret = "acme-cursor-key", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_pagination_key_file_is_the_modules_too" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PAGINATION_KEY_PATH = "/secrets/cursor-key" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_previous_pagination_key_needs_the_current_one" {
+  command = plan
+  variables {
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", version = "1" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_previous_pagination_key_at_the_current_version_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", version = "2" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# The module's own project, named: still the module's secret.
+run "a_previous_pagination_key_at_the_current_version_in_the_named_project_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", project = "acme-app-dev", version = "2" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# latest is the newest version: after a rotation, the current key.
+run "a_previous_pagination_key_at_latest_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", version = "latest" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_previous_pagination_key_of_your_own_is_granted" {
+  command = plan
+  variables {
+    pagination_key_version = "1"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "acme-old-cursor-key", version = "3" }
+    }
+  }
+  assert {
+    condition     = keys(google_secret_manager_secret_iam_member.server_reads_its_secrets) == ["KINDGI_PAGINATION_PREVIOUS_KEY"]
+    error_message = "A previous key in a secret of the operator's own is granted, as every server_secret_env secret is."
+  }
+}
+
+run "a_previous_pagination_key_as_a_plain_value_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "1"
+    server_env             = { KINDGI_PAGINATION_PREVIOUS_KEY = "bm90LWluLXRoZS1wbGFu" }
+  }
+  expect_failures = [var.server_env]
 }
 
 run "backups_keep_cloud_sqls_defaults" {
