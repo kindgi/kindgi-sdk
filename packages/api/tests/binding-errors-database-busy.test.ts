@@ -315,7 +315,7 @@ describe('a read a route middleware makes to find what it checks, when the datab
     ["a pin of a flow's version", `/v1/flows/${flowId}/pinned/pin`, { version: '1.0.0' }],
   ])(
     'without a store, a limited key: POST %s answers 503 database-busy with Retry-After',
-    async (_label, path, body, opts = {}) => {
+    async (_label, path, body, opts: { conversationFound?: boolean } = {}) => {
       const answer = await call(limitedAppReadsBusy(opts), path, 'POST', body, LIMITED);
       expect(answer.status, answer.text).toBe(503);
       expect(answer.retryAfter).toBe('5');

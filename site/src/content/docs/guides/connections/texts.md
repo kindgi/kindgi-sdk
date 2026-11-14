@@ -31,7 +31,7 @@ WhatsApp Business app. On SMS, the number keeps opt-outs (STOP and START,
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)). The
-  CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
+  CLI runs from any folder as `npx --yes @kindgi/cli@0.6`
   ([Install](../../../start/install/)); the trigger commands run in your
   pack's directory, as `pnpm exec kindgi`.
 
@@ -79,7 +79,7 @@ The key goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_TELNYX_API_KEY --env=production --scope=tenant
+npx --yes @kindgi/cli@0.6 secrets set ACME_TELNYX_API_KEY --env=production --scope=tenant
 ```
 
 - `ACME_TELNYX_API_KEY` is the secret's name. The registration keeps only
@@ -103,7 +103,7 @@ with the account's public key. In the Telnyx Portal, find it under **Keys
 It isn't a secret.
 
 ```sh
-npx --yes @kindgi/cli@0.4 connection-apps add texts --provider=telnyx --api-key-ref=production/ACME_TELNYX_API_KEY --public-key=<public-key>
+npx --yes @kindgi/cli@0.6 connection-apps add texts --provider=telnyx --api-key-ref=production/ACME_TELNYX_API_KEY --public-key=<public-key>
 ```
 
 - `--api-key-ref` is the environment and name you stored the key under.
@@ -117,7 +117,7 @@ The command prints the registration as JSON, with its `id`.
 ## 4. Connect the number
 
 ```sh
-npx --yes @kindgi/cli@0.4 connections connect texts --for-company --number=+15551234567 --permissions=texts.reply
+npx --yes @kindgi/cli@0.6 connections connect texts --for-company --number=+15551234567 --permissions=texts.reply
 ```
 
 - `--number` is the WhatsApp number, in E.164.
@@ -312,7 +312,7 @@ it may call unattended, and keeps its owner. `unregister` removes it.
 ## Disconnecting
 
 ```sh
-npx --yes @kindgi/cli@0.4 connections disconnect <connection-id>
+npx --yes @kindgi/cli@0.6 connections disconnect <connection-id>
 ```
 
 The number goes back on the messaging profile it was on before you
@@ -337,8 +337,8 @@ and opt-outs are still kept. Store a working key in the same secret, as a
 new version of it, then connect again:
 
 ```sh
-npx --yes @kindgi/cli@0.4 secrets set ACME_TELNYX_API_KEY --env=production --scope=tenant --write-mode=add-version
-npx --yes @kindgi/cli@0.4 connections connect texts --for-company --reconnect=+15551234567 --number=+15551234567 --permissions=texts.reply
+npx --yes @kindgi/cli@0.6 secrets set ACME_TELNYX_API_KEY --env=production --scope=tenant --write-mode=add-version
+npx --yes @kindgi/cli@0.6 connections connect texts --for-company --reconnect=+15551234567 --number=+15551234567 --permissions=texts.reply
 ```
 
 `--reconnect` names the connection by its id or its name: the number,

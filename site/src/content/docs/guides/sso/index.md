@@ -199,7 +199,7 @@ Instead of adding each person, a provider can let in anyone it signs in
 with a verified email at one of its domains:
 
 ```sh
-npx --yes @kindgi/cli@0.4 sso providers update acme-kc --join=domain --join-role=viewer
+npx --yes @kindgi/cli@0.6 sso providers update acme-kc --join=domain --join-role=viewer
 ```
 
 - **The first time** someone at one of its domains signs in through it,
