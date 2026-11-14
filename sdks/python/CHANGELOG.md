@@ -79,6 +79,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   why no version was added. An update over 10 MB answers `size`, and nothing
   is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
   client's models gain `ToolFileUpdateAnswer`.
+- `kindgi`: **sign-in options can link the deployment's own sign-up page.**
+  `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
+  "No account yet? Sign up". It's `None` when the operator set none, and from
+  older servers.
 
 ## 0.6.0
 

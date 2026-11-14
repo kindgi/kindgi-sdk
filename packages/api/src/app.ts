@@ -196,6 +196,7 @@ import {
   type SignInOptionsRateLimit,
   checkConsoleLinks,
   checkSignInLegal,
+  checkSignUpUrl,
   signInOptionsRouter,
 } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
@@ -1238,6 +1239,14 @@ export interface CreateAppInput {
    * answer has no `legal`.
    */
   readonly signInLegal?: SignInLegalLinks;
+  /**
+   * The deployment's own sign-up page, which a sign-in page links ("No
+   * account yet? Sign up"; sign-in options' `signUpUrl`): an absolute https
+   * URL with no username or password; anything else, and createApp throws.
+   * The answer carries it as a browser reads it. Absent: the answer has no
+   * `signUpUrl`, so a sign-in page links no sign-up.
+   */
+  readonly signUpUrl?: string;
   /**
    * The deployment's own links (its help desk, status page, data
    * processing terms), which the console shows on every page, the sign-in
@@ -2901,6 +2910,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   checkSignInLegal(input.signInLegal);
+  checkSignUpUrl(input.signUpUrl);
   checkConsoleLinks(input.consoleLinks);
   app.route(
     '/v1/auth/sign-in-options',
@@ -2913,6 +2923,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
       ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
       ...(input.signInLegal !== undefined && { legal: input.signInLegal }),
+      ...(input.signUpUrl !== undefined && { signUpUrl: input.signUpUrl }),
       ...(input.consoleLinks !== undefined && { links: input.consoleLinks }),
     }),
   );
