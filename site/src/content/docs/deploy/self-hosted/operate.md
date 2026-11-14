@@ -1051,17 +1051,20 @@ and what's different after:
 - **Safari can't sign in to `kindgi dev`'s console.** The console's sign-in
   is a `Secure` cookie, and Safari doesn't keep one over plain `http`, even at
   `http://localhost`, where Chrome and Firefox do. Open the local console in
-  Chrome or Firefox. A fix is planned. A deployment's console needs `https`
-  in every browser (above).
+  Chrome or Firefox. 0.1.6 fixes it
+  ([upgrading to 0.1.6](#from-015-to-016)). A deployment's console needs
+  `https` in every browser (above).
 - **Run one runtime instance.** Several aren't supported yet (the Cloud Run
   module runs one). For one thing, a guardrail change reaches other instances
   only when they restart: registering, unregistering or deploying a guardrail
   takes effect at once on the instance that took the request, and other
   instances keep the guardrails they had. If you run several anyway, restart
-  the others after changing a guardrail. A fix is planned.
+  the others after changing a guardrail. 0.1.6 fixes it
+  ([0.1.6's known limitations](#known-limitations-in-016)).
 - **Cancelling a flow while it runs a loop can let a few more of the loop's
   steps start** before it stops: in our tests up to a few dozen, within
-  seconds. The run still ends `cancelled`. A later release fixes it.
+  seconds. The run still ends `cancelled`. 0.1.6 fixes it
+  ([upgrading to 0.1.6](#from-015-to-016)).
 
 ### Runtime 0.1.4.2
 

@@ -70,7 +70,8 @@ export interface RunCliInputs {
    * Where a command says how it's going while it runs (`kindgi build`'s
    * lines, `CommandContext.progress`): the `cli.js` bin writes it to
    * stderr as it comes. Without it (tests), those lines come in the
-   * outcome's stderr.
+   * outcome's stderr; `kindgi connections connect`'s link and waiting
+   * line go to stderr instead, since the person needs them while it waits.
    */
   readonly progress?: (text: string) => void;
   /**
@@ -146,7 +147,7 @@ export interface RunCliInputs {
   readonly openUrl?: OpenUrl;
   /** The sleep, clock and output a publishing command waits out the server's rate limits with. */
   readonly rateLimitWaits?: RateLimitWaitSeam;
-  /** `kindgi exports create`'s output, clock and pauses. */
+  /** `kindgi exports create`'s clock and pauses. */
   readonly exportsSeam?: ExportsSeam;
   /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. */
   readonly connectionsSeam?: ConnectionsSeam;

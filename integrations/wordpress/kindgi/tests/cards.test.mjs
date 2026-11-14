@@ -347,6 +347,25 @@ test('a call whose approval was rejected says so, with the reason when one was g
     line: "Didn't use Refund large: its approval was rejected",
     why: null,
   });
+  // As a runtime that says who decided answers it.
+  assert.deepEqual(
+    stepOf(cards, 'woo.refund-large', {
+      result: { status: 'rejected', by: 'reviewer', rationale: 'Not yet.' },
+    }),
+    {
+      ran: false,
+      line: "Didn't use Refund large: its approval was rejected",
+      why: 'Reason: Not yet.',
+    },
+  );
+  assert.deepEqual(
+    stepOf(cards, 'woo.refund-large', { result: { status: 'rejected', by: 'reviewer' } }),
+    {
+      ran: false,
+      line: "Didn't use Refund large: its approval was rejected",
+      why: null,
+    },
+  );
 });
 
 test("a tool's own answer reads as used, whatever its fields", () => {

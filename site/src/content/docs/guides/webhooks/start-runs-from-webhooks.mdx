@@ -604,11 +604,11 @@ going.
 
 From your app, newest first:
 
-- `GET /v1/webhooks/{triggerId}/versions` pages them (`webhooks.versions`
-  in TypeScript, `list_versions` in Python);
+- `GET /v1/webhooks/{triggerId}/versions` pages them
+  (`webhooks.versions.list` in TypeScript, `list_versions` in Python);
 - `GET /v1/webhooks/{triggerId}/versions/{version}` reads one
-  (`getVersion`, `get_version`). A version the trigger doesn't have is
-  `404 trigger-version-not-found`.
+  (`webhooks.versions.get`, `get_version`). A version the trigger doesn't
+  have is `404 trigger-version-not-found`.
 
 A removed webhook trigger keeps its versions and its deliveries. One version reads as
 above, with `unregisteredAt` saying when the trigger was removed, so a
@@ -643,6 +643,24 @@ pnpm exec kindgi webhooks get <trigger-id> <version>
   a version, `get` is the trigger as it is now, and its `version` is the
   newest. The `VERSION` column of `list --table` shows it, empty for a
   trigger that has none yet.
+
+In the console (runtime 0.3.0 or later), under a webhook's title, its page
+says what it starts and then its newest version, who made it and when,
+such as "Version 2, changed by Sam Lee, 3 Nov 2026, 1:23 PM EST". The
+version's number opens it under **Versions**. That section, below
+**Deliveries**, lists its versions newest first:
+
+- Each one has its number, when it was made, who made it and how, such as
+  "Registered by acme-deploy (service account)" or "Taken over by you", or
+  why Kindgi made it itself, and what changed from the version before,
+  such as "Starts" for a new flow version, or "Its first version".
+- A version's number opens it above the table: who made it and when, what
+  changed field by field, and what it ran, its input too. A change to the
+  input says only "Input: changed".
+- The table sorts by **Version** or **When**, and **Columns** chooses
+  which columns it shows.
+- In **Deliveries**, a delivery's run has the version it ran, such as
+  "v1".
 
 Whoever can read the trigger can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
@@ -728,7 +746,8 @@ registered it, or the account named with
 ## Change who it runs as, in the console
 
 A project's **Incoming webhooks** page lists its incoming webhooks, each with
-its own page. On one that runs as someone else, project admins get **Take
+its own page, which also lists its versions ([Its versions](#its-versions)).
+On one that runs as someone else, project admins get **Take
 over**: "The runs it starts from now on act as you, with your access. Runs
 already started keep theirs. If it's paused, it stays paused." On a
 webhook with tools allowed unattended, the dialog adds that its runs still

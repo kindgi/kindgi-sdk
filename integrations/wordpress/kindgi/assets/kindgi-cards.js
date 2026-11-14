@@ -305,14 +305,18 @@
 
   /**
    * The reviewer's reason, or null when they gave none, when the answer is
-   * Kindgi's `{ status: 'rejected', rationale? }` for a call whose approval
-   * was rejected; undefined for any other.
+   * Kindgi's for a call whose approval was rejected; undefined for any
+   * other. Kindgi's is `{ status: 'rejected', by: 'reviewer', rationale? }`,
+   * or `{ status: 'rejected', rationale? }` from a runtime that doesn't say
+   * who decided. A `by` of any other value makes it the tool's own answer.
    */
   function rejectedWhy(result) {
     const fields = fieldsOf(result);
-    if ((fields !== 'status' && fields !== 'rationale,status') || result.status !== 'rejected') {
-      return undefined;
-    }
+    const ours =
+      fields === 'status' ||
+      fields === 'rationale,status' ||
+      ((fields === 'by,status' || fields === 'by,rationale,status') && result.by === 'reviewer');
+    if (!ours || result.status !== 'rejected') return undefined;
     return sentence(result.rationale);
   }
 

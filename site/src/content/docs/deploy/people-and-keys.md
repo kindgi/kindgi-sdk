@@ -133,8 +133,11 @@ With sign-in off, nobody is [invited](#their-invitation):
 Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
-An email another person already has is refused with
-`409 identity-user-email-taken`.
+An email another of the workspace's people already has is refused with
+`409 identity-user-email-taken`. Other workspaces' people don't count: one
+email can be a person in several workspaces, added to each by one of its
+admins. At sign-in, they
+[choose a workspace](../../guides/sso/sign-in/#your-email-first).
 
 With authorization on, give them a role on a project next. A tenant admin,
 or an admin of that project, adds them by email or by id:

@@ -142,6 +142,14 @@ export interface TurnContext {
    */
   initialMessageCount?: number;
   /**
+   * The earlier messages the model is given for this turn (`readHistory`),
+   * read once and kept (`turnHistory`), for the checks of a guardrail that
+   * sees the conversation too. In memory only: a turn resumed in another
+   * process reads them again, the same window, since it ends before the
+   * turn's own message.
+   */
+  history?: readonly ConversationMessage[];
+  /**
    * Populated by `run-retrievals` — facts pulled by declared intents.
    */
   retrieved?: readonly RetrievedFact[];
@@ -181,7 +189,8 @@ export interface TurnContext {
   lastProvider?: { readonly id: string; readonly model: string };
   /**
    * The providers' warnings about the turn's answers, by code (the first
-   * message of each): set by `model-call`, surfaced in
+   * message of each): set by `model-call`, and by the guardrail gates for
+   * their judges' calls (`addJudgeWarnings`), surfaced in
    * `AgentTurnResult.warnings`.
    */
   modelWarnings?: Map<string, string>;

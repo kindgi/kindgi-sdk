@@ -6,7 +6,9 @@
  * `abortSignal` when the run ends from outside (a cancel, a shutdown), and
  * the turn's own work listens to the turn's abort: each handler links the
  * two as it starts, so a model call in flight stops at once, and unlinks
- * them as it settles, so a long turn leaves no listener behind.
+ * them as it settles, so a long turn leaves no listener behind. The turn's
+ * caller's own `abortSignal` is linked once for the whole turn, and left as
+ * the turn returns.
  */
 
 import { getEventListeners } from 'node:events';
@@ -20,6 +22,7 @@ import type {
   ProviderMetadata,
 } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
+import type { RunBinding } from '@kindgi/runtime';
 import type { NodeId, ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import { MODEL_CALL_NODE } from '../src/agent-turn-flow.js';
@@ -28,6 +31,7 @@ import type { TurnContext } from '../src/handlers/context.js';
 import { turnFailureMessage } from '../src/handlers/errors.js';
 import { buildHandlers } from '../src/handlers/index.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
+import { invokeAgent } from '../src/invoke.js';
 import { projectRunResult } from '../src/project-run-result.js';
 import type { ConversationId } from '../src/types.js';
 import { testNodeContext } from './node-context.js';
@@ -180,6 +184,24 @@ describe("a turn follows its run's abort", () => {
     } finally {
       process.off('warning', onWarning);
     }
+  });
+});
+
+describe("a turn follows its caller's signal", () => {
+  test('invokeAgent listens to it while its run runs, and leaves it once the turn returns', async () => {
+    const caller = new AbortController();
+    let listening: number | undefined;
+    const runBinding = {
+      runGraph: async () => {
+        listening = getEventListeners(caller.signal, 'abort').length;
+        return { kind: 'err', error: { code: 'journal-error', message: 'stop here', cause: null } };
+      },
+    } as unknown as RunBinding;
+    const bindings = { runBinding } as unknown as InvokeAgentBindings;
+    const { ctx } = turnWithSlowModel();
+    await invokeAgent({ ...ctx.input, abortSignal: caller.signal }, bindings);
+    expect(listening).toBe(1);
+    expect(getEventListeners(caller.signal, 'abort')).toHaveLength(0);
   });
 });
 

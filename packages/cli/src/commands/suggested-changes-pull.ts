@@ -22,6 +22,7 @@ import { KindgiApiError, type KindgiClient, type SuggestedChange } from '@kindgi
 import { type IndexedBlock, packBlockFiles, writePackBlock } from '@kindgi/handler-runtime';
 import semver from 'semver';
 
+import { isLetter, isSchemeChar } from '../char-class.js';
 import type { CommandContext } from '../context.js';
 import { repoOf } from '../deploy/source.js';
 import { UsageError } from '../errors.js';
@@ -236,9 +237,40 @@ async function runTool(
   });
 }
 
-/** A URL without the user and password some remotes carry. */
-function withoutCredentials(text: string): string {
-  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi, '$1');
+/** A URL's user info, from just after `://`: the user, and any password, then `@`. */
+const USER_INFO = /[^/@\s]+@/y;
+
+/**
+ * A URL without the user and password some remotes carry: the matches of
+ * `/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi`, each written back as its scheme,
+ * found in time in step with the text's length. That pattern tries a scheme
+ * from every letter, so its time grows with the square of a long run of
+ * scheme characters.
+ *
+ * From each `://`, the scheme is walked back once, no further than the last
+ * match's end. A match needs a letter in that run, any one: the scheme is
+ * written back as it is.
+ */
+export function withoutCredentials(text: string): string {
+  let out = '';
+  let last = 0;
+  let at = text.indexOf('://');
+  while (at !== -1) {
+    let scheme = false;
+    for (let i = at - 1; i >= last && !scheme && isSchemeChar(text.charCodeAt(i)); i--) {
+      scheme = isLetter(text.charCodeAt(i));
+    }
+    USER_INFO.lastIndex = at + 3;
+    const user = scheme ? USER_INFO.exec(text) : null;
+    if (user === null) {
+      at = text.indexOf('://', at + 1);
+      continue;
+    }
+    out += text.slice(last, at + 3);
+    last = at + 3 + user[0].length;
+    at = text.indexOf('://', last);
+  }
+  return out + text.slice(last);
 }
 
 /**
