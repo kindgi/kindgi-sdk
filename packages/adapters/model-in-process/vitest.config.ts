@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    clearMocks: true,
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
     environment: 'node',
     // Model download + inference on first call can take a while.
