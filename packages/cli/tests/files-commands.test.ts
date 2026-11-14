@@ -523,7 +523,7 @@ describe('kindgi artifacts, deprecated', () => {
 describe('the type upload guesses', () => {
   test('from the extension in any case, else application/octet-stream', () => {
     expect(
-      ['a.md', 'a.PDF', 'a.yaml', 'a.ts', 'a.docx', 'a.png', 'a.bin', 'Makefile'].map(
+      ['README.md', 'a.PDF', 'a.yaml', 'a.ts', 'a.docx', 'a.png', 'a.bin', 'Makefile'].map(
         guessContentType,
       ),
     ).toEqual([

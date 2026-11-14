@@ -131,11 +131,13 @@ Under `license` ([Logs](../logs/)):
   message;
 - when a renewed key is one that doesn't report, one line:
   `License reports: off from now: the renewed key is marked offline.`;
-- when a report can't be sent, a warning at the first failure and at the
-  first on each later day:
-  `License report not sent (<why>); tried again each hour. A server that can't reach Kindgi can ask for a key that doesn't report.`
-  where `<why>` is a word naming the cause. The server tries again each
-  hour.
+- when a report fails (not sent, not taken, or no answer), a warning at the
+  first failure and at the first on each later day, in one of three forms:
+  `License report not sent (<why>)`,
+  `License report not taken (<status> <error code>)` or
+  `License report got no answer in time`, each followed by
+  `; tried again each hour. A server that can't reach Kindgi can ask for a key that doesn't report.`
+  `<why>` is a word naming the cause. The server tries again each hour.
 
 The key, the bearer header and your proxy's credentials never appear in the
 log.
