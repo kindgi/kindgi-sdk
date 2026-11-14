@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -299,7 +299,7 @@ tool stops a dry run.
 It also sets the tool's approval default. An agent that turns tool
 approval gates on (`conversation_policy={"hitl": {"tools": {...}}}`)
 and has neither an override for the tool nor a `default` doesn't ask
-before a read-only tool, and asks before any other on first use.
+before a read-only tool, and asks before each call to any other.
 
 And it decides what runs together: when a model step asks for several calls at
 once, an agent runs calls to read-only tools (no changing effect either) that
@@ -469,7 +469,7 @@ removed field, a narrower type — not on every save.
    modules — the template's import `tools.x` directly.)
 8. **Blocking inside `async def`.** Use a `def` handler for blocking I/O.
 9. **A read-only tool without `mutating=False`.** A dry run stops at it,
-   an agent's tool approval gate asks before it on first use, and an
+   an agent's tool approval gate asks before each call to it, and an
    agent runs each call to it on its own.
 10. **`mutating=False` on a tool that writes.** A dry run then runs it
     for real, and an agent may run it at the same time as other calls.

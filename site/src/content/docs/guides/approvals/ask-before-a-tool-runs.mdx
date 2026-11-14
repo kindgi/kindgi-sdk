@@ -323,8 +323,8 @@ same keys, `separateApprover` included.
 - **It compares people.** A turn started with an app's key names the key's
   service account (`service_account:<id>`), so a person holding that key
   can still approve the call as themselves.
-- **With `ask_on_first_use`,** only a tool's first call is asked, and
-  someone other than whoever asked approves that one.
+- **With `ask_on_first_use`,** as with `always_ask`, each call is asked,
+  and someone other than whoever asked approves it.
 - **The template's tools:** the store agent sets `separateApprover` per tool,
   and `defineAgent` refuses an override naming a tool the agent doesn't
   have, so a mistyped id never leaves the real tool without four eyes.
@@ -835,6 +835,137 @@ hold the rejection as the tool's result:
 The run completes; it doesn't fail. The turn's
 [provenance](../../observability/trace-an-answer/) keeps the rejected call:
 its `tool-call`, and a `tool-result` that is the rejection the model read.
+
+## When an agent can't finish: hand off to a person
+
+Some turns can't end well: a lookup fails, or what the agent can see
+doesn't answer the request. Instead of guessing, the agent can hand the
+request to a person, through the same gate. Give it a tool that changes
+nothing and only says that a person took it, and gate that tool with its own
+`always_ask` override, since a read-only tool otherwise runs without asking.
+Ask your coding agent: "When my support agent can't answer a mail, I want it
+to hand the mail to a person instead of replying." For reference, the tool
+and its override look like this:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in tools/hand-off/index.ts
+const defined = defineTool({
+  id: 'acme-desk.support-desk.hand-off' as ToolId,
+  description: "Hand the request to a person, with why, when you can't answer it.",
+  version: '0.1.0',
+  input: z.object({ why: z.string().min(1).max(300) }),
+  output: z.object({ taken: z.literal(true) }),
+  effects: [],
+  mutating: false,
+  handler: async () => ({ taken: true as const }),
+});
+
+// in agents/support-desk/index.ts
+  conversationPolicy: {
+    hitl: {
+      tools: {
+        overrides: { 'acme-desk.support-desk.hand-off': 'always_ask' },
+      },
+    },
+  },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in tools/hand_off.py
+class HandOff(BaseModel):
+    why: str = Field(min_length=1, max_length=300)
+
+
+class Taken(BaseModel):
+    taken: Literal[True] = True
+
+
+@tool(id="acme-desk.support-desk.hand-off", mutating=False)
+def hand_off(input: HandOff) -> Taken:
+    """Hand the request to a person, with why, when you can't answer it."""
+    return Taken()
+
+
+# in agents/support_desk.py
+    conversation_policy={
+        "hitl": {
+            "tools": {
+                "overrides": {"acme-desk.support-desk.hand-off": "always_ask"},
+            },
+        },
+    },
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmedesk/tools/HandOff.java
+  public record Input(@Size(min = 1, max = 300) String why) {}
+
+  public record Output(boolean taken) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme-desk.support-desk.hand-off")
+      .description("Hand the request to a person, with why, when you can't answer it.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(true));
+
+// in src/main/java/acmedesk/agents/SupportDesk.java
+      .set("conversationPolicy", Map.of("hitl", Map.of("tools", Map.of(
+          "overrides", Map.of("acme-desk.support-desk.hand-off", "always_ask")))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmedesk/tools/HandOff.scala
+  final case class Input(@Size(min = 1, max = 300) why: String)
+  final case class Output(taken: Boolean)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme-desk.support-desk.hand-off")
+    .description("Hand the request to a person, with why, when you can't answer it.")
+    .version("0.1.0")
+    .readOnly
+    .handler((_, _) => Output(taken = true))
+
+// in src/main/scala/acmedesk/agents/SupportDesk.scala
+    .set("conversationPolicy", Map("hitl" -> Map("tools" -> Map(
+      "overrides" -> Map("acme-desk.support-desk.hand-off" -> "always_ask")))))
+```
+
+</TabItem>
+</Tabs>
+
+Its instructions say when to call it, and what each result means. The model
+never sees the approval: the call comes back with its result once a person
+has decided, as [Reject it](#reject-it) shows. For example:
+
+```text
+When you can't answer the request, because a lookup fails or what you can see doesn't answer it, don't reply: call acme-desk.support-desk.hand-off, with why, in one sentence for staff.
+For acme-desk.support-desk.hand-off, a result {"taken": true} means a person took the request: end the turn saying so. A result {"status": "rejected", "rationale": ...} with a rationale is the person's answer: reply with it. One with no rationale: say that a person will look into it.
+```
+
+- **Approve** means a person takes it: the tool runs, and the turn ends
+  saying so.
+- **Reject with a rationale** gives the agent the answer, and it replies
+  from it. A reply that changes something, such as a mail, waits for its own
+  approval as before.
+- **While the call waits,** its approval is in your reviewers' Inbox, and
+  the run is `suspended`. The run's
+  [`waitingFor`](../approvals-reference/#a-runs-waitingfor) names the
+  approval, and the runs list gives it with `include=waitingFor`
+  ([List runs](../../runs/list-runs/)). The WordPress plugin's Activity shows
+  such a run as **Needs a person**.
 
 ## In a flow
 

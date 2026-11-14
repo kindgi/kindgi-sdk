@@ -8258,6 +8258,10 @@ class SignInOptions(BaseModel):
     """
     The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
+    sign_up_url: Annotated[AnyUrl | None, Field(alias="signUpUrl")] = None
+    """
+    The deployment's own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.
+    """
     links: Annotated[list[ConsoleLink] | None, Field(max_length=8)] = None
     """
     The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.
@@ -17075,7 +17079,7 @@ class RegisterToolBody(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -20421,7 +20425,7 @@ class Tool(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -20542,7 +20546,7 @@ class ToolVersionRow(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")

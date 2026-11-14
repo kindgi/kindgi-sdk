@@ -4560,7 +4560,7 @@ export const ToolSchema: JsonSchema = {
     mutating: {
       type: 'boolean',
       description:
-        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.',
+        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.',
     },
     needsApprovalWhenUnattended: {
       type: 'boolean',
@@ -11272,6 +11272,12 @@ export const SignInOptionsSchema: JsonSchema = {
         termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
         privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
+    },
+    signUpUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'The deployment\'s own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.',
     },
     links: {
       type: 'array',

@@ -72,7 +72,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.6.0] [--from <version>] \
+#                [--to 0.7.0] [--from <version>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
 #   --var-file         A tfvars file the deployment uses (.tfvars or
@@ -98,7 +98,7 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.4.0 or later (default
-#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
+#                      0.7.0). An rc such as 0.7.0-rc.0 works too, and so does
 #                      a server-only release such as 0.4.0.1: a server fix for
 #                      0.4.0, with no SDK release of its own. The module here
 #                      is 0.4.0's, which needs the 0.4.0 runtime or later: to
@@ -106,7 +106,7 @@
 #                      release's @kindgi/sdk@<version> tag (for X.Y.Z.N,
 #                      X.Y.Z's tag), and below 0.2.0, which isn't on
 #                      registry.kindgi.com, as of the @kindgi/sdk@0.1.10 tag.
-#                      This script knows the steps up to 0.6.0; for a later
+#                      This script knows the steps up to 0.7.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag or, before that release is
 #                      out, its newest @kindgi/sdk@<version>-rc.N tag.
@@ -141,7 +141,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -1357,6 +1357,47 @@ EOT
      target. Register the URL it redirects to.
 EOT
       ;;
+    0.7.0)
+      cat <<'EOT'
+   - The first start runs this release's migrations: they add tables and
+     columns, and fill nothing in.
+   - A server serving many tenants no longer brings every tenant's
+     authorization store up to the new model when it starts: it brings
+     each one up the first time it uses it, and logs "authz: store
+     brought up to the current model". One that fails logs "authz: could
+     not bring a store up to the current model" at WARN, goes on with the
+     store's model, and a later use tries again. A server serving one
+     tenant still does it when it starts.
+   - If this server served many tenants on 0.6.x, run this once after the
+     upgrade, with the new runtime's kindgi-runtime and the server's
+     database and OpenFGA settings (KINDGI_OPENFGA_API_URL, with its
+     preshared key and auth):
+       kindgi-runtime tenants repair --all
+     It brings each tenant's access in OpenFGA back in line with its
+     record, so it puts back the runner roles 0.6.x may have dropped.
+     With --dry-run it shows, for each tenant, what it would put back
+     and take away, and changes nothing. A server serving one tenant
+     doesn't need it.
+   - Within about a minute of the first start, the runtime ends each
+     unfinished run that was part of a run whose record was deleted (by
+     retention, for example). It fails it with "Interrupted: a run it was
+     part of was deleted, so nothing waits for it." So runs that showed as
+     running or waiting for a long time may change to failed.
+   - The runtime reports its usage to Kindgi at most once a day, with its
+     license key, to https://access.kindgi.com/v1/report, through
+     HTTPS_PROXY when that's set: let the server reach it. A report that
+     can't be sent never stops the runtime; it tries again within the
+     hour. Its answer can renew the key: the runtime keeps a renewed key
+     in its database, and runs on it from then on. A key marked offline
+     never reports: a server that can't reach Kindgi can ask for one.
+   - With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants
+     purge and tenants repurge erase a tenant's secrets in the secret
+     manager too. Run them with the server's secret manager settings
+     (KINDGI_SECRETS_MANAGER and that manager's): without them, a purge
+     of a tenant with secrets there is refused, and says how many and in
+     which manager.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1462,6 +1503,18 @@ EOT
      the server has now. INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER is for a
      server behind your own load balancer, with public_url and
      network_mode = "direct".
+EOT
+      ;;
+    0.7.0)
+      cat <<'EOT'
+   - The plan makes one Secret Manager secret, empty: the renewer key's,
+     <name_prefix>-license-renewer (or license_renewer_secret), which
+     kindgi license enroll fills once. It gives the server two plain env
+     vars, KINDGI_LICENSE_KEY_REF and KINDGI_LICENSE_RENEWER_REF, so its
+     expiry warning names the exact kindgi license renew. Nothing else.
+   - Turn on the renewal job (license_renewal_schedule) after this
+     upgrade, in an apply of its own: its job, schedule and alerts are
+     more than this release's plan check allows.
 EOT
       ;;
   esac
@@ -1611,9 +1664,9 @@ EOT
 # an env var or a database flag by its name. A resource the release makes or
 # takes away is "<resource type>.<name> (created)" or "(deleted)", and one
 # instance of it "<resource type>.<name>[<index>]". The module's own changes
-# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf). $1
-# is the plan (terraform show -json), for a change allowed only beside
-# another.
+# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf,
+# renewal.tf). $1 is the plan (terraform show -json), for a change allowed
+# only beside another.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
@@ -1720,6 +1773,14 @@ plan_allowed_changes() {
             "google_storage_bucket_iam_member.pack_reads (created)" \
             "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
         fi
+        ;;
+      0.7.0)
+        # The renewer key's secret, made empty in every shape, and where the
+        # server finds the key and the renewer key (renewal.tf, services.tf).
+        printf '%s\n' \
+          "google_secret_manager_secret.license_renewer (created)" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_KEY_REF" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_RENEWER_REF"
         ;;
     esac
   done
