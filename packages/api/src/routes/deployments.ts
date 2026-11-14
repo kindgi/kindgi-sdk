@@ -354,8 +354,12 @@ export interface DeploymentsRouterBindings {
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
    * that caches the catalogs (its tool and guardrail bridges) sees the
-   * deployment at once rather than at restart. Advisory: a failing hook
-   * doesn't fail the deployment.
+   * deployment at once rather than at restart. Called too for each one a
+   * failed deployment's rollback undid (`rollback`), so a cache that read
+   * the deployment's write before the undo doesn't keep serving it. One
+   * whose undo failed is told too, with the same kind: a cache reads the
+   * catalog again on a notice, rather than taking its kind as what's there.
+   * Advisory: a failing hook doesn't fail the deployment.
    */
   readonly onToolWrite?: ToolWriteHook;
   readonly onGuardrailWrite?: GuardrailWriteHook;
@@ -1369,6 +1373,7 @@ export function deploymentsRouter(
                 primitive: 'tool',
                 id: `${toolId}@${version}`,
                 undo: 'unregister',
+                notice: { toolId, version, kind: 'unregister' },
                 run: async () => {
                   await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
                 },
@@ -1408,6 +1413,7 @@ export function deploymentsRouter(
                 primitive: 'guardrail',
                 id: guardrailId,
                 undo: 'unregister',
+                notice: { guardrailId, kind: 'unregister' },
                 run: async () => {
                   await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
                 },
@@ -1428,6 +1434,7 @@ export function deploymentsRouter(
                   primitive: 'guardrail',
                   id: guardrailId,
                   undo: 'unregister',
+                  notice: { guardrailId, kind: 'unregister' },
                   run: async () => {
                     await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
                   },
@@ -1486,7 +1493,7 @@ export function deploymentsRouter(
         }
       });
     } catch (cause) {
-      await rollback(rolled, c.get('log'));
+      await rollback(rolled, c.get('log'), tenantId, bindings);
       // A compile the tenant's budget refused is a limit, which the app's
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
@@ -1563,13 +1570,13 @@ export function deploymentsRouter(
         ...(replaced.length > 0 && { replaced }),
       });
     } catch (cause) {
-      await rollback(rolled, c.get('log'));
+      await rollback(rolled, c.get('log'), tenantId, bindings);
       // To the central error handler: a 500 with no raw text; the error is logged.
       throw cause;
     }
 
     if (outcome.kind === 'error') {
-      await rollback(rolled, c.get('log'));
+      await rollback(rolled, c.get('log'), tenantId, bindings);
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
       throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
@@ -1577,7 +1584,7 @@ export function deploymentsRouter(
     if (outcome.kind === 'project-in-production') {
       // The project went into production after the check above: the
       // registry's own step saw it, and nothing was recorded.
-      await rollback(rolled, c.get('log'));
+      await rollback(rolled, c.get('log'), tenantId, bindings);
       return promoteOnlyDeployResponse(c, requestId, wire.signerKeyId, entryProjectId);
     }
     if (outcome.kind === 'already-registered') {
@@ -1587,7 +1594,7 @@ export function deploymentsRouter(
       // at the primitive layer too, so `ok` outcomes only happen when
       // the primitive was DIFFERENT this run, which is an inconsistent
       // wire body).
-      await rollback(rolled, c.get('log'));
+      await rollback(rolled, c.get('log'), tenantId, bindings);
       c.status(200);
       return c.json(serializeDeployment(outcome.deployment));
     }
@@ -2474,6 +2481,7 @@ async function refreshToolCode(
     primitive: 'tool',
     id: `${tool.id}@${tool.version}`,
     undo: 'put back the code pointer of',
+    notice: { toolId: tool.id, version, kind: 'publish' },
     run: async () => {
       await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
     },
@@ -2524,6 +2532,7 @@ async function reinstateRetiredTool(
     primitive: 'tool',
     id: `${toolId}@${version}`,
     undo: 'unregister',
+    notice: { toolId, version, kind: 'unregister' },
     run: async () => {
       await registry.unregister({ tenantId, toolId, version });
     },
@@ -2655,6 +2664,7 @@ async function refreshGuardrailFields(
     primitive: 'guardrail',
     id: guardrail.id,
     undo: 'put back the code pointer, config schema and check points of',
+    notice: { guardrailId: guardrail.id, kind: 'register' },
     run: async () => {
       await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
     },
@@ -3176,8 +3186,21 @@ export interface RollbackAction {
   readonly id: string;
   /** What `run` does to it, as the warn says it: `unregister`, `put back the code pointer of`. */
   readonly undo: string;
+  /**
+   * For a tool version or a guardrail: what the catalog caches are told
+   * once the rollback has run, as `onToolWrite` and `onGuardrailWrite`
+   * take it. Putting back what a refresh changed is told as the deploy
+   * tells the refresh: `publish` for a tool version, `register` for a
+   * guardrail.
+   */
+  readonly notice?: RollbackNotice;
   readonly run: () => Promise<void>;
 }
+
+/** What a rollback tells the catalog caches about one undo (`RollbackAction.notice`). */
+export type RollbackNotice =
+  | { readonly toolId: ToolId; readonly version: string; readonly kind: 'publish' | 'unregister' }
+  | { readonly guardrailId: GuardrailId; readonly kind: 'register' | 'unregister' };
 
 /** The refusal of a deploy whose agents or flows use versions nothing published takes. */
 function unpinnableResponse(
@@ -3519,8 +3542,19 @@ function atAgent(i: number, agent: Agent, issues: readonly UnpinnableRef[]): Unp
  * mirror sequence of their creation. An undo that fails doesn't stop the
  * rest: it's warned, naming what it couldn't undo, which stays as the
  * deploy left it for an operator to reconcile.
+ *
+ * Then the catalog caches are told about each tool version and guardrail
+ * it undid, in the same order (`notifyUndone`): a cache that read the
+ * deploy's write before its undo would otherwise serve it until the next
+ * write or a restart. One whose undo failed is told too, since no cache
+ * was told about the write it kept either.
  */
-async function rollback(actions: readonly RollbackAction[], log: Logger): Promise<void> {
+async function rollback(
+  actions: readonly RollbackAction[],
+  log: Logger,
+  tenantId: TenantId,
+  bindings: DeploymentsRouterBindings,
+): Promise<void> {
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
     if (action === undefined) continue;
@@ -3531,6 +3565,28 @@ async function rollback(actions: readonly RollbackAction[], log: Logger): Promis
         `deploy rollback: couldn't ${action.undo} ${action.primitive} "${action.id}", so it stays as this deploy left it`,
         { primitive: action.primitive, id: action.id, err: cause },
       );
+    }
+  }
+  await notifyUndone(tenantId, actions, bindings);
+}
+
+/** Tell the catalog caches about each write a rollback undid, last first (advisory). */
+async function notifyUndone(
+  tenantId: TenantId,
+  actions: readonly RollbackAction[],
+  bindings: DeploymentsRouterBindings,
+): Promise<void> {
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const notice = actions[i]?.notice;
+    if (notice === undefined) continue;
+    try {
+      if ('toolId' in notice) {
+        await bindings.onToolWrite?.({ tenantId, ...notice });
+      } else {
+        await bindings.onGuardrailWrite?.({ tenantId, ...notice });
+      }
+    } catch {
+      // Advisory, as for a deployment that lands (`notifyWrites`).
     }
   }
 }
