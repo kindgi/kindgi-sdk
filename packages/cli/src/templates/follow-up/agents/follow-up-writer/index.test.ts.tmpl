@@ -1,4 +1,4 @@
-// {{PACK_ID}}.follow-up — every send waits for the person, and the agent is
+// {{PACK_ID}}.follow-up-writer — every send waits for the person, and the agent is
 // told what a send's result means once they've decided. The model never sees
 // the approval itself.
 
@@ -6,7 +6,7 @@ import { describe, expect, test } from 'vitest';
 
 import followUp from './index.js';
 
-describe('{{PACK_ID}}.follow-up', () => {
+describe('{{PACK_ID}}.follow-up-writer', () => {
   test('asks the person before every send, and before any tool added later', () => {
     const policy = followUp.conversationPolicy?.hitl?.tools;
     expect(policy?.default).toBe('always_ask');

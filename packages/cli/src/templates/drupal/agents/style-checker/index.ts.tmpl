@@ -1,4 +1,4 @@
-// {{PACK_ID}}.content-agent — helps the site's editors: finds articles that
+// {{PACK_ID}}.style-checker — helps the site's editors: finds articles that
 // break the house style and fixes them as drafts, with a person approving
 // every change.
 //
@@ -19,9 +19,9 @@ import type { AgentId, GuardrailId, Semver } from '@kindgi/sdk/types';
 import { HOUSE_STYLE_PHRASES, READ_TOOLS, SITE_TOOLS, drupalTool } from '../../lib/drupal.js';
 
 const defined = defineAgent({
-  id: '{{PACK_ID}}.content-agent' as AgentId,
+  id: '{{PACK_ID}}.style-checker' as AgentId,
   version: '{{PACK_VERSION}}' as Semver,
-  name: 'Content agent',
+  name: 'Style checker',
   description:
     'Finds articles that break the house style and fixes them as drafts, with a person approving each change; publishing stays with an editor.',
   instructions: [
@@ -63,7 +63,7 @@ const defined = defineAgent({
 });
 
 if (defined.kind === 'err') {
-  throw new Error(`{{PACK_ID}}.content-agent failed to compile: ${defined.error.message}`);
+  throw new Error(`{{PACK_ID}}.style-checker failed to compile: ${defined.error.message}`);
 }
 
 export default defined.value;
