@@ -163,13 +163,16 @@ export function holdLimitedCaller(
  * one, the route asks the authorizer instead. `item` names what the
  * request names by its id (`'the trigger'`) when `resource` is that
  * item's project: the refusal then says the item is in that project,
- * not that the request names it.
+ * not that the request names it. `relation` says how the item stands to
+ * that project: absent, it's the item's own ("is in"); `'served'`, the
+ * item runs there besides its own ("runs in … too").
  */
 export function limitedCallerRefusal(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
   item?: string,
+  relation?: 'served',
 ): Response | undefined {
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
@@ -178,7 +181,9 @@ export function limitedCallerRefusal(
   const where =
     item === undefined
       ? `the request names project ${resource.id}`
-      : `${item} is in project ${resource.id}`;
+      : relation === 'served'
+        ? `${item} runs in project ${resource.id} too`
+        : `${item} is in project ${resource.id}`;
   return refused(c, undefined, {
     action,
     resource,

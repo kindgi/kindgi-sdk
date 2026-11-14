@@ -38,7 +38,7 @@ import {
   mcpEndpointSecretRefs,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { gate } from '../middleware/key-project.js';
+import { gate, limitedCallerRefusal } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
   type ConnectionKeys,
@@ -55,6 +55,9 @@ import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
+
+/** A prompt's render, `POST /endpoints/:endpointId/prompts/:name`. */
+const PROMPT_PATH_RE = /\/endpoints\/[^/]+\/prompts\/[^/]+$/;
 
 /**
  * MCP-endpoint routes (mounted at `/v1/mcp`). Tenants declare the
@@ -135,6 +138,34 @@ export function mcpRouter(
     const mw = authorize(action, () => ref('mcp_endpoint', endpointId));
     return mw(c, next);
   });
+  // Without a store, a key or session limited to a project changes no
+  // endpoint by its id beyond that project, its scope read from the
+  // registry (`scopeOf`): another project's, the tenant's or an org's.
+  // Rendering a prompt changes nothing, so only another project's is held
+  // for it: a project's runs reach the tenant's and its org's endpoints.
+  if (authorizer === undefined) {
+    r.use('/endpoints/:endpointId/*', async (c, next) => {
+      if (
+        binding.scopeOf === undefined ||
+        c.get('tokenProjectId') === undefined ||
+        isReadMethod(c.req.method)
+      ) {
+        return next();
+      }
+      const tenantId = c.get('tenantId') as TenantId;
+      const endpointId = c.req.param('endpointId') ?? '';
+      const scope = await binding.scopeOf({ tenantId, endpointId });
+      if (scope === null) return next();
+      if (PROMPT_PATH_RE.test(c.req.path) && scope.kind !== 'project') return next();
+      const held = limitedCallerRefusal(
+        c,
+        'admin',
+        scopeResourceRef(scope, tenantId),
+        'the MCP endpoint',
+      );
+      return held ?? next();
+    });
+  }
 
   // ---------- GET /endpoints (list, cursor-paginated, optional ?transport=) ----------
   r.get('/endpoints', async (c) => {

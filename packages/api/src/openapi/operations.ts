@@ -1729,6 +1729,23 @@ export const LIMITED_TRIGGER_PROJECT =
   "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).";
 const withLimitedTrigger = (text: string): string => `${text} ${LIMITED_TRIGGER_PROJECT}`;
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change, by an item's id, that reaches beyond its project:
+ * an item in another project, or served there too, or the workspace's or
+ * an org's. Each operation it holds says so in its 403.
+ */
+export const LIMITED_ITEM_PROJECT =
+  "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).";
+const withLimitedItem = (text: string): string => `${text} ${LIMITED_ITEM_PROJECT}`;
+const LIMITED_ITEM_403 = ErrorResponse(
+  withLimitedItem('`permission-denied`: the caller may not make this change.'),
+);
+/** A pin: held above the caller's project, and beyond the item's. */
+const LIMITED_PIN_403 = ErrorResponse(
+  withLimitedItem(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
+);
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
@@ -2099,7 +2116,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
-        '403': LIMITED_ABOVE_PROJECT_403,
+        '403': LIMITED_PIN_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
         ),
@@ -2124,7 +2141,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
-        '403': LIMITED_ABOVE_PROJECT_403,
+        '403': LIMITED_PIN_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace.`,
         ),
@@ -4422,6 +4439,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The owner is set.', schema: ref('SetAgentOwnerResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('The body is not `{ "userId": "…" }`.'),
       '404': ErrorResponse(
         'No agent with that id under this workspace (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).',
@@ -4493,6 +4511,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Case added.', schema: ref('TestCase') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
       ),
@@ -4515,6 +4534,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retired.', schema: ref('TestCase') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('`reason` is missing, empty, or over 4000 characters.'),
       '404': ErrorResponse("`test-case-not-found`: the agent's test set has no case by that id."),
       '409': ErrorResponse('`test-case-retired`: the case is retired already.'),
@@ -4532,6 +4552,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-pinned`: the version is the pinned version of the scopes in `details.scopes`; unpin, or pin another version there first.",
       ),
@@ -4552,6 +4573,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateAgentVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -4620,7 +4642,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': LIMITED_PIN_403,
       '400': ErrorResponse(
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
@@ -4878,7 +4900,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': LIMITED_PIN_403,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
@@ -5001,6 +5023,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -5021,6 +5044,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateFlowVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -5149,6 +5173,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -5169,6 +5194,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateToolVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-kind-mismatch`: the tool's active versions are of another kind than this one, an MCP endpoint's tool (`details.endpointId`) or tools published here, so it stays unregistered (`details.toolId`, `details.version`). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -5316,6 +5342,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterGuardrailResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -6860,7 +6887,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated corrector group.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`.')),
       '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
@@ -6877,7 +6904,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retired.', schema: ref('UnregisterCorrectorGroupResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`.')),
       '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
@@ -6968,6 +6995,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterMCPEndpointResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
     },
   },
@@ -7042,6 +7070,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Rendered prompt messages.', schema: ref('GetMCPPromptResult') },
       ...CommonAuthErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('Malformed body.'),
       '404': ErrorResponse('No MCP endpoint or prompt with that name.'),
       '502': ErrorResponse('Remote MCP endpoint failed to serve prompts/get.'),
@@ -7572,6 +7601,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterTestSetResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
@@ -7589,6 +7619,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateTestSetVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
@@ -7741,7 +7772,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`: no `write` on the project.')),
       '404': ErrorResponse('`block-not-found`, or already unregistered.'),
     },
   },
@@ -7761,7 +7792,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`: no `write` on the project.')),
       '404': ErrorResponse('`block-not-found`.'),
     },
   },
@@ -11738,6 +11769,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Event trigger registered.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
     },
   },
   {
@@ -11785,6 +11817,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11801,6 +11834,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11817,6 +11851,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11833,6 +11868,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('EventTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
     },
   },
   {

@@ -165,7 +165,7 @@ import { environmentsRouter } from './routes/environments.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
-import { flowsRouter } from './routes/flows.js';
+import { flowsRouter, heldFlowProjects } from './routes/flows.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
@@ -2062,6 +2062,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.referenceScope,
         input.environmentOrders,
         itemRights,
+        itemServing,
       ),
     );
   }
@@ -2405,7 +2406,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (kinds.has('event')) {
       v1.route(
         '/event-triggers',
-        eventTriggersRouter(input.triggerRegistry, authorizer, itemRights),
+        eventTriggersRouter(
+          input.triggerRegistry,
+          authorizer,
+          itemRights,
+          heldFlowProjects(input.flowRegistry, itemServing),
+        ),
       );
     }
     if (kinds.has('webhook')) {
@@ -2617,6 +2623,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         runs: runBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(itemRights !== undefined && { itemRights }),
+        ...(itemServing !== undefined && { itemServing }),
         ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
         ...(input.conversationBinding !== undefined && {
           conversations: input.conversationBinding,
