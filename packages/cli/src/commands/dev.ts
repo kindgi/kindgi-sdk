@@ -931,6 +931,9 @@ async function runDevForPack(
     });
   } catch (err) {
     startPhases.close();
+    // The bundler's esbuild context and the pack service close, as `stopDev`
+    // closes them after a run.
+    await builder.dispose().catch(() => undefined);
     await pack.close().catch(() => undefined);
     // Ctrl+C (or SIGTERM) while it waited: a stop, not a failure.
     if (err instanceof RuntimeStartStopped || ctx.stopSignal?.aborted === true) {
