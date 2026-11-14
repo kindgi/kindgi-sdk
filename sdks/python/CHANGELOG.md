@@ -21,6 +21,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `sp_signing_key_ref` and `sp_decryption_key_ref` name, published in the
   service provider's metadata. Each needs its key. Both are optional and
   default to `None`.
+- `kindgi`: **a Python pack's service no longer names `GPG_KEY` when it
+  starts.** Python's base image sets it in every pack's image, so the
+  `env-dropped` line warned at every start. The service still drops it like
+  any name the pack doesn't declare: a pack that reads it declares it.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or

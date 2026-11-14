@@ -60,6 +60,7 @@ import {
   PACK_ENV_FILTER_VAR,
   type PackEnvCheck,
   type PackEnvFilter,
+  QUIETLY_DROPPED_ENV_NAMES,
   parsePackEnvCheck,
   parsePackEnvFilter,
   undeclaredPackEnv,
@@ -320,8 +321,9 @@ export async function main(
  * Kindgi's and the platform's). A variable meant for something else, a
  * model key in a self-hosted `--env-file`, never reaches a tool. Removing
  * it from `process.env` unsets it, so a process a tool starts doesn't
- * inherit it either. Says which it dropped, never a value. Only when the
- * filter is `on`: an in-process caller that sets none keeps its environment.
+ * inherit it either. Says which it dropped, never a value, but for those a
+ * base image sets ({@link QUIETLY_DROPPED_ENV_NAMES}). Only when the filter
+ * is `on`: an in-process caller that sets none keeps its environment.
  */
 function dropUndeclaredEnv(
   filter: PackEnvFilter | undefined,
@@ -329,8 +331,9 @@ function dropUndeclaredEnv(
   logs: PackServiceLogs | ((event: Record<string, unknown>) => void),
 ): void {
   if (filter !== 'on') return;
-  const dropped = undeclaredPackEnv(index.env, process.env);
-  for (const name of dropped) Reflect.deleteProperty(process.env, name);
+  const undeclared = undeclaredPackEnv(index.env, process.env);
+  for (const name of undeclared) Reflect.deleteProperty(process.env, name);
+  const dropped = undeclared.filter((name) => !QUIETLY_DROPPED_ENV_NAMES.has(name));
   if (dropped.length === 0) return;
   if (typeof logs === 'function') {
     logs({ kind: 'env-dropped', names: dropped });
