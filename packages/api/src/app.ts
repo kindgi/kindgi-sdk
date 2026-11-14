@@ -2584,6 +2584,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
       ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
+      // Its writes are recorded as `/v1/env` and `/v1/secrets` record theirs.
+      ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
       ...(input.egress !== undefined && { egress: input.egress }),
       // Its entries live where the runtime's tools read them.

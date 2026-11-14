@@ -5,6 +5,7 @@ import { isIP } from 'node:net';
 
 import { Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import type { Scope, TenantHierarchyBinding } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
@@ -21,6 +22,7 @@ import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { readTenantPatch, renameAnswer } from './tenant-rename.js';
+import { auditWrite } from './write-audit.js';
 
 /**
  * Tenant resource routes — part of the multi-tenant hierarchy. Config
@@ -67,7 +69,10 @@ import { readTenantPatch, renameAnswer } from './tenant-rename.js';
  *                         capability of the binding it writes, as
  *                         `/v1/secrets` and `/v1/env` do: `secrets:write`
  *                         for a secret, `env:write` for an env or config
- *                         entry.
+ *                         entry. Records each write in the audit log as
+ *                         that binding's own route does: `env-set` for an
+ *                         env or config entry, `secret-set` for a secret,
+ *                         never the value.
  *
  * Env dimension. The wire shape doesn't carry `envName`, but both
  * bindings require it. `env` and `secret` entries live under the env the
@@ -86,6 +91,13 @@ export interface TenantRouterOptions {
   readonly envBinding?: EnvBinding;
   readonly secretsBinding?: SecretBinding;
   readonly authorizer?: Authorizer;
+  /**
+   * Where each `/config` write is recorded, as the binding's own route
+   * records it: `env-set` for an env or config entry, `secret-set` for a
+   * secret. The caller, the scope, the request and the store's answer,
+   * never a value. Absent: none.
+   */
+  readonly auditEvents?: AuditEventBinding;
   /**
    * Where a tenant that may not put projects in production goes to be
    * allowed (`KINDGI_PRODUCTION_NEXT_URL`): `GET /`'s `productionNext`,
@@ -203,8 +215,14 @@ export const DEFAULT_TENANT_CONFIG_ENV_NAME: EnvName = ((): EnvName => {
 })();
 
 export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
-  const { tenantHierarchyBinding, envBinding, secretsBinding, authorizer, productionNext } =
-    options;
+  const {
+    tenantHierarchyBinding,
+    envBinding,
+    secretsBinding,
+    authorizer,
+    productionNext,
+    auditEvents,
+  } = options;
   const envName = options.envName ?? DEFAULT_TENANT_CONFIG_ENV_NAME;
   // The tenant's settings stay where they always were: they aren't an
   // environment's, and nothing set before moves.
@@ -528,17 +546,40 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
           );
         }
       }
-      const outcome = await secretsBinding.set({
+      const write = (mode: 'create-new' | 'add-version') =>
+        secretsBinding.set({
+          scope,
+          envName,
+          name: key,
+          value,
+          writeMode: mode,
+          ...(ifRevision !== undefined && { ifVersion: ifRevision }),
+          enqueueTuples: (secretRowId) =>
+            tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope }),
+        });
+      const first = await write(writeMode);
+      // Another writer created the key between the read and the write. This
+      // is an upsert, so the value goes on as its next version, as the same
+      // request a moment later would have, still under the caller's
+      // `ifRevision`.
+      const raced = writeMode === 'create-new' && first.kind === 'already-exists';
+      const outcome = raced ? await write('add-version') : first;
+      const setAudit = {
+        kind: 'secret-set',
         scope,
         envName,
         name: key,
-        value,
-        writeMode,
-        ...(ifRevision !== undefined && { ifVersion: ifRevision }),
-        enqueueTuples: (secretRowId) =>
-          tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope }),
-      });
+        writeMode: raced ? 'add-version' : writeMode,
+      } as const;
       if (outcome.kind === 'ok') {
+        // A store that dropped a revoked secret's stored values to set it
+        // again says so (`revokedValuesPurged`): the record keeps it.
+        await auditWrite(c, auditEvents, {
+          ...setAudit,
+          outcome: 'succeeded',
+          version: outcome.versionId,
+          ...(outcome.revokedValuesPurged === true && { revokedValuesPurged: true }),
+        });
         return c.json({
           entry: {
             tenantId: tenantId as unknown as string,
@@ -551,32 +592,33 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
           },
         });
       }
-      if (outcome.kind === 'version-conflict') {
+      // A stale `ifRevision`, or an `already-exists`, which a store answers
+      // only to a `create-new` (`SecretBinding.set`): one answered to the
+      // write-again, or to an `add-version`, is the store's bug. Either way
+      // the caller's value isn't stored.
+      if (outcome.kind === 'version-conflict' || outcome.kind === 'already-exists') {
+        const currentRevision =
+          outcome.kind === 'version-conflict'
+            ? outcome.currentVersion
+            : outcome.record.currentVersion;
+        await auditWrite(c, auditEvents, {
+          ...setAudit,
+          outcome: 'failed',
+          errorCode: 'tenant-config-revision-conflict',
+        });
         c.status(statusFor('tenant-config-revision-conflict') as never);
         return c.json(
           toWireError(
             {
               code: 'tenant-config-revision-conflict',
-              message: `Stored revision is ${outcome.currentVersion}; retry with the current value.`,
-              currentRevision: outcome.currentVersion,
+              message: `Stored revision is ${currentRevision}; retry with the current value.`,
+              currentRevision,
             },
             requestId,
           ),
         );
       }
-      if (outcome.kind === 'already-exists') {
-        return c.json({
-          entry: {
-            tenantId: tenantId as unknown as string,
-            kind: 'secret',
-            key,
-            value: '[redacted]',
-            sensitive: true,
-            revision: outcome.record.currentVersion,
-            updatedAt: outcome.record.updatedAt,
-          },
-        });
-      }
+      await auditWrite(c, auditEvents, { ...setAudit, outcome: 'failed', errorCode: outcome.code });
       // The store's code, at its status: a name it can't write is the caller's `400`.
       c.status(statusFor(outcome.code) as never);
       return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
@@ -594,15 +636,26 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
         ),
       );
     }
-    const outcome = await envBinding.set({
+    const setAudit = {
+      kind: 'env-set',
       scope,
       envName: kind === 'config' ? settingsEnvName : envName,
+      name: key,
+    } as const;
+    const outcome = await envBinding.set({
+      scope,
+      envName: setAudit.envName,
       name: key,
       value,
       ...(ifRevision !== undefined && { ifRevision }),
       enqueueTuples: (envRowId) => tuplesForCreate({ kind: 'env', id: envRowId, tenantId, scope }),
     });
     if (outcome.kind === 'ok') {
+      await auditWrite(c, auditEvents, {
+        ...setAudit,
+        outcome: 'succeeded',
+        version: outcome.record.revision,
+      });
       // At this point `kind` is `env` or `config` (secrets branch
       // early-returned above); PATCH echoes the input verbatim so
       // callers see the same slot they wrote.
@@ -618,6 +671,12 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
         },
       });
     }
+    await auditWrite(c, auditEvents, {
+      ...setAudit,
+      outcome: 'failed',
+      errorCode:
+        outcome.kind === 'revision-conflict' ? 'tenant-config-revision-conflict' : outcome.code,
+    });
     if (outcome.kind === 'revision-conflict') {
       c.status(statusFor('tenant-config-revision-conflict') as never);
       return c.json(
