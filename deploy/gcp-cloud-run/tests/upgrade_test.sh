@@ -427,8 +427,8 @@ if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a plan
 # 6. Apply fails: the go-back is printed, the var-file keeps the new image.
 # From 0.4.0 to a server fix of it: the module stays the release's, so the
 # go-back plans with it. (A run from before 0.4.0 has a go-back of its own.)
-# The module here is 0.6.0's, whose plan changes nothing by itself: the note
-# that it goes ahead is the one line that names an SDK tag.
+# The module here is 0.7.0's: the note that it goes ahead is the one line
+# that names an SDK tag.
 case_start "apply fails"
 reset_env; export STUB_TAGS="0.4.0" STUB_APPLY_RC=1
 run "yes" --to 0.4.0.1
@@ -437,7 +437,7 @@ assert_out "To go back"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.4 memory erasures export --out=erasures-" "the export runs 0.4.0's CLI line"
 assert_out "import sql"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.4 memory erasures replay erasures-" "the replay runs 0.4.0's CLI line"
-assert_out "the module here is this copy's, as of 0.6.0"
+assert_out "the module here is this copy's, as of 0.7.0"
 if grep -v -F "the module here is this copy's" "$OUT" | grep -q -e "@kindgi/sdk@" -e "pack-service-token"; then fail "a go-back with no switch names an older module or the pack token"; else pass; fi
 if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
@@ -695,13 +695,13 @@ assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
 # 24. Past the newest release this script knows: refused before anything is
-# read, mirrored or backed up, though 0.1.9 to 0.6.0 lie on the way.
+# read, mirrored or backed up, though 0.1.9 to 0.7.0 lie on the way.
 case_start "target past the newest known release"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.7.0
+run "yes" --to 0.8.0
 assert_rc 1 "a later target refused"
-assert_out "knows the steps up to 0.6.0"
-assert_out "as of the @kindgi/sdk@0.7.0 tag"
+assert_out "knows the steps up to 0.7.0"
+assert_out "as of the @kindgi/sdk@0.8.0 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
@@ -710,10 +710,10 @@ assert_varfile_unchanged
 # 25. An rc of a later release counts as that release.
 case_start "rc of a later release"
 reset_env; export STUB_TAGS="0.1.9"
-run "yes" --to 0.7.0-rc.1
+run "yes" --to 0.8.0-rc.1
 assert_rc 1 "a later rc refused"
-assert_out "knows the steps up to 0.6.0"
-assert_out "as of the @kindgi/sdk@0.7.0 tag or, before that release is out, its newest @kindgi/sdk@0.7.0-rc.N tag."
+assert_out "knows the steps up to 0.7.0"
+assert_out "as of the @kindgi/sdk@0.8.0 tag or, before that release is out, its newest @kindgi/sdk@0.8.0-rc.N tag."
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
 # 26. 0.1.10 -> 0.4.0: crosses 0.2.0 and on, copies 0.4.0 from
@@ -956,10 +956,10 @@ assert_varfile_unchanged
 # names its release's SDK tag, since a server-only release has none.
 case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.4.0"
-run "yes" --to 0.7.0.1
+run "yes" --to 0.8.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.6.0. 0.7.0.1 is a server fix for 0.7.0, which comes out after its final: use this script as of the @kindgi/sdk@0.7.0 tag."
-if grep -q "@kindgi/sdk@0.7.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_out "knows the steps up to 0.7.0. 0.8.0.1 is a server fix for 0.8.0, which comes out after its final: use this script as of the @kindgi/sdk@0.8.0 tag."
+if grep -q "@kindgi/sdk@0.8.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
@@ -1140,8 +1140,8 @@ assert_file_has "$OUT" "      kindgi deploy --env <env> --endpoint $SERVER_URL -
 if grep -q -e "shop.acme.example" -e "acme-north-7" "$OUT"; then fail "a pack env value was printed"; else pass; fi
 if grep -q "tenancy = \"multi\"" "$OUT"; then fail "a single-tenant run printed the multi steps"; else pass; fi
 
-# 48. With no --to, the target is the newest release the script knows, 0.6.0.
-# From 0.2.0 it crosses the five releases 0.3.0 to 0.6.0: their steps print,
+# 48. With no --to, the target is the newest release the script knows, 0.7.0.
+# From 0.2.0 it crosses the six releases 0.3.0 to 0.7.0: their steps print,
 # 0.5.0's marker among them, and the plan may turn on the instance's deletion
 # protection, in place, as 0.3.0's say. With no pack service, the steps after
 # the apply have no pack env to set.
@@ -1151,12 +1151,12 @@ INSTANCE_PROTECTED="$(jq -cn '[{address: "google_sql_database_instance.kindgi[0]
     before: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: false}]},
     after: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: true}]},
     after_unknown: {}}}]')"
-case_start "the default target, 0.6.0"
+case_start "the default target, 0.7.0"
 reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
 ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
 run "yes"
-assert_rc 0 "0.2.0 -> 0.6.0 runs"
-assert_out "crossing: 0.3.0 0.3.1 0.4.0 0.5.0 0.6.0$"
+assert_rc 0 "0.2.0 -> 0.7.0 runs"
+assert_out "crossing: 0.3.0 0.3.1 0.4.0 0.5.0 0.6.0 0.7.0$"
 assert_out "turns on Google's deletion protection (deletion_protection_enabled)"
 assert_out "If a plan says the instance must be replaced, answer no: a"
 assert_out "First start runs six additive migrations"
@@ -1167,7 +1167,7 @@ assert_out "upgrade at a quiet time"
 assert_out "gcloud storage rm --recursive --all-versions"
 assert_out "With openfga_api_url set, once the new runtime serves all the traffic,"
 assert_out "run this once, with the new runtime's kindgi-runtime:"
-if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.6.0 named 0.3.0's runtime"; else pass; fi
+if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.7.0 named 0.3.0's runtime"; else pass; fi
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
@@ -1200,18 +1200,25 @@ assert_out "If a migration stops because another database session holds a lock"
 assert_out "The authorization model gains the runner role and everyone-can-run."
 assert_out "A remote MCP endpoint that redirects to another origin no longer"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
+assert_out "The first start runs this release's migrations: they add tables and"
+assert_out "A server serving many tenants no longer brings every tenant's"
+assert_out "If this server served many tenants on 0.6.x, run this once after the"
+assert_out "Within about a minute of the first start, the runtime ends each"
+assert_out "The runtime reports its usage to Kindgi at most once a day, with its"
+assert_out "With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release warned of a module past it"; else pass; fi
-assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.6.0 " "0.6.0's tag is read"
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.7.0 " "0.7.0's tag is read"
 assert_out "nothing to build: the pack orchestrator makes each deployment's pack service, from the image its deploy names"
 assert_out "plan check: it changes the image(s)"
-assert_out "0.2.0 -> 0.6.0 applied"
+assert_out "0.2.0 -> 0.7.0 applied"
 assert_file_has "$OUT" " 3. Deploy each pack again" "the deploy, third"
 if grep -q -e "Set the pack's env in Kindgi" -e "pack_secret_readers = " -e "pack_min_instances was" "$OUT"; then fail "steps for a pack env that isn't there"; else pass; fi
 
 # 48b. 0.3.1 -> 0.4.0's candidate: it crosses 0.4.0 alone, an rc counting as
-# its release, and makes the switch. 0.5.0 and 0.6.0 are past it: the run
-# says the module goes ahead, and lists their module changes (none by
-# themselves), not their steps.
+# its release, and makes the switch. 0.5.0, 0.6.0 and 0.7.0 are past it: the
+# run says the module goes ahead, and lists their module changes, not their
+# steps.
 case_start "0.3.1 to 0.4.0-rc.0"
 reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0-rc.0
@@ -1225,7 +1232,10 @@ assert_out "0.6.0 (this module's changes only; the runtime goes to 0.4.0-rc.0):"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
 if grep -q "Two new migrations: three new tables" "$OUT"; then fail "0.5.0's steps printed for a run to 0.4.0's rc"; else pass; fi
 if grep -q "Three new migrations: a table of renamed projects' old slugs" "$OUT"; then fail "0.6.0's steps printed for a run to 0.4.0's rc"; else pass; fi
-assert_out "the module here is this copy's, as of 0.6.0: the plan also makes its changes for the releases after 0.4.0"
+assert_out "0.7.0 (this module's changes only; the runtime goes to 0.4.0-rc.0):"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "Within about a minute of the first start, the runtime ends each" "$OUT"; then fail "0.7.0's steps printed for a run to 0.4.0's rc"; else pass; fi
+assert_out "the module here is this copy's, as of 0.7.0: the plan also makes its changes for the releases after 0.4.0"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.4.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.3.1 -> 0.4.0-rc.0 applied"
@@ -1233,8 +1243,8 @@ assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
 
 # 48c. 0.4.0 -> 0.5.0's candidate: it crosses 0.5.0 alone, whose steps print
 # and whose module changes nothing, so the plan changes only the image, and
-# there's no switch to make. 0.6.0 is past it: the run says the module goes
-# ahead, and lists 0.6.0's module changes (none by themselves), not its steps.
+# there's no switch to make. 0.6.0 and 0.7.0 are past it: the run says the
+# module goes ahead, and lists their module changes, not their steps.
 case_start "0.4.0 to 0.5.0-rc.0"
 reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
 run "yes" --to 0.5.0-rc.0
@@ -1252,7 +1262,10 @@ if grep -q -e "Eighteen new migrations" -e "Steps that finish the switch" "$OUT"
 assert_out "0.6.0 (this module's changes only; the runtime goes to 0.5.0-rc.0):"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
 if grep -q "Three new migrations: a table of renamed projects' old slugs" "$OUT"; then fail "0.6.0's steps printed for a run to 0.5.0's rc"; else pass; fi
-assert_out "the module here is this copy's, as of 0.6.0: the plan also makes its changes for the releases after 0.5.0"
+assert_out "0.7.0 (this module's changes only; the runtime goes to 0.5.0-rc.0):"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "Within about a minute of the first start, the runtime ends each" "$OUT"; then fail "0.7.0's steps printed for a run to 0.5.0's rc"; else pass; fi
+assert_out "the module here is this copy's, as of 0.7.0: the plan also makes its changes for the releases after 0.5.0"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.5.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.4.0 -> 0.5.0-rc.0 applied"
@@ -1298,6 +1311,8 @@ done
 # 48f. 0.5.0 -> 0.6.0's candidate: it crosses 0.6.0 alone, whose steps print
 # and whose module changes nothing by itself, so the plan changes only the
 # image, and there's no switch to make.
+# 0.7.0 is past it: the run says the module goes ahead, and lists 0.7.0's
+# module changes, not its steps.
 case_start "0.5.0 to 0.6.0-rc.0"
 reset_env; export STUB_TAGS="0.5.0"; V_OKV="1"
 run "yes" --to 0.6.0-rc.0
@@ -1313,10 +1328,64 @@ assert_out "Give runner roles after it has run"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
 if grep -q "STEPS-PENDING" "$OUT"; then fail "0.6.0's steps carry the marker"; else pass; fi
 if grep -q -e "Two new migrations: three new tables" -e "Steps that finish the switch" "$OUT"; then fail "0.5.0's or 0.4.0's steps shown for a run from 0.5.0"; else pass; fi
-if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi
+assert_out "0.7.0 (this module's changes only; the runtime goes to 0.6.0-rc.0):"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "Within about a minute of the first start, the runtime ends each" "$OUT"; then fail "0.7.0's steps printed for a run to 0.6.0's rc"; else pass; fi
+assert_out "the module here is this copy's, as of 0.7.0: the plan also makes its changes for the releases after 0.6.0"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.6.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.5.0 -> 0.6.0-rc.0 applied"
+
+# 48g. 0.6.0 -> 0.7.0's candidate: it crosses 0.7.0 alone, whose steps print.
+# Its plan makes the renewer key's secret, empty, and gives the server the
+# two env vars that name the key and the renewer key, as 0.7.0's module
+# changes say: those pass the check, beside the new image.
+RENEWER_SECRET="$(jq -cn '[{address: "google_secret_manager_secret.license_renewer", mode: "managed",
+  type: "google_secret_manager_secret", name: "license_renewer",
+  change: {actions: ["create"], before: null, after: {secret_id: "kindgi-license-renewer"}, after_unknown: {id: true}}}]')"
+LICENSE_REFS="$(jq -cn '{before: [],
+  after: [{name: "KINDGI_LICENSE_KEY_REF", value: "gcp:projects/demo-proj/secrets/kindgi-license-key", value_source: []},
+    {name: "KINDGI_LICENSE_RENEWER_REF", value: "gcp:projects/demo-proj/secrets/kindgi-license-renewer", value_source: []}],
+  after_unknown: [{}, {}]}')"
+case_start "0.6.0 to 0.7.0-rc.0"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$RENEWER_SECRET" STUB_SERVER_ENV="$LICENSE_REFS"; V_OKV="1"
+run "yes" --to 0.7.0-rc.0
+assert_rc 0 "0.6.0 -> 0.7.0-rc.0 runs"
+assert_out "crossing: 0.7.0$"
+assert_out "The first start runs this release's migrations: they add tables and"
+assert_out "A server serving many tenants no longer brings every tenant's"
+assert_out "If this server served many tenants on 0.6.x, run this once after the"
+assert_out "Within about a minute of the first start, the runtime ends each"
+assert_out "The runtime reports its usage to Kindgi at most once a day, with its"
+assert_out "With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "STEPS-PENDING" "$OUT"; then fail "0.7.0's steps carry the marker"; else pass; fi
+if grep -q "Three new migrations: a table of renamed projects' old slugs" "$OUT"; then fail "0.6.0's steps printed for a run from 0.6.0"; else pass; fi
+if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi
+if grep -q "PLAN CHECK" "$OUT"; then fail "0.7.0's own changes stopped the check"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.7.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.6.0 -> 0.7.0-rc.0 applied"
+
+# 48h. The same plan with another secret made and another env var on the
+# server, which 0.7.0 doesn't make: the check names them and stops, and
+# names none of the changes 0.7.0 makes.
+EXTRA_SECRET="$(jq -cn --argjson r "$RENEWER_SECRET" '$r + [{address: "google_secret_manager_secret.extra", mode: "managed",
+  type: "google_secret_manager_secret", name: "extra",
+  change: {actions: ["create"], before: null, after: {secret_id: "kindgi-extra"}, after_unknown: {id: true}}}]')"
+LICENSE_REFS_AND_EXTRA="$(jq -cn --argjson e "$LICENSE_REFS" '$e | .after += [{name: "KINDGI_EXTRA", value: "1", value_source: []}]
+  | .after_unknown += [{}]')"
+case_start "0.6.0 to 0.7.0-rc.0, with more than 0.7.0 makes"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$EXTRA_SECRET" STUB_SERVER_ENV="$LICENSE_REFS_AND_EXTRA"; V_OKV="1"
+run "yes" --to 0.7.0-rc.0
+assert_rc 1 "more than 0.7.0 makes stops it"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    google_secret_manager_secret.extra: created" "the other secret, by what it does"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_EXTRA" "the other env var, by its name"
+if grep -qF -e "license_renewer: created" -e "env.KINDGI_LICENSE_KEY_REF" -e "env.KINDGI_LICENSE_RENEWER_REF" "$OUT"; then fail "the check named a change 0.7.0 makes"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
 
 # 49. The module here is 0.4.0's, whose plan needs the 0.4.0 runtime: a --to
 # below 0.4.0, a release or a server fix, is refused before anything is
