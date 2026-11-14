@@ -112,8 +112,10 @@ import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import {
   type ConnectionKeys,
+  type IdentityProviderKeys,
   type ProviderKeys,
   refuseConnectionKeyNames,
+  refuseIdentityProviderKeyNames,
   refuseSecretNames,
 } from '../provider-keys.js';
 import {
@@ -283,6 +285,12 @@ export interface DeploymentsRouterBindings {
    * `details.secret` and `details.appId`); absent, not checked.
    */
   readonly connectionKeys?: ConnectionKeys;
+  /**
+   * An identity provider's secret is never named here either, by a tool or
+   * by a pack's `env` (`400 identity-provider-key-refused`, `details.secret`
+   * and `details.identityProviderId`); absent, not checked.
+   */
+  readonly identityProviderKeys?: IdentityProviderKeys;
   /**
    * What the deployment's project may reference (`reference-scope.ts`):
    * an agent or flow it brings that names an item neither it brings nor
@@ -1046,6 +1054,7 @@ export function deploymentsRouter(
           toolSecretNames(tool),
           'a tool',
           { keys: bindings.connectionKeys },
+          bindings.identityProviderKeys,
         );
         if (refusal !== undefined) {
           keyIssues.push({
@@ -1059,17 +1068,26 @@ export function deploymentsRouter(
       }
     }
     if (keyIssues.length > 0) return validationFailed(c, keyIssues);
-    // Nor is a texts registration's account key a name its pack declares in
-    // `env`: its pack service would get it. Required names first, then
-    // optional, each list sorted as `resolvePackEnv` gives it (code-unit
-    // order).
+    // Nor is a texts registration's account key or an identity provider's
+    // secret a name its pack declares in `env`: its pack service would get
+    // it. Required names first, then optional, each list sorted as
+    // `resolvePackEnv` gives it (code-unit order).
     if (declaredEnv.value !== undefined) {
-      const refusal = await refuseConnectionKeyNames(
-        bindings.connectionKeys,
-        c.get('tenantId') as TenantId,
-        [...declaredEnv.value.required, ...declaredEnv.value.optional],
-        "a pack's env",
-      );
+      const tenantId = c.get('tenantId') as TenantId;
+      const declared = [...declaredEnv.value.required, ...declaredEnv.value.optional];
+      const refusal =
+        (await refuseConnectionKeyNames(
+          bindings.connectionKeys,
+          tenantId,
+          declared,
+          "a pack's env",
+        )) ??
+        (await refuseIdentityProviderKeyNames(
+          bindings.identityProviderKeys,
+          tenantId,
+          declared,
+          "a pack's env",
+        ));
       if (refusal !== undefined) {
         c.status(statusFor(refusal.code) as never);
         return c.json(toWireError(refusal, requestId));

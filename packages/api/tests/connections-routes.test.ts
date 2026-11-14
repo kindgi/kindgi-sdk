@@ -640,6 +640,8 @@ function makeApp(
     webhookEndpoints?: readonly { endpointId: string; secretRef: typeof SECRET }[];
     /** Mount `/v1/tools`, publishing into `published`. */
     tools?: boolean;
+    /** The tenant signs its people in with Google, whose client secret is `ACME_GOOGLE_SIGN_IN_SECRET`. */
+    signIn?: boolean;
   } = {},
 ) {
   const memory = memoryBinding(options.entries);
@@ -660,6 +662,22 @@ function makeApp(
             filter: {},
             description: null,
           })),
+        }),
+      } as never,
+    }),
+    ...(options.signIn === true && {
+      identityProvider: {
+        list: async (input: { tenantId: TenantId }) => ({
+          data:
+            input.tenantId === tenantA
+              ? [
+                  {
+                    providerId: 'acme-google',
+                    kind: 'oidc',
+                    clientSecretRef: 'ACME_GOOGLE_SIGN_IN_SECRET',
+                  },
+                ]
+              : [],
         }),
       } as never,
     }),
@@ -2833,6 +2851,43 @@ describe("a texts connection: a number, with the provider account's key", () => 
       { secret: 'ACME_TELNYX_KEY', appId: first.json.appId },
     ]);
     expect(calls.createApp).toHaveLength(1);
+  });
+
+  test('an OAuth registration naming the client secret sign-in uses: 400 identity-provider-key-refused, and nothing is stored', async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES, signIn: true });
+    const oauth = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: {
+        clientId: CLIENT_ID,
+        clientSecret: { envName: 'local', name: 'ACME_GOOGLE_SIGN_IN_SECRET' },
+      },
+    });
+    expect([oauth.status, oauth.json.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'identity-provider-key-refused',
+        message:
+          '`ACME_GOOGLE_SIGN_IN_SECRET` is the secret of identity provider "acme-google": a connection app never names it, since it signs the tenant\'s people in. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name',
+        details: { secret: 'ACME_GOOGLE_SIGN_IN_SECRET', identityProviderId: 'acme-google' },
+      }),
+    ]);
+    expect(calls.createApp).toBeUndefined();
+    const own = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: {
+        clientId: CLIENT_ID,
+        clientSecret: { envName: 'local', name: 'ACME_GOOGLE_CONNECTIONS_SECRET' },
+      },
+    });
+    expect(own.status).toBe(201);
+    const moved = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${own.json.appId}`, {
+      oauth2: {
+        clientId: CLIENT_ID,
+        clientSecret: { envName: 'local', name: 'ACME_GOOGLE_SIGN_IN_SECRET' },
+      },
+    });
+    expect([moved.status, moved.json.error?.code]).toEqual([400, 'identity-provider-key-refused']);
+    expect(calls.updateApp).toBeUndefined();
   });
 
   test("an update of the texts registration keeps its own key; another registration's moving onto it is refused", async () => {

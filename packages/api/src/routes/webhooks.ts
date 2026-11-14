@@ -25,7 +25,12 @@ import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
-import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -106,6 +111,11 @@ export interface WebhooksRouterOptions {
    */
   readonly connectionKeys?: ConnectionKeys;
   /**
+   * An identity provider's secret is never named here
+   * (`identity-provider-key-refused`); absent, not checked.
+   */
+  readonly identityProviderKeys?: IdentityProviderKeys;
+  /**
    * A trigger's receive URL (`POST /v1/hooks/{tenantId}/{webhookId}`), made
    * from the deployment's configured public URL; never from a request's
    * `Host`, which the caller writes. Absent when the deployment has none:
@@ -172,6 +182,7 @@ export function webhooksRouter(
     names,
     providerKeys,
     connectionKeys,
+    identityProviderKeys,
     receiveUrl,
     secrets,
     envName,
@@ -317,6 +328,7 @@ export function webhooksRouter(
       [name],
       'a webhook trigger',
       { keys: connectionKeys },
+      identityProviderKeys,
     );
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);

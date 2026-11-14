@@ -111,6 +111,7 @@ import type { ProviderRegistryBinding } from './provider-binding.js';
 import {
   connectionKeysOf,
   guardSecretKeys,
+  identityProviderKeysOf,
   providerKeysOf,
   usersOfSecret,
 } from './provider-keys.js';
@@ -142,6 +143,7 @@ import { type BlockRunsInDeps, blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
+  connectionAppsNaming,
   connectionAppsRouter,
   connectionChoicesRouter,
   connectionEntriesRouter,
@@ -1957,6 +1959,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // A texts registration's account key is used by its registration only:
   // the same routes, and a model provider's, check names against it.
   const connectionKeys = connectionKeysOf(input.connections);
+  // An identity provider's secret is used by sign-in only: every route
+  // that writes a name but the identity providers' own checks against it.
+  const identityProviderKeys = identityProviderKeysOf(input.identityProvider);
   const receiveUrl =
     input.publicUrl === undefined
       ? undefined
@@ -2001,6 +2006,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, {
         providerKeys,
         connectionKeys,
+        identityProviderKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
@@ -2126,7 +2132,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               // A texts registration's account key never reaches a pack's
               // env; a model provider's key reaches it as before.
               ...(secretsBinding !== undefined && {
-                secrets: guardSecretKeys(secretsBinding, { connectionKeys }, "a pack's env"),
+                secrets: guardSecretKeys(
+                  secretsBinding,
+                  { connectionKeys, identityProviderKeys },
+                  "a pack's env",
+                ),
               }),
               ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
@@ -2266,6 +2276,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           secretUsers,
           connectionKeys,
+          identityProviderKeys,
           ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
@@ -2279,6 +2290,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         hostAccess: input.tenantHostAccess ?? 'deployed',
         providerKeys,
         connectionKeys,
+        identityProviderKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
@@ -2380,6 +2392,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           },
           providerKeys,
           connectionKeys,
+          identityProviderKeys,
           ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
           targetTools,
@@ -2453,6 +2466,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
         providerKeys,
         connectionKeys,
+        identityProviderKeys,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
@@ -2469,6 +2483,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       connectionAppsRouter(input.connections, authorizer, {
         providerKeys,
         connectionKeys,
+        identityProviderKeys,
         secretUsers,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
@@ -2769,6 +2784,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
           connectionKeys,
+          identityProviderKeys,
           imageRegistry: input.imageRegistry,
           // A runtime routing pack calls per deployment sends each check call
           // by its id: a pack check must carry its pack's id.
@@ -2888,6 +2904,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // under `/v1/auth/*`, behind the same bearer chain (a static bearer or a
   // session token reaches it).
   if (input.sessionStore !== undefined && input.identityProvider !== undefined) {
+    const connectionApps = input.connections;
     v1.route(
       '/auth',
       authRouter({
@@ -2898,6 +2915,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           providerChanges: input.identityProviderChanges,
         }),
         providerKeys,
+        connectionKeys,
+        // What a model provider's key is checked against, and each
+        // connection app registration: one set up with the same app's
+        // secret before sign-in is the case the SSO guides warn about.
+        secretUsers: async (tenantId, name) => [
+          ...(await secretUsers(tenantId, name)),
+          ...(connectionApps === undefined
+            ? []
+            : await connectionAppsNaming(connectionApps, tenantId, name)),
+        ],
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
@@ -2955,6 +2982,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         envName: input.webhookReceiver.envName,
         providerKeys,
         connectionKeys,
+        identityProviderKeys,
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(input.webhookReceiver.clientAddress !== undefined && {
           clientAddress: input.webhookReceiver.clientAddress,

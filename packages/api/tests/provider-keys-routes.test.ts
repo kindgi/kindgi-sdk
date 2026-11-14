@@ -15,7 +15,10 @@
  * (400 `reserved-name-prefix`), and as a provider's `secret_ref`
  * (400 `bad-input`). A texts registration's account key is refused at the
  * same places and as a provider's `secret_ref` (400 `connection-key-refused`),
- * where the runtime has connections.
+ * where the runtime has connections. An identity provider's secret (an OIDC
+ * client secret, a SAML signing or decryption key) is refused at the same
+ * places and as a provider's `secret_ref` (400
+ * `identity-provider-key-refused`), where the runtime has sign-in.
  *
  * (A deployment that brings such a tool: `deployments-routes.test.ts`; a
  * webhook trigger's secret: `webhooks-routes.test.ts`; a connection app's:
@@ -55,6 +58,9 @@ const TEXTS_KEY = 'ACME_TELNYX_KEY';
 const TEXTS_APP = randomUUID();
 const TEXTS_REFUSED = (user: string) =>
   `\`${TEXTS_KEY}\` is the account key of connection app registration "${TEXTS_APP}": ${user} never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`;
+const SIGN_IN_KEY = 'ACME_OKTA_SECRET';
+const SIGN_IN_REFUSED = (user: string) =>
+  `\`${SIGN_IN_KEY}\` is the secret of identity provider "acme-okta": ${user} never names it, since it signs the tenant's people in. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name`;
 
 function tool(id: string, extra: Partial<ToolManifest> = {}): Record<string, unknown> {
   return {
@@ -67,8 +73,12 @@ function tool(id: string, extra: Partial<ToolManifest> = {}): Record<string, unk
   };
 }
 
-/** `texts`: the runtime has connections, with a live texts registration whose key is `TEXTS_KEY`. */
-function makeApp(opts: { readonly texts?: boolean } = {}) {
+/**
+ * `texts`: the runtime has connections, with a live texts registration whose
+ * key is `TEXTS_KEY`. `signIn`: the tenant has an OIDC identity provider whose
+ * client secret is `SIGN_IN_KEY` (another environment's), and a SAML one.
+ */
+function makeApp(opts: { readonly texts?: boolean; readonly signIn?: boolean } = {}) {
   const tools: ToolManifest[] = [
     tool('acme.search', { needsSpec: { secrets: { SEARCH_KEY: { type: 'string' } } } }) as never,
   ];
@@ -108,7 +118,7 @@ function makeApp(opts: { readonly texts?: boolean } = {}) {
       headExists: async () => false,
       get: async () => null,
       // Retired versions: one declares the model key, one a reserved name,
-      // one a key of its own.
+      // one the texts key, one the sign-in secret, one a key of its own.
       getVersion: async (input: { toolId: string }) =>
         input.toolId === 'acme.t'
           ? tool('acme.t', { needsSpec: { secrets: { [MODEL_KEY]: { type: 'string' } } } })
@@ -116,7 +126,11 @@ function makeApp(opts: { readonly texts?: boolean } = {}) {
             ? tool('acme.held', { needsSpec: { secrets: { [HELD]: { type: 'string' } } } })
             : input.toolId === 'acme.texts'
               ? tool('acme.texts', { needsSpec: { secrets: { [TEXTS_KEY]: { type: 'string' } } } })
-              : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
+              : input.toolId === 'acme.sign-in'
+                ? tool('acme.sign-in', {
+                    needsSpec: { secrets: { [SIGN_IN_KEY]: { type: 'string' } } },
+                  })
+                : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
       reinstateVersion: async (input: { toolId: string; version: string }) => {
         stored.push(input);
         return { kind: 'ok', toolId: input.toolId, version: input.version, wasTombstoned: true };
@@ -160,6 +174,23 @@ function makeApp(opts: { readonly texts?: boolean } = {}) {
               },
             },
           ],
+        }),
+      } as never,
+    }),
+    ...(opts.signIn === true && {
+      identityProvider: {
+        list: async (input: { tenantId: TenantId }) => ({
+          data:
+            input.tenantId === tenantId
+              ? [
+                  {
+                    providerId: 'acme-okta',
+                    kind: 'oidc',
+                    clientSecretRef: `production/${SIGN_IN_KEY}`,
+                  },
+                  { providerId: 'acme-adfs', kind: 'saml', spSigningKeyRef: 'ACME_SP_SIGNING_KEY' },
+                ]
+              : [],
         }),
       } as never,
     }),
@@ -539,6 +570,129 @@ describe("a texts registration's account key, named where it's not the registrat
     const h = makeApp();
     const r = await h.call('POST', '/v1/tools', {
       ...tool('acme.sms', { needsSpec: { secrets: { [TEXTS_KEY]: { type: 'string' } } } }),
+      projectId,
+    });
+    expect(r.status).toBe(201);
+  });
+});
+
+describe("an identity provider's secret, named where it's not sign-in", () => {
+  const metadata = {
+    id: 'openai-main',
+    region: 'us-east-1',
+    models: [
+      {
+        name: 'gpt-x',
+        contextWindow: 128_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.01, completionUsdPer1kTokens: 0.03 },
+      },
+    ],
+  };
+
+  test('a tool declaring it, or sending it: 400, naming the secret and the identity provider, and nothing is published', async () => {
+    const h = makeApp({ signIn: true });
+    const declared = await h.call('POST', '/v1/tools', {
+      ...tool('acme.login', { needsSpec: { secrets: { [SIGN_IN_KEY]: { type: 'string' } } } }),
+      projectId,
+    });
+    expect([declared.status, declared.body.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'identity-provider-key-refused',
+        message: SIGN_IN_REFUSED('a tool'),
+        details: { secret: SIGN_IN_KEY, identityProviderId: 'acme-okta' },
+      }),
+    ]);
+    const sent = await h.call('POST', '/v1/tools', {
+      ...tool('acme.relay', {
+        spec: {
+          kind: 'http',
+          method: 'POST',
+          urlTemplate: 'https://api.acme.example/users',
+          authorization: { kind: 'bearer', secretRef: { envName: 'local', name: SIGN_IN_KEY } },
+        } as never,
+      }),
+      projectId,
+    });
+    expect([sent.status, sent.body.error?.code]).toEqual([400, 'identity-provider-key-refused']);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('reinstating a retired version that names it: 400, and it stays retired', async () => {
+    const h = makeApp({ signIn: true });
+    const refused = await h.call('POST', '/v1/tools/acme.sign-in/versions/1.0.0/reinstate', {});
+    expect([refused.status, refused.body.error?.code, refused.body.error?.message]).toEqual([
+      400,
+      'identity-provider-key-refused',
+      SIGN_IN_REFUSED('a tool'),
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test("an MCP endpoint naming a SAML provider's signing key: 400, and nothing is registered", async () => {
+    const h = makeApp({ signIn: true });
+    const mcp = await h.call('POST', '/v1/mcp/endpoints', {
+      endpointId: 'acme-shop',
+      name: 'Shop MCP',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://shop.acme.example/mcp' },
+      secretRef: { envName: 'local', name: 'ACME_SP_SIGNING_KEY' },
+    });
+    expect([mcp.status, mcp.body.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'identity-provider-key-refused',
+        details: { secret: 'ACME_SP_SIGNING_KEY', identityProviderId: 'acme-adfs' },
+      }),
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('a webhook endpoint naming it, made or changed: 400', async () => {
+    const h = makeApp({ signIn: true });
+    // The store's `create` and `update` throw: a refusal never reaches them.
+    const hook = await h.call('POST', '/v1/webhook-endpoints', {
+      url: 'https://app.acme.example/hooks',
+      events: ['run.finished'],
+      secretRef: { envName: 'local', name: SIGN_IN_KEY },
+    });
+    expect([hook.status, hook.body.error?.code, hook.body.error?.message]).toEqual([
+      400,
+      'identity-provider-key-refused',
+      SIGN_IN_REFUSED('a webhook endpoint'),
+    ]);
+    const changed = await h.call('PATCH', '/v1/webhook-endpoints/whe-1', {
+      secretRef: { envName: 'local', name: SIGN_IN_KEY },
+    });
+    expect([changed.status, changed.body.error?.code]).toEqual([
+      400,
+      'identity-provider-key-refused',
+    ]);
+  });
+
+  test("a provider's `secret_ref` naming it: 400, and nothing is registered", async () => {
+    const h = makeApp({ signIn: true });
+    const r = await h.call('POST', '/v1/providers', {
+      metadata,
+      adapter_id: '@kindgi/adapter-model-anthropic',
+      secret_ref: { envName: 'local', name: SIGN_IN_KEY },
+    });
+    expect([r.status, r.body.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'identity-provider-key-refused',
+        message: SIGN_IN_REFUSED('a model provider'),
+        details: { secret: SIGN_IN_KEY, identityProviderId: 'acme-okta' },
+      }),
+    ]);
+    expect(h.registered).toEqual([]);
+  });
+
+  test('a runtime without sign-in has no identity provider whose secret it could be', async () => {
+    const h = makeApp();
+    const r = await h.call('POST', '/v1/tools', {
+      ...tool('acme.login', { needsSpec: { secrets: { [SIGN_IN_KEY]: { type: 'string' } } } }),
       projectId,
     });
     expect(r.status).toBe(201);

@@ -16,7 +16,12 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import {
@@ -57,6 +62,11 @@ export function webhookEndpointsRouter(
      */
     readonly connectionKeys?: ConnectionKeys;
     /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
+    /**
      * On a runtime that refuses other envs: a `secretRef` under another env
      * answers `409 env-not-served` (`refuseUnservedReference`). Absent: any env.
      */
@@ -80,6 +90,7 @@ export function webhookEndpointsRouter(
       secretRef === undefined ? [] : [secretRef.name],
       'a webhook endpoint',
       { keys: options.connectionKeys },
+      options.identityProviderKeys,
     );
   // Deliveries carry every project's runs: all of it is an admin's.
   r.use('*', tenantAdminAccess(authorizer));

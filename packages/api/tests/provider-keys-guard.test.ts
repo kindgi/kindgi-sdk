@@ -8,6 +8,8 @@
  * reaches the store as before. `connectionKeysOf` and `refuseSecretNames`:
  * a texts registration's account key is its registration's only.
  * `guardSecretKeys`: the same at call time, for both kinds of key.
+ * `identityProviderKeysOf`: an identity provider's secret is sign-in's only,
+ * refused to every other user at write time and at call time.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -16,12 +18,22 @@ import { describe, expect, test } from 'vitest';
 
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
-import { connectionKeysOf, guardProviderKeys, guardSecretKeys } from '../src/index.js';
+import {
+  connectionKeysOf,
+  guardProviderKeys,
+  guardSecretKeys,
+  identityProviderKeysOf,
+  identityProviderSecretNames,
+  refuseIdentityProviderKeyNames,
+} from '../src/index.js';
 import type {
   ConnectionAppRecord,
   ConnectionBinding,
   ConnectionKeys,
   EnvNamesInput,
+  IdentityProviderBinding,
+  IdentityProviderKeys,
+  ProviderConfig,
   ProviderKeys,
   ResolveContext,
   SecretBinding,
@@ -743,5 +755,191 @@ describe('guardSecretKeys: both kinds of key, at call time', () => {
       'a tool',
     );
     expect(await guarded.resolve(read('ACME_TELNYX_KEY'))).toEqual(refused('a tool'));
+  });
+});
+
+describe("an identity provider's secret: sign-in's only", () => {
+  const SIGN_IN_REFUSED = (user: SecretUser, name = 'ACME_OKTA_SECRET', id = 'acme-okta') =>
+    `\`${name}\` is the secret of identity provider "${id}": ${user} never names it, since it signs the tenant's people in. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name`;
+  const OKTA = {
+    providerId: 'acme-okta',
+    kind: 'oidc',
+    clientSecretRef: ' production/ACME_OKTA_SECRET ',
+  } as unknown as ProviderConfig;
+  const ADFS = {
+    providerId: 'acme-adfs',
+    kind: 'saml',
+    spSigningKeyRef: 'ACME_SP_SIGNING_KEY',
+    spDecryptionKeyRef: 'ACME_SP_DECRYPTION_KEY',
+  } as unknown as ProviderConfig;
+  const GOOGLE = { providerId: 'acme-google', kind: 'oidc' } as unknown as ProviderConfig;
+  function signIn(providers: readonly ProviderConfig[] = [OKTA, ADFS, GOOGLE]) {
+    const lists: TenantId[] = [];
+    const binding = {
+      list: async (input: { tenantId: TenantId }) => {
+        lists.push(input.tenantId);
+        return { data: input.tenantId === tenantId ? providers : [] };
+      },
+    } as unknown as IdentityProviderBinding;
+    return { binding, lists, keys: identityProviderKeysOf(binding) };
+  }
+  const held: IdentityProviderKeys = {
+    of: async (t) => new Map(t === tenantId ? [['ACME_OKTA_SECRET', 'acme-okta']] : []),
+  };
+
+  test("the names an identity provider references: an OIDC client secret, a SAML provider's signing and decryption keys, another environment's by its name", () => {
+    expect(identityProviderSecretNames(OKTA)).toEqual(['ACME_OKTA_SECRET']);
+    expect(identityProviderSecretNames(ADFS)).toEqual([
+      'ACME_SP_SIGNING_KEY',
+      'ACME_SP_DECRYPTION_KEY',
+    ]);
+    expect(identityProviderSecretNames(GOOGLE)).toEqual([]);
+  });
+
+  test("identityProviderKeysOf: each name to the provider that references it, from the tenant's own providers", async () => {
+    const { keys: of, lists } = signIn();
+    expect(await of.of(tenantId)).toEqual(
+      new Map([
+        ['ACME_OKTA_SECRET', 'acme-okta'],
+        ['ACME_SP_SIGNING_KEY', 'acme-adfs'],
+        ['ACME_SP_DECRYPTION_KEY', 'acme-adfs'],
+      ]),
+    );
+    const other = randomUUID() as TenantId;
+    expect(await of.of(other)).toEqual(new Map());
+    expect(lists).toEqual([tenantId, other]);
+  });
+
+  test("without sign-in, no secret is an identity provider's", async () => {
+    expect(await identityProviderKeysOf(undefined).of(tenantId)).toEqual(new Map());
+  });
+
+  test('refuseIdentityProviderKeyNames: the first name held is refused in the words for its user; sign-in itself, or no keys, is never refused', async () => {
+    expect(
+      await refuseIdentityProviderKeyNames(
+        held,
+        tenantId,
+        ['SEARCH_KEY', 'ACME_OKTA_SECRET'],
+        'a tool',
+      ),
+    ).toEqual({
+      code: 'identity-provider-key-refused',
+      message: SIGN_IN_REFUSED('a tool'),
+      secret: 'ACME_OKTA_SECRET',
+      identityProviderId: 'acme-okta',
+    });
+    expect(
+      await refuseIdentityProviderKeyNames(
+        held,
+        tenantId,
+        ['ACME_OKTA_SECRET'],
+        'an identity provider',
+      ),
+    ).toBeUndefined();
+    expect(
+      await refuseIdentityProviderKeyNames(undefined, tenantId, ['ACME_OKTA_SECRET'], 'a tool'),
+    ).toBeUndefined();
+  });
+
+  test('refuseSecretNames asks it last: a reserved name, a provider key and a connection key come first', async () => {
+    const providerKeys: ProviderKeys = {
+      of: async () => new Map([['ANTHROPIC_API_KEY', 'anthropic']]),
+    };
+    const connectionKeys: ConnectionKeys = {
+      holders: async (_t, name) => (name === 'ACME_TELNYX_KEY' ? ['app-texts'] : []),
+    };
+    const all = ['ACME_OKTA_SECRET', 'ACME_TELNYX_KEY', 'ANTHROPIC_API_KEY', 'kindgi.internal'];
+    const refuse = (names: string[]) =>
+      refuseSecretNames(providerKeys, tenantId, names, 'a tool', { keys: connectionKeys }, held);
+    expect(await refuse(all)).toMatchObject({ code: 'reserved-name-prefix' });
+    expect(await refuse(all.slice(0, 3))).toMatchObject({ code: 'provider-key-refused' });
+    expect(await refuse(all.slice(0, 2))).toMatchObject({ code: 'connection-key-refused' });
+    expect(await refuse(all.slice(0, 1))).toMatchObject({
+      code: 'identity-provider-key-refused',
+      secret: 'ACME_OKTA_SECRET',
+      identityProviderId: 'acme-okta',
+    });
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_OKTA_SECRET'], 'a tool'),
+    ).toBeUndefined();
+  });
+
+  test.each([
+    'a tool',
+    'an MCP endpoint',
+    'a webhook endpoint',
+    'a webhook trigger',
+    'a connection app',
+    'a model provider',
+    "a pack's env",
+  ] as const)(
+    "guardSecretKeys, %s: refused at call time, naming it and its provider, and the store isn't asked",
+    async (user) => {
+      const { binding, asked } = store();
+      const guarded = guardSecretKeys(binding, { identityProviderKeys: signIn().keys }, user);
+      expect(
+        await guarded.resolve({ scope, envName, name: 'ACME_SP_SIGNING_KEY', resolveContext }),
+      ).toEqual({
+        kind: 'err',
+        error: {
+          code: 'identity-provider-key-refused',
+          message: SIGN_IN_REFUSED(user, 'ACME_SP_SIGNING_KEY', 'acme-adfs'),
+          name: 'ACME_SP_SIGNING_KEY',
+          identityProviderId: 'acme-adfs',
+        },
+      });
+      await expect(
+        guarded.getVersion({ scope, envName, name: 'ACME_OKTA_SECRET', versionId: 1 }),
+      ).rejects.toThrow(
+        /^identity-provider-key-refused: `ACME_OKTA_SECRET` is the secret of identity provider "acme-okta"/,
+      );
+      expect(asked).toEqual([]);
+    },
+  );
+
+  test("guardSecretKeys: sign-in reads its providers' secrets, and is still refused a model provider's key and a texts key", async () => {
+    const { binding, asked } = store();
+    const guarded = guardSecretKeys(
+      binding,
+      {
+        providerKeys: keys,
+        connectionKeys: {
+          holders: async (_t, name) => (name === 'ACME_TELNYX_KEY' ? ['app-texts'] : []),
+        },
+        identityProviderKeys: signIn().keys,
+      },
+      'an identity provider',
+    );
+    const read = (name: string) => guarded.resolve({ scope, envName, name, resolveContext });
+    expect((await read('ACME_OKTA_SECRET')).kind).toBe('ok');
+    expect((await read('ACME_SP_DECRYPTION_KEY')).kind).toBe('ok');
+    expect(await read('ANTHROPIC_API_KEY')).toMatchObject({
+      kind: 'err',
+      error: { code: 'provider-key-refused' },
+    });
+    expect(await read('ACME_TELNYX_KEY')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-key-refused' },
+    });
+    expect(asked).toEqual(['resolve ACME_OKTA_SECRET', 'resolve ACME_SP_DECRYPTION_KEY']);
+  });
+
+  test("guardSecretKeys: another tenant's identity provider secret is that tenant's, and providers are read on every call", async () => {
+    const { binding } = store();
+    const { keys: of, lists } = signIn();
+    const guarded = guardSecretKeys(binding, { identityProviderKeys: of }, 'a tool');
+    const other = randomUUID() as TenantId;
+    expect(
+      (
+        await guarded.resolve({
+          scope: { kind: 'tenant', tenantId: other },
+          envName,
+          name: 'ACME_OKTA_SECRET',
+          resolveContext,
+        })
+      ).kind,
+    ).toBe('ok');
+    await guarded.resolve({ scope, envName, name: 'SEARCH_KEY', resolveContext });
+    expect(lists).toEqual([other, tenantId]);
   });
 });

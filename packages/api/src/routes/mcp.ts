@@ -40,7 +40,12 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { gate } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
-import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
@@ -78,6 +83,11 @@ export function mcpRouter(
      * (`connection-key-refused`); absent, not checked.
      */
     readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /** Where each secret an endpoint names is read is recorded at registration (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
@@ -253,6 +263,7 @@ export function mcpRouter(
       mcpEndpointSecretNames(validation.value),
       'an MCP endpoint',
       { keys: options.connectionKeys },
+      options.identityProviderKeys,
     );
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);

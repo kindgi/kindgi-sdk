@@ -10991,7 +10991,8 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
 const CLIENT_SECRET_REF = {
   type: 'string',
   minLength: 1,
-  description: 'Opaque reference resolved server-side. Never a plaintext secret.',
+  description:
+    "Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own.",
 } as const;
 
 export const IdentityProviderSignInSchema: JsonSchema = {
@@ -11067,13 +11068,13 @@ export const SamlIdentityProviderConfigSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key.",
+        "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).",
     },
     spDecryptionKeyRef: {
       type: 'string',
       minLength: 1,
       description:
-        'Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key.',
+        "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`).",
     },
     spSigningCertificates: {
       type: 'array',
@@ -17451,7 +17452,7 @@ export const ConnectionTokenAppSchema: JsonSchema = {
     apiKey: {
       $ref: '#/components/schemas/ConnectionSecretRef',
       description:
-        "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`).",
+        "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, not an identity provider's secret (`400 identity-provider-key-refused`), and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`).",
     },
     publicKey: {
       type: 'string',

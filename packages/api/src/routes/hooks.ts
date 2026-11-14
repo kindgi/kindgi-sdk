@@ -25,7 +25,12 @@ import {
   frozenTenantRefusal,
   tenantStateReader,
 } from '../middleware/tenant-state.js';
-import { type ConnectionKeys, type ProviderKeys, guardSecretKeys } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  guardSecretKeys,
+} from '../provider-keys.js';
 import {
   type RateLimitStore,
   createInMemoryRateLimitStore,
@@ -61,6 +66,8 @@ export interface HooksRouterOptions {
   readonly providerKeys?: ProviderKeys;
   /** Nor is a texts registration's account key. */
   readonly connectionKeys?: ConnectionKeys;
+  /** Nor an identity provider's secret. */
+  readonly identityProviderKeys?: IdentityProviderKeys;
   /**
    * Who the client is: the key of the per-client refusal limit, and the
    * address in the audit record; `undefined` when there's no address at
@@ -168,7 +175,9 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     );
   }
   const secrets =
-    options.providerKeys === undefined && options.connectionKeys === undefined
+    options.providerKeys === undefined &&
+    options.connectionKeys === undefined &&
+    options.identityProviderKeys === undefined
       ? options.secrets
       : guardSecretKeys(
           options.secrets,
@@ -176,6 +185,9 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
             ...(options.providerKeys !== undefined && { providerKeys: options.providerKeys }),
             ...(options.connectionKeys !== undefined && {
               connectionKeys: options.connectionKeys,
+            }),
+            ...(options.identityProviderKeys !== undefined && {
+              identityProviderKeys: options.identityProviderKeys,
             }),
           },
           'a webhook trigger',

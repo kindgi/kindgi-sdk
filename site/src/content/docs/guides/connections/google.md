@@ -94,6 +94,11 @@ npx --yes @kindgi/cli@0.6 secrets set ACME_GOOGLE_CONNECT_SECRET --env=productio
 - `--env` is the runtime's environment, its `KINDGI_ENV`.
 - `--scope=tenant` stores the secret for the whole workspace.
 
+If this OAuth client also signs your people in to Kindgi, the connection
+needs a client secret of its own: a registration that names sign-in's is
+refused with `identity-provider-key-refused`. Add a second client secret to
+the client and store it under its own name.
+
 The command asks for the value twice, and doesn't show what you type.
 
 ## 3. Register the client

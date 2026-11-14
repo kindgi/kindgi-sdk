@@ -28,7 +28,13 @@ import type {
   ProviderRuntimeEntry,
   ProviderSecretRef,
 } from '../provider-binding.js';
-import { type ConnectionKeys, type SecretUse, connectionKeyRefusal } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type SecretUse,
+  connectionKeyRefusal,
+  refuseIdentityProviderKeyNames,
+} from '../provider-keys.js';
 import { RESERVED_SECRET_NAME_PREFIX } from '../secrets-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
@@ -81,6 +87,11 @@ export function providersRouter(
      * (`connection-key-refused`); absent, not checked.
      */
     readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /**
      * On a runtime that refuses other envs: a registration whose
      * `secret_ref` names another env answers `409 env-not-served`
@@ -333,6 +344,20 @@ export function providersRouter(
       const refusal = connectionKeyRefusal(keyName, keyOwner, 'a model provider');
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
+    }
+    // Nor is an identity provider's secret, which signs the tenant's people in.
+    const signInKey =
+      keyName === undefined
+        ? undefined
+        : await refuseIdentityProviderKeyNames(
+            options.identityProviderKeys,
+            tenantId,
+            [keyName],
+            'a model provider',
+          );
+    if (signInKey !== undefined) {
+      c.status(statusFor(signInKey.code) as never);
+      return c.json(toWireError(signInKey, requestId));
     }
 
     // A model provider's key is used by its provider only: a key a tool, an

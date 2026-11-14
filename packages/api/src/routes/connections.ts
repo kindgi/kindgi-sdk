@@ -39,6 +39,7 @@ import { withholdFromReplay } from '../middleware/idempotency.js';
 import { personWideRefusal } from '../middleware/key-project.js';
 import {
   type ConnectionKeys,
+  type IdentityProviderKeys,
   PAGE,
   type ProviderKeys,
   type SecretUse,
@@ -114,6 +115,12 @@ export function connectionAppsRouter(
      */
     readonly connectionKeys?: ConnectionKeys;
     /**
+     * An identity provider's secret is never named by a registration, even
+     * one for the same app (`identity-provider-key-refused`). Absent: not
+     * checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
+    /**
      * What in the tenant uses a secret: a texts registration's key can't be
      * one of them (`409 connection-key-in-use`). Absent: not checked.
      */
@@ -146,6 +153,7 @@ export function connectionAppsRouter(
       secrets.map(([, secretRef]) => secretRef.name),
       'a connection app',
       { keys: options.connectionKeys, ownAppId },
+      options.identityProviderKeys,
     );
   };
 
@@ -161,13 +169,7 @@ export function connectionAppsRouter(
   ): Promise<SecretUse[]> => {
     const out: SecretUse[] =
       options.secretUsers === undefined ? [] : [...(await options.secretUsers(tenantId, name))];
-    for await (const app of pages((cursor) =>
-      binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
-    )) {
-      if (app.appId !== ownAppId && secretNamesOf(app).includes(name)) {
-        out.push({ kind: 'connection-app', id: app.appId });
-      }
-    }
+    out.push(...(await connectionAppsNaming(binding, tenantId, name, ownAppId)));
     return out;
   };
 
@@ -1585,6 +1587,27 @@ function secretsOf(
 /** The name of each secret a stored registration names. */
 function secretNamesOf(record: ConnectionAppRecord): readonly string[] {
   return secretsOf(record).map(([, secretRef]) => secretRef.name);
+}
+
+/**
+ * Each live connection app registration of the tenant that names the secret
+ * `name`, in any of its secrets, but `ownAppId`.
+ */
+export async function connectionAppsNaming(
+  binding: ConnectionBinding,
+  tenantId: TenantId,
+  name: string,
+  ownAppId?: string,
+): Promise<SecretUse[]> {
+  const out: SecretUse[] = [];
+  for await (const app of pages((cursor) =>
+    binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+  )) {
+    if (app.appId !== ownAppId && secretNamesOf(app).includes(name)) {
+      out.push({ kind: 'connection-app', id: app.appId });
+    }
+  }
+  return out;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -671,4 +671,14 @@ export type SecretError =
       readonly message: string;
       readonly name: string;
       readonly appId: string;
+    }
+  /**
+   * An identity provider's secret, asked for by anything but sign-in
+   * (`guardSecretKeys`). `identityProviderId` is the provider referencing it.
+   */
+  | {
+      readonly code: 'identity-provider-key-refused';
+      readonly message: string;
+      readonly name: string;
+      readonly identityProviderId: string;
     };
