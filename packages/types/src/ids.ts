@@ -137,6 +137,12 @@ export type LogEntryId = Brand<string, 'LogEntryId'>;
 /** A generated artifact (draft, memo, report). */
 export type ArtifactId = Brand<string, 'ArtifactId'>;
 
+/**
+ * A file with versions. It's the `ArtifactId` of its version 1's bytes,
+ * and names the file through every later version.
+ */
+export type FileId = Brand<string, 'FileId'>;
+
 /** A provenance DAG record. */
 export type ProvenanceId = Brand<string, 'ProvenanceId'>;
 

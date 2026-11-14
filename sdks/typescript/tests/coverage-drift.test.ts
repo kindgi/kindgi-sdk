@@ -117,6 +117,23 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
           "toolFiles.store — a pack service's path (a call's toolFiles link), not this client's",
         '/v1/tool-files/{artifactId}':
           "toolFiles.read — a pack service's path (under a call's toolFiles link), not this client's",
+
+        // TEMPORARY: the files routes, until `client.files` lands on this
+        // branch. Remove all of these with it.
+        '/v1/files': 'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}': 'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/pin-history': 'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/versions': 'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/versions/{version}':
+          'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/versions/{version}/content':
+          'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/versions/{version}/pin':
+          'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/versions/{version}/restore':
+          'files.* — client.files lands with the files resource',
+        '/v1/files/{fileId}/versions/{version}/unpin':
+          'files.* — client.files lands with the files resource',
       };
       if (raw in SKIP) continue;
       if (!wrapped.has(normalize(raw))) missing.push(raw);
