@@ -81,6 +81,11 @@ Chat answers link to runs and waits in the console at your public address
 with `/console` after it, when the runtime serves the console itself. When
 your console runs elsewhere, chat answers carry no console links.
 
+A person's sign-in history (their page under **People**, and
+`GET /v1/audit/sign-ins?userId=`) also lists each chat app they connected,
+each refused renewal of one, and each disconnect (runtime 0.7.0 or later).
+In the API, `reason` says why a renewal was refused.
+
 ## Behind a proxy or load balancer
 
 Set `KINDGI_TRUSTED_PROXIES`, as
