@@ -51,6 +51,7 @@ from .context import (
     PauseAnswer,
     PauseNotAvailable,
     ToolContext,
+    ToolFailure,
     wait_token_from_wire,
 )
 from .define import Guardrail, Tool, check_result_to_wire
@@ -527,6 +528,15 @@ class PackService:
         except BaseException as cause:
             if isinstance(cause, KeyboardInterrupt):
                 raise
+            if isinstance(cause, ToolFailure):
+                # The tool's own answer: its words as written, with no lead-in and no cause.
+                return pack_error(
+                    "tool-failed",
+                    cause.message,
+                    toolId=tool_id,
+                    reason=cause.code,
+                    details=cause.details,
+                )
             rejected = _rejection_of(cause)
             if rejected is not None:
                 return pack_error(

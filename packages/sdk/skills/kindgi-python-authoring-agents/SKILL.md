@@ -203,8 +203,9 @@ brief_writer = Agent(
 - **`tool_errors`** — `{"maxRetries": 1, "retryOn": [...]}`: a failed
   tool call goes back to the model as the call's result so it can fix
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
-  (nothing ran); add `tool-error` only when retrying the tool is safe.
-  Each retry costs a step.
+  (nothing ran); add `tool-error` only when retrying the tool is safe,
+  and `tool-failed` to send back a tool's failure on purpose
+  (`ToolFailure`) with its code and words. Each retry costs a step.
 - **`parallel_tool_calls`** — default on: when a model step asks for several
   calls at once, calls to read-only tools (`mutating=False`, no changing
   effect) that come one after another run at the same time, up to 8 of them,

@@ -42,7 +42,9 @@ import {
 import {
   type FileStore,
   type ToolConnection,
+  ToolFailure,
   connectionRejectionOf,
+  isToolFailure,
   withoutConnectionTokens,
 } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
@@ -246,6 +248,7 @@ export type HandlerErrorCode =
   | 'handler-shape-invalid'
   | 'handler-throw'
   | 'connection-rejected'
+  | 'tool-failed'
   | 'check-shape-invalid'
   | 'pause-not-available';
 
@@ -257,6 +260,10 @@ export interface HandlerError {
   readonly issues?: readonly unknown[];
   /** For `connection-rejected`: the tool's name for the connection the app refused. */
   readonly connection?: string;
+  /** For `tool-failed`: the tool's own code for why (`order-not-found`). */
+  readonly reason?: string;
+  /** For `tool-failed`, when the tool gave them: its facts. */
+  readonly details?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -468,7 +475,8 @@ async function callHandler(
 ): Promise<Result<unknown, HandlerError>> {
   try {
     return { kind: 'ok', value: await handler(input, callContext(ctx, tool)) };
-  } catch (cause) {
+  } catch (thrown) {
+    const cause = isToolFailure(thrown) ? remade(thrown) : thrown;
     const rejection = connectionRejectionOf(cause);
     if (rejection !== undefined) {
       return {
@@ -487,6 +495,24 @@ async function callHandler(
         error: { code: 'pause-not-available', message: cause.message, toolId: tool.id },
       };
     }
+    if (isToolFailure(cause)) {
+      // The tool's own answer: its words as written, with no lead-in and
+      // no cause, but without the call's own values, as for a throw.
+      const said = withoutCallValues({ message: cause.message, details: cause.details }, ctx) as {
+        readonly message: string;
+        readonly details?: Readonly<Record<string, unknown>>;
+      };
+      return {
+        kind: 'err',
+        error: {
+          code: 'tool-failed',
+          message: said.message,
+          toolId: tool.id,
+          reason: cause.code,
+          ...(said.details !== undefined && { details: said.details }),
+        },
+      };
+    }
     // The call's own values go before the message is built: its masking,
     // its one-line causes and their cut could otherwise leave part of one
     // where a match on the whole value no longer finds it.
@@ -500,6 +526,23 @@ async function callHandler(
         cause: serializeCause(shown),
       },
     };
+  }
+}
+
+/**
+ * `failure` made again, or the class's refusal of it: one whose code,
+ * message or details the class would refuse (changed after it was made, or
+ * from a copy of the SDK that doesn't check) is then a throw that says why.
+ */
+function remade(failure: ToolFailure): unknown {
+  try {
+    return new ToolFailure(
+      failure.code,
+      failure.message,
+      failure.details === undefined ? {} : { details: failure.details },
+    );
+  } catch (refusal) {
+    return refusal;
   }
 }
 

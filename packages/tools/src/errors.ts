@@ -21,6 +21,7 @@ export type ToolError =
   | OutputValidationError
   | HandlerError
   | PreconditionFailedError
+  | ToolFailedError
   | ToolPauseUnsupportedError
   | WaitTokenTimedOutError
   | WaitTokenRerunsExhaustedError;
@@ -139,6 +140,21 @@ export interface PreconditionFailedError {
   /** The runtime's code for what was missing (`secret-unavailable`, …). */
   readonly reason: string;
   readonly cause: unknown;
+}
+
+/**
+ * invokeTool: the tool failed the call on purpose — it ran and threw a
+ * `ToolFailure`. Nothing crashed, so there's no cause: the message is
+ * the tool's own words, masked, said once.
+ */
+export interface ToolFailedError {
+  readonly code: 'tool-failed';
+  readonly message: string;
+  readonly toolId: ToolId;
+  /** The tool's own code for why (`order-not-found`, …). */
+  readonly reason: string;
+  /** The tool's facts about the failure, masked; absent when it gave none. */
+  readonly details?: Readonly<Record<string, unknown>>;
 }
 
 /**

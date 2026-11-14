@@ -92,6 +92,7 @@ export type {
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
   ConnectionNotChosenError,
+  ToolFailedTurnError,
   ToolInvocationError,
   TurnMemoryBinding,
   TurnMemoryCharge,

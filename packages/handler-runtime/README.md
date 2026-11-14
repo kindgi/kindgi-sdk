@@ -30,6 +30,8 @@ Neither throws. Each returns `{ kind: 'ok', value }` or `{ kind: 'err', error: H
 | `handler-import-failed` | Importing the module threw (`cause`). |
 | `handler-shape-invalid` | The module exports no handler, or the handler paused for no time, for more than 24 days, or with a name that isn't 1 to 200 characters. |
 | `handler-throw` | The handler (or `evaluate`) threw (`cause`). |
+| `connection-rejected` | The tool threw a `ConnectionRejectedError`: the app refused a connection's token (`connection` names the connection). |
+| `tool-failed` | The tool failed the call on purpose with a `ToolFailure`: its code is `reason`, its words the message as written, and `details` its facts. |
 | `check-shape-invalid` | The check module exports no `evaluate`. |
 | `pause-not-available` | The tool tried to pause, but the call carries no wait token (its runtime is older than pack protocol 2.8.0), or the tool doesn't declare `pauses`. |
 

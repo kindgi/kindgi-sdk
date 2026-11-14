@@ -270,6 +270,7 @@
         "handler-shape-invalid",
         "handler-throw",
         "connection-rejected",
+        "tool-failed",
         "check-shape-invalid",
         "malformed-message",
         "unknown-protocol-version",
@@ -281,7 +282,7 @@
         "cancelled",
         "pause-not-available"
       ],
-      "description": "Why running pack code didn't produce a result. `pause-not-available` (protocol 2.8.0): a tool tried to pause, but the call carried no `waitToken` (an older runtime, or a tool whose index entry doesn't say `pauses`)."
+      "description": "Why running pack code didn't produce a result. `pause-not-available` (protocol 2.8.0): a tool tried to pause, but the call carried no `waitToken` (an older runtime, or a tool whose index entry doesn't say `pauses`). `tool-failed` (protocol 2.12.0): the tool failed the call on purpose (it threw the SDK's tool failure): `reason` is the tool's own code and `message` its words for a person, as written; it carries no `cause`."
     },
     "issue": {
       "type": "object",
@@ -332,6 +333,15 @@
         "connection": {
           "type": "string",
           "description": "Present for `connection-rejected` (protocol 2.9.0): the tool's name for the connection whose token the app refused. The runtime renews that token once and runs the call again."
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "description": "Present for `tool-failed` (protocol 2.12.0): the tool's own code for why the call failed (`order-not-found`), a fixed word of the tool's in kebab case."
+        },
+        "details": {
+          "type": "object",
+          "description": "For `tool-failed` (protocol 2.12.0), when the tool gave them: its facts about the failure, a JSON object of at most 4 KiB as JSON."
         }
       }
     },

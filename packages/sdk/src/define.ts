@@ -24,7 +24,9 @@ export {
   invokeTool,
   invokeToolForTest,
   isConnectionRejectedError,
+  isToolFailure,
   registerToolSpecSynthesizer,
+  ToolFailure,
   toolContextForTest,
 } from '@kindgi/tools';
 export type {
@@ -42,6 +44,9 @@ export type {
   Tool,
   ToolConnection,
   ToolContext,
+  ToolFailedError,
+  ToolFailureDetails,
+  ToolFailureOptions,
   ToolManifest,
   ToolSecretRef,
   ToolSpec,

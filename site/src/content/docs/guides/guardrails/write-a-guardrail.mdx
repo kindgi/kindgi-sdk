@@ -346,7 +346,8 @@ with `halt`, the turn fails
 The error carries the exception's message:
 `handler-throw: Check "…" evaluate() threw: …`.
 Return `passed: false` for a rule that isn't met. Throw only when the check
-itself can't run.
+itself can't run. A tool's failure on purpose (`ToolFailure`) is for tools:
+thrown in a check, it's a throw like any other.
 
 ## Check a tool call or a reply
 

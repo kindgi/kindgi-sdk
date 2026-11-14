@@ -21,8 +21,17 @@
  *   - `tool-error` — the tool ran and failed (it threw, or its output
  *     didn't fit its schema). A mutating tool may have changed something
  *     before failing, so retrying it is a deliberate choice.
+ *   - `tool-failed` — the tool ran and failed the call on purpose (it
+ *     threw `ToolFailure`), with its own code and words for a person. The
+ *     model reads them and can tell the person or try another way; for the
+ *     same reason as `tool-error`, that's a deliberate choice too.
  */
-export const TOOL_ERROR_KINDS = ['invalid-arguments', 'unknown-tool', 'tool-error'] as const;
+export const TOOL_ERROR_KINDS = [
+  'invalid-arguments',
+  'unknown-tool',
+  'tool-error',
+  'tool-failed',
+] as const;
 export type ToolErrorKind = (typeof TOOL_ERROR_KINDS)[number];
 
 /** The most retries a turn may take on failed tool calls. */

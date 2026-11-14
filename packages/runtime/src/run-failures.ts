@@ -37,7 +37,10 @@ export interface FailureGroupsInput {
 export interface FailureGroup {
   /** The failure's code (`Run.failure.code`); absent when not grouped by code. */
   readonly code?: string;
-  /** The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's. */
+  /**
+   * The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, or a
+   * `tool-failed` failure's tool code.
+   */
   readonly reason?: string;
   readonly subject: FailureSubject;
   /** The agent's or flow's version; absent when not grouped by version, or not recorded. */

@@ -616,6 +616,14 @@ final class PackService implements HttpServer.Handler {
       }
       return error("handler-throw", "Handler for tool \"" + toolId + "\" threw: " + e, with(ids, "cause", cause(e)));
     } catch (Exception | LinkageError | AssertionError | StackOverflowError e) {
+      if (e instanceof ToolFailureException failed) {
+        // The tool's own answer: its words as written, with no lead-in and no cause.
+        Map<String, Object> said = with(ids, "reason", failed.code());
+        if (failed.details() != null) {
+          said.put("details", failed.details());
+        }
+        return error(ToolFailureException.CODE, failed.getMessage(), said);
+      }
       ConnectionRejectedException rejected = rejectionOf(e);
       if (rejected != null) {
         return error(ConnectionRejectedException.CODE, "Tool \"" + toolId + "\": " + rejected.getMessage(),

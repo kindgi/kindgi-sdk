@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -30,6 +32,7 @@ __all__ = [
     "PauseNotAvailable",
     "ToolConnection",
     "ToolContext",
+    "ToolFailure",
     "WaitToken",
     "wait_token_from_wire",
 ]
@@ -109,6 +112,70 @@ class ConnectionRejected(Exception):
     def __init__(self, connection: str, message: str | None = None) -> None:
         super().__init__(message or f'the app refused the connection "{connection}"')
         self.connection = connection
+
+
+_TOOL_FAILURE_CODE: Final = re.compile(r"[a-z][a-z0-9-]{0,63}")
+TOOL_FAILURE_MESSAGE_MAX: Final = 1000
+"""The most characters of a tool failure's message that are kept."""
+TOOL_FAILURE_DETAILS_MAX_BYTES: Final = 4096
+"""The most bytes a tool failure's `details` may take as JSON (UTF-8)."""
+
+
+class ToolFailure(Exception):
+    """A tool's own failure: the tool ran, and says this call can't give an answer.
+
+    Raise it with the tool's code for why, in kebab case, and words for a person:
+    `raise ToolFailure("order-not-found", f"No order {order_id}", details={"orderId": order_id})`.
+    The call answers `tool-failed`, with the code as `reason`, the message as written and the
+    details; the runtime's run reads the same. `ValueError` when the code isn't kebab case, the
+    message is empty, or `details` isn't a JSON object of at most 4 KiB: the call then fails as a
+    crash (`handler-throw`) that says why.
+
+    - The code is a fixed word of the tool's, never built from its input: runs are grouped by it,
+      and it outlives the run's erasure.
+    - The message is cut at 1,000 characters. `details` reaches the run's failure and the model,
+      so it never holds a secret, and never a wait or a retry hint.
+    - An outcome the caller acts on goes in the output schema (`{"found": False}`); a bug just
+      raises. A `ToolFailure` doesn't undo what the tool did before it.
+    """
+
+    def __init__(
+        self, code: str, message: str, *, details: Mapping[str, Any] | None = None
+    ) -> None:
+        # The type says `str`, and a caller without a type checker can still pass another.
+        if not isinstance(cast("object", code), str) or _TOOL_FAILURE_CODE.fullmatch(code) is None:
+            raise ValueError(
+                "ToolFailure's code must be kebab case, a letter first, at most 64 characters: "
+                f"{json.dumps(str(code)[:80])}"
+            )
+        if not isinstance(cast("object", message), str) or message.strip() == "":
+            raise ValueError(f'ToolFailure "{code}" needs a message for a person')
+        copied = None if details is None else _json_details(code, details)
+        said = message[:TOOL_FAILURE_MESSAGE_MAX]
+        super().__init__(said)
+        self.code: str = code
+        """The tool's code for why the call failed (`order-not-found`)."""
+        self.message: str = said
+        """Its words for a person, as written."""
+        self.details: dict[str, Any] | None = copied
+        """Its facts, as a JSON copy of what it gave; `None` when it gave none."""
+
+
+def _json_details(code: str, details: object) -> dict[str, Any]:
+    """`details` as a JSON copy, or a `ValueError` that says why it can't be one."""
+    if not isinstance(details, Mapping):
+        raise ValueError(f'ToolFailure "{code}"\'s details must be a JSON object')
+    try:
+        text = json.dumps(details, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as cause:
+        raise ValueError(f"ToolFailure \"{code}\"'s details aren't JSON") from cause
+    size = len(text.encode("utf-8"))
+    if size > TOOL_FAILURE_DETAILS_MAX_BYTES:
+        raise ValueError(
+            f'ToolFailure "{code}"\'s details take {size} bytes as JSON, '
+            f"more than {TOOL_FAILURE_DETAILS_MAX_BYTES}"
+        )
+    return cast("dict[str, Any]", json.loads(text))
 
 
 @dataclass(frozen=True, slots=True)
