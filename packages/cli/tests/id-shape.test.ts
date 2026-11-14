@@ -111,7 +111,18 @@ describe("the indexer's result carries the warnings, after the indexer's own", (
   const index = {
     packId: 'acme',
     agents: [entry('acme.order-desk')],
-    flows: [entry('acme.ledger.record-flow')],
+    flows: [
+      {
+        ...entry('acme.ledger.record-flow'),
+        version: '1.0.0',
+        nodes: [{ id: 'a', kind: 'tool', ref: 'acme.noop' }],
+        edges: [
+          { id: 'e1', from: '$start', to: 'a' },
+          { id: 'e2', from: 'a', to: '$end' },
+        ],
+        kernelPayloadVersion: 1,
+      },
+    ],
   };
 
   const expected = [
