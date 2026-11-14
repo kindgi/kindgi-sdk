@@ -224,6 +224,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ORCHESTRATOR_PACK_SERVICE:
     "none: each field's default, and no network of its own (ingress from anywhere, the invoker check still on)",
   KINDGI_ORCHESTRATOR_RUNTIME_AUTH: 'none: the system key alone',
+  KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS:
+    'none: every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`',
 };
 
 /**

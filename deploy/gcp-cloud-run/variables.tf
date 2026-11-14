@@ -211,10 +211,11 @@ variable "pack_max_instances" {
 }
 
 variable "pack_secret_readers" {
-  description = "Secrets in Secret Manager that a pack's env names as cloud secrets (`kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`, with a system key): { secret, project } each, the secret's id, with project null for this one. The pack account gets roles/secretmanager.secretAccessor on each secret alone, never on its project, in the project the entry names: whoever applies needs to be able to grant there. Every pack service runs as that account, so each pack may read every one."
+  description = "Secrets in Secret Manager that a pack's env names as cloud secrets (`kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`, with a system key): { secret, project, tenants } each, the secret's id, with project null for this one. The pack account gets roles/secretmanager.secretAccessor on each secret alone, never on its project, in the project the entry names: whoever applies needs to be able to grant there. Every pack service runs as that account, so each pack may read every one. With pack_accounts = \"per-tenant\", tenants lists the tenants whose accounts read the secret, each one in pack_tenants: needed on every entry then, and refused with \"shared\"."
   type = list(object({
     secret  = string
     project = optional(string)
+    tenants = optional(list(string))
   }))
   default = []
   validation {
@@ -228,7 +229,7 @@ variable "pack_secret_readers" {
 }
 
 variable "pack_cloud_sql_instances" {
-  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account gets roles/cloudsql.client."
+  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account, and with pack_accounts = \"per-tenant\" each tenant's, gets roles/cloudsql.client."
   type        = list(string)
   default     = []
 
@@ -239,13 +240,13 @@ variable "pack_cloud_sql_instances" {
 }
 
 variable "pack_bucket_readers" {
-  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, which every pack service runs as)."
+  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, and with pack_accounts = \"per-tenant\" for each tenant's)."
   type        = list(string)
   default     = []
 }
 
 variable "pack_run_invokers" {
-  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
+  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account, and with pack_accounts = \"per-tenant\" each tenant's, gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
   type = list(object({
     project  = string
     location = string
@@ -260,6 +261,41 @@ variable "pack_run_invokers" {
     condition     = length(distinct([for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}"])) == length(var.pack_run_invokers)
     error_message = "pack_run_invokers names a service twice."
   }
+}
+
+# ---- the pack accounts ----------------------------------------------------------
+# Which account each pack service runs as. The checks that read another
+# variable are preconditions on google_service_account.orchestrator: a
+# variable's own validation can't read another before Terraform 1.9.
+
+variable "pack_accounts" {
+  description = "Which account the pack services run as. \"shared\" (the default): every one runs as the one pack account, so each tenant's pack code may read what every other's may. \"per-tenant\" (tenancy = \"multi\", runtime 0.7.0 or later): each tenant in pack_tenants gets an account of its own, which reads only its own pack services' secrets and the pack_secret_readers secrets listed for it. Turning it on is one-way: going back to \"shared\" isn't supported. See the README."
+  type        = string
+  default     = "shared"
+  validation {
+    condition     = contains(["shared", "per-tenant"], var.pack_accounts)
+    error_message = "pack_accounts must be \"shared\" or \"per-tenant\"."
+  }
+}
+
+variable "pack_tenants" {
+  description = "With pack_accounts = \"per-tenant\", the tenants whose pack services may run, each a tenant id (GET /v1/system/tenants lists them). Each gets an account of its own, kp-t and 16 hex digits. A tenant not listed has nowhere to run pack services: its deployments wait with tenant-not-provisioned. Take a tenant out only after its deployments are retired. At most 93. Refused with \"shared\" unless empty."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for id in var.pack_tenants : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    error_message = "Each pack_tenants entry is a tenant id, a uuid."
+  }
+  validation {
+    condition     = length(distinct([for id in var.pack_tenants : lower(id)])) == length(var.pack_tenants)
+    error_message = "pack_tenants names a tenant twice (ids match in any case)."
+  }
+}
+
+variable "pack_shared_account" {
+  description = "Whether the one pack account and its grants exist. Keep it true while turning per-tenant on: the pack orchestrator moves each running pack service to its tenant's account, and the pack account keeps serving until it has. Set it false once none is left on it (upgrade.sh checks), which takes it and its grants away. False needs pack_accounts = \"per-tenant\"."
+  type        = bool
+  default     = true
 }
 
 # ---- the database -------------------------------------------------------------
@@ -438,7 +474,7 @@ variable "pack_call_timeout_ms" {
 }
 
 variable "pack_bucket_object_prefixes" {
-  description = "Per bucket in pack_bucket_readers, object-name prefixes the pack may read (an IAM condition on its objectViewer grant; the bucket needs uniform bucket-level access). A bucket missing here is readable in full."
+  description = "Per bucket in pack_bucket_readers, object-name prefixes the packs may read (an IAM condition on each objectViewer grant: the pack account's and, with pack_accounts = \"per-tenant\", each tenant's; the bucket needs uniform bucket-level access). A bucket missing here is readable in full."
   type        = map(list(string))
   default     = {}
 }

@@ -428,8 +428,11 @@ the orchestrator's account may do is in
 ### Your pack services
 
 The orchestrator makes each deployment's service, named `kp-…`, with the
-module's `pack_*` settings. Every one runs as the one pack account,
-`$N-pack`, so whatever one pack may read, each may.
+module's `pack_*` settings. By default every one runs as the one pack
+account, `$N-pack`, so whatever one pack may read, each may. With
+`pack_accounts = "per-tenant"`, each tenant's run as an account of the
+tenant's own, with the same databases, buckets and services, and only its
+own secrets ([A pack account per tenant](#a-pack-account-per-tenant)).
 
 - **Size:** 1 vCPU and 1 GiB, with a startup CPU boost.
 - **Scaling:** up to `pack_max_instances` instances, 8 by default, each
@@ -668,11 +671,29 @@ request's tenant from its key or session. Either way each deployment is a
 Cloud Run service of its own, which the pack orchestrator makes
 ([Turn on the pack orchestrator](#turn-on-the-pack-orchestrator)).
 
-Every tenant's pack services run as the one pack account, `$N-pack`. So each
-tenant's pack code can read every `kp-` secret, other tenants' pack service
-tokens and secret env values among them, and every secret in
-`pack_secret_readers`. One installation is for tenants that trust one
-another's pack code. Give tenants that don't an installation each
+**By default (`pack_accounts = "shared"`), every tenant's pack services run
+as the one pack account, `$N-pack`.** So each tenant's pack code can read
+every `kp-` secret, other tenants' pack service tokens and secret env values
+among them, and every secret in `pack_secret_readers`. Such an installation
+is for tenants that trust one another's pack code.
+
+**With `pack_accounts = "per-tenant"`, each tenant listed in `pack_tenants`
+gets an account of its own**
+([A pack account per tenant](#a-pack-account-per-tenant)). Turning it on is
+one-way: going back to shared isn't supported. A tenant leaves
+`pack_tenants` only after its deployments are retired. Once its pack
+services have moved to its account and `pack_shared_account` is `false`
+(step 3 in [A pack account per tenant](#a-pack-account-per-tenant)), its
+pack code can read only its own `kp-` secrets and the `pack_secret_readers`
+secrets listed for it. Until then, a pack service still on `$N-pack` reads
+every `kp-` secret. Other things stay shared: every tenant's pack code can
+connect to each instance in `pack_cloud_sql_instances`, read each bucket in
+`pack_bucket_readers`, and call each service in `pack_run_invokers`. So list
+there only what every tenant may reach. The pack orchestrator acts as every
+tenant's account and gives each service its values, so it's trusted with
+every tenant, as the runtime is. Tenants that don't trust one another's pack
+code can share an installation only on those terms. Otherwise, give them an
+installation each
 ([Your tools' code](../../../concepts/security/#your-tools-code)).
 
 ```hcl
@@ -742,6 +763,117 @@ server_secret_env = {
   changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
   seed a new tenant at every start, so upgrade the runtime first.
+
+### A pack account per tenant
+
+With `tenancy = "multi"`, on runtime 0.7.0 or later, each tenant's pack
+services can run as an account of the tenant's own instead of `$N-pack`.
+Turning it on is one-way: going back to shared isn't supported. What it
+isolates and what it doesn't is in
+[Serve many tenants](#serve-many-tenants).
+
+```hcl
+pack_accounts = "per-tenant"
+pack_tenants = [
+  "8d3e5f1a-2b4c-4d6e-8f01-23456789abcd",
+  "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d",
+]
+pack_secret_readers = [
+  { secret = "acme-shop-key", tenants = ["8d3e5f1a-2b4c-4d6e-8f01-23456789abcd"] },
+]
+```
+
+On a new installation, set `pack_shared_account = false` from the start:
+there are no pack services to move, so `$N-pack` isn't needed.
+
+- **Each tenant's account** is `kp-t` and 16 hex digits, from a hash of
+  `name_prefix` and the tenant's id, so two installations in one project
+  never share one. Its pack services' secrets are named under the same key
+  (`kp-t<16 hex>-…`). The account reads only those, under a condition on
+  that prefix, and the `pack_secret_readers` secrets whose `tenants` list it.
+  The orchestrator gets `roles/iam.serviceAccountUser` on it, and its Job the
+  map of them,
+  [`KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS`](../../../reference/env-vars/#kindgi_orchestrator_tenant_accounts).
+  The output `service_accounts.tenants` lists them.
+- **What every tenant gets, as `$N-pack` does:** `roles/cloudsql.client` on
+  the instances in `pack_cloud_sql_instances`, `pack_bucket_readers` with
+  their prefixes, and `pack_run_invokers`.
+- **What the plan refuses:** `"per-tenant"` with `tenancy = "single"`;
+  `pack_tenants` in shared mode; an id that isn't a uuid, or one listed
+  twice in any case; more than 93 tenants; with `"per-tenant"`, a
+  `pack_secret_readers` entry without `tenants`, or with a tenant
+  `pack_tenants` doesn't list; `tenants` on an entry in shared mode; and
+  `pack_shared_account = false` in shared mode.
+
+A tenant not in `pack_tenants` has nowhere to run pack services: its
+deployments wait with `tenant-not-provisioned`. Add it and apply. A tenant
+just added may wait a few minutes with the same code while its grants take
+effect. If it lasts, the orchestrator's alert says:
+
+```text
+service <service> can't run as <account> yet: the orchestrator was refused iam.serviceAccounts.actAs on it. That's expected for a few minutes after an apply that adds the tenant. If it lasts, check that the install's module still grants the orchestrator act-as on that account, and apply again
+```
+
+**Taking a tenant out of `pack_tenants`** deletes its account, and a pack
+service that still runs as it fails at its next start. So retire the
+tenant's deployments first. `upgrade.sh` checks that no service runs as it.
+
+**Turning it on** on a running deployment. `upgrade.sh` prints these steps
+after the upgrade that crosses 0.7.0:
+
+0. **It needs runtime 0.7.0 or later:** an older orchestrator ignores the
+   tenants' accounts and goes on placing every pack service as `$N-pack`.
+   `upgrade.sh` refuses `"per-tenant"` with an earlier `--to`.
+1. **List the tenants and apply.** List them with a system key holding
+   `system:tenants` (behind Cloud Run IAM, add the ID token line of
+   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator)):
+
+   ```sh
+   curl -fsS -H "Authorization: Bearer <system key>" "$URL/v1/system/tenants?limit=100" | jq -r '.data[].id'
+   ```
+
+   Set `pack_accounts = "per-tenant"` and `pack_tenants` to those ids, and
+   give each `pack_secret_readers` entry its `tenants`. Then plan, read the
+   plan, and apply it. It adds each tenant's account, its grants and the
+   Job's map, and keeps `$N-pack` (`pack_shared_account` stays `true`). New
+   deployments go to their tenant's account from the next pass.
+
+2. **The orchestrator moves each live pack service** to its tenant's
+   account. A service's calls may fail for a few seconds while it moves, so
+   turn it on at a quiet time. At each pass it logs
+   `pack services left on the shared account: N` and
+   `pack services with a move not finished: N`. Wait until both of these
+   list nothing:
+
+   ```sh
+   gcloud run services list --project=<project> --region=<region> \
+     --filter='spec.template.spec.serviceAccountName=<N>-pack@<project>.iam.gserviceaccount.com' \
+     --format='value(metadata.name,metadata.labels)'
+   gcloud run services list --project=<project> --region=<region> \
+     --filter='metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done' \
+     --format='value(metadata.name,metadata.labels)'
+   ```
+
+   Each line shows the service's labels. A refused move is in both, with its
+   reason in `kindgi-move-code`: fix the cause or retire the deployment.
+
+3. **Set `pack_shared_account = false`,** then plan, read the plan, and apply
+   it. It deletes `$N-pack`, its grants and the orchestrator's act-as on it.
+   Only from then on does each tenant's isolation hold. `upgrade.sh` runs
+   both lines of step 2 first, and stops while either lists a service.
+
+**At most 93 tenants per installation.** Each tenant adds a conditional role
+binding to the project's allow policy, and Google advises at most 100 on one
+policy
+([IAM Conditions overview](https://docs.cloud.google.com/iam/docs/conditions-overview)).
+The module's own take up to 5, and 2 are kept free for a replace: of the
+tenants' Cloud SQL binding when `pack_cloud_sql_instances` changes, and of
+the server's grant on a restored instance (`database_instance`), which a
+restore needs. A conditional grant another root makes on the same project
+counts against the same 100, and the module can't see it. Check the
+project's service-account quota first: it has to allow one account per
+tenant, beside the module's own
+([IAM quotas and limits](https://docs.cloud.google.com/iam/quotas)).
 
 ## 5. Trust your key, and deploy
 

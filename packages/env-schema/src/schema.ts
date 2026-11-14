@@ -1779,9 +1779,19 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
     description:
-      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need.",
+      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need. With `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS` it's still required, as the install's name: the label on the orchestrator's secrets, and the account the pack services move off.",
     example: 'kindgi-packs@acme-kindgi.iam.gserviceaccount.com',
     required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS',
+    description:
+      "A pack account per tenant, as one JSON object: each tenant's id, in lower case, to the service account its pack services run as, by email. Each account's id (the part before `@`) is `kp-t` and 16 lower-case hex digits, the key that tenant's secrets are named under, and no two tenants share one. A tenant not listed has nowhere to run pack services: its deployments wait with `tenant-not-provisioned`. Unset, every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`.",
+    example:
+      '{"8d3e5f1a-2b4c-4d6e-8f01-23456789abcd":"kp-t034d09f98934346b@acme-kindgi.iam.gserviceaccount.com"}',
+    required: false,
     appliesTo: appliesToPackOrchestrator,
     group: 'pack-orchestrator',
   },

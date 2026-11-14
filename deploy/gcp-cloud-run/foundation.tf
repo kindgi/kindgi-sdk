@@ -105,8 +105,10 @@ resource "google_compute_router_nat" "nat" {
 
 # ---- identities ---------------------------------------------------------------
 # The server, the pack services and the pack orchestrator each run as a
-# service account of their own: no key files anywhere. Every pack service
-# runs as the one pack account, so whatever one pack may read, each may.
+# service account of their own: no key files anywhere. By default every pack
+# service runs as the one pack account, so whatever one pack may read, each
+# may. With pack_accounts = "per-tenant", each tenant's run as its own
+# (tenants.tf), and the pack account stays while pack_shared_account is true.
 
 resource "google_service_account" "server" {
   account_id   = "${var.name_prefix}-server"
@@ -115,6 +117,7 @@ resource "google_service_account" "server" {
 }
 
 resource "google_service_account" "pack" {
+  count        = var.pack_shared_account ? 1 : 0
   account_id   = "${var.name_prefix}-pack"
   display_name = "Kindgi pack services"
   depends_on   = [google_project_service.apis]
@@ -180,17 +183,17 @@ resource "google_project_iam_member" "server_vertex_ai" {
 }
 
 resource "google_project_iam_member" "pack_sql_client" {
-  count   = length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
+  count   = length(var.pack_cloud_sql_instances) > 0 && var.pack_shared_account ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.pack.email}"
+  member  = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 resource "google_storage_bucket_iam_member" "pack_reads" {
-  for_each = toset(var.pack_bucket_readers)
+  for_each = var.pack_shared_account ? toset(var.pack_bucket_readers) : toset([])
   bucket   = each.value
   role     = "roles/storage.objectViewer"
-  member   = "serviceAccount:${google_service_account.pack.email}"
+  member   = "serviceAccount:${google_service_account.pack[0].email}"
 
   # Narrowed to object prefixes when the bucket has them (it holds more
   # than the pack's own data).
@@ -210,12 +213,12 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
 # The Cloud Run services the pack's code calls: additive, one
 # member per service; nothing else of the service changes.
 resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
-  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s }
+  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s if var.pack_shared_account }
   project  = each.value.project
   location = each.value.location
   name     = each.value.service
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.pack.email}"
+  member   = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 # ---- images -------------------------------------------------------------------
