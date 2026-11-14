@@ -48,6 +48,8 @@ export const ENV_DEFAULTS = {
     'none: outside development mode the server refuses to start; development mode needs none',
   KINDGI_LICENSE_KEY_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
+  KINDGI_ACCOUNT_KEY:
+    'none: the connections that sign in through Kindgi\'s own Meta app show "Needs a Kindgi account"',
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
   KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
@@ -232,6 +234,9 @@ export const ENV_EXAMPLES = {
   },
   KINDGI_LICENSE_KEY: {
     value: 'kgi_lk_<payload>.<signature>',
+  },
+  KINDGI_ACCOUNT_KEY: {
+    value: '<the account key Kindgi issued for this runtime>',
   },
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY: {
     value: '<base64 of an Ed25519 private key in PKCS#8 PEM>',

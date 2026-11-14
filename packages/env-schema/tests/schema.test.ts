@@ -594,6 +594,21 @@ describe('validateEnvForTarget', () => {
     expect(key?.example).toBe('');
   });
 
+  test("the Kindgi account key is the server's, optional, in core, with no example; the pack service and the orchestrator don't get it", () => {
+    const key = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_ACCOUNT_KEY',
+    );
+    expect(key?.required).toBe(false);
+    expect(key?.example).toBe('');
+    expect(key?.group).toBe('core');
+    for (const component of ['pack-service', 'pack-orchestrator'] as const) {
+      expect(
+        envVarsForTarget({ component }).map((v) => v.name),
+        component,
+      ).not.toContain('KINDGI_ACCOUNT_KEY');
+    }
+  });
+
   test('the server and registry auth modes', () => {
     const http = new Map(envVarsForTarget({ packTransport: 'http' }).map((v) => [v.name, v]));
     expect(http.get('KINDGI_PACK_SERVICE_AUTH')?.allowedValues).toEqual([

@@ -439,6 +439,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_ACCOUNT_KEY',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. A self-hosted runtime's Kindgi account key, for the connections that sign in through Kindgi's own Meta app (Facebook Pages and Instagram). Their sign-in goes through Kindgi's connect step, and the key is how the step knows this runtime: Kindgi issues it with your account, and it pins this runtime's public address and your company's name. The server sends this key to Kindgi only while an admin connects or disconnects one of those accounts, and to no one else; the license check stays offline. Without it, Facebook Pages and Instagram show \"Needs a Kindgi account\", and everything else works as before. Kindgi Cloud deployments don't need it. A secret: set it by reference to a secret, pinned to a version.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_ENV',
     description:
       'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',
