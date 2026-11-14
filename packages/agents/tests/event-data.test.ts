@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A turn's message from outside: in a run a webhook, an event or a mail started,
+ * A turn's message from outside: in a run a webhook, an event, a mail or a text started,
  * the model reads it as an <event> data block, with the rule in the system
  * message that it's data, not instructions. Its text is encoded once:
  * every `<` as `\u003c`, so nothing in it can close the block, and a JSON
@@ -136,7 +136,7 @@ describe('formatEventForPrompt', () => {
 });
 
 describe("a turn's message, by how its run started", () => {
-  test.each(['webhook', 'event', 'mail'] as const)(
+  test.each(['webhook', 'event', 'mail', 'text'] as const)(
     'started by %s: an <event> block, and the rule in the system message',
     async (by) => {
       expect(messageIsEvent(by)).toBe(true);
@@ -223,7 +223,7 @@ describe("a turn's message is kept marked when it's an event's", () => {
     return { appended, message: ctx.userMessage };
   }
 
-  test.each(['webhook', 'event', 'mail'] as const)(
+  test.each(['webhook', 'event', 'mail', 'text'] as const)(
     'started by %s: marked, as it came',
     async (by) => {
       const { appended, message } = await kept(by, false);

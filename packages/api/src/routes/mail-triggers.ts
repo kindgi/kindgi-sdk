@@ -464,6 +464,7 @@ export function mailTriggersRouter(
         triggerScope(tenantId, project),
         target.value,
         tools.value,
+        'mail',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -718,6 +719,7 @@ export function mailTriggersRouter(
         triggerScope(tenantId, project),
         nextTarget,
         tools.value,
+        'mail',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }

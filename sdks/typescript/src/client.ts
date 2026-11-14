@@ -28,6 +28,7 @@ import {
 } from './resources/corrector-groups.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
+import { type DestinationsClient, makeDestinationsClient } from './resources/destinations.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
 import {
   type EnvironmentOrdersClient,
@@ -84,6 +85,7 @@ import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TestRunsClient, makeTestRunsClient } from './resources/test-runs.js';
 import { type TestSetsClient, makeTestSetsClient } from './resources/test-sets.js';
+import { type TextTriggersClient, makeTextTriggersClient } from './resources/text-triggers.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
 import {
@@ -204,6 +206,8 @@ export interface KindgiClient {
   /** @deprecated Use `client.files`. A later minor release removes it, announced in advance. */
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  /** Where schedules send their results (`sendResultsTo`). */
+  readonly destinations: DestinationsClient;
   readonly connectionEntries: ConnectionEntriesClient;
   readonly connectionApps: ConnectionAppsClient;
   readonly connections: ConnectionsClient;
@@ -213,6 +217,8 @@ export interface KindgiClient {
   readonly webhooks: WebhooksClient;
   /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
   readonly mailTriggers: MailTriggersClient;
+  /** Text triggers: texts to a business number start runs of an agent or a flow. */
+  readonly textTriggers: TextTriggersClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -290,12 +296,14 @@ export function createClient(options: ClientOptions): KindgiClient {
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    destinations: makeDestinationsClient(transport),
     connectionEntries: makeConnectionEntriesClient(transport),
     connectionApps: makeConnectionAppsClient(transport),
     connections: makeConnectionsClient(transport),
     connectionChoices: makeConnectionChoicesClient(transport),
     webhooks: makeWebhooksClient(transport),
     mailTriggers: makeMailTriggersClient(transport),
+    textTriggers: makeTextTriggersClient(transport),
     packs: makePacksClient(transport),
   };
 }

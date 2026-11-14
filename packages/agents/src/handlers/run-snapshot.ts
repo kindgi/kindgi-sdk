@@ -46,5 +46,6 @@ export async function writeRunSnapshot(ctx: TurnContext, kctx: NodeContext): Pro
       toolsAllowedUnattended: ctx.input.toolsAllowedUnattended,
     }),
     ...(ctx.input.mailbox !== undefined && { mailbox: ctx.input.mailbox }),
+    ...(ctx.input.textThread !== undefined && { textThread: ctx.input.textThread }),
   });
 }

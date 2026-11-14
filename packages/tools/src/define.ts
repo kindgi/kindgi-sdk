@@ -18,7 +18,7 @@ import type {
   ZodConverter,
   ZodLikeSchema,
 } from '@kindgi/schema';
-import type { Result, ToolId } from '@kindgi/types';
+import { BUILT_IN_TOOL_PREFIX, type Result, type ToolId } from '@kindgi/types';
 
 import type {
   InvalidSchemaError,
@@ -543,12 +543,18 @@ function toDefinitionError(err: {
 }
 
 /**
+ * The apps only tools built into Kindgi use: `texts`, whose account key
+ * sends from the business number. A pack tool that declares a connection
+ * of one is refused, by `defineTool` and by the runtime's indexer.
+ */
+export const BUILT_IN_ONLY_APPS = ['texts'] as const;
+
+/**
  * Each schema in `needsSpec.secrets` and `needsSpec.env` compiles as the runtime compiles it when
  * it loads the tool (`compileInlineSchema`), and an env value's `default` is a string. A runtime
  * that couldn't compile one would leave the whole tool out, so it's refused here, where the
  * tool is defined, registered (`POST /v1/tools`) or deployed, naming the tool, the slot and the
- * name. An HTTP spec's `connection` authorization names a connection `needsSpec.connections`
- * declares.
+ * name. Its connections pass `connectionsProblem`.
  */
 function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
   const tool = manifest.id as unknown as string;
@@ -574,6 +580,29 @@ function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | 
           ],
         };
       }
+    }
+  }
+  return connectionsProblem(manifest);
+}
+
+/**
+ * No connection in `needsSpec.connections` is of an app only tools built into Kindgi use
+ * (`BUILT_IN_ONLY_APPS`), and an HTTP spec's `connection` authorization names one it declares.
+ */
+function connectionsProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
+  const tool = manifest.id as unknown as string;
+  for (const [name, need] of Object.entries(manifest.needsSpec?.connections ?? {})) {
+    if ((BUILT_IN_ONLY_APPS as readonly string[]).includes(need.app)) {
+      return {
+        code: 'invalid-tool-definition',
+        message: `Tool "${tool}": needsSpec.connections.${name} is of the ${need.app} app, which is used only by tools built into Kindgi (kindgi_reply_to_text, kindgi_hand_to_person): a pack tool can't hold the number's account key.`,
+        issues: [
+          {
+            path: `/needsSpec/connections/${name}/app`,
+            message: 'must not be an app only tools built into Kindgi use',
+          },
+        ],
+      };
     }
   }
   const auth = manifest.spec?.authorization;
@@ -620,13 +649,6 @@ function checkEffectKinds(manifest: ToolManifest): UnknownEffectError | undefine
  * The returned value has the manifest fields only; there is no
  * `handler` (metadata-only shape).
  */
-/**
- * The prefix of tools built into Kindgi (e.g. `kindgi_remember`): their
- * ids are what the model calls, verbatim, so they have no dots. A
- * published tool can't use it; pack tools are `<pack>.<tool>`.
- */
-export const BUILT_IN_TOOL_PREFIX = 'kindgi_';
-
 export function validateToolManifest(
   manifest: unknown,
 ): Result<ToolManifest, InvalidToolDefinitionError | InvalidSchemaError | UnknownEffectError> {

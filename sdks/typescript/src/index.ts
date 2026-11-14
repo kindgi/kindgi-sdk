@@ -351,11 +351,13 @@ export type {
 } from './resources/events.js';
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
+  ListScheduleDeliveriesFilter,
   ListScheduleFiresFilter,
   ListScheduleVersionsFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
+  ScheduleDeliveryPage,
   ScheduleFire,
   ScheduleFirePage,
   SchedulePage,
@@ -385,6 +387,7 @@ export type {
   ConnectionStartResult,
   ConnectionsClient,
   CreateConnectionAppInput,
+  DisconnectOptions,
   FinishConnectInput,
   ListConnectionAppsFilter,
   ListConnectionCandidatesInput,
@@ -421,6 +424,23 @@ export type {
   WebhookTestEvent,
 } from './resources/webhook-endpoints.js';
 export type {
+  CreateDestinationInput,
+  Destination,
+  DestinationContent,
+  DestinationDelivery,
+  DestinationDeliveryEvent,
+  DestinationDeliveryPage,
+  DestinationDeliveryStatus,
+  DestinationKind,
+  DestinationPage,
+  DestinationSecretRef,
+  DestinationStatus,
+  DestinationsClient,
+  ListDestinationDeliveriesFilter,
+  ListDestinationsFilter,
+  UpdateDestinationInput,
+} from './resources/destinations.js';
+export type {
   ListWebhookFiresFilter,
   ListWebhookTriggerVersionsFilter,
   ListWebhookTriggersFilter,
@@ -452,6 +472,21 @@ export type {
   UnregisterMailTriggerResult,
   UpdateMailTriggerInput,
 } from './resources/mail-triggers.js';
+export type {
+  ListTextFiresFilter,
+  ListTextTriggerVersionsFilter,
+  ListTextTriggersFilter,
+  RegisterTextTriggerInput,
+  TextFire,
+  TextFirePage,
+  TextTrigger,
+  TextTriggerPage,
+  TextTriggerVersion,
+  TextTriggerVersionPage,
+  TextTriggersClient,
+  UnregisterTextTriggerResult,
+  UpdateTextTriggerInput,
+} from './resources/text-triggers.js';
 export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,
@@ -914,6 +949,8 @@ export type {
   WaitResumedEvent,
   WaitSuspendedEvent,
   WebhookEndpointId,
+  DestinationId,
+  DestinationDeliveryId,
   WhoamiResult,
   WriteFactInput,
   SupersedeFactInput,

@@ -104,6 +104,8 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
           "hooks.receive — a signed sender's path (the trigger's receiveUrl), not this client's",
         '/v1/connection-notices/{tenantId}/{appId}':
           "connectionNotices.receive — a signed sender's path (the registration's noticesUrl), not this client's",
+        '/v1/texts-inbound/{tenantId}/{appId}':
+          "textsInbound.receive and textsInbound.handshake: a texting provider's signed path (a texts registration's), not this client's",
 
         // The link a pausing tool hands to another system, which answers
         // the run's wait there; this client answers with `runs.resume`.

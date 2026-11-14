@@ -27,10 +27,14 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import {
+  type HeldProjects,
   type ItemCheck,
   type ItemRights,
   type ItemServing,
   agentPinChangeRefusal,
+  agentPinScopeCheck,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
   readCheck,
@@ -250,6 +254,29 @@ export function agentsRouter(
       const tenantId = c.get('tenantId') as TenantId;
       return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
     });
+    // Nor changes an agent by its id beyond its project, as a store asks
+    // it (`itemHold`): a version, its owner, or what's pinned. The test
+    // set's routes hold for themselves (`agent-test-set.ts`).
+    r.use(
+      '/:agentId/*',
+      itemHold({
+        kind: 'agent',
+        id: (c) => c.req.param('agentId') ?? '',
+        today: (c) =>
+          isTestSetPath(c.req.path) || isAgentPinCheck(c.req.method, c.req.path)
+            ? undefined
+            : isAgentPinWrite(c.req.method, c.req.path)
+              ? 'pin'
+              : 'admin',
+        check: async (c) =>
+          isAgentPinWrite(c.req.method, c.req.path)
+            ? agentPinScopeCheck(await bodyScope(c))
+            : itemPathCheck(c),
+        held: heldProjects(itemServing, 'agent', (c, id) =>
+          ownProject(c.get('tenantId') as TenantId, id as AgentId),
+        ),
+      }),
+    );
   }
 
   /**
@@ -1180,6 +1207,22 @@ export async function agentOwnProject(
   });
   const projectId = page.data[0]?.projectId;
   return projectId !== undefined ? [projectId] : [];
+}
+
+/**
+ * Where the hold without a store reads an agent's projects, for a route
+ * of another router (`HeldProjects`): the host's binding, else its own
+ * project (`agentOwnProject`). No registry: none recorded.
+ */
+export function heldAgentProjects(
+  binding: Pick<AgentRegistryBinding, 'headExists' | 'listVersions'> | undefined,
+  serving: ItemServing | undefined,
+): HeldProjects {
+  return heldProjects(serving, 'agent', async (c, id) =>
+    binding === undefined
+      ? []
+      : agentOwnProject(binding, c.get('tenantId') as TenantId, id as AgentId),
+  );
 }
 
 /**

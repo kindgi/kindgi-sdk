@@ -465,6 +465,12 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
   },
   {
+    name: 'schedule-deliveries',
+    route: '/v1/schedules/{triggerId}/deliveries',
+    paging: cursor,
+    parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
+  },
+  {
     name: 'schedule-versions',
     route: '/v1/schedules/{triggerId}/versions',
     paging: cursor,
@@ -505,6 +511,25 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/mail-triggers/{triggerId}/versions/{version}'],
   },
   {
+    name: 'text-triggers',
+    route: '/v1/text-triggers',
+    paging: cursor,
+    covers: ['/v1/text-triggers/{triggerId}'],
+  },
+  {
+    name: 'text-trigger-fires',
+    route: '/v1/text-triggers/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
+    name: 'text-trigger-versions',
+    route: '/v1/text-triggers/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/text-triggers/{triggerId}/versions/{version}'],
+  },
+  {
     name: 'webhook-endpoints',
     route: '/v1/webhook-endpoints',
     paging: cursor,
@@ -516,6 +541,19 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/webhook-endpoints/{endpointId}/deliveries',
     paging: cursor,
     parent: { kind: 'webhook-endpoints', params: { endpointId: 'endpointId' } },
+  },
+  {
+    name: 'destinations',
+    route: '/v1/destinations',
+    paging: cursor,
+    covers: ['/v1/destinations/{destinationId}'],
+    admin: true,
+  },
+  {
+    name: 'destination-deliveries',
+    route: '/v1/destinations/{destinationId}/deliveries',
+    paging: cursor,
+    parent: { kind: 'destinations', params: { destinationId: 'destinationId' } },
   },
 
   // What ran, and what came of it.
@@ -724,4 +762,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/prompts': "read live from the MCP endpoint's own server",
+  // Called by another server.
+  '/v1/texts-inbound/{tenantId}/{appId}':
+    "a texting provider's handshake, answered to the provider; a Kindgi client never calls it",
 };

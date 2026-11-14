@@ -58,6 +58,7 @@ import { tenantCommand } from './tenant.js';
 import { testRunsCommand } from './test-runs.js';
 import { testSetsCommand } from './test-sets.js';
 import { testCommand } from './test.js';
+import { textTriggersCommand } from './text-triggers.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
@@ -107,6 +108,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   schedulesCommand,
   webhooksCommand,
   mailTriggersCommand,
+  textTriggersCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,

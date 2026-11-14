@@ -599,6 +599,33 @@ describe('a schedule with no project', () => {
   });
 });
 
+describe('a schedule that sends its results to `me`', () => {
+  test("a take-over to the project's account is a 400, as at a save, and the owner stays; without `me` it goes", async () => {
+    const h = harness();
+    const made = await register(
+      h,
+      'schedule',
+      { sendResultsTo: [{ to: 'me', on: ['failed'] }] },
+      'ada',
+    );
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const id = KINDS.schedule.idOf(made.body);
+    const res = await h.call('POST', `/v1/schedules/${id}/owner`, { runAsProject: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error.message).toBe(
+      "`sendResultsTo[0].to` is `me`, its owner's own email, and a service account has none: change `sendResultsTo` with PATCH first",
+    );
+    const read = await h.call('GET', `/v1/schedules/${id}`);
+    expect(read.body.owner).toMatchObject({ kind: 'user', id: ADA });
+
+    const cleared = await h.call('PATCH', `/v1/schedules/${id}`, { sendResultsTo: [] });
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
+    const taken = await h.call('POST', `/v1/schedules/${id}/owner`, { runAsProject: true });
+    expect(taken.status, JSON.stringify(taken.body)).toBe(200);
+    expect(taken.body.owner).toMatchObject({ kind: 'service', isProjectAccount: true });
+  });
+});
+
 describe("the project's own account itself", () => {
   test('it shows its project, and a grant or ungrant on it is a 409', async () => {
     const h = harness();

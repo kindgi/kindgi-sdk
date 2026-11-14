@@ -30,7 +30,7 @@ import {
   googleDriveFileGet,
   googleDriveFilesList,
 } from '../src/google-tools.js';
-import { linkedinPost } from '../src/linkedin-tools.js';
+import { linkedinDeletePost, linkedinPost } from '../src/linkedin-tools.js';
 import {
   oneDriveFileCreate,
   oneDriveFilesList,
@@ -75,6 +75,7 @@ const TOOLS = {
   outlookReply: (id: string) => outlookReply({ id }),
   'outlookReply as company': (id: string) => outlookReply({ id, as: 'company' }),
   linkedinPost: (id: string) => linkedinPost({ id }),
+  linkedinDeletePost: (id: string) => linkedinDeletePost({ id }),
   googleCalendarEventsList: (id: string) => googleCalendarEventsList({ id }),
   'googleCalendarEventsList as company': (id: string) =>
     googleCalendarEventsList({ id, as: 'company' }),

@@ -63,7 +63,7 @@ const configOptions = {
   'client-secret-ref': {
     type: 'string' as const,
     description:
-      "OIDC: the NAME of the client secret in Kindgi's secret store (`kindgi secrets set <NAME>`), never the secret.",
+      "OIDC: the NAME of the client secret in Kindgi's secret store (`kindgi secrets set <NAME>`), never the secret. Sign-in's only: if the same app registration also serves a connection, give the connection a second client secret under its own name.",
   },
   'idp-metadata': {
     type: 'string' as const,

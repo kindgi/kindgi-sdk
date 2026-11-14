@@ -47,6 +47,14 @@ export interface MCPEndpointRegistryBinding {
    * `404 mcp-endpoint-not-found` at the route.
    */
   unregister(input: MCPEndpointUnregisterInput): Promise<MCPEndpointUnregisterOutcome>;
+  /**
+   * The endpoint's scope, as it was registered: the tenant's, an org's or
+   * a project's. `null` when unknown. Optional. Without an authorization
+   * store, the routes hold a key or session limited to a project to it:
+   * no change by the endpoint's id beyond that project. Absent, or `null`,
+   * nothing is held there.
+   */
+  scopeOf?(input: MCPEndpointGetInput): Promise<Scope | null>;
 }
 
 /**

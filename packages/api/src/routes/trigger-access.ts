@@ -6,8 +6,10 @@ import type { Context } from 'hono';
 import { type Action, ref } from '@kindgi/authz';
 import type { TenantId, TriggerId } from '@kindgi/types';
 
-import { type ItemRights, filterOwned, runIn } from '../item-rights.js';
+import { type HeldProjects, type ItemRights, filterOwned, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
+import { isReadMethod } from '../read-method.js';
 import type { TriggerRegistryBinding } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
@@ -26,6 +28,10 @@ import { deniedBy } from './denied.js';
  * decides what the trigger's flow did alone: `read` on it to see the
  * trigger, and its `execute` (`runIn`) to register it or change what it
  * runs. `write` stays the flow's.
+ *
+ * Without a store, a key or session limited to a project is held where a
+ * store would refuse it for that limit alone: a trigger of a flow whose
+ * own project is another (`flows`).
  */
 export interface TriggerAccess {
   /** Registering a trigger for `flowId`: the refusal, if any. */
@@ -52,6 +58,8 @@ export function triggerAccess(
   authorizer: Authorizer | undefined,
   /** Rights on a flow more than one project serves. Absent: one project each. */
   itemRights?: ItemRights,
+  /** Without a store: where a flow's projects are read. Absent: nothing is held. */
+  flows?: HeldProjects,
 ): TriggerAccess {
   const onFlow = async (
     c: Context<AppEnv>,
@@ -72,15 +80,31 @@ export function triggerAccess(
     }
     return undefined;
   };
+  /** Whether, without a store, the request is one `heldOnFlow` may refuse. */
+  const holds = (c: Context<AppEnv>) =>
+    flows !== undefined && c.get('tokenProjectId') !== undefined && !isReadMethod(c.req.method);
+  /** Without a store: `write` on the flow, its own project, as a store asks it. */
+  const heldOnFlow = async (c: Context<AppEnv>, flowId: string): Promise<Response | undefined> => {
+    if (flows === undefined || !holds(c)) return undefined;
+    const own = (await flows.projects(c, flowId))?.[0];
+    if (own === undefined) return undefined;
+    return limitedCallerRefusal(
+      c,
+      'write',
+      ref('project', own as unknown as string),
+      "the trigger's flow",
+    );
+  };
   return {
-    onRegister: (c, flowId) => onFlow(c, flowId, ['write', 'execute']),
+    onRegister: (c, flowId) =>
+      authorizer === undefined ? heldOnFlow(c, flowId) : onFlow(c, flowId, ['write', 'execute']),
     async onTrigger(c, triggerId, actions) {
-      if (authorizer === undefined) return undefined;
+      if (authorizer === undefined && !holds(c)) return undefined;
       const tenantId = c.get('tenantId') as TenantId;
       const rec = await binding.get({ tenantId, triggerId });
       // A schedule's and a webhook trigger's access is their router's own (their project).
       if (rec === null || rec.kind !== kind) return undefined;
-      return onFlow(c, rec.flowId, actions);
+      return authorizer === undefined ? heldOnFlow(c, rec.flowId) : onFlow(c, rec.flowId, actions);
     },
     async visible(c, rows) {
       if (authorizer === undefined) return rows;

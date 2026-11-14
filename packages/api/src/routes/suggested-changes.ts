@@ -15,12 +15,16 @@ import { callerIdentity } from '../caller.js';
 import { environmentTakesPromotionsResponse } from '../environment-entry.js';
 import { statusFor, toWireError } from '../errors.js';
 import {
+  type HeldItems,
   type ItemRights,
   agentPinScopeCheck,
+  limitedItemRefusal,
+  limitedMadeInRefusal,
   widthRefusal,
   writeWhereMade,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { latestMoved } from '../pin-test-runs.js';
 import {
@@ -47,6 +51,7 @@ import type {
 import type { AppEnv } from '../types.js';
 import { type PinRequestOutcome, actorOf, pinAnswer, pinResponse } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
+import { pinScopeResourceRef } from './scope-params.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
 export type SuggestedChangesRouteDeps = Omit<SuggestedChangeServiceDeps, 'store'> & {
@@ -118,6 +123,11 @@ export function suggestedChangesRouter(
   authorizer?: Authorizer,
   /** Rights on an agent more than one project serves. Absent: one project each. */
   itemRights?: ItemRights,
+  /**
+   * Without a store, where a project-limited key's change for an agent
+   * beyond its project is held. Absent: no hold.
+   */
+  held?: HeldItems,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -161,8 +171,14 @@ export function suggestedChangesRouter(
    * project serves, `publish` is `write` where its versions are made and
    * `pin` is `admin` where `scope` is (the module's rules).
    */
-  async function deny(c: Ctx, action: Action, agentId: string, scope?: AgentPinScope) {
-    if (authorizer === undefined) return undefined;
+  async function deny(
+    c: Ctx,
+    action: Action,
+    agentId: string,
+    scope?: AgentPinScope,
+    scopeHold?: 'admin' | 'pin',
+  ) {
+    if (authorizer === undefined) return limitedRefusal(c, action, agentId, scope, scopeHold);
     const projects = await served(c, agentId);
     if (itemRights !== undefined && projects !== undefined) {
       if (action === 'pin') {
@@ -185,6 +201,48 @@ export function suggestedChangesRouter(
       code: 'permission-denied',
       message: `Permission denied: this needs ${action} on agent "${agentId}" (${decision.reason})`,
     });
+  }
+
+  /**
+   * Without a store, a project-limited key's change, held where a store
+   * refuses it: first the pin's scope (`scopeHold`: `admin` there for a pin,
+   * as an agent pin's is held; for add-as-latest, `pin` on a project's),
+   * then the agent as `deny` asks it.
+   */
+  async function limitedRefusal(
+    c: Ctx,
+    action: Action,
+    agentId: string,
+    scope: AgentPinScope | undefined,
+    scopeHold: 'admin' | 'pin' | undefined,
+  ) {
+    if (held === undefined || c.get('tokenProjectId') === undefined) return undefined;
+    const onScope =
+      scope !== undefined &&
+      (scopeHold === 'admin' ||
+        (scopeHold === 'pin' && (scope.kind === 'project' || scope.kind === 'segment')))
+        ? limitedCallerRefusal(
+            c,
+            scopeHold,
+            pinScopeResourceRef(scope, c.get('tenantId') as TenantId),
+            'the suggested change',
+          )
+        : undefined;
+    if (onScope !== undefined) return onScope;
+    return action === 'pin'
+      ? limitedItemRefusal(c, {
+          kind: 'agent',
+          id: agentId,
+          today: 'pin',
+          check: agentPinScopeCheck(scope),
+          held: held.agents,
+        })
+      : limitedMadeInRefusal(c, {
+          kind: 'agent',
+          id: agentId,
+          held: held.agents,
+          orders: held.orders,
+        });
   }
 
   /** The suggested changes of a page whose agent the caller may read (`item-rights.ts`). */
@@ -220,10 +278,14 @@ export function suggestedChangesRouter(
       : authorizer.can(c, 'read', ref('agent', agentId));
   }
 
-  /** Read the body and the suggested change, and check the caller may `action` it. */
+  /**
+   * Read the body and the suggested change, and check the caller may
+   * `action` it (`scopeHold`: what a store-less hold asks on its scope).
+   */
   async function prepare(
     c: Ctx,
     action: Action,
+    scopeHold?: 'admin' | 'pin',
   ): Promise<{ body: Record<string, unknown>; suggestedChange: StoredSuggestedChange } | Response> {
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
@@ -234,6 +296,7 @@ export function suggestedChangesRouter(
       action,
       suggestedChange.agentId as unknown as string,
       suggestedChange.scope,
+      scopeHold,
     );
     return denied ?? { body, suggestedChange };
   }
@@ -370,7 +433,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/pin ----------
   r.post('/:suggestedChangeId/pin', async (c) => {
-    const ready = await prepare(c, 'pin');
+    const ready = await prepare(c, 'pin', 'admin');
     if (ready instanceof Response) return ready;
     const spans = await widthRefusal(c, {
       rights: itemRights,
@@ -479,7 +542,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/add-as-latest ----------
   r.post('/:suggestedChangeId/add-as-latest', async (c) => {
-    const ready = await prepare(c, 'pin');
+    const ready = await prepare(c, 'pin', 'pin');
     if (ready instanceof Response) return ready;
     const spans = await widthRefusal(c, {
       rights: itemRights,

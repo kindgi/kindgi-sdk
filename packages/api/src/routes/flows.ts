@@ -20,13 +20,17 @@ import type {
 } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
 import {
+  type HeldProjects,
   type ItemCheck,
   type ItemRights,
   type ItemServing,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
   readCheck,
   readsDefinition,
+  recordedProjects,
   shownLatest,
   underItem,
 } from '../item-rights.js';
@@ -58,6 +62,28 @@ import {
 import { projectMismatch } from './project-mismatch.js';
 import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
 import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
+
+/**
+ * Without a store, where a flow's projects are read (`heldProjects`): the
+ * host's, else its record's. An event trigger's hold reads them too.
+ */
+export function heldFlowProjects(
+  binding: Pick<FlowRegistryBinding, 'listVersions'> | undefined,
+  serving: ItemServing | undefined,
+): HeldProjects {
+  return heldProjects(serving, 'flow', async (c, id) =>
+    binding === undefined
+      ? []
+      : recordedProjects(
+          binding.listVersions({
+            tenantId: c.get('tenantId') as TenantId,
+            flowId: id as FlowId,
+            limit: 1,
+            includeTombstoned: true,
+          }),
+        ),
+  );
+}
 
 /**
  * Flows resource routes.
@@ -121,11 +147,13 @@ export function flowsRouter(
     refuseWritesWhenReadOnly(() => binding.readOnly),
   );
 
+  const held = heldFlowProjects(binding, itemServing);
   const pinDeps = {
     ...(authorizer !== undefined && { authorizer }),
     ...(itemRights !== undefined && { itemRights }),
     ...(referenceScope !== undefined && { referenceScope }),
     ...(environmentOrders !== undefined && { environmentOrders }),
+    held,
   };
   const pinWrite = (c: Context<AppEnv>) =>
     pinnedVersions !== undefined && isPinWrite(c.req.method, c.req.path);
@@ -199,6 +227,18 @@ export function flowsRouter(
     if (pinnedVersions !== undefined) {
       r.use('/:flowId/*', pinRightsMiddleware('flow', 'flowId', pinDeps));
     }
+    // Nor changes a flow by its id beyond its project, as a store asks it
+    // (`itemHold`): a version. A pin write is held above.
+    r.use(
+      '/:flowId/*',
+      itemHold({
+        kind: 'flow',
+        id: (c) => c.req.param('flowId') ?? '',
+        today: (c) => (pinWrite(c) ? undefined : 'admin'),
+        check: itemPathCheck,
+        held,
+      }),
+    );
   }
 
   /** A version of the flow that isn't there, or that the caller can't see: one 404 for both. */

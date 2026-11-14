@@ -161,14 +161,15 @@ _CONFLICT = {
     "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
     "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
     "release-gate-needs-pin", "release-gate-descendant-unpinned", "fact-changed", "legal-hold",
-    "erasure-in-progress", "provider-key-in-use",
+    "erasure-in-progress", "provider-key-in-use", "identity-provider-key-in-use",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
     "guardrail-config-invalid", "provider-config-invalid",
-    "scope-invalid", "artifact-too-large", "provider-key-refused",
+    "scope-invalid", "artifact-too-large", "provider-key-refused", "connection-key-refused",
+    "identity-provider-key-refused",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",

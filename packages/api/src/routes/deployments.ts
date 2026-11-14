@@ -106,11 +106,18 @@ import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { holdLimitedCaller } from '../middleware/key-project.js';
+import { holdLimitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseConnectionKeyNames,
+  refuseIdentityProviderKeyNames,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import {
   PROJECT_MISMATCH,
   PublishRefused,
@@ -272,6 +279,18 @@ export interface DeploymentsRouterBindings {
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
+  /**
+   * A texts registration's account key is never named here, by a tool or
+   * by a name its pack declares in `env` (`400 connection-key-refused`,
+   * `details.secret` and `details.appId`); absent, not checked.
+   */
+  readonly connectionKeys?: ConnectionKeys;
+  /**
+   * An identity provider's secret is never named here either, by a tool or
+   * by a pack's `env` (`400 identity-provider-key-refused`, `details.secret`
+   * and `details.identityProviderId`); absent, not checked.
+   */
+  readonly identityProviderKeys?: IdentityProviderKeys;
   /**
    * What the deployment's project may reference (`reference-scope.ts`):
    * an agent or flow it brings that names an item neither it brings nor
@@ -1034,6 +1053,8 @@ export function deploymentsRouter(
           tenantId,
           toolSecretNames(tool),
           'a tool',
+          { keys: bindings.connectionKeys },
+          bindings.identityProviderKeys,
         );
         if (refusal !== undefined) {
           keyIssues.push({
@@ -1047,6 +1068,31 @@ export function deploymentsRouter(
       }
     }
     if (keyIssues.length > 0) return validationFailed(c, keyIssues);
+    // Nor is a texts registration's account key or an identity provider's
+    // secret a name its pack declares in `env`: its pack service would get
+    // it. Required names first, then optional, each list sorted as
+    // `resolvePackEnv` gives it (code-unit order).
+    if (declaredEnv.value !== undefined) {
+      const tenantId = c.get('tenantId') as TenantId;
+      const declared = [...declaredEnv.value.required, ...declaredEnv.value.optional];
+      const refusal =
+        (await refuseConnectionKeyNames(
+          bindings.connectionKeys,
+          tenantId,
+          declared,
+          "a pack's env",
+        )) ??
+        (await refuseIdentityProviderKeyNames(
+          bindings.identityProviderKeys,
+          tenantId,
+          declared,
+          "a pack's env",
+        ));
+      if (refusal !== undefined) {
+        c.status(statusFor(refusal.code) as never);
+        return c.json(toWireError(refusal, requestId));
+      }
+    }
 
     // The pack's data blocks are published into the runtime's block
     // registry: a runtime without one takes none.
@@ -1718,7 +1764,11 @@ export function deploymentsRouter(
     }
     const deployment = located.deployment;
     const scope = deploymentSecretScope(deployment.tenantId, deployment.projectId);
-    const refused = await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
+    // Without a store, a project-limited key's is held where a store refuses it.
+    const refused =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'admin', scopeResourceRef(scope, tenantId), 'the deployment')
+        : await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
     if (refused !== undefined) return refused;
 
     let body: unknown;

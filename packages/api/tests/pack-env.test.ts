@@ -16,7 +16,13 @@ import {
   packEnvCheck,
   packEnvValues,
 } from '../src/pack-env.js';
-import type { SecretError, SecretRecord, SecretResolveInput } from '../src/secrets-binding.js';
+import { type ConnectionKeys, guardSecretKeys } from '../src/provider-keys.js';
+import type {
+  SecretBinding,
+  SecretError,
+  SecretRecord,
+  SecretResolveInput,
+} from '../src/secrets-binding.js';
 
 /**
  * A pack's declared env on a server that runs a pack service per
@@ -879,6 +885,38 @@ describe('packEnvValues with secret values', () => {
     );
     expect(read.check.problem).toBe('pack-env-missing');
     expect(s.resolved).toHaveLength(0);
+  });
+
+  test("a texts registration's account key, behind the pack env's guard: unreadable, no value, and the store isn't asked for it", async () => {
+    const s = stores();
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://staging.acme.test');
+    s.setSecret(projectScope(staging), 'ACME_API_KEY');
+    s.setSecret(projectScope(staging), 'SHOP_TOKEN', false, 'sk-readable-value');
+    const connectionKeys: ConnectionKeys = {
+      holders: async (_tenantId, name) => (name === 'ACME_API_KEY' ? ['acme-texts-app'] : []),
+    };
+    const deps = {
+      ...s.deps,
+      secrets: guardSecretKeys(s.deps.secrets as SecretBinding, { connectionKeys }, "a pack's env"),
+    };
+    const a = audit();
+    const l = logger();
+    const read = await served(deps, { ...asked(a.binding), log: l.log });
+    expect(read.check.problem).toBe('pack-env-secret-unreadable');
+    expect(read.check.names.find((n) => n.name === 'ACME_API_KEY')?.problem).toBe('unreadable');
+    expect(read.values).toBeUndefined();
+    expect(read.secrets).toBeUndefined();
+    expect(s.resolved.map((r) => r.name)).not.toContain('ACME_API_KEY');
+    expect(a.batches).toHaveLength(0);
+    expect(l.warned.map((w) => w.fields)).toEqual([
+      {
+        event: 'pack-env-secret-unreadable',
+        deploymentId: 'd-secrets',
+        name: 'ACME_API_KEY',
+        code: 'connection-key-refused',
+      },
+    ]);
+    expect(JSON.stringify([read, l.warned])).not.toContain('sk-readable-value');
   });
 
   test.each([['refused'], ['throws']] as const)(

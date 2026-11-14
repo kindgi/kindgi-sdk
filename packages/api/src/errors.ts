@@ -649,6 +649,15 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,
   'provider-key-in-use': 409,
+  // A texts registration's account key is used by its registration only:
+  // named by a tool, an endpoint, a webhook trigger, a destination, a model
+  // provider or another connection app registration (400).
+  'connection-key-refused': 400,
+  // An identity provider's secret signs the tenant's people in: named by
+  // anything but sign-in (400), or named by an identity provider while
+  // something else uses it (409).
+  'identity-provider-key-refused': 400,
+  'identity-provider-key-in-use': 409,
   // A slug another org, team or project in the tenant already has; a
   // second default project.
   'slug-conflict': 409,
@@ -697,6 +706,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
+  /**
+   * Another live text trigger answers the connection (`details.heldBy`,
+   * which can name a trigger in another project of the workspace).
+   */
+  'trigger-connection-taken': 409,
   'trigger-already-in-state': 409,
   'trigger-register-failed': 500,
   'trigger-update-failed': 500,
@@ -717,6 +731,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
+  // Destinations (`/v1/destinations`).
+  'destination-not-found': 404,
+  'destination-delivery-not-found': 404,
+  'destination-url-refused': 400,
+  'destination-secret-not-found': 400,
+  'destination-secret-too-weak': 400,
   // Connections (`/v1/connection-apps`, `/v1/connections`, `/v1/connection-choices`).
   'connection-app-not-found': 404,
   'connection-not-found': 404,
@@ -740,7 +760,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-request-used': 409,
   /** The sign-in at the app took longer than its state lives: start again. */
   'connection-state-expired': 410,
-  /** A reconnect signed in to an account other than the connection's. */
+  /**
+   * A reconnect signed in to an account other than the connection's, or
+   * a number's reconnect that names another number.
+   */
   'connection-account-mismatch': 409,
   /**
    * A connect's or a rename's `label` another live connection of the same
@@ -766,14 +789,49 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * disconnect it again to finish, then connect.
    */
   'connection-removing': 409,
-  /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
+  /**
+   * The app wouldn't give a token for the code: its client id, secret or
+   * redirect URL. Or a texting provider refused the registration's key or
+   * the number's lookup: the provider's code is in the message, never its
+   * headers.
+   */
   'connection-app-refused': 502,
+  /**
+   * A number's connect whose inbound texts go somewhere else today:
+   * `details.host` (a webhook's) or `details.profile` (a messaging
+   * profile's name) says where. `replaceInbound: true` connects anyway.
+   */
+  'inbound-in-use': 409,
+  /**
+   * A number's connect while it's live through another of the tenant's
+   * texts registrations, or in another env: `details.appId` and
+   * `details.envName` name where.
+   */
+  'number-in-use': 409,
+  /**
+   * A number's disconnect that couldn't put its old inbound back: the
+   * connection stays `removing`, `details.host` or `details.profile` names
+   * the old inbound, and disconnecting again retries.
+   */
+  'inbound-restore-failed': 502,
+  /**
+   * A texts registration naming as its key a secret that a tool, an
+   * endpoint, a webhook trigger, a destination or another connection app
+   * registration uses: `details.secret` and `details.usedBy` name them.
+   * Nothing is stored.
+   */
+  'connection-key-in-use': 409,
   'connection-store-failed': 503,
   // An app's notice (`POST /v1/connection-notices/…`): one answer for any
   // notice not accepted, whatever the reason; the server's own trouble is a
   // 503, and the app sends it again.
   'connection-notice-invalid': 400,
   'connection-notice-unavailable': 503,
+  // Texts a provider delivers (`/v1/texts-inbound/...`): one answer for any
+  // request that doesn't prove its sender, whatever the reason; the
+  // server's own trouble is a 503, and the provider sends them again.
+  'texts-inbound-refused': 401,
+  'texts-inbound-unavailable': 503,
   // Public run tokens.
   'token-mint-failed': 500,
 } as const;
