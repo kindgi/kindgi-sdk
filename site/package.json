@@ -26,7 +26,7 @@
     "@kindgi/cli": "workspace:*",
     "@kindgi/env-schema": "workspace:*",
     "@kindgi/specs": "workspace:*",
-    "astro": "^7.2.10",
+    "astro": "^7.4.7",
     "hast-util-select": "^6.0.4",
     "rehype-parse": "^9.0.1",
     "rehype-remark": "^10.0.1",
