@@ -159,6 +159,16 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
         }
 
         /**
+         * How an app's own Jackson reads an int: it hands a number to the object creator unless an int creator is here.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        private static Limit ofInt(int value) {
+            return of((long) value);
+        }
+
+        /**
          * How an app's own Jackson reads an object: by the properties it has.
          */
         @JsonCreator(
@@ -379,6 +389,26 @@ public record Gate(@JsonProperty("separate") @Nullable GateSeparate separate,
         )
         static Weight of(double value) {
             return new Value(value);
+        }
+
+        /**
+         * How an app's own Jackson reads an int: it hands a number to the object creator unless an int creator is here.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        private static Weight ofInt(int value) {
+            return of((double) value);
+        }
+
+        /**
+         * How an app's own Jackson reads a long: it needs a long creator to, as {@code of} takes a double.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        private static Weight ofLong(long value) {
+            return of((double) value);
         }
 
         /**

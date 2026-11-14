@@ -728,6 +728,12 @@ final class ModelWriter {
               .addParameter(value.scalar(), "value")
               .addStatement("return new $T(value)", value.type())
               .build());
+      if (value.scalar().equals(TypeName.LONG) || value.scalar().equals(TypeName.DOUBLE)) {
+        ib.addMethod(numberCreator(u, TypeName.INT));
+      }
+      if (value.scalar().equals(TypeName.DOUBLE)) {
+        ib.addMethod(numberCreator(u, TypeName.LONG));
+      }
       ib.addMethod(objectCreator(u));
       ib.addType(scalarVariant(u, value));
     }
@@ -759,6 +765,26 @@ final class ModelWriter {
           .addStatement("return ($T) value", u.name);
     }
     return object.build();
+  }
+
+  /**
+   * A private creator beside a scalar-or-object union's {@code of}, for an app's own Jackson: with
+   * the object creator there, it hands a JSON int or long to that creator unless one takes an
+   * {@code int} or a {@code long}. It reads the number through {@code of}.
+   */
+  private static MethodSpec numberCreator(Ir.UnionDecl u, TypeName from) {
+    boolean isInt = from.equals(TypeName.INT);
+    return MethodSpec.methodBuilder(isInt ? "ofInt" : "ofLong")
+        .addJavadoc(
+            isInt
+                ? "How an app's own Jackson reads an int: it hands a number to the object creator unless an int creator is here.\n"
+                : "How an app's own Jackson reads a long: it needs a long creator to, as {@code of} takes a double.\n")
+        .addAnnotation(delegatingCreator())
+        .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+        .returns(u.name)
+        .addParameter(from, "value")
+        .addStatement("return of(($T) value)", u.scalarVariant().scalar())
+        .build();
   }
 
   /**
