@@ -8,7 +8,7 @@
  * `attw --pack <dir>` runs `npm pack` in the package's folder, reads the
  * tarball by its fixed name and deletes it. Two runs on one package at once
  * (a package with programs gets two) share that file, and one deletes it
- * under the other: `ENOENT … unlink …/<name>-<version>.tgz` (T395). Here each
+ * under the other: `ENOENT … unlink …/<name>-<version>.tgz`. Here each
  * pack has its own temporary directory, removed after, so packs of one
  * package never meet and nothing is left in the package's folder.
  */

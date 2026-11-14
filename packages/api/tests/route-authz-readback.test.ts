@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Readback and authorization (T243 A): observations, cost records and
+ * Readback and authorization: observations, cost records and
  * provenance show only what the caller may read.
  *
  *   - Observations: those of agents the caller may read.
@@ -262,7 +262,7 @@ describe("provenance needs `read` on the run's project", () => {
 
   test("an id that isn't a run id is never looked up for the check: the handler's 404", async () => {
     // A run id that isn't one names a run with no provenance, as an
-    // unknown one does (the runtime answers it without a query, T312).
+    // unknown one does (the runtime answers it without a query).
     const { call } = harness([TENANT_READ]);
     expect((await call('GET', '/v1/provenance/None')).status).toBe(404);
   });

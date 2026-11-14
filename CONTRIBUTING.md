@@ -72,10 +72,11 @@ A check on the pull request asks for any of them that's missing.
   describe things by their role ("the runtime", "the runtime's release").
   `pnpm run check:refs` (CI) checks files; the **PR text** check checks a
   pull request's own text, and runs again when you edit the description.
-  A pull request's text also leaves out internal tracking references
-  (ticket and step ids, process rule numbers, release batch names,
-  working session names), and
-  its commits are public too: the commit-msg hook
+  Files and a pull request's text also leave out internal tracking
+  references: ticket ids, process rule numbers and release batch names.
+  A pull request's text leaves out step ids and working session names
+  too; in a file they're often sample data. A changelog keeps what its
+  releases said. A pull request's commits are public too: the commit-msg hook
   (`scripts/hooks/commit-msg`, installed by `pnpm install`) refuses such
   a message before the commit exists, while rewording is still easy. A
   real term that looks like one goes in `ALLOWED_TERMS`

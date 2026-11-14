@@ -3,8 +3,8 @@
 
 /**
  * `kindgi doctor`: whether this machine and this folder are ready to run
- * Kindgi, each check with what it found and, when it fails, the exact fix
- * (T130). A coding agent reads `--json` and fixes what fails; a person
+ * Kindgi, each check with what it found and, when it fails, the exact fix.
+ * A coding agent reads `--json` and fixes what fails; a person
  * reads the ✓/✗ lines. Any failed check exits 1.
  *
  * The checks, in order: Node, npm, Python and uv (a Python project's),
@@ -1142,7 +1142,7 @@ async function runtimeCheck(
   try {
     const res = await ctx.fetch(url, { method: 'GET', signal: AbortSignal.timeout(5000) });
     if (res.ok) {
-      // Where to open it: the console, when the runtime serves one (T374).
+      // Where to open it: the console, when the runtime serves one.
       const consoleProbe = await probeConsole(ctx.fetch, rc.apiUrl);
       return consoleProbe.kind === 'served'
         ? {
@@ -1628,7 +1628,7 @@ interface ConfigIssue {
 
 /**
  * Each provider's configuration problems by its adapter's own static check
- * (`GET /v1/providers/{id}/check`, T362): only the providers with any.
+ * (`GET /v1/providers/{id}/check`): only the providers with any.
  * `issues` stop the runtime building it; `warnings` are `adapter_config`
  * keys it builds without reading (a runtime before 0.3.0 leaves them out:
  * it has none). `undefined` when the runtime has no such route (older than

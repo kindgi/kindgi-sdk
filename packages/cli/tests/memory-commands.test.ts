@@ -3,7 +3,7 @@
 
 /**
  * `kindgi memory facts list / get / revisions / write / supersede /
- * delete / verify` (T238, T273), through the client's `memory.facts`.
+ * delete / verify`, through the client's `memory.facts`.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -80,7 +80,7 @@ async function memory(argv: readonly string[]) {
   return { out, calls };
 }
 
-describe('kindgi memory facts (T238)', () => {
+describe('kindgi memory facts', () => {
   test('list, with every filter', async () => {
     const { out, calls } = await memory([
       'list',

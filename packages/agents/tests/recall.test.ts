@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Recalling earlier conversations (T273 M-4): an intent with `source:
+ * Recalling earlier conversations: an intent with `source:
  * 'conversations'` recalls this agent's earlier conversations, within what
  * the run may recall. `same-user` stays with the turn's person;
  * `same-segment` and `same-project` reach other people's conversations in

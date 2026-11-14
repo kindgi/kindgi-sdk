@@ -103,7 +103,7 @@ export function correctionsRouter(
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
   flows?: FlowRegistryBinding,
-  /** Whose reviewer role an expert group checks (T200). */
+  /** Whose reviewer role an expert group checks. */
   reviewers?: ReviewerBinding,
   /** Resolves a corrected agent version's tools, so a correction can only name tools it has. */
   agents?: AgentRegistryBinding,

@@ -654,7 +654,7 @@ describe('POST /v1/corrections', () => {
     expect(res.body.error.code).toBe('run-not-finished');
   });
 
-  test('a run an erasure cleared: 410 run-erased, never run-not-finished (T273 M-5)', async () => {
+  test('a run an erasure cleared: 410 run-erased, never run-not-finished', async () => {
     const run = row({
       status: 'completed',
       output: null,
@@ -1262,7 +1262,7 @@ describe('/v1/corrector-groups', () => {
   });
 });
 
-describe('expert groups (assertableBy, T200)', () => {
+describe('expert groups (assertableBy)', () => {
   async function expertGroup(h: Harness, assertableBy: unknown): Promise<string> {
     const res = await h.call('POST', '/v1/corrector-groups', {
       scope: { kind: 'tenant' },

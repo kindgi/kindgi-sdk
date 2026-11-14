@@ -45,7 +45,7 @@ const TEAM_B = 'team-B' as TeamId;
 const ORG_A = 'org-A' as OrgId;
 const ORG_B = 'org-B' as OrgId;
 /**
- * An org the binding doesn't know (T220), for the `checksOrgs` cases: a
+ * An org the binding doesn't know, for the `checksOrgs` cases: a
  * binding that checks orgs is made so this one isn't the tenant's.
  */
 export const CONFORMANCE_MISSING_ORG = 'org-missing' as OrgId;
@@ -1015,7 +1015,7 @@ export function runProjectBindingConformance(
   });
 
   if (options.checksOrgs === true) {
-    describe(`${label} — an org that isn't the tenant's (T220)`, () => {
+    describe(`${label} — an org that isn't the tenant's`, () => {
       it('creating a project in it: org-not-found, and nothing is created', async () => {
         const { projects } = makeBinding();
         expect(

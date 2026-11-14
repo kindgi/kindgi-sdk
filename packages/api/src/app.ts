@@ -1750,7 +1750,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
   // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
-  // names no project (T247).
+  // names no project.
   const projectRef = refuseBadProjectId(input.projectBinding);
   for (const path of PROJECT_REF_ROUTES) v1.use(path, projectRef);
   v1.route(
