@@ -536,12 +536,12 @@ describe('the update route', () => {
     const h = harness();
     await h.addVersion(
       bytes('# v3'),
-      as({ 'content-length': '4', 'kindgi-file-name': 'Notizen%20M%C3%A4rz.md' }),
+      as({ 'content-length': '4', 'kindgi-file-name': 'Notizen%20M%C3%A4rz.txt' }),
     );
     await h.addVersion(bytes('# v3'), as({ 'kindgi-file-name': '' }));
     await h.addVersion(bytes('# v3'), as({}));
     expect(h.updated[0]?.declaredBytes).toBe(4);
-    expect(h.updated.map((u) => u.name)).toEqual(['Notizen März.md', undefined, undefined]);
+    expect(h.updated.map((u) => u.name)).toEqual(['Notizen März.txt', undefined, undefined]);
     expect(h.updated.map((u) => 'name' in u)).toEqual([true, false, false]);
     expect(h.updated[2]?.contentType).toBe('');
   });

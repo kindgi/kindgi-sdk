@@ -486,14 +486,14 @@ describe('a tool that updates files', () => {
 
   test("sends a new name percent-encoded, and the file's id percent-encoded under the link", async () => {
     const update = updateOf(fileStoreOf({ url: `${url}/`, token }, UPDATES));
-    await update({ ...notes, fileId: 'file 1/x', name: 'Notizen März.md' });
+    await update({ ...notes, fileId: 'file 1/x', name: 'Notizen März.txt' });
     await update({ ...notes, name: '' });
     expect(received.map((r) => r.path)).toEqual([
       '/v1/tool-files/file%201%2Fx/versions',
       '/v1/tool-files/file-1/versions',
     ]);
     expect(received.map((r) => r.headers['kindgi-file-name'])).toEqual([
-      'Notizen%20M%C3%A4rz.md',
+      'Notizen%20M%C3%A4rz.txt',
       undefined,
     ]);
   });

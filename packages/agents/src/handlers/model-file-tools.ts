@@ -174,7 +174,7 @@ function createFileTool(create: Create): Tool {
             type: 'string',
             minLength: 1,
             maxLength: 200,
-            description: 'The file\'s name, with its extension (e.g. "summary.md").',
+            description: 'The file\'s name, with its extension (e.g. "summary.txt").',
           },
           content: { type: 'string', description: 'The whole text of the file.' },
           contentType: {

@@ -34,8 +34,8 @@ const VERSION = {
   fileId: 'f-1',
   version: 2,
   blobId: 'b-2',
-  name: 'report.md',
-  contentType: 'text/markdown',
+  name: 'report.txt',
+  contentType: 'text/plain',
   size: 5,
   hash: sha256('hello'),
   tags: {},
@@ -48,7 +48,7 @@ const VERSION = {
 const FILE = {
   fileId: 'f-1',
   tenantId: 't',
-  name: 'report.md',
+  name: 'report.txt',
   projectId: 'p-1',
   ownerRunId: 'r-1',
   latestVersion: 2,
@@ -154,8 +154,8 @@ async function run(argv: readonly string[], fakes: Fakes = {}) {
             download: rec('files.versions.download', () => ({
               fileId: 'f-1',
               version: 2,
-              name: 'report.md',
-              contentType: 'text/markdown',
+              name: 'report.txt',
+              contentType: 'text/plain',
               size: 5,
               hash: fakes.hash ?? sha256(fakes.body ?? 'hello'),
               body: new Response(fakes.body ?? 'hello').body!,
@@ -198,7 +198,7 @@ describe('kindgi files list, get, versions, pin-history', () => {
 
     const table = await run(['files', 'list', '--table']);
     expect(table.out.stdout).toMatch(/^ID\s+NAME\s+TYPE\s+LATEST\s+SIZE\s+PROJECT\s+RUN\s+UPDATED/);
-    expect(table.out.stdout).toMatch(/f-1\s+report\.md\s+text\/markdown\s+v2\s+5\s+p-1\s+r-1/);
+    expect(table.out.stdout).toMatch(/f-1\s+report\.txt\s+text\/plain\s+v2\s+5\s+p-1\s+r-1/);
     expect(table.out.stderr).toBe('Next page: --cursor=c-2\n');
   });
 
@@ -256,23 +256,23 @@ describe('kindgi files download', () => {
     expect(JSON.parse(out.stdout)).toEqual({
       fileId: 'f-1',
       version: 2,
-      file: join(cwd, 'report.md'),
+      file: join(cwd, 'report.txt'),
       size: 5,
       hash: sha256('hello'),
     });
-    expect(await readFile(join(cwd, 'report.md'), 'utf8')).toBe('hello');
+    expect(await readFile(join(cwd, 'report.txt'), 'utf8')).toBe('hello');
   });
 
   test('a named version, to -o; a file already there is kept without --force', async () => {
-    const { calls } = await run(['files', 'download', 'f-1', '1', '-o', 'v1.md']);
+    const { calls } = await run(['files', 'download', 'f-1', '1', '-o', 'v1.txt']);
     expect(calls).toEqual([['files.versions.download', 'f-1', 1]]);
-    expect(await readFile(join(cwd, 'v1.md'), 'utf8')).toBe('hello');
+    expect(await readFile(join(cwd, 'v1.txt'), 'utf8')).toBe('hello');
 
-    await writeFile(join(cwd, 'v1.md'), 'old');
-    const again = await run(['files', 'download', 'f-1', '1', '-o', 'v1.md']);
+    await writeFile(join(cwd, 'v1.txt'), 'old');
+    const again = await run(['files', 'download', 'f-1', '1', '-o', 'v1.txt']);
     expect(again.out.exitCode).toBe(1);
-    expect(again.out.stderr).toContain(`${join(cwd, 'v1.md')} exists: pass --force`);
-    expect(await readFile(join(cwd, 'v1.md'), 'utf8')).toBe('old');
+    expect(again.out.stderr).toContain(`${join(cwd, 'v1.txt')} exists: pass --force`);
+    expect(await readFile(join(cwd, 'v1.txt'), 'utf8')).toBe('old');
   });
 
   test("bytes that aren't the version's are never written", async () => {
@@ -319,11 +319,11 @@ describe('kindgi files upload and restore', () => {
   });
 
   test('with --to, a version of that file; --content-type wins over the guess', async () => {
-    await writeFile(join(cwd, 'report.md'), 'hello');
+    await writeFile(join(cwd, 'report.txt'), 'hello');
     const { out, calls } = await run([
       'files',
       'upload',
-      'report.md',
+      'report.txt',
       '--to=f-1',
       '--expected-version=2',
       '--content-type=application/octet-stream',
@@ -343,8 +343,8 @@ describe('kindgi files upload and restore', () => {
   });
 
   test("bytes that are Latest's already add nothing, and say so; exit 0", async () => {
-    await writeFile(join(cwd, 'report.md'), 'hello');
-    const { out } = await run(['files', 'upload', 'report.md', '--to=f-1'], {
+    await writeFile(join(cwd, 'report.txt'), 'hello');
+    const { out } = await run(['files', 'upload', 'report.txt', '--to=f-1'], {
       write: () => ({ version: VERSION, created: false }),
     });
     expect(out.exitCode).toBe(0);
@@ -353,9 +353,9 @@ describe('kindgi files upload and restore', () => {
   });
 
   test('a Latest that moved writes nothing: both numbers, exit 1', async () => {
-    await writeFile(join(cwd, 'report.md'), 'hello');
+    await writeFile(join(cwd, 'report.txt'), 'hello');
     const { out } = await run(
-      ['files', 'upload', 'report.md', '--to=f-1', '--expected-version=4'],
+      ['files', 'upload', 'report.txt', '--to=f-1', '--expected-version=4'],
       {
         write: () => {
           throw conflict(4, 5);
@@ -368,13 +368,13 @@ describe('kindgi files upload and restore', () => {
   });
 
   test('--to with --run or --project, or --expected-version alone, is called wrong', async () => {
-    await writeFile(join(cwd, 'report.md'), 'hello');
+    await writeFile(join(cwd, 'report.txt'), 'hello');
     for (const argv of [
       ['--to=f-1', '--run=r-1'],
       ['--to=f-1', '--project=p-1'],
       ['--expected-version=1'],
     ]) {
-      const { out, calls } = await run(['files', 'upload', 'report.md', ...argv]);
+      const { out, calls } = await run(['files', 'upload', 'report.txt', ...argv]);
       expect(out.exitCode, argv.join(' ')).toBe(2);
       expect(calls).toEqual([]);
     }
@@ -446,8 +446,8 @@ describe('kindgi files delete', () => {
     ]);
     const no = await run(['files', 'delete', 'f-1', '2'], { connectionsSeam: seam(false) });
     expect(asked).toEqual([
-      'Delete report.md and its 2 versions? [y/N] ',
-      'Delete version 2 of report.md? [y/N] ',
+      'Delete report.txt and its 2 versions? [y/N] ',
+      'Delete version 2 of report.txt? [y/N] ',
     ]);
     expect([no.out.exitCode, no.out.stderr]).toEqual([
       1,
@@ -459,10 +459,10 @@ describe('kindgi files delete', () => {
 
 describe('a runtime without the file store', () => {
   test('every command says so plainly, and exits 1', async () => {
-    await writeFile(join(cwd, 'report.md'), 'hello');
+    await writeFile(join(cwd, 'report.txt'), 'hello');
     for (const argv of [
       ['files', 'list'],
-      ['files', 'upload', 'report.md'],
+      ['files', 'upload', 'report.txt'],
       ['files', 'delete', 'f-1', '--yes'],
     ]) {
       const { out } = await run(argv, { fails: NO_ROUTE });

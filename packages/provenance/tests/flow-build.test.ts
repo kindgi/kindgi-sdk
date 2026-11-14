@@ -1474,7 +1474,7 @@ describe('file versions', () => {
           {
             fileId: 'brief',
             fileVersion: 4,
-            fileName: 'brief.md',
+            fileName: 'brief.txt',
             contentHash: H1,
             how: 'input',
             at: at(0),
@@ -1482,7 +1482,7 @@ describe('file versions', () => {
           {
             fileId: 'notes',
             fileVersion: 1,
-            fileName: 'notes.md',
+            fileName: 'notes.txt',
             contentHash: H2,
             how: 'made',
             step: s('s0'),
@@ -1491,7 +1491,7 @@ describe('file versions', () => {
           {
             fileId: 'notes',
             fileVersion: 2,
-            fileName: 'notes.md',
+            fileName: 'notes.txt',
             contentHash: H3,
             filePreviousVersion: 1,
             how: 'made',
@@ -1501,7 +1501,7 @@ describe('file versions', () => {
           {
             fileId: 'brief',
             fileVersion: 4,
-            fileName: 'brief.md',
+            fileName: 'brief.txt',
             contentHash: H1,
             how: 'given',
             step: s('s1'),
@@ -1518,13 +1518,18 @@ describe('file versions', () => {
       kind: 'artifact',
       timestamp: at(5),
       contentHash: H3,
-      attributes: { fileId: 'notes', fileVersion: 2, fileName: 'notes.md', filePreviousVersion: 1 },
+      attributes: {
+        fileId: 'notes',
+        fileVersion: 2,
+        fileName: 'notes.txt',
+        filePreviousVersion: 1,
+      },
     });
     // The version the input named and a step was given is one node, with both edges.
     expect(fileVersionOf(nodeOf(record, 'file:brief@v4'))).toEqual({
       fileId: 'brief',
       fileVersion: 4,
-      fileName: 'brief.md',
+      fileName: 'brief.txt',
     });
     expect(fileEdges(record)).toEqual([
       'file:notes@v1 -produced-> step:s0',
@@ -1545,7 +1550,12 @@ describe('file versions', () => {
     // The run's output is notes v2: its node carries that version.
     expect(nodeOf(record, 'output')).toMatchObject({
       contentHash: H3,
-      attributes: { fileId: 'notes', fileVersion: 2, fileName: 'notes.md', filePreviousVersion: 1 },
+      attributes: {
+        fileId: 'notes',
+        fileVersion: 2,
+        fileName: 'notes.txt',
+        filePreviousVersion: 1,
+      },
     });
     expectConnected(record);
   });
