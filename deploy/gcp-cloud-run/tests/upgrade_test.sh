@@ -178,7 +178,8 @@ case "${1:-}" in
     # later file over an earlier one and -var over both, as terraform reads
     # them; STUB_PLAN_CHANGES adds resource changes; STUB_SERVER_ENV
     # ({before, after, after_unknown}) adds env entries to the server's own
-    # change; STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
+    # change, and STUB_SERVER_PROBE ({before, after}) its startup probe;
+    # STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
     out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
@@ -202,17 +203,19 @@ case "${1:-}" in
     if [[ -n $out ]]; then
       jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
         --arg pold "${STUB_PACK_BEFORE:-}" --arg pnew "${pack:-${STUB_PACK_BEFORE:-}}" \
-        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" '
-        def svc($n; $addr; $b; $a; $env):
+        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" \
+        --argjson sprobe "${STUB_SERVER_PROBE:-null}" '
+        def probe($p): if $p == null then {} else {startup_probe: [$p]} end;
+        def svc($n; $addr; $b; $a; $env; $probe):
           {name: "KINDGI_ENV", value: "dev", value_source: []} as $base
           | {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
-           change: {actions: (if $b == $a and $env == null then ["no-op"] else ["update"] end),
-             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))}]}]},
-             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))}]}]},
+           change: {actions: (if $b == $a and $env == null and $probe == null then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))} + probe($probe.before)]}]},
+             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))} + probe($probe.after)]}]},
              after_unknown: {template: [{containers: [{env: ([{}] + ($env.after_unknown // []))}]}]}}};
         {format_version: "1.2",
-         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv)]
-           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null)] end)
+         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv; $sprobe)]
+           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null; null)] end)
            + $extra)}' >"$out"
     fi
     exit "${STUB_PLAN_RC:-0}" ;;
@@ -291,7 +294,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_EXPORT_403 STUB_EXPORT_403_OTHER STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
-        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
+        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_SERVER_PROBE STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
         STUB_REMOVED_RC \
         V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
@@ -2091,6 +2094,41 @@ run "yes" --var-file "$PACK_ENV_FILE"
 assert_rc 0 "it runs"
 assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
 if grep -q "pack_min_instances was" "$OUT"; then fail "a pack service at 0 got the scale-to-zero note"; else pass; fi
+
+# 84. The server's startup probe at 10 minutes, 120 tries 5 s apart (from
+# 24), passes the check when the run crosses 0.6.1, the release that ships
+# it, and stops it when it doesn't. The script knows 0.6.1 once the release
+# puts it in KNOWN_RELEASES. Until then the half that crosses it runs on a
+# copy that knows it; once the script does, this row fails, and that half
+# runs on the script itself. The row also fails if the script knows a
+# release after 0.6.1 but not 0.6.1 itself: then that release ships the
+# probe, and the 0.6.1 cases move to its name.
+SERVER_PROBE='{"before":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":24},"after":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":120}}'
+case_start "the server's 10-minute startup probe, on a run that doesn't cross its release"
+reset_env; export STUB_TAGS="0.4.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.5.0
+assert_rc 1 "the probe change stops a run to 0.5.0"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.startup_probe.failure_threshold" "the threshold named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+if grep -q '^readonly KNOWN_RELEASES=(.*"0\.6\.1".*)$' "$SCRIPT"; then fail "the script knows 0.6.1 now: run the half that crosses it on the script itself"; else pass; fi
+if ! grep -q '^readonly KNOWN_RELEASES=(.*"0\.6\.1".*)$' "$SCRIPT" && grep -q -E '^readonly KNOWN_RELEASES=\(.*"(0\.6\.([2-9]|[1-9][0-9])|0\.([7-9]|[1-9][0-9])\.[0-9]+|[1-9][0-9]*\.[0-9]+\.[0-9]+)".*\)$' "$SCRIPT"; then fail "the script knows a release after 0.6.1 but not 0.6.1: move the 0.6.1 cases to the release that ships the probe"; else pass; fi
+PROBE_SCRIPT="$TMP/upgrade-0.6.1.sh"
+sed -e 's/^\(readonly KNOWN_RELEASES=(.*\))$/\1 "0.6.1")/' "$SCRIPT" >"$PROBE_SCRIPT"
+chmod +x "$PROBE_SCRIPT"
+if grep -q '^readonly KNOWN_RELEASES=(.* "0.6.1")$' "$PROBE_SCRIPT" && [[ $(grep -c -x ' *0\.6\.1)' "$PROBE_SCRIPT") -eq 2 ]]; then pass; else fail "the copy doesn't know 0.6.1"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$PROBE_SCRIPT"
+
+case_start "the server's 10-minute startup probe, crossing its release"
+reset_env; export STUB_TAGS="0.6.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.6.1
+assert_rc 0 "the probe change passes"
+assert_out "crossing: 0.6.1$"
+assert_out "its startup probe allows"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
