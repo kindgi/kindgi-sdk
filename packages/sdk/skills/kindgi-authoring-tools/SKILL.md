@@ -61,20 +61,11 @@ logic lives:
 `handler` and `spec` are MUTUALLY EXCLUSIVE. Setting both (or neither)
 makes `defineTool` return an `invalid-tool-definition` error.
 
-## Schemas: zod 4 or a JSON Schema object
-
-`input` and `output` take a zod 4 schema (`import { z } from 'zod'`) or a
-JSON Schema object (Draft 2020-12): `{ type: 'object', properties:
-{ orderId: { type: 'string' } }, required: ['orderId'] }`. With JSON
-Schema, type the handler with `defineTool<Input, Output>`. An app on
-zod 3: write JSON Schema objects, and don't move its zod unless the
-person asks. A zod 3 schema fails, from zod 3 or `zod/v3`, and so
-does `zod/v4` from zod 3.
-
 ## Your case: read this file
 
 | Your case | Read |
 |---|---|
+| `input` and `output`: a zod 4 schema or a JSON Schema object, and an app on zod 3 | [imperative-handler.md](imperative-handler.md) |
 | A `handler`: what it gets (`input`, `ctx`), and logging | [imperative-handler.md](imperative-handler.md) |
 | A date or a time: the workspace's time zone (`ctx.timeZone`), and a date and time tool | [imperative-handler.md](imperative-handler.md) |
 | An env value, a workspace's secret, or acting in another app (a connection) | [secrets-and-connections.md](secrets-and-connections.md) |
