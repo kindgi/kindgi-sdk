@@ -97,6 +97,17 @@ export interface ToolContext {
    */
   readonly orgId?: OrgId;
   /**
+   * The workspace's time zone, an IANA name such as `America/Toronto`. An
+   * agent turn reads it once, from the workspace's `time-zone` fact, and
+   * every call the turn makes gets the same one: `UTC` when the workspace
+   * sets none, or when it can't be read. A tool that answers a date or a
+   * time answers it in this zone
+   * (`new Intl.DateTimeFormat('en-CA', { timeZone: ctx.timeZone ?? 'UTC' })`).
+   * Absent outside an agent turn (a flow's tool step, an MCP call) and
+   * from an older runtime: use UTC then. A unit test passes its own.
+   */
+  readonly timeZone?: string;
+  /**
    * Correlation id for this individual call (the model's tool-call id,
    * an MCP request id, a webhook id). Opaque to tools; useful for logs
    * and provenance. To dedupe a side effect, use `idempotencyKey`: a
@@ -373,9 +384,10 @@ export interface ToolManifest {
   /**
    * Globally-unique tool identifier. Convention: `<pack-id>.<tool-name>`
    * (kebab-case, dot-namespaced) — e.g. `acme.verify-citation`,
-   * `demo.echo`. The `<pack-id>` prefix scopes the tool to its pack;
-   * `<tool-name>` names the operation. Enforced as a `ToolId` brand;
-   * `defineTool` refuses ids that don't match the convention.
+   * `acme.fetch-order`. The `<pack-id>` prefix scopes the tool to its pack;
+   * `<tool-name>` names the operation. `defineTool` checks only that
+   * the id isn't empty and doesn't start with `kindgi_`, which is kept for
+   * tools built into Kindgi.
    */
   readonly id: ToolId;
   /**

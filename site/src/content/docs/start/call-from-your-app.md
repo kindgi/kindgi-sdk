@@ -95,7 +95,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   try {
     const run = await kindgi.runs.start({
-      agent: 'acme-support.triage',
+      agent: 'acme-support.ticket-classifier',
       input: { userMessage: `Triage ${id}` },
     });
     const { output } = run.output as { output: Triage }; // the agent's typed answer
@@ -128,7 +128,7 @@ from kindgi.client import Kindgi, KindgiApiError
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 try:
-    run = kindgi.runs.start(agent="acme-support.triage", input={"userMessage": "Triage REQ-1002"})
+    run = kindgi.runs.start(agent="acme-support.ticket-classifier", input={"userMessage": "Triage REQ-1002"})
     if run.output is None:  # a run that didn't complete has no output
         raise SystemExit(f"Run {run.id} ended {run.status}: {run.failure_message}")
     triage = run.output["output"]
@@ -150,7 +150,7 @@ import { kindgi } from '@/lib/kindgi';
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await kindgi.runs.start({
-    agent: 'acme-support.triage',
+    agent: 'acme-support.ticket-classifier',
     input: { userMessage: `Triage ${id}` },
     options: { wait: false }, // returns as soon as the run exists
   });

@@ -141,6 +141,8 @@ export const ENV_DEFAULTS = {
   KINDGI_KEPT_REPOS:
     '`off`: no kept repos, and `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses (`kept-repos-off`)',
   KINDGI_PASSIVE: '`off`',
+  KINDGI_TICK_CALLER: "none: no tick; the background work runs on the server's own timers",
+  KINDGI_SERVICE_URL: 'none (with `KINDGI_TICK_CALLER` unset)',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
   KINDGI_PAGINATION_KEY: 'none: same as `KINDGI_PAGINATION_KEY_PATH`',
@@ -174,6 +176,7 @@ export const ENV_DEFAULTS = {
   KINDGI_SECRETS_BACKEND:
     "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
+  KINDGI_CONNECTIONS_STORE: '`none`: connections are off under the `dotenv` backend',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',
   KINDGI_SECRETS_AAD_KEY: 'none: same as `KINDGI_SECRETS_AAD_KEY_PATH`',
@@ -224,6 +227,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ORCHESTRATOR_PACK_SERVICE:
     "none: each field's default, and no network of its own (ingress from anywhere, the invoker check still on)",
   KINDGI_ORCHESTRATOR_RUNTIME_AUTH: 'none: the system key alone',
+  KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS:
+    'none: every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`',
 };
 
 /**

@@ -11,7 +11,7 @@ where each part of your app's Kindgi code goes.
 A **pack** is everything Kindgi runs for your app, defined in your app's own
 language. It has an id, such as `acme-desk`, and a version. It holds four
 kinds of **primitives**: tools, agents, flows and guardrails. Each has its
-own id under the pack's, such as `acme-desk.triage`.
+own id under the pack's, such as `acme-desk.ticket-classifier`.
 
 ## Tools: your code
 

@@ -124,6 +124,7 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.context',
   'conformance.defaults',
   'conformance.echo',
+  'conformance.fails-on-purpose',
   'conformance.hold',
   'conformance.http',
   'conformance.noisy',
@@ -1299,6 +1300,34 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(String((answer.cause as { message?: unknown }).message)).toContain('boom');
       });
 
+      test("a failure on purpose: tool-failed, with the tool's code, its words as thrown and its details, and no cause", async () => {
+        // Pack protocol 2.12.0.
+        const answer = response(
+          await invoke(service, toolCall('conformance.fails-on-purpose', {})),
+        );
+        expect(answer).toEqual({
+          v: 2,
+          kind: 'error',
+          code: 'tool-failed',
+          message: 'No order Z-9',
+          toolId: 'conformance.fails-on-purpose',
+          reason: 'order-not-found',
+          details: { orderId: 'Z-9' },
+        });
+      });
+
+      test('a failure on purpose whose code the SDK refuses: handler-throw, naming the code', async () => {
+        const answer = response(
+          await invoke(service, toolCall('conformance.fails-on-purpose', { bad: true })),
+        );
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'handler-throw',
+          toolId: 'conformance.fails-on-purpose',
+        });
+        expect(String(answer.message)).toContain('"Order Not Found"');
+      });
+
       test("an app's refusal of a connection, or an error caused by one: connection-rejected, naming it", async () => {
         // Pack protocol 2.9.0: the runtime renews that connection's token and calls once more.
         const accessToken = 'refused-mail-token';
@@ -1357,6 +1386,8 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           requestId: 'req-1',
           // Pack protocol 2.6.0: the call's idempotency key, as the runtime sends it.
           idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
+          // Pack protocol 2.12.0: the workspace's time zone.
+          timeZone: 'America/Toronto',
           projectId: 'project-1',
           orgId: 'org-1',
           env: { REGION: 'eu' },
@@ -1405,6 +1436,13 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           await invoke(service, toolCall('conformance.context', {}, { ctx: CTX })),
         );
         expect(answer.output).not.toHaveProperty('idempotencyKey');
+      });
+
+      test('a call from outside an agent turn, or from an older runtime, sends no time zone: the handler gets none', async () => {
+        const answer = response(
+          await invoke(service, toolCall('conformance.context', {}, { ctx: CTX })),
+        );
+        expect(answer.output).not.toHaveProperty('timeZone');
       });
 
       test("pack code doesn't see the service token", async () => {
@@ -1955,13 +1993,15 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
-    test('a tool call whose context has the project, the org, an idempotency key and connections: answered', async () => {
+    test('a tool call whose context has the project, the org, an idempotency key, connections and a time zone: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
-      // The idempotency key is pack protocol 2.6.0, the connections 2.9.0 and a
-      // connection's name 2.11.0: an older service ignores them.
+      // The idempotency key is pack protocol 2.6.0, the connections 2.9.0, a
+      // connection's name 2.11.0 and the time zone 2.12.0: an older service
+      // ignores them.
       const ctx = {
         ...newer,
         idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
+        timeZone: 'America/Toronto',
         connections: {
           mail: {
             connectionId: 'c-mail',

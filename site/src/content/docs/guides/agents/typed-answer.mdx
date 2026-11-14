@@ -29,13 +29,13 @@ An `output` schema says what the answer must be. Ask your coding agent: "I
 want an agent that triages support tickets and answers with JSON my code can
 read." Kindgi's skills in your pack tell it how
 ([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
-agent looks like this. This guide calls it `acme.ticket-triage`:
+agent looks like this. This guide calls it `acme.ticket-classifier`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
-// agents/ticket-triage/index.ts
+// agents/ticket-classifier/index.ts
 import { defineAgent } from '@kindgi/sdk/define';
 import { z } from 'zod';
 
@@ -46,9 +46,9 @@ export const Triage = z.object({
 });
 
 const defined = defineAgent({
-  id: 'acme.ticket-triage',
+  id: 'acme.ticket-classifier',
   version: '0.1.0',
-  name: 'Ticket triage',
+  name: 'Ticket classifier',
   instructions: [
     'You triage support tickets for Acme. Reply with only a JSON object:',
     '{"category": "billing" | "shipping" | "returns" | "other",',
@@ -73,7 +73,7 @@ export default defined.value;
 <TabItem label="Python">
 
 ```python
-# agents/ticket_triage.py
+# agents/ticket_classifier.py
 from typing import Literal
 
 from pydantic import BaseModel
@@ -87,10 +87,10 @@ class Triage(BaseModel):
     summary: str
 
 
-ticket_triage = Agent(
-    id="acme.ticket-triage",
+ticket_classifier = Agent(
+    id="acme.ticket-classifier",
     version="0.1.0",
-    name="Ticket triage",
+    name="Ticket classifier",
     instructions="\n".join([
         "You triage support tickets for Acme. Reply with only a JSON object:",
         '{"category": "billing" | "shipping" | "returns" | "other",',
@@ -109,7 +109,7 @@ ticket_triage = Agent(
 <TabItem label="Java">
 
 ```java
-// src/main/java/acme/agents/TicketTriage.java
+// src/main/java/acme/agents/TicketClassifier.java
 package acme.agents;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -117,7 +117,7 @@ import com.kindgi.pack.Agent;
 import java.util.List;
 import java.util.Map;
 
-public final class TicketTriage {
+public final class TicketClassifier {
   public enum Category {
     @JsonProperty("billing") BILLING,
     @JsonProperty("shipping") SHIPPING,
@@ -133,9 +133,9 @@ public final class TicketTriage {
 
   public record Triage(Category category, Priority priority, String summary) {}
 
-  public static final Agent AGENT = Agent.define("acme.ticket-triage")
+  public static final Agent AGENT = Agent.define("acme.ticket-classifier")
       .version("0.1.0")
-      .name("Ticket triage")
+      .name("Ticket classifier")
       .instructions(String.join("\n",
           "You triage support tickets for Acme. Reply with only a JSON object:",
           "{\"category\": \"billing\" | \"shipping\" | \"returns\" | \"other\",",
@@ -145,7 +145,7 @@ public final class TicketTriage {
       .output(Triage.class)
       .build();
 
-  private TicketTriage() {}
+  private TicketClassifier() {}
 }
 ```
 
@@ -158,12 +158,12 @@ public final class TicketTriage {
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/agents/TicketTriage.scala
+// src/main/scala/acme/agents/TicketClassifier.scala
 package acme.agents
 
 import com.kindgi.pack.scaladsl._
 
-object TicketTriage {
+object TicketClassifier {
   enum Category {
     case billing, shipping, returns, other
   }
@@ -174,9 +174,9 @@ object TicketTriage {
 
   final case class Triage(category: Category, priority: Priority, summary: String)
 
-  val agent: Agent = Agent("acme.ticket-triage")
+  val agent: Agent = Agent("acme.ticket-classifier")
     .version("0.1.0")
-    .name("Ticket triage")
+    .name("Ticket classifier")
     .instructions(Seq(
       "You triage support tickets for Acme. Reply with only a JSON object:",
       """{"category": "billing" | "shipping" | "returns" | "other",""",
@@ -241,28 +241,28 @@ A run of the agent returns the parsed answer beside the model's text:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+pnpm exec kindgi runs start --agent=acme.ticket-classifier --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+uv run kindgi runs start --agent=acme.ticket-classifier --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+./kindgiw runs start --agent=acme.ticket-classifier --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+./kindgiw runs start --agent=acme.ticket-classifier --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
 ```
 
 </TabItem>
@@ -287,7 +287,7 @@ ticket as `userMessage`. It prints the run:
     …
     "response": {
       "role": "agent",
-      "actor": "acme.ticket-triage",
+      "actor": "acme.ticket-classifier",
       "content": "```json\n{\n  \"category\": \"billing\",\n  \"priority\": \"urgent\",\n  \"summary\": \"Customer was double-charged for order A-1001 and requests immediate refund.\"\n}\n```",
       …
     },
@@ -313,12 +313,12 @@ parses the fields with the same schema:
 // read-triage.ts
 import { createClient } from '@kindgi/sdk/client';
 
-import { Triage } from './agents/ticket-triage/index.js';
+import { Triage } from './agents/ticket-classifier/index.js';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
 const run = await kindgi.runs.start({
-  agent: 'acme.ticket-triage',
+  agent: 'acme.ticket-classifier',
   input: { userMessage: 'I was charged twice for order A-1001 and I need the money back today.' },
 });
 const triage = Triage.parse((run.output as { output: unknown }).output);
@@ -332,12 +332,12 @@ console.log(triage.category, triage.priority); // billing urgent
 # read_triage.py
 from kindgi.client import Kindgi
 
-from agents.ticket_triage import Triage
+from agents.ticket_classifier import Triage
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
 run = kindgi.runs.start(
-    agent="acme.ticket-triage",
+    agent="acme.ticket-classifier",
     input={"userMessage": "I was charged twice for order A-1001 and I need the money back today."},
 )
 if run.output is None:
@@ -363,7 +363,7 @@ public final class ReadTriage {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
     Run run = kindgi.runs().start(StartRunBody.WithAgent.builder()
-        .agent("acme.ticket-triage")
+        .agent("acme.ticket-classifier")
         .input(Map.of("userMessage", "I was charged twice for order A-1001 and I need the money back today."))
         .build());
     Map<?, ?> triage = (Map<?, ?>) ((Map<?, ?>) run.output()).get("output");
@@ -382,7 +382,7 @@ read the fields from the answer's map.
 // src/main/scala/acme/app/ReadTriage.scala
 package acme.app
 
-import acme.agents.TicketTriage.Triage
+import acme.agents.TicketClassifier.Triage
 import com.kindgi.client.{Kindgi, KindgiJson}
 import com.kindgi.client.models.StartRunBody
 import scala.jdk.CollectionConverters._
@@ -392,7 +392,7 @@ object ReadTriage {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
     val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
-      .agent("acme.ticket-triage")
+      .agent("acme.ticket-classifier")
       .input(Map[String, AnyRef](
         "userMessage" -> "I was charged twice for order A-1001 and I need the money back today.").asJava)
       .build())
@@ -460,7 +460,7 @@ const defined = defineFlow({
     {
       id: 'triage',
       kind: 'agent',
-      ref: 'acme.ticket-triage',
+      ref: 'acme.ticket-classifier',
       inputMapping: { ticket: { path: 'runInput.ticket' } },
     },
   ],
@@ -488,7 +488,7 @@ export default defined.value;
 # flows/triage_ticket.py
 from kindgi import Flow
 
-from ..agents.ticket_triage import ticket_triage
+from ..agents.ticket_classifier import ticket_classifier
 
 triage_ticket = Flow(
     id="acme.triage-ticket",
@@ -498,7 +498,7 @@ triage_ticket = Flow(
         {
             "id": "triage",
             "kind": "agent",
-            "ref": ticket_triage,
+            "ref": ticket_classifier,
             "inputMapping": {"ticket": {"path": "runInput.ticket"}},
         },
     ],
@@ -522,7 +522,7 @@ triage_ticket = Flow(
 // src/main/java/acme/flows/TriageTicket.java
 package acme.flows;
 
-import acme.agents.TicketTriage;
+import acme.agents.TicketClassifier;
 import com.kindgi.pack.Flow;
 import java.util.Map;
 
@@ -533,7 +533,7 @@ public final class TriageTicket {
       .node(Map.of(
           "id", "triage",
           "kind", "agent",
-          "ref", TicketTriage.AGENT,
+          "ref", TicketClassifier.AGENT,
           "inputMapping", Map.of("ticket", Map.of("path", "runInput.ticket"))))
       .edge("e-start", "$start", "triage")
       .edge("e-end", "triage", "$end")
@@ -553,7 +553,7 @@ public final class TriageTicket {
 // src/main/scala/acme/flows/TriageTicket.scala
 package acme.flows
 
-import acme.agents.TicketTriage
+import acme.agents.TicketClassifier
 import com.kindgi.pack.scaladsl._
 
 object TriageTicket {
@@ -563,7 +563,7 @@ object TriageTicket {
     .node(Map(
       "id" -> "triage",
       "kind" -> "agent",
-      "ref" -> TicketTriage.agent,
+      "ref" -> TicketClassifier.agent,
       "inputMapping" -> Map("ticket" -> Map("path" -> "runInput.ticket"))))
     .edge("e-start", "$start", "triage")
     .edge("e-end", "triage", "$end")

@@ -41,6 +41,13 @@ export interface PackCallContext {
    */
   readonly idempotencyKey?: string;
   /**
+   * The workspace's time zone, an IANA name, read once for the agent turn
+   * the call belongs to; `UTC` when the workspace sets none or it can't be
+   * read (protocol 2.12.0). Absent outside an agent turn. A pack service
+   * from before 2.12.0 ignores it.
+   */
+  readonly timeZone?: string;
+  /**
    * The env values the tool declares (`needsSpec.env`), resolved for this
    * call: project, else org, else workspace (protocol 2.5.0). Strings.
    */
@@ -166,6 +173,7 @@ export type PackErrorCode =
   | 'handler-shape-invalid'
   | 'handler-throw'
   | 'connection-rejected'
+  | 'tool-failed'
   | 'check-shape-invalid'
   | 'malformed-message'
   | 'unknown-protocol-version'
@@ -193,6 +201,15 @@ export interface PackErrorMessage {
    * once and runs the call again.
    */
   readonly connection?: string;
+  /**
+   * For `tool-failed` (protocol 2.12.0): the tool's own code for why the
+   * call failed (`order-not-found`). The tool failed it on purpose (it
+   * threw `ToolFailure`), so the message is its words, as written, and
+   * there's no `cause`.
+   */
+  readonly reason?: string;
+  /** For `tool-failed`, when the tool gave them: its facts, a JSON object. */
+  readonly details?: Readonly<Record<string, unknown>>;
 }
 
 export type PackRequest = ToolInvokeMessage | CheckInvokeMessage;

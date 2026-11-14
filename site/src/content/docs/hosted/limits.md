@@ -116,7 +116,7 @@ trigger. A delivery is still answered `202`, with the fire's id.
       "triggerId": "…",
       "firedAt": "2026-10-13T11:18:47.529Z",
       "outcome": "refused",
-      "detail": "rate-limited: flow acme.order-review@1.0.0 didn't start: rate-limit-exceeded: This workspace's limit on runs waiting to start (2000) is reached: try again once some have started.",
+      "detail": "rate-limited: flow acme.review-order@1.0.0 didn't start: rate-limit-exceeded: This workspace's limit on runs waiting to start (2000) is reached: try again once some have started.",
       "countsTowardPause": false
     }
   ],

@@ -49,7 +49,7 @@ README.md explains the whole design; keep it true when you change the pack.
   give that user more; publishing stays with an editor.
 - **Events are untrusted.** `check-content-event` runs before any model sees
   an event and keeps typed fields only; the agent that reads events
-  (`content-reviewer`) has read-only tools. Keep it that way: an agent's
+  (`article-reviewer`) has read-only tools. Keep it that way: an agent's
   guardrails check its answer after the turn, so they can't stop a tool
   call.
 - **The client secret is a secret** (`DRUPAL_CLIENT_SECRET`, set with

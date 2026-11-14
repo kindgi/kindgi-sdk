@@ -55,6 +55,8 @@ export { invokeToolForTest, toolContextForTest } from './test-context.js';
 export { toolSecretNames } from './secret-names.js';
 export { toolOptionalSecretNames, toolRequiredEnvNames } from './env-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
+export { ToolFailure, isToolFailure } from './tool-failure.js';
+export type { ToolFailureDetails, ToolFailureOptions } from './tool-failure.js';
 export {
   ConnectionRejectedError,
   ConnectionRenewError,
@@ -129,6 +131,7 @@ export type {
   OutputValidationError,
   PreconditionFailedError,
   ToolError,
+  ToolFailedError,
   ToolNotFoundError,
   ToolPauseUnsupportedError,
   ToolVersionNotFoundError,

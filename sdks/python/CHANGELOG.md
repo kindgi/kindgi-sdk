@@ -47,6 +47,22 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
+- `kindgi`: **a tool can fail a call on purpose, with its own code and
+  words.** `raise ToolFailure("order-not-found", f"No order {order_id}",
+  details={"orderId": order_id})` answers the call `tool-failed` (pack
+  protocol 2.12.0): the code is its `reason`, the message is said as
+  written, and the details go with it, to the run's `failure` and, in an
+  agent whose `tool_errors` `retryOn` names `tool-failed`, to the model. A
+  code that isn't kebab case, an empty message, or details that aren't a
+  JSON object of at most 4 KiB raise `ValueError`, so the call is a crash
+  that says why. The client's agent models take `tool-failed` in
+  `retryOn`, and `RunFailure`'s docstrings say what a `tool-failed` failure
+  carries.
+- `kindgi`: **the identity provider models' `join` docstring says `domain`
+  lets no one in on its own.** `OidcIdentityProviderConfig.join` and
+  `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
+  provider's `domains`, but sign-in doesn't use it: with either value, only
+  people a tenant admin added get in. What you pass or read doesn't change.
 - `kindgi`: **the docstrings say what a key or session limited to a project
   may do on `identity.users.list_sessions`, `identity.users.revoke_sessions`,
   `identity.users.grants`, `identity.me`'s second factor, `connections` and
@@ -74,6 +90,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   why no version was added. An update over 10 MB answers `size`, and nothing
   is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
   client's models gain `ToolFileUpdateAnswer`.
+- `kindgi`: **a tool's context names the workspace's time zone.** `ToolContext` gains `time_zone`, an IANA name such as `"America/Toronto"`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `"UTC"` when the workspace sets none. It's `None` outside an agent turn and from an older runtime, so a tool uses UTC then. `ToolContext.for_test(time_zone=…)` passes one in a unit test.
 - `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
 - `kindgi`: **a tenant's own limits on the flows and agents in production,
   and its plan id.** `TenantLimits` gains `flows_in_production` and

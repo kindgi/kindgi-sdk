@@ -1044,6 +1044,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_TICK_CALLER',
+    description:
+      "Used from runtime 0.7.0; for a server whose CPU is allocated only during requests (Cloud Run's request-based billing), which may scale to zero: the email of the service account whose Google-signed ID token the server's tick takes. The tick, `POST /internal/tick`, runs the background work that's due (schedules, mail polls, webhook deliveries and more; the Cloud Run deploy page's \"Scale the server to zero\" lists it all) inside its request; Cloud Scheduler calls it each minute with that account's token, for the audience `<KINDGI_SERVICE_URL>/internal/tick`. The server verifies the token, and checks that its email is this one and verified. Set with `KINDGI_SERVICE_URL`, both or neither; not on a passive server (`KINDGI_PASSIVE`). Unset: no tick, and the background work runs on the server's own timers.",
+    example: 'kindgi-tick@acme-prod.iam.gserviceaccount.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SERVICE_URL',
+    description:
+      "Used from runtime 0.7.0; with `KINDGI_TICK_CALLER`: the server's own URL, its origin alone (https, no path, not this machine's address), on Cloud Run its `run.app` one. The tick's token is for `<this URL>/internal/tick`. While the server has work in flight (a run, a delivery, an erasure, a tick), it keeps a request to itself open at this URL, so its CPU stays allocated between requests. That request reaches the same instance only while the service runs one at most: another instance refuses it, and the server warns. Both or neither.",
+    example: 'https://kindgi-server-123456789012.us-central1.run.app',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_PAGINATION_KEY_PATH',
     description:
       "Absolute path to the 32-byte key (mode 0600) every list's page cursors are sealed with, so a cursor never shows the row it points after; the same on every instance. Unset (and no `KINDGI_PAGINATION_KEY`): a key made at boot and kept nowhere, so a cursor handed out before a restart answers 400 after it, and more than one instance behind one address needs the key set. Rotate it yearly (each cursor is sealed with a random nonce): the new key here, the old one in `KINDGI_PAGINATION_PREVIOUS_KEY_PATH` for at least a day. Its own key: never the erasure ledger's or the secrets AAD key. This or `KINDGI_PAGINATION_KEY`, not both.",
@@ -1295,9 +1313,19 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'secrets',
   },
   {
+    name: 'KINDGI_CONNECTIONS_STORE',
+    description:
+      "Where connections keep their token sets with the `dotenv` backend (development only): `none` (default; connections are off) | `postgres` (in the database, under a local key: needs `KINDGI_SECRETS_BACKEND_KMS=libsodium`, the local key, the AAD key and `KINDGI_SECRETS_LOCAL_KEY_ACK`, as the postgres backend does). A registration's own secrets are still read from the `.env` files, and never written. `kindgi dev` sets it, with keys it makes for its database. Any other backend refuses a value but `none`: it keeps token sets itself.",
+    example: 'postgres',
+    required: false,
+    appliesTo: appliesToDotenvBackend,
+    group: 'secrets',
+    allowedValues: ['none', 'postgres'],
+  },
+  {
     name: 'KINDGI_SECRETS_BACKEND_KMS',
     description:
-      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
+      'Which KMS wraps DEKs (postgres backend only; with the `dotenv` backend, `libsodium` for `KINDGI_CONNECTIONS_STORE=postgres`): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
     example: 'gcp',
     required: true,
     appliesTo: appliesToPostgresBackend,
@@ -1769,9 +1797,19 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
     description:
-      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need.",
+      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need. With `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS` it's still required, as the install's name: the label on the orchestrator's secrets, and the account the pack services move off.",
     example: 'kindgi-packs@acme-kindgi.iam.gserviceaccount.com',
     required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS',
+    description:
+      "A pack account per tenant, as one JSON object: each tenant's id, in lower case, to the service account its pack services run as, by email. Each account's id (the part before `@`) is `kp-t` and 16 lower-case hex digits, the key that tenant's secrets are named under, and no two tenants share one. A tenant not listed has nowhere to run pack services: its deployments wait with `tenant-not-provisioned`. Unset, every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`.",
+    example:
+      '{"8d3e5f1a-2b4c-4d6e-8f01-23456789abcd":"kp-t034d09f98934346b@acme-kindgi.iam.gserviceaccount.com"}',
+    required: false,
     appliesTo: appliesToPackOrchestrator,
     group: 'pack-orchestrator',
   },

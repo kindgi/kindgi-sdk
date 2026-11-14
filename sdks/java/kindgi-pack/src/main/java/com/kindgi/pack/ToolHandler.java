@@ -16,7 +16,8 @@ public interface ToolHandler<I, O> {
    * @param input the input
    * @param ctx the call's context
    * @return the output, checked against the tool's output schema
-   * @throws Exception any failure: the call answers {@code handler-throw}, with its message
+   * @throws Exception any failure: the call answers {@code handler-throw}, with its message; a
+   *     {@link ToolFailureException}, the tool's own failure, answers {@code tool-failed}
    */
   O handle(I input, ToolContext ctx) throws Exception;
 }

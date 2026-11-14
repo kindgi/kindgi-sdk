@@ -26,6 +26,7 @@ from .pack.context import (
     PauseNotAvailable,
     ToolConnection,
     ToolContext,
+    ToolFailure,
     WaitToken,
 )
 from .pack.define import (
@@ -74,6 +75,7 @@ __all__ = [
     "ToolCallRecord",
     "ToolConnection",
     "ToolContext",
+    "ToolFailure",
     "ToolResultRecord",
     "WaitToken",
     "__version__",

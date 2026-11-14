@@ -124,7 +124,8 @@ final class Requests {
         cancellation,
         log,
         text(ctx, "idempotencyKey"),
-        connections(ctx));
+        connections(ctx),
+        text(ctx, "timeZone"));
   }
 
   /** The call's connections, by the tool's name for each; one sent malformed is left out. */

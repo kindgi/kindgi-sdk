@@ -42,6 +42,55 @@ resource "google_service_account" "orchestrator" {
   account_id   = "${var.name_prefix}-orch"
   display_name = "Kindgi pack orchestrator"
   depends_on   = [google_project_service.apis]
+
+  # The pack accounts' checks that read more than one variable (tenants.tf):
+  # preconditions, since a variable's own validation can't read another
+  # before Terraform 1.9. On this account, which every installation has, so
+  # the checks add nothing to a plan.
+  lifecycle {
+    precondition {
+      condition     = !local.per_tenant || var.tenancy == "multi"
+      error_message = "pack_accounts = \"per-tenant\" needs tenancy = \"multi\": with one tenant, the pack account is that tenant's already."
+    }
+    precondition {
+      condition     = local.per_tenant || length(var.pack_tenants) == 0
+      error_message = "pack_tenants is set, but pack_accounts is \"shared\": set pack_accounts = \"per-tenant\" too, or leave pack_tenants empty."
+    }
+    precondition {
+      condition     = local.per_tenant || var.pack_shared_account
+      error_message = "pack_shared_account = false needs pack_accounts = \"per-tenant\": in shared mode every pack service runs as the pack account."
+    }
+    # The project's allow policy takes at most 100 conditional role bindings:
+    # one for each tenant's own secrets, at most 5 of the module's own, and 2
+    # kept free for a replace of the tenants' Cloud SQL grant and of the
+    # server's database_instance grant, which a restore needs.
+    precondition {
+      condition     = length(var.pack_tenants) <= 93
+      error_message = "pack_tenants lists ${length(var.pack_tenants)} tenants, and an installation takes at most 93: each tenant's account adds a conditional grant to the project's allow policy, which takes at most 100, and the module keeps 7 of those. Serve more tenants from another installation."
+    }
+    precondition {
+      condition     = length(distinct(values(local.tenant_keys))) == length(local.tenant_keys)
+      error_message = "Two tenants in pack_tenants have the same key (kp-t and 16 hex digits). Serve one of them from another installation."
+    }
+    precondition {
+      condition     = !local.per_tenant || alltrue([for s in var.pack_secret_readers : s.tenants != null])
+      error_message = "With pack_accounts = \"per-tenant\", each pack_secret_readers entry lists the tenants that read it (tenants): ${join(", ", [for s in var.pack_secret_readers : s.secret if s.tenants == null])}."
+    }
+    precondition {
+      condition     = local.per_tenant || alltrue([for s in var.pack_secret_readers : s.tenants == null])
+      error_message = "A pack_secret_readers entry lists tenants, but pack_accounts is \"shared\": every pack service reads it as the pack account. Leave tenants out, or set pack_accounts = \"per-tenant\"."
+    }
+    precondition {
+      condition = alltrue(flatten([
+        for s in var.pack_secret_readers : [for id in coalesce(s.tenants, []) : contains(keys(local.tenant_keys), lower(id))]
+      ]))
+      error_message = "A pack_secret_readers entry lists a tenant that isn't in pack_tenants."
+    }
+    precondition {
+      condition     = !local.per_tenant || alltrue([for i in local.pack_sql_instances : i != null])
+      error_message = "Each pack_cloud_sql_instances entry is a connection name, <project>:<region>:<instance>: the tenants' grant names each instance."
+    }
+  }
 }
 
 # Cloud Run: it creates, reads, updates, lists and deletes the project's
@@ -53,9 +102,11 @@ resource "google_project_iam_member" "orchestrator_runs_services" {
   member  = "serviceAccount:${google_service_account.orchestrator.email}"
 }
 
-# Each pack service runs as the pack account, and only that one.
+# Each pack service runs as the pack account (or its tenant's, tenants.tf),
+# and only that one.
 resource "google_service_account_iam_member" "orchestrator_acts_as_pack" {
-  service_account_id = google_service_account.pack.name
+  count              = var.pack_shared_account ? 1 : 0
+  service_account_id = google_service_account.pack[0].name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.orchestrator.email}"
 }
@@ -117,11 +168,13 @@ resource "google_project_iam_member" "orchestrator_creates_lists_secrets" {
 }
 
 # Every pack service reads its token and secret env values, kp- secrets all:
-# as the one pack account, each may read every one.
+# as the one pack account, each may read every one. A tenant's own account
+# reads only its tenant's (tenants.tf).
 resource "google_project_iam_member" "pack_reads_pack_secrets" {
+  count   = var.pack_shared_account ? 1 : 0
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.pack.email}"
+  member  = "serviceAccount:${google_service_account.pack[0].email}"
 
   condition {
     title       = "kindgi-pack-secrets-only"
@@ -134,10 +187,10 @@ resource "google_project_iam_member" "pack_reads_pack_secrets" {
 # this project or another: the operator made them, and the pack account reads
 # exactly these.
 resource "google_secret_manager_secret_iam_member" "pack_reads_cloud_secrets" {
-  for_each  = toset([for s in var.pack_secret_readers : "projects/${coalesce(s.project, var.project_id)}/secrets/${s.secret}"])
+  for_each  = toset([for s in var.pack_secret_readers : "projects/${coalesce(s.project, var.project_id)}/secrets/${s.secret}" if var.pack_shared_account])
   secret_id = each.key
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack.email}"
+  member    = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 # Its system key (system:deployments and system:pack-env): the operator mints
@@ -240,9 +293,19 @@ resource "google_cloud_run_v2_job" "orchestrator" {
           name  = "KINDGI_ORCHESTRATOR_REGION"
           value = var.region
         }
+        # A string, not the account's: it stays the same once
+        # pack_shared_account takes the account away.
         env {
           name  = "KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT"
-          value = google_service_account.pack.email
+          value = "${var.name_prefix}-pack@${var.project_id}.iam.gserviceaccount.com"
+        }
+        # Per-tenant: each tenant id, in lower case, to its account.
+        dynamic "env" {
+          for_each = local.per_tenant ? [jsonencode(local.tenant_accounts)] : []
+          content {
+            name  = "KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS"
+            value = env.value
+          }
         }
         env {
           name  = "KINDGI_ORCHESTRATOR_PACK_SERVICE"
@@ -268,6 +331,8 @@ resource "google_cloud_run_v2_job" "orchestrator" {
     google_project_iam_member.orchestrator_creates_lists_secrets,
     google_project_iam_member.pack_reads_pack_secrets,
     google_cloud_run_v2_service_iam_member.orchestrator_invokes_server,
+    google_service_account_iam_member.orchestrator_acts_as_tenant,
+    google_project_iam_member.tenant_reads_own_secrets,
   ]
 }
 

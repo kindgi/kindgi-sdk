@@ -212,18 +212,23 @@ A tool call the runtime can't route answers with a code of its own:
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](../cloud-run/#use-gemini) |
 | | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../../guides/observability/export-signed-evidence/) |
 | The pack orchestrator's account (`$N-orch`) | `roles/run.developer` | the project: it creates, updates and deletes the pack services, and runs its Job, Cloud Scheduler's call included; it reads a service's IAM policy and never sets one |
-| | `roles/iam.serviceAccountUser` | the pack account, so each pack service runs as it, and as no other account |
+| | `roles/iam.serviceAccountUser` | the pack account, while `pack_shared_account` keeps it, and with `pack_accounts = "per-tenant"` each tenant's account: so each pack service runs as one of those, and as no other account |
 | | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`): Cloud Run checks that whoever makes a service, or a new revision of one, may read its image |
 | | `<prefix>_pack_secrets`, a custom role (`name_prefix` with `-` as `_`) | the project, conditioned on secrets whose name starts with `kp-`: it gets and deletes them, and adds, lists and destroys their versions; it never reads a value |
 | | `<prefix>_secret_create_list`, a custom role | the project, with no condition, since a create and a list name the project: it creates secrets, which hold no value until the `kp-` role adds one, and lists them, names and labels only, to find what a stopped pass left |
 | | `roles/secretmanager.secretAccessor` | its key, `$N-orchestrator-key` |
 | | `roles/run.invoker`, only behind Cloud Run IAM | the runtime's service; the Job then sends a Google ID token with each call (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`) |
-| The pack account (`$N-pack`), which every pack service runs as | `roles/secretmanager.secretAccessor` | the project, conditioned on secrets whose name starts with `kp-`: each service's token and secret env values |
+| The pack account (`$N-pack`), which every pack service runs as by default; with `pack_accounts = "per-tenant"`, those not yet moved, until `pack_shared_account = false` deletes it | `roles/secretmanager.secretAccessor` | the project, conditioned on secrets whose name starts with `kp-`: each service's token and secret env values |
 | | `roles/secretmanager.secretAccessor` | each secret in `pack_secret_readers`, in its own project |
 | | `roles/cloudsql.client`, only with `pack_cloud_sql_instances` | the project |
 | | `roles/storage.objectViewer` | each bucket in `pack_bucket_readers`, narrowed by `pack_bucket_object_prefixes` |
 | | `roles/run.invoker` | each service in `pack_run_invokers` |
 | | what your tools need | your own resources |
+| Each tenant's account (`kp-t<16 hex>`), only with `pack_accounts = "per-tenant"`: its pack services run as it | `roles/secretmanager.secretAccessor` | the project, conditioned on secrets whose name starts with its own `kp-t<16 hex>-`: its services' tokens and secret env values |
+| | `roles/secretmanager.secretAccessor` | each secret in `pack_secret_readers` whose `tenants` list it, in its own project |
+| | `roles/cloudsql.client`, only with `pack_cloud_sql_instances` | the project, conditioned on those instances, one condition for every tenant |
+| | `roles/storage.objectViewer` | each bucket in `pack_bucket_readers`, narrowed by `pack_bucket_object_prefixes` as the pack account's is |
+| | `roles/run.invoker` | each service in `pack_run_invokers` |
 
 ## Limits
 
@@ -234,6 +239,21 @@ A tool call the runtime can't route answers with a code of its own:
   the pack account may read every `kp-` secret in it. So two installations
   in one project would reach each other's pack services and secrets.
   `name_prefix` can't be `kp` or start with `kp-`.
+- **At most 93 tenants with a pack account each** (`pack_tenants`). Each
+  tenant's secret condition is a conditional role binding on the project's
+  allow policy, and Google advises at most 100 on one policy
+  ([IAM Conditions overview](https://docs.cloud.google.com/iam/docs/conditions-overview)).
+  The module's own take up to 5. Two more are kept free for a replace: the
+  tenants' Cloud SQL binding, when `pack_cloud_sql_instances` changes, and
+  the server's grant on a restored instance (`database_instance`), when it
+  moves to another. Each new condition is made while the old one still
+  stands, and a restore is the one change that mustn't fail when it's
+  needed. A conditional grant another root makes on the same project counts
+  against the same 100, and the module can't see it.
+- **Service accounts:** the project's quota varies, and has to allow the
+  module's own, one per tenant with `pack_accounts = "per-tenant"`, and the
+  pack account while it's kept
+  ([IAM quotas and limits](https://docs.cloud.google.com/iam/quotas)).
 - **1,000 services per region in a project**, which a quota request can
   raise ([Cloud Run quotas](https://cloud.google.com/run/quotas)). Each
   deployment the runtime still serves has one, so unregister old versions

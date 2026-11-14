@@ -64,6 +64,13 @@ export interface TurnContext {
   /** The data blocks the turn runs with (set by setup; none when the agent references none). */
   blocks?: TurnBlocks;
   /**
+   * The workspace's time zone, an IANA name, handed to each of the turn's
+   * tool calls (`ToolContext.timeZone`). Read once, when the turn offers a
+   * tool (`resolveTurnTimeZone`): by `setup`, or for a resumed turn, the
+   * one `setup` journaled. Unset when the turn offers none.
+   */
+  timeZone?: string;
+  /**
    * The sets the turn's calls may name a connection from, tool id to need
    * (`offerAccounts`): each tool here was offered an `accounts` input.
    */

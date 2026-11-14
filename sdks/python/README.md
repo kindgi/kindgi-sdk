@@ -159,6 +159,24 @@ runtime resolves the secret per call, and the spec (`headers`,
 declared, against the same schema as TypeScript's. Calling it in Python
 raises: it runs in Kindgi.
 
+When a tool ran and knows why the call can't give an answer, it raises a
+`ToolFailure` with its own code for why, words for a person and, if any,
+facts:
+
+```python
+from kindgi import ToolFailure
+
+raise ToolFailure("order-not-found", f"No order {ref.order_id}", details={"orderId": ref.order_id})
+```
+
+The call answers `tool-failed`, with the code as `reason`, the message as
+written and the details (pack protocol 2.12.0). The code is kebab case, at
+most 64 characters, and a fixed word: runs are grouped by it. The message is
+cut at 1,000 characters, and the details are a JSON object of at most 4 KiB,
+which reach the run's failure and the model, so never a secret. Any of them
+the class refuses raises `ValueError`, and the call is then a crash
+(`handler-throw`) that says why.
+
 ### Guardrail checks
 
 ```python
@@ -222,7 +240,7 @@ from kindgi import Flow
 from ..tools.ledger import record_expense
 
 record = Flow(
-    id="acme.ledger.record-flow",
+    id="acme.ledger.book-expense",
     version="1.0.0",
     nodes=[{"id": "record", "kind": "tool", "ref": record_expense}],
     edges=[
@@ -299,7 +317,7 @@ from kindgi.client import GuardrailViolationError, Kindgi, paginate
 client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN — or Kindgi(url, token=…)
 
 run = client.runs.start(
-    flow="acme.ledger.record-flow", input={"vendor": "Acme", "amountCents": 1299}
+    flow="acme.ledger.book-expense", input={"vendor": "Acme", "amountCents": 1299}
 )
 print(run.status, run.output)
 

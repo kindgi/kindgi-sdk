@@ -370,7 +370,7 @@ steps: a tool (`parse`), an agent (`classify`) and another tool (`count`):
   "runId": "22e085a4-103a-41a1-8667-f68796c5edb1",
   …
   "version": "1.1.0",
-  "flowRef": {"id": "acme.typed-agent", "version": "0.1.0"},
+  "flowRef": {"id": "acme.classify-text", "version": "0.1.0"},
   "dag": {
     "nodes": [
       {"id": "input", "kind": "input", "timestamp": "2026-10-28T11:20:21.844Z"},
@@ -499,38 +499,38 @@ One flow's records:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi provenance list --flow=acme.typed-agent --limit=3 --table
+pnpm exec kindgi provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi provenance list --flow=acme.typed-agent --limit=3 --table
+uv run kindgi provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw provenance list --flow=acme.typed-agent --limit=3 --table
+./kindgiw provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw provenance list --flow=acme.typed-agent --limit=3 --table
+./kindgiw provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 </Tabs>
 
 ```text
-RUN                                   CREATED                   FLOW                    SIGNED
-────────────────────────────────────  ────────────────────────  ──────────────────────  ──────
-706d9ef4-6b5f-44a0-8dd5-54c6b488071c  2026-10-28T11:20:44.208Z  acme.typed-agent@0.1.0  no
-22e085a4-103a-41a1-8667-f68796c5edb1  2026-10-28T11:20:27.593Z  acme.typed-agent@0.1.0  no
+RUN                                   CREATED                   FLOW                      SIGNED
+────────────────────────────────────  ────────────────────────  ────────────────────────  ──────
+706d9ef4-6b5f-44a0-8dd5-54c6b488071c  2026-10-28T11:20:44.208Z  acme.classify-text@0.1.0  no
+22e085a4-103a-41a1-8667-f68796c5edb1  2026-10-28T11:20:27.593Z  acme.classify-text@0.1.0  no
 ```
 
 Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId`,

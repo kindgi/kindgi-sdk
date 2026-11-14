@@ -413,9 +413,9 @@ export interface AgentOutputSpec {
  */
 export interface Agent {
   /**
-   * Globally-unique agent identifier. Convention:
-   * `<pack-id>.<agent-name>` (kebab-case, dot-namespaced). See the
-   * `AgentId` brand for the naming rule.
+   * Globally-unique agent identifier: `<pack-id>.<agent-name>`, the
+   * pack's own id, a dot, and a kebab-case name with no dot. See the
+   * `AgentId` brand for what is checked.
    */
   readonly id: AgentId;
   /**

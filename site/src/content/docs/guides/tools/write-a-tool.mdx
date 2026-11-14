@@ -591,6 +591,94 @@ secret query value such as `?token=` or `X-Amz-Signature=`, show as
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.
 
+### Fail a call on purpose
+
+When the tool ran and knows why the call can't give an answer, throw its
+own failure instead: a code of the tool's for why, words for a person, and
+facts, if any:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+import { ToolFailure, defineTool } from '@kindgi/sdk/define';
+
+    if (order === undefined) {
+      throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } });
+    }
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+from kindgi import ToolContext, ToolFailure, tool
+
+    if order is None:
+        raise ToolFailure("order-not-found", f"No order {ref.order_id}", details={"orderId": ref.order_id})
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+import com.kindgi.pack.ToolFailureException;
+
+        if (order == null) {
+          throw new ToolFailureException("order-not-found", "No order " + input.orderId(), Map.of("orderId", input.orderId()));
+        }
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+      val order = orders.getOrElse(in.orderId,
+        throw ToolFailureException("order-not-found", s"No order ${in.orderId}", Map("orderId" -> in.orderId)))
+```
+
+</TabItem>
+</Tabs>
+
+The call fails with `tool-failed`, and the run says so in its `failure`:
+the tool's code as `reason`, its words as written, with no lead-in, and its
+details:
+
+```json excerpt
+  "status": "failed",
+  "failure": {
+    "code": "tool-failed",
+    "message": "No order ord_9999",
+    "cause": { "toolId": "my-pack.lookup-order" },
+    "reason": "order-not-found",
+    "details": { "orderId": "ord_9999" }
+  },
+```
+
+- **The code** is kebab case, a letter first, at most 64 characters. Make it
+  a fixed word, never built from the input: a project's failed runs are
+  grouped by it ([See why runs failed](../../runs/see-why-runs-failed/)).
+- **The message** is cut at 1,000 characters, and masked as a thrown
+  message is.
+- **The details** are a JSON object of at most 4 KiB. They reach the run's
+  failure and the model, so never put a secret in them.
+- **A code, message or details the SDK refuses** make the throw a crash
+  that says why, as any other exception is.
+- **In an agent,** a `tool-failed` call fails the turn, unless `tool-failed`
+  is in the agent's `toolErrors.retryOn` (`tool_errors` in Python). Then it
+  goes back to the model with the tool's code, words and details, and the
+  model can tell the person or try another way. It's its own kind, so
+  `tool-error` doesn't send it back. The list replaces the default one, so
+  name `invalid-arguments` and `unknown-tool` in it too to keep their
+  retries.
+- **In a flow,** it fails the step, and an edge's `retry` never runs the
+  step again for it: the same call gives the same answer.
+
+The failure doesn't undo what the handler did before it. When the caller
+should act on the outcome, such as an order that may not be there, put it in
+the output schema instead (`found: false`): the call then succeeds, and the
+flow or the model reads it. A bug just throws.
+
 ## Make a side effect happen once
 
 A run's step can run more than once: resumed after an approval, retried after
@@ -821,6 +909,203 @@ org's order fails as if the order didn't exist:
 A project with no org has no `orgId` (`None` in Python, `null` in Java and
 Scala), so in it this tool finds no order at all. Start a run in a project
 with `projectId` on `runs.start`.
+
+## Answer in the workspace's time zone
+
+A model doesn't know the date. An agent that reasons about dates, such as
+"this month's invoices" or "due in 14 days", needs a tool that tells it. In an
+agent turn, `ctx.timeZone` is the workspace's time zone, an IANA name such as
+`America/Toronto`. A tenant admin sets it on the console's **Time zone** page
+(or as the workspace's [`time-zone` fact](../../agents/memory-reference/#the-time-zone-fact)).
+The turn reads it once, so every call it makes gets the same zone. It's `UTC`
+when the workspace sets none. Outside an agent turn (a flow's tool step) and
+from an older runtime it's absent, so fall back to UTC. Ask your coding agent:
+"Give my agent a tool that tells it the date and time." For reference, the tool
+looks like this:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/today/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'my-pack.today' as ToolId,
+  description:
+    "Today's date, weekday and time in the workspace's time zone. Call it before answering anything that depends on today's date.",
+  version: '0.1.0',
+  input: z.object({}),
+  output: z.object({
+    date: z.string(),
+    weekday: z.string(),
+    time: z.string(),
+    timeZone: z.string(),
+  }),
+  effects: [],
+  mutating: false,
+  handler: async (_input, ctx) => {
+    // The workspace's zone; UTC outside an agent turn and from an older runtime.
+    const timeZone = ctx.timeZone ?? 'UTC';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? '';
+    return {
+      date: `${part('year')}-${part('month')}-${part('day')}`,
+      weekday: part('weekday'),
+      time: `${part('hour')}:${part('minute')}`,
+      timeZone,
+    };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.today failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/today.py
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, Field
+
+from kindgi import ToolContext, tool
+
+
+class NoInput(BaseModel):
+    pass
+
+
+class Today(BaseModel):
+    date: str
+    weekday: str
+    time: str
+    time_zone: str = Field(alias="timeZone")
+
+
+@tool(id="my-pack.today", mutating=False)
+def today(_input: NoInput, ctx: ToolContext) -> Today:
+    """Today's date, weekday and time in the workspace's time zone. Call it before answering
+    anything that depends on today's date."""
+    # The workspace's zone; UTC outside an agent turn and from an older runtime.
+    zone = ctx.time_zone or "UTC"
+    now = datetime.now(ZoneInfo(zone))
+    return Today(
+        date=now.date().isoformat(),
+        weekday=now.strftime("%A"),
+        time=now.strftime("%H:%M"),
+        timeZone=zone,
+    )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/tools/Today.java
+package mypack.tools;
+
+import com.kindgi.pack.Tool;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
+import java.util.Locale;
+
+public final class Today {
+  public record Input() {}
+
+  public record Output(String date, String weekday, String time, String timeZone) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.today")
+      .description("Today's date, weekday and time in the workspace's time zone. "
+          + "Call it before answering anything that depends on today's date.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        // The workspace's zone; UTC outside an agent turn and from an older runtime.
+        String zone = ctx.timeZone() != null ? ctx.timeZone() : "UTC";
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.of(zone));
+        return new Output(
+            now.toLocalDate().toString(),
+            now.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+            now.format(DateTimeFormatter.ofPattern("HH:mm")),
+            zone);
+      });
+
+  private Today() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/tools/Today.scala
+package mypack.tools
+
+import com.kindgi.pack.scaladsl._
+import java.time.{ZoneId, ZonedDateTime}
+import java.time.format.{DateTimeFormatter, TextStyle}
+import java.util.Locale
+
+object Today {
+  final case class Input()
+
+  final case class Output(date: String, weekday: String, time: String, timeZone: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.today")
+    .description(
+      "Today's date, weekday and time in the workspace's time zone. " +
+        "Call it before answering anything that depends on today's date.")
+    .version("0.1.0")
+    .readOnly
+    .handler { (_, ctx) =>
+      // The workspace's zone; UTC outside an agent turn and from an older runtime.
+      val zone = Option(ctx.timeZone).getOrElse("UTC")
+      val now = ZonedDateTime.now(ZoneId.of(zone))
+      Output(
+        now.toLocalDate.toString,
+        now.getDayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+        now.format(DateTimeFormatter.ofPattern("HH:mm")),
+        zone)
+    }
+}
+```
+
+</TabItem>
+</Tabs>
+
+Give it to the agent like any other tool
+([Give it to an agent](#give-it-to-an-agent)). Its description tells the model
+when to call it. An agent whose instructions depend on the date can say so
+too: "Before you answer anything about dates, call `my-pack.today`."
+
+In a unit test, pass the zone yourself: `timeZone: 'Asia/Tokyo'` in the
+context you give `invokeTool` in TypeScript
+([Test it](#test-it)), `ToolContext.for_test(time_zone="Asia/Tokyo")` in Python, and
+`ToolContext.forTest(new ToolContext.Builder().withTimeZone("Asia/Tokyo"))` in
+Java and Scala.
 
 ## Test it
 

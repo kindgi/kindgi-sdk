@@ -79,11 +79,11 @@ template's flow, in a pack named `acme-shop`, looks like this:
 <TabItem label="TypeScript">
 
 ```ts
-// flows/order-review/index.ts
+// flows/review-order/index.ts
 import { defineFlow } from '@kindgi/sdk/define';
 
 const defined = defineFlow({
-  id: 'acme-shop.order-review',
+  id: 'acme-shop.review-order',
   version: '0.1.0',
   name: 'Review a new order',
   description: 'Checks a WooCommerce order event, then hands its typed fields to the order reviewer.',
@@ -121,7 +121,7 @@ export default defined.value;
 from kindgi import Flow
 
 order_review = Flow(
-    id="acme-shop.order-review",
+    id="acme-shop.review-order",
     version="0.1.0",
     name="Review a new order",
     description="Checks a WooCommerce order event, then hands its typed fields to the order reviewer.",
@@ -158,7 +158,7 @@ import com.kindgi.pack.Flow;
 import java.util.Map;
 
 public final class OrderReview {
-  public static final Flow FLOW = Flow.define("acme-shop.order-review")
+  public static final Flow FLOW = Flow.define("acme-shop.review-order")
       .version("0.1.0")
       .set("name", "Review a new order")
       .set("description", "Checks a WooCommerce order event, then hands its typed fields to the order reviewer.")
@@ -195,7 +195,7 @@ package acmeshop.flows
 import com.kindgi.pack.scaladsl._
 
 object OrderReview {
-  val flow: Flow = Flow("acme-shop.order-review")
+  val flow: Flow = Flow("acme-shop.review-order")
     .version("0.1.0")
     .set("name", "Review a new order")
     .set("description", "Checks a WooCommerce order event, then hands its typed fields to the order reviewer.")
@@ -238,7 +238,7 @@ sender:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+pnpm exec kindgi webhooks register --flow=acme-shop.review-order --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
 
@@ -246,7 +246,7 @@ pnpm exec kindgi webhooks register --flow=acme-shop.order-review --flow-version=
 <TabItem label="Python">
 
 ```sh
-uv run kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+uv run kindgi webhooks register --flow=acme-shop.review-order --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
 
@@ -254,7 +254,7 @@ uv run kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1
 <TabItem label="Java">
 
 ```sh
-./kindgiw webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+./kindgiw webhooks register --flow=acme-shop.review-order --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
 
@@ -262,7 +262,7 @@ uv run kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1
 <TabItem label="Scala">
 
 ```sh
-./kindgiw webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+./kindgiw webhooks register --flow=acme-shop.review-order --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
 
@@ -275,7 +275,7 @@ the signing secret, shown this once, with where it's stored, and, with a
 preset, where to paste them. With the WooCommerce preset, the secret left out:
 
 ```text
-  Registered webhook trigger 71fb612e-efc4-4659-8bb3-dfb69c96aa15: each signed delivery starts acme-shop.order-review@0.1.0.
+  Registered webhook trigger 71fb612e-efc4-4659-8bb3-dfb69c96aa15: each signed delivery starts acme-shop.review-order@0.1.0.
   Receive URL (the sender posts here): …/v1/hooks/695e8098-30be-469a-89d8-1a88487f8967/2003c201-f368-4d76-be29-109cc906bc48
   Signing secret (stored as acme-woo-orders in project 685834cd-17a6-4cfa-9c46-0fbc5dde84fa; shown this once): …
   In WooCommerce: Settings → Advanced → Webhooks → Add webhook. One webhook per topic (`order.created`, …); Delivery URL: the receive URL; Secret: the secret. WooCommerce never resends a delivery Kindgi refuses, and switches the webhook off after 7 in a row.

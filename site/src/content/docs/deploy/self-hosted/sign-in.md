@@ -16,7 +16,9 @@ People sign in to the console with their email first. The sign-in page then
 offers the ways in that this deployment has. Whatever way someone signs in,
 the runtime lets in **only people already added to a workspace**, by an
 email their provider has proved. Nobody is created by signing in, and roles
-stay Kindgi's. Without [authorization](../../authorization/), everyone signed
+stay Kindgi's. To make someone who signs in a tenant admin, see
+[Someone who signs in](../../people-and-keys/#someone-who-signs-in).
+Without [authorization](../../authorization/), everyone signed
 in works in every project, and the tenant's settings change only with the
 API token or an `admin` key made for the seed user
 ([Without authorization](../../people-and-keys/#without-authorization)).
@@ -198,7 +200,8 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
   Identity providers: the operator's (KINDGI_AUTH_TENANT_PROVIDERS=off): only this deployment's own token adds, changes or removes them; the ones there keep signing people in
 ```
 
-- **Only the deployment's own token** (`KINDGI_API_TOKEN`) can then add,
+- **Only the deployment's own token** (`KINDGI_API_TOKEN`), or, on a runtime
+  serving one tenant, a key made with `kindgi:system`, can then add,
   change or remove a provider. A tenant admin's change is refused with
   `403 identity-providers-operator-managed`:
 

@@ -30,6 +30,8 @@ Neither throws. Each returns `{ kind: 'ok', value }` or `{ kind: 'err', error: H
 | `handler-import-failed` | Importing the module threw (`cause`). |
 | `handler-shape-invalid` | The module exports no handler, or the handler paused for no time, for more than 24 days, or with a name that isn't 1 to 200 characters. |
 | `handler-throw` | The handler (or `evaluate`) threw (`cause`). |
+| `connection-rejected` | The tool threw a `ConnectionRejectedError`: the app refused a connection's token (`connection` names the connection). |
+| `tool-failed` | The tool failed the call on purpose with a `ToolFailure`: its code is `reason`, its words the message as written, and `details` its facts. |
 | `check-shape-invalid` | The check module exports no `evaluate`. |
 | `pause-not-available` | The tool tried to pause, but the call carries no wait token (its runtime is older than pack protocol 2.8.0), or the tool doesn't declare `pauses`. |
 
@@ -71,6 +73,7 @@ A pack image runs it bundled (`dist/kindgi-pack-service.mjs`) with `--bundle-map
 - **Only the declared names reach the pack's code:** before it loads, the process entry drops from its environment every variable the pack doesn't declare, except `KINDGI_*` and the platform's (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs their names once (`env-dropped`), never their values. `KINDGI_PACK_ENV_FILTER=off` keeps every variable; `kindgi dev` sets it. `undeclaredPackEnv` is the shared check; `startPackService` filters only when its config says `envFilter: 'on'`, so an in-process caller's environment is left alone.
 - **Cancellation:** the handler's `ctx.abortSignal` fires on a deadline or a disconnect. Handlers that do slow I/O should pass it on.
 - **Connections** (protocol 2.9.0): a call's context can carry `connections`, the accounts at other apps the tool declares (`needsSpec.connections`), each with a short-lived token. The handler gets them as `ctx.connections`, not enumerable, like `ctx.secrets`, and the service never logs them. A handler whose app refuses a token throws `ConnectionRejectedError` (`@kindgi/tools`) with the connection's name; the call answers `connection-rejected` with `connection`, and the runtime renews that token once and runs the call again.
+- **The workspace's time zone** (protocol 2.12.0): in an agent turn, a call's context carries `timeZone`, an IANA name, the same for every call of the turn (`UTC` when the workspace sets none). The handler gets it as `ctx.timeZone`. Outside an agent turn, and from an older runtime, it's absent: a tool uses UTC then.
 - **Boot fails** (exit `1`, listing every problem) when the index can't be read, a module it names is missing, or one fails to import. SIGTERM drains in-flight calls and exits `0`.
 - **Logs** are JSON lines on stderr. The `listening` line carries the bound port, so a caller can start the service with `PORT=0`.
 - **Programmatic:** `createPackService({ index, resolveModule, token, … })` returns a service whose `handle` is a `node:http` request handler. `startPackService(config)` also listens (`@kindgi/handler-runtime/pack-service`).

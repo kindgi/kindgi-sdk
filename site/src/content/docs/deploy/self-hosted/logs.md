@@ -58,7 +58,9 @@ later, for [erasing a person's data](../../../guides/agents/erase-a-persons-data
 `providers`, `promotions`, `pinned-versions` (runtime 0.3.0 or later),
 `block-version-prs` (runtime 0.4.0 or later), `tools`, `guardrails`,
 `pack`, `pack-orchestrator` (runtime 0.4.0 or later, for the
-[pack orchestrator](../pack-orchestrator/)), `ready`, `shutdown`,
+[pack orchestrator](../pack-orchestrator/)), `ready`, `shutdown`, `tick`
+with its nested `tick.hold` (runtime 0.7.0 or later, for a server that
+[scales to zero](../cloud-run/#scale-the-server-to-zero)),
 `schedules`, `references`, `secrets`, `license`, `aws-identity`,
 `expert-queue` (runtime 0.4.0 or later), `db`, `migrations`,
 `openfga`, `sso`, `tenants`, `improvement-passes`,

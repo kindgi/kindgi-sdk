@@ -115,10 +115,8 @@ npx --yes @kindgi/cli@0.6 connections connect google --permissions=gmail.send
   Without all three, the runtime logs at startup what it's missing:
   `connections to other apps are off: they need …`.
 
-  `kindgi dev` keeps secrets in .env files, so it doesn't offer
-  connections: a call to a tool that uses one fails at once with
-  `connection-app-missing`. Try them on a deployed runtime that has all
-  three.
+  `kindgi dev` offers them too, with nothing to set
+  ([Under `kindgi dev`](#under-kindgi-dev)).
 - **An admin of the workspace,** to register each app. Without
   [authorization](../../deploy/authorization/), Kindgi still keeps these to
   an admin: registering and changing apps, connecting the company's account,
@@ -127,6 +125,61 @@ npx --yes @kindgi/cli@0.6 connections connect google --permissions=gmail.send
   never does. The workspace's other settings then check only the API key.
 - **To approve what's sent from your own account, a reviewer seat**
   ([The Reviewers page](../approvals/approvals-reference/#the-reviewers-page)).
+
+## Under `kindgi dev`
+
+`kindgi dev` offers connections too. It keeps their tokens in its own
+database, encrypted under keys it makes for that database, and its start
+names the address your apps send people back to:
+
+```text
+  Connections  on · redirect URI http://127.0.0.1:4000/console/connect/callback · register your app in the console (Connection apps)
+```
+
+To connect an app there:
+
+1. **Make your own client at the app's provider,** with that redirect URI:
+   - Google: a web application OAuth client. The URI goes under
+     Authorized redirect URIs.
+   - GitHub: a GitHub App. The URI is one of its callback URLs, which it
+     takes up to 10 of.
+   - Microsoft: an Entra app. The portal's Redirect URIs box refuses an
+     `http` address, so add it in the app's Manifest, to
+     `replyUrlsWithType`, with the type `Web`.
+2. **Put its secrets in the pack's `.kindgi/secrets.env`,** or another
+   `.env` file `kindgi dev` reads. A Google or Microsoft client has one,
+   its client secret. A GitHub App has three: its client secret, its
+   private key and its webhook secret. A private key goes in as one value
+   in double quotes, over several lines.
+3. **Register the app** on the console's Connection apps page, naming those
+   secrets. Sign in to the console as the seeded user, who is the
+   workspace's admin.
+4. **Connect** from a run's page, or from the project's Connections page,
+   as on any runtime.
+
+What's different from a deployed runtime:
+- **Every pack that serves the app needs its secrets.** Under `kindgi dev`
+  a project's packs share one database, with its registrations and
+  connections, but each pack reads secrets from its own `.env` files.
+  Registering from a pack without them fails there and then. A pack
+  without them fails when it first renews a token, and the error names
+  the files it looked in.
+- **A new port needs its own redirect URI.** When port 4000 is busy,
+  `kindgi dev` takes the next free one, and the URI changes with it. The
+  first start on a port the database hasn't used says so, once: add that
+  URI to each of your apps, or their sign-in fails with
+  `redirect_uri_mismatch`.
+- **Mail triggers come on with connections,** so a mail trigger fires
+  under `kindgi dev` as it does on a deployed runtime.
+- **The keys** are in `~/.kindgi/dev/connections/`, one folder for each
+  database, readable only by you. They're in your home folder, which the
+  [dev sandbox](../secrets/dev-sandbox/) closes to the pack's code.
+  `kindgi dev --reset` drops the bundled database and its keys with it, so
+  connect again after it. A database you named keeps its keys. If a
+  database's keys change, the runtime won't start, and `kindgi dev` names
+  the key file and the ways out.
+- **An older runtime image** doesn't say whether it offers connections.
+  `kindgi dev` then shows `Connections  off, this runtime image doesn't say`.
 
 ## The guides
 

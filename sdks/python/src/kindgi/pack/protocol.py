@@ -34,6 +34,7 @@ PackErrorCode = Literal[
     "handler-shape-invalid",
     "handler-throw",
     "connection-rejected",
+    "tool-failed",
     "check-shape-invalid",
     "malformed-message",
     "unknown-protocol-version",
@@ -82,7 +83,8 @@ class CheckInvoke:
 def pack_error(code: PackErrorCode, message: str, **extra: Any) -> dict[str, Any]:
     """An error response message.
 
-    `extra` adds `toolId`, `checkId`, `cause`, `issues` and `connection`.
+    `extra` adds `toolId`, `checkId`, `cause`, `issues`, `connection`, and `reason` and
+    `details` (for `tool-failed`).
     """
     return {
         "v": PACK_PROTOCOL_VERSION,

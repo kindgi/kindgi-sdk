@@ -1,0 +1,16 @@
+package {{SCALA_PACKAGE}}.flows
+
+import com.kindgi.pack.scaladsl._
+import {{SCALA_PACKAGE}}.tools.Echo
+
+/** {{PACK_ID}}.greet-person — runs the pack's echo tool, then ends. */
+object GreetPerson {
+  val flow: Flow = Flow("{{PACK_ID}}.greet-person")
+    .version("{{PACK_VERSION}}")
+    .set("name", "Greet a person")
+    .set("description", "Runs the pack's echo tool and terminates.")
+    .toolNode("echo", Echo.tool)
+    .edge("e-start", "$start", "echo")
+    .edge("e-end", "echo", "$end")
+    .build()
+}

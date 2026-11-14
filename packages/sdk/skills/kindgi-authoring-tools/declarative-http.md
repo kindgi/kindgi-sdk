@@ -7,7 +7,7 @@ import type { ToolId } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
 const defined = defineTool({
-  id: 'shop.fetch-order' as ToolId,
+  id: 'acme.fetch-order' as ToolId,
   description: 'Fetch an order by id from the storefront API.',
   version: '0.1.0',
   input: z.object({ orderId: z.string() }),

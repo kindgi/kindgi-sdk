@@ -248,7 +248,7 @@ run "the_pack_invokes_the_named_services" {
   assert {
     condition = alltrue([
       for g in google_cloud_run_v2_service_iam_member.pack_invokes :
-      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack.email}"
+      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack[0].email}"
     ])
     error_message = "Each grant gives the pack's service account roles/run.invoker."
   }
@@ -1126,7 +1126,7 @@ run "the_orchestrator_has_only_its_own_rights" {
   assert {
     condition = (
       google_project_iam_member.orchestrator_runs_services.role == "roles/run.developer" &&
-      google_service_account_iam_member.orchestrator_acts_as_pack.role == "roles/iam.serviceAccountUser"
+      google_service_account_iam_member.orchestrator_acts_as_pack[0].role == "roles/iam.serviceAccountUser"
     )
     error_message = "The orchestrator manages the project's services, and runs them as the pack account."
   }
@@ -1164,7 +1164,7 @@ run "the_pack_account_reads_its_own_secrets_and_the_listed_cloud_secrets" {
     ]
   }
   assert {
-    condition     = google_project_iam_member.pack_reads_pack_secrets.role == "roles/secretmanager.secretAccessor" && google_project_iam_member.pack_reads_pack_secrets.condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
+    condition     = google_project_iam_member.pack_reads_pack_secrets[0].role == "roles/secretmanager.secretAccessor" && google_project_iam_member.pack_reads_pack_secrets[0].condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
     error_message = "The pack account reads the kp- secrets, its token and env values among them."
   }
   assert {
@@ -1282,8 +1282,8 @@ run "the_key_steps_mint_the_orchestrators_key_on_the_server" {
     error_message = "Until its key is set, the steps mint it on the server, add it as a version only if one came back, and name the variable to set."
   }
   assert {
-    condition     = toset(keys(output.service_accounts)) == toset(["server", "pack", "orchestrator"]) && output.service_accounts.orchestrator == google_service_account.orchestrator.email
-    error_message = "service_accounts names the server's, the pack services' and the orchestrator's accounts."
+    condition     = toset(keys(output.service_accounts)) == toset(["server", "pack", "tenants", "orchestrator"]) && output.service_accounts.orchestrator == google_service_account.orchestrator.email && output.service_accounts.tenants == {}
+    error_message = "service_accounts names the server's, the pack services' and the orchestrator's accounts, and no tenant's in shared mode."
   }
 }
 

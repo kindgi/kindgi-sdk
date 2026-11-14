@@ -33,7 +33,8 @@ different access:
   keys either way, and service accounts act for pipelines and apps
   ([People, API keys and service accounts](../people-and-keys/)). With
   authorization, a tenant admin gives each a role, and can make others
-  tenant admins. The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
+  tenant admins ([Someone who signs in](../people-and-keys/#someone-who-signs-in)).
+  The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
   first.
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only

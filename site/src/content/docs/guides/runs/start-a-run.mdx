@@ -521,7 +521,7 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | `id` | The run's id: for `get`, `cancel`, the journal and the event stream. |
 | `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
-| `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
+| `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; a tool that failed the call on purpose, `tool-failed`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
 | `flowId`, `flowVersion` | The flow and the version the run runs, kept for the whole run. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
 | `flowVersionVia` | How a flow's version was chosen: named by the start (`explicit`), [pinned](../../flows/pin-a-flow-version/) for the run's project (`pinned`, with the pin in `flowPinnedScope`), or the newest the project reaches (`latest`). |
 | `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none. |
@@ -565,7 +565,7 @@ try {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+tool-failed No order Z-9
 not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
@@ -589,7 +589,7 @@ except NotFoundError as err:
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
+tool-failed No order Z-9
 No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
@@ -631,7 +631,7 @@ public final class StartFailures {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.lang.IllegalArgumentException: No order Z-9
+tool-failed No order Z-9
 flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
@@ -671,12 +671,22 @@ object StartFailures {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.util.NoSuchElementException: No order Z-9
+tool-failed No order Z-9
 flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
 </Tabs>
+
+Here the flow's tool failed the call on purpose
+([Fail a call on purpose](../../tools/write-a-tool/#fail-a-call-on-purpose)):
+the failure's `reason` is the tool's own code, `order-not-found`, and its
+`details` the tool's facts. A tool that just throws is a crash instead,
+`run-failed`, with the tool's words after its lead-in:
+
+```text
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+```
 
 A request that times out on your side may have started the run anyway.
 [Retry a start safely](../retry-a-start-safely/) shows how to retry without
