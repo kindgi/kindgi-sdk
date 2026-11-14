@@ -26079,7 +26079,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project."
+            "description": "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project."
           },
           "runAsServiceAccountId": {
             "type": "string",
@@ -26695,7 +26695,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The trigger's project; absent: the workspace's default project."
+            "description": "The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project."
           },
           "config": {
             "type": "object",
@@ -27111,7 +27111,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The trigger's project. Absent → the workspace's default project."
+            "description": "The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project."
           },
           "runAsServiceAccountId": {
             "type": "string",
@@ -70050,7 +70050,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70189,7 +70189,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70308,7 +70308,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70427,7 +70427,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70814,7 +70814,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70943,7 +70943,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+            "description": "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71142,7 +71142,7 @@
             }
           }
         },
-        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -71364,7 +71364,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71503,7 +71503,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71622,7 +71622,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71741,7 +71741,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72128,7 +72128,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+            "description": "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72337,7 +72337,7 @@
             }
           }
         },
-        "description": "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -72558,6 +72558,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
             "content": {
@@ -72687,6 +72697,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id.",
             "content": {
@@ -72796,6 +72816,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id.",
             "content": {
@@ -72897,6 +72927,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -73284,6 +73324,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {

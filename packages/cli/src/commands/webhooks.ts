@@ -298,7 +298,8 @@ const register: LeafCommand = {
     },
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the workspace's default project).",
+      description:
+        "The trigger's project, by id (default: the project the API key or session is limited to, else the workspace's default project).",
     },
     ...SIGNATURE_FLAGS,
     ...RUN_AS_FLAG,
