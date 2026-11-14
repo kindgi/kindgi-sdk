@@ -5,12 +5,20 @@
  * `/mcp`: its own token check (401s that say where to sign in), the chat
  * scopes, and each tool's `/v1` request in this process as the person,
  * narrowed to the token's scopes and to the routes its tool set declared.
+ * Both MCP eras (2025's `initialize`, 2026-07-28 per request), with the
+ * library's checks, and the revision on each request's log line.
  * Test-only tool sets; a stand-in authorization check that records who asked.
  */
 
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+  SERVER_INFO_META_KEY,
+} from '@modelcontextprotocol/server';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
@@ -127,12 +135,14 @@ function harness(options: { consoleUrl?: string } = {}) {
       return resources.map((resource) => refused(principal, action, resource));
     },
   };
+  const lines: string[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     // The API's own tokens: none of the chat ones.
     resolveToken: async (token) => (token === 'api-key' ? { tenantId } : null),
     runHandler: {} as RunHandlerBinding,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
+    logger: createLogger({ level: 'debug', write: (line) => lines.push(line) }),
   });
   const input: McpServerInput = {
     resolveToken: async (token) => CHAT[token]?.() ?? null,
@@ -143,8 +153,16 @@ function harness(options: { consoleUrl?: string } = {}) {
   mountMcpServer(app, input, [readSet, runSet]);
 
   const rpc = mcpRpc(app);
-  return { app, asked, rpc };
+  /** Each `/mcp` request's access line. */
+  const access = () =>
+    lines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((record) => record.route === '/mcp');
+  return { app, asked, rpc, access };
 }
+
+const toolNames = (body: Record<string, any>) =>
+  (body.result.tools as { name: string }[]).map((t) => t.name).sort();
 
 describe('/mcp: signing in', () => {
   test('is not mounted without mcpServer', async () => {
@@ -315,5 +333,192 @@ describe("/mcp: a tool's /v1 request", () => {
       arguments: {},
     });
     expect(unlinked.body.result.structuredContent.link).toBeNull();
+  });
+});
+
+describe('/mcp: both eras', () => {
+  // The handshake the chat apps open with, sent as they send it: no
+  // MCP-Protocol-Version yet.
+  test.each(['2025-11-25', '2025-06-18', '2025-03-26'])(
+    'a %s initialize is answered in its revision, with no session',
+    async (version) => {
+      const { rpc, access } = harness();
+      const { res, body } = await rpc(
+        'chat-read',
+        'initialize',
+        {
+          protocolVersion: version,
+          capabilities: {},
+          clientInfo: { name: 'chat', version: '1.0.0' },
+        },
+        '2025-11-25',
+        { headers: { 'mcp-protocol-version': null } },
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('mcp-session-id')).toBeNull();
+      expect(body.result.protocolVersion).toBe(version);
+      expect(body.result.serverInfo).toMatchObject({ name: 'kindgi', version: '0.0.0-test' });
+      expect(body.result.instructions).toMatch(/^Kindgi runs a workspace's agents\./);
+      expect(body.result.capabilities.tools.listChanged).toBe(false);
+      expect(body.result.capabilities.resources.listChanged).toBe(false);
+      expect(access()).toEqual([
+        expect.objectContaining({ status: 200, mcpProtocolVersion: 'none', mcpEra: 'legacy' }),
+      ]);
+    },
+  );
+
+  test('a 2025 tools/list without MCP-Protocol-Version is served', async () => {
+    const { rpc } = harness();
+    const { res, body } = await rpc('chat-read', 'tools/list', {}, '2025-11-25', {
+      headers: { 'mcp-protocol-version': null },
+    });
+    expect(res.status).toBe(200);
+    expect(toolNames(body)).toEqual(['probe_elsewhere', 'probe_tenant']);
+  });
+
+  test('a 2026-07-28 server/discover names its revisions, the server and its instructions', async () => {
+    const { rpc, access } = harness();
+    const { res, body } = await rpc('chat-read', 'server/discover', {}, '2026-07-28');
+    expect(res.status).toBe(200);
+    expect(body.result.supportedVersions).toEqual(['2026-07-28']);
+    expect(body.result._meta[SERVER_INFO_META_KEY]).toMatchObject({
+      name: 'kindgi',
+      version: '0.0.0-test',
+    });
+    expect(body.result.instructions).toMatch(/^Kindgi runs a workspace's agents\./);
+    expect(access()).toEqual([
+      expect.objectContaining({ status: 200, mcpProtocolVersion: '2026-07-28', mcpEra: 'modern' }),
+    ]);
+  });
+
+  test('a 2026-07-28 tools/call naming its tool in Mcp-Name runs it', async () => {
+    const { rpc, asked } = harness();
+    const { res, body } = await rpc(
+      'chat-read',
+      'tools/call',
+      { name: 'probe_tenant', arguments: {} },
+      '2026-07-28',
+    );
+    expect(res.status).toBe(200);
+    expect(body.result.structuredContent.status).toBe(403);
+    expect(asked).toHaveLength(1);
+  });
+
+  test('2026-07-28 answers are never kept by a cache, and open no session', async () => {
+    const { rpc } = harness();
+    for (const method of ['server/discover', 'tools/list']) {
+      const { res } = await rpc('chat-read', method, {}, '2026-07-28');
+      expect(res.headers.get('cache-control')).toContain('no-store');
+      expect(res.headers.get('mcp-session-id')).toBeNull();
+    }
+  });
+
+  test('the log line says a revision that is not a date as other', async () => {
+    const { rpc, access } = harness();
+    await rpc('chat-read', 'tools/list', {}, '2025-11-25', {
+      headers: { 'mcp-protocol-version': 'latest' },
+    });
+    expect(access()).toEqual([expect.objectContaining({ mcpProtocolVersion: 'other' })]);
+  });
+});
+
+describe("/mcp: the library's checks, before any tool", () => {
+  test("an Mcp-Name that isn't the body's tool: 400 -32020, and nothing runs", async () => {
+    const { rpc, asked } = harness();
+    const { res, body } = await rpc(
+      'chat-run',
+      'tools/call',
+      { name: 'probe_tenant', arguments: {} },
+      '2026-07-28',
+      { headers: { 'mcp-name': 'probe_run' } },
+    );
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe(-32020);
+    expect(asked).toEqual([]);
+  });
+
+  test.each([
+    ['Mcp-Method', { 'mcp-method': null }],
+    ['MCP-Protocol-Version', { 'mcp-protocol-version': null }],
+  ])('a 2026-07-28 request without %s: 400 -32020', async (_, headers) => {
+    const { rpc } = harness();
+    const { res, body } = await rpc('chat-read', 'tools/list', {}, '2026-07-28', { headers });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe(-32020);
+  });
+
+  test('a revision it does not serve: 400 -32022, naming 2026-07-28', async () => {
+    const { rpc } = harness();
+    const { res, body } = await rpc('chat-read', 'tools/list', {}, '2026-07-28', {
+      headers: { 'mcp-protocol-version': '2099-01-01' },
+      metaVersion: '2099-01-01',
+    });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe(-32022);
+    expect(body.error.data.supported).toContain('2026-07-28');
+  });
+
+  test('a batch holding a 2026-07-28 request: 400', async () => {
+    const { app, asked } = harness();
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-protocol-version': '2026-07-28',
+        authorization: 'Bearer chat-read',
+      },
+      body: JSON.stringify([
+        {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: 'probe_tenant',
+            arguments: {},
+            _meta: {
+              [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+              [CLIENT_CAPABILITIES_META_KEY]: {},
+            },
+          },
+        },
+      ]),
+    });
+    expect(res.status).toBe(400);
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('/mcp: sign-in first, and no sessions', () => {
+  test.each(['GET', 'DELETE'])('%s with a token: 405', async (method) => {
+    const { app } = harness();
+    const res = await app.request('/mcp', {
+      method,
+      headers: { accept: 'text/event-stream', authorization: 'Bearer chat-read' },
+    });
+    expect(res.status).toBe(405);
+  });
+
+  test.each(['GET', 'DELETE'])('%s without one: 401 pointing to the metadata', async (method) => {
+    const { app } = harness();
+    const res = await app.request('/mcp', { method, headers: { accept: 'text/event-stream' } });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toContain(
+      `resource_metadata="${RESOURCE_METADATA}"`,
+    );
+  });
+
+  test('a 2026-07-28 server/discover without a token: the same 401, its revision logged', async () => {
+    const { rpc, access } = harness();
+    const { res, body } = await rpc(undefined, 'server/discover', {}, '2026-07-28');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toContain(
+      `resource_metadata="${RESOURCE_METADATA}"`,
+    );
+    expect(body.jsonrpc).toBeUndefined();
+    const [line] = access();
+    expect(line).toMatchObject({ status: 401, mcpProtocolVersion: '2026-07-28' });
+    // No body is read before sign-in.
+    expect(line).not.toHaveProperty('mcpEra');
   });
 });
