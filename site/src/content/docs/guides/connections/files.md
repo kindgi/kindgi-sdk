@@ -140,8 +140,8 @@ has none, and its search is refused.
 
 A get reads one file by its `id` and stores it as a file of the run, so
 the agent is shown it, as a mail attachment is
-([Ready-made tools](../use-a-connection/#ready-made-tools)). For now, only
-Google Drive's:
+([Ready-made tools](../use-a-connection/#ready-made-tools)). Only Google
+Drive's has one:
 
 - **Google's own files** are read as a type a model takes: a Doc as
   Markdown, a Sheet as CSV (its first sheet only), Slides as plain text,
