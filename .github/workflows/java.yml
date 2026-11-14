@@ -44,6 +44,7 @@ jobs:
           'sdks/java/**' packages/api/openapi.json 'packages/specs/schemas/**'
           'packages/specs/test-vectors/**'
           packages/guardrails/src/checks.ts packages/log/tests/vectors/records.json
+          packages/log/tests/vectors/error-text.json
           .github/workflows/java.yml scripts/changed-paths.mjs scripts/sync-jvm-version.mjs
           scripts/check-jars.mjs scripts/lib/zip.mjs scripts/lib/pom-xml.mjs scripts/text-scan.mjs
           scripts/forbidden-names.json

@@ -826,7 +826,7 @@ describe('GET /v1/agents/:agentId/release-gate', () => {
   });
 });
 
-describe('a pin in place (T288): the scope has no pin of its own and serves the version already', () => {
+describe('a pin in place: the scope has no pin of its own and serves the version already', () => {
   const STRICT: ReleaseGateSpec = {
     ...FAILING,
     approvals: { role: 'senior', separateApprover: true },

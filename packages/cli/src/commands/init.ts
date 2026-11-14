@@ -391,7 +391,7 @@ async function runInitFresh(
   filesWritten.push(...access.files);
 
   // A standalone pack pins the pnpm that will install it, so the image
-  // (`kindgi build`), CI and a teammate all use that one (T196).
+  // (`kindgi build`), CI and a teammate all use that one.
   const runs = ctx.initSeam?.packageManagerRuns;
   const detectIo = { ...defaultDetectIo, ...(runs !== undefined && { runs }) };
   const pnpmPin = await pinStandalonePnpm(ctx, args.targetDir, detectIo);
@@ -483,7 +483,7 @@ type PnpmPin =
   | { readonly kind: 'pinned'; readonly version: string }
   /** The pack sits inside a project that already says how it installs. */
   | { readonly kind: 'inside' }
-  /** pnpm isn't installed here: the pack installs and runs with npm (T280). */
+  /** pnpm isn't installed here: the pack installs and runs with npm. */
   | { readonly kind: 'not-installed' }
   | { readonly kind: 'unread'; readonly reason: string };
 

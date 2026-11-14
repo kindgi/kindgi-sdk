@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/kindgi/kindgi-sdk/security/advisories/new
+    about: Privately, through GitHub's private vulnerability reporting, as SECURITY.md says. Never in a public issue.
+  - name: Documentation
+    url: https://docs.kindgi.com
+    about: Guides and reference for packs, agents, tools, guardrails and flows.

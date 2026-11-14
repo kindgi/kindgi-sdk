@@ -29,6 +29,7 @@ function kindgi_test_reset(): void {
 		'current_user' => new WP_User( 0, '', array() ),
 		'caps'         => array(),
 		'orders'       => array(),
+		'multisite'    => false,
 	);
 	putenv( 'KINDGI_SITE_SECRET_KEY' );
 	kindgi_test_reset_request();
@@ -120,13 +121,19 @@ class WC_Order {
 	private $id;
 	private $status;
 	private $billing_email;
+	private $currency;
 	/** The notes added, each `array( note, is_customer_note, added_by_user )`. */
 	public $notes = array();
 
-	public function __construct( int $id, string $status = 'processing', string $billing_email = '' ) {
+	public function __construct( int $id, string $status = 'processing', string $billing_email = '', string $currency = 'USD' ) {
 		$this->id            = $id;
 		$this->status        = $status;
 		$this->billing_email = $billing_email;
+		$this->currency      = $currency;
+	}
+
+	public function get_currency(): string {
+		return $this->currency;
 	}
 
 	public function get_id(): int {
@@ -150,6 +157,21 @@ class WC_Order {
 function wc_get_order( $order ) {
 	$id = $order instanceof WC_Order ? $order->get_id() : (int) $order;
 	return $GLOBALS['kindgi_test']['orders'][ $id ] ?? false;
+}
+
+/** A price as WooCommerce marks it up: its currency's symbol as an entity, two decimals, in spans. */
+function wc_price( $price, array $args = array() ): string {
+	$symbols = array(
+		'USD' => '&#36;',
+		'EUR' => '&euro;',
+		'GBP' => '&pound;',
+	);
+	$symbol  = $symbols[ $args['currency'] ?? 'USD' ] ?? ( $args['currency'] ?? '' );
+	return '<span class="woocommerce-Price-amount amount"><bdi><span class="woocommerce-Price-currencySymbol">' . $symbol . '</span>' . number_format( (float) $price, 2 ) . '</bdi></span>';
+}
+
+function wp_strip_all_tags( string $text ): string {
+	return trim( strip_tags( $text ) );
 }
 
 /** The signed-in person (`current_user`) and what they may do (`caps`). */
@@ -218,6 +240,11 @@ function update_option( string $name, $value, $autoload = null ): bool {
 	return true;
 }
 
+function delete_option( string $name ): bool {
+	unset( $GLOBALS['kindgi_test']['options'][ $name ] );
+	return true;
+}
+
 function add_option( string $name, $value = '', $deprecated = '', $autoload = null ): bool {
 	if ( array_key_exists( $name, $GLOBALS['kindgi_test']['options'] ) ) {
 		return false;
@@ -238,6 +265,21 @@ function update_user_option( int $user_id, string $name, $value ): bool {
 function delete_user_option( int $user_id, string $name ): bool {
 	unset( $GLOBALS['kindgi_test']['user_options'][ $user_id ][ 'wp_' . $name ] );
 	return true;
+}
+
+/** Only what uninstall asks: one key gone from every user (`$delete_all`). */
+function delete_metadata( string $type, int $object_id, string $key, $value = '', bool $delete_all = false ): bool {
+	if ( 'user' !== $type || ! $delete_all ) {
+		return false;
+	}
+	foreach ( array_keys( $GLOBALS['kindgi_test']['user_options'] ) as $user_id ) {
+		unset( $GLOBALS['kindgi_test']['user_options'][ $user_id ][ $key ] );
+	}
+	return true;
+}
+
+function is_multisite(): bool {
+	return $GLOBALS['kindgi_test']['multisite'];
 }
 
 function add_user_meta( int $user_id, string $key, $value, bool $unique = false ) {

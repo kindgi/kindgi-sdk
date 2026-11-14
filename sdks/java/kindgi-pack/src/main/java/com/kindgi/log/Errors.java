@@ -50,7 +50,7 @@ final class Errors {
     return out;
   }
 
-  private static String name(Throwable t) {
+  static String name(Throwable t) {
     String simple = t.getClass().getSimpleName();
     return simple.isEmpty() ? t.getClass().getName() : simple;
   }
@@ -68,7 +68,7 @@ final class Errors {
    * An error's code, when it has one: a public {@code code()} or {@code getCode()} that returns a
    * string, a number or an enum (as a JavaScript error's {@code code}).
    */
-  private static @Nullable String code(Throwable t) {
+  static @Nullable String code(Throwable t) {
     for (String name : new String[] {"code", "getCode"}) {
       try {
         Method m = t.getClass().getMethod(name);

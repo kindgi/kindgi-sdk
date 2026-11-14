@@ -38,7 +38,7 @@ export interface AuthRouterOptions {
   readonly sessionStore: SessionStoreBinding;
   readonly identityProvider: IdentityProviderBinding;
   /**
-   * With one (T243 A): the provider catalog is tenant-wide, so reading it
+   * With one: the provider catalog is tenant-wide, so reading it
    * needs `read` on the tenant and changing it `admin`, as for every
    * tenant-wide resource (`tenantResourceAccess`). Refreshing and logging
    * out are the caller's own, and stay unchecked.

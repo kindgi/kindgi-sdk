@@ -1,0 +1,28 @@
+name: Docs problem
+description: A page on docs.kindgi.com is wrong, unclear or missing something.
+title: "Docs: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A security vulnerability doesn't go here.** Report it privately through GitHub's
+        [private vulnerability reporting](https://github.com/kindgi/kindgi-sdk/security/advisories/new),
+        as [SECURITY.md](https://github.com/kindgi/kindgi-sdk/blob/main/SECURITY.md) says.
+
+        An issue is public: leave out keys, tokens, passwords, and any personal or customer data.
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The page's URL, or the nearest page's for one that's missing.
+      placeholder: https://docs.kindgi.com/
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong or missing
+      description: What the page says, and what it should say or what you expected to find.
+    validations:
+      required: true

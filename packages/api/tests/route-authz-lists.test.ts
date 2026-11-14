@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Content lists hold only what the caller may read (T243 A): agents,
+ * Content lists hold only what the caller may read: agents,
  * flows, tools, guardrails, test sets and MCP endpoints are filtered
  * by `read` on each row's object, as `GET …/:id` asks. With no grants,
  * every list is empty, having asked about every row.

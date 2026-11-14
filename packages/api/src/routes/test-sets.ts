@@ -138,7 +138,7 @@ export function testSetsRouter(
   }
 
   /**
-   * The rows of a list the caller may read (T243 A), as `GET …/:id` asks:
+   * The rows of a list the caller may read, as `GET …/:id` asks:
    * a test set more than one project serves, at its newest version they see.
    */
   async function readable(

@@ -10,9 +10,11 @@ defined( 'ABSPATH' ) || exit;
  * it, to decide there, and what was decided), a "Kindgi" column on the
  * Orders list (what waits), and a private note on the order at each
  * decision made on this site. An approval is about an order when its
- * tool says so: Kindgi puts it in the approval's `context.about`. A mail
- * tool's reply doesn't say what order it's about: the box shows the
- * replies to the order's customer apart.
+ * tool says so: Kindgi puts it in the approval's `context.about`. When it
+ * says nothing, a call's own `orderId` names the order, if that order is
+ * on this store (`Kindgi_Inbox::about_of`). A mail tool's reply doesn't
+ * say what order it's about: the box shows the replies to the order's
+ * customer apart.
  */
 final class Kindgi_Order {
 
@@ -62,6 +64,22 @@ final class Kindgi_Order {
 	 */
 	public static function of( ?array $about ): ?int {
 		return null !== $about && self::ABOUT === $about['kind'] && 1 === preg_match( '/^[1-9][0-9]{0,17}$/', $about['id'] ) ? (int) $about['id'] : null;
+	}
+
+	/**
+	 * An amount as the order's price: in its currency, in the store's
+	 * price format (`wc_price`), as text. Null when the order isn't on the
+	 * store: the card then shows the number as the call has it.
+	 *
+	 * @param int|float $amount The call's number.
+	 */
+	public static function price( $amount, int $order ): ?string {
+		$found = self::store() && function_exists( 'wc_price' ) ? wc_get_order( $order ) : false;
+		if ( ! $found instanceof WC_Order ) {
+			return null;
+		}
+		$html = wc_price( (float) $amount, array( 'currency' => $found->get_currency() ) );
+		return trim( html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES, 'UTF-8' ) );
 	}
 
 	/** The screen of the order a card is about, for someone who may edit orders; else null. */

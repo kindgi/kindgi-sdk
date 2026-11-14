@@ -163,7 +163,7 @@ export type TestRunReads = 'recorded' | 'live';
  * Which corrections a comparison counts: every correction at its group's
  * weight (`as-recorded`, the default), or only those recorded while their
  * group was restricted (`assertableBy`), the others weighing 0
- * (`experts-only`; T200).
+ * (`experts-only`).
  */
 export type TestRunGroupWeights = 'as-recorded' | 'experts-only';
 

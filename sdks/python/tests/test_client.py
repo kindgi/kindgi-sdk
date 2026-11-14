@@ -1344,7 +1344,7 @@ def test_the_generated_client_is_in_step_with_openapi() -> None:
 
 
 def test_retention_scheduled_and_sweep() -> None:
-    """T236: the retention routes, with the conflicts a page reports."""
+    """The retention routes, with the conflicts a page reports."""
     conflict = {
         "domain": "provider",
         "policyIds": ["acme.keep-providers", "acme.keep-providers-long"],
@@ -1383,7 +1383,7 @@ def test_retention_scheduled_and_sweep() -> None:
 
 
 def test_retention_scheduled_pages_with_a_cursor() -> None:
-    """T249: `cursor` goes in the query; `has_more` and `next_cursor` come back."""
+    """`cursor` goes in the query; `has_more` and `next_cursor` come back."""
 
     def item(n: int) -> dict[str, Any]:
         return {
@@ -1418,7 +1418,7 @@ def test_retention_scheduled_pages_with_a_cursor() -> None:
 
 
 def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
-    """T236: `409 policy-scope-taken` names the policy that covers the domain."""
+    """`409 policy-scope-taken` names the policy that covers the domain."""
     response = error(409, "policy-scope-taken", details={"heldBy": "acme.keep-providers"})
     api, _ = client(lambda r: response, max_retries=0)
     with pytest.raises(ConflictError) as raised:
@@ -1456,7 +1456,7 @@ def test_observations_list_sends_every_filter_the_route_reads() -> None:
 
 
 def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
-    """T309: ids the models carry as `UUID` go straight back into the client."""
+    """Ids the models carry as `UUID` go straight back into the client."""
     run_id = uuid.UUID("0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f")
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -29,7 +29,7 @@ import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
  * Nine routes, mirroring the schedules surface. This surface registers
  * triggers; it does not publish events.
  *
- * With an authorizer (T243 A), the trigger's flow decides who may see or
+ * With an authorizer, the trigger's flow decides who may see or
  * change it, and for a flow more than one project serves, the project its
  * runs are filed in (`trigger-access.ts`).
  */

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** What a run waits for (`kindgi runs resume`, T272), from fakes of the three reads. */
+/** What a run waits for (`kindgi runs resume`), from fakes of the three reads. */
 
 import { describe, expect, test } from 'vitest';
 

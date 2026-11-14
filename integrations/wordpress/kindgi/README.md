@@ -105,6 +105,7 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 - **Register your own MCP server with the adapter** and list each ability as its own tool. With its endpoint registered in Kindgi as `shop`, the ability `acme/refund-order` is the tool `shop.acme-refund-order`, and can require approval alone.
 - **Don't expose the default server's `execute-ability` tool.** It runs any ability by name, so one approval rule would cover every action.
 - **Set `meta.mcp.public` to `false`** on every ability with side effects. The default server then never exposes it, even when the ability is otherwise public, and only your own server does.
+- **To show a call on its order** (the order chip, the order's Kindgi box, the Orders list column and the order note), give the tool a top-level `orderId`: the order's ID as WooCommerce has it, not a custom order number. Amounts in `amount`, or in a field ending `Amount` or `_amount`, show as the order's price when they're numbers in the currency's whole units (21.5, not 2150).
 - **Give money-moving tools no automatic retries on a tool error.** A retry is a new call, with its own approval and its own idempotency key. If the first call refunded before it failed, the retry refunds again.
 
 ## What the plugin stores
@@ -117,6 +118,7 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
 | The people Kindgi knows (subject, user id, roles), and changes still waiting to reach it | The `kindgi_people` option, not autoloaded |
 | When WooCommerce turned off each webhook to Kindgi | The `kindgi_webhooks_disabled_at` option, not autoloaded |
+| Which agents staff see on the Ask page (their ids); none set offers them all | The `kindgi_offered_agents` option, not autoloaded |
 
 WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site, and tells Kindgi they left, which ends their access there for good. Kindgi keeps its own record of the person, and their name stays on the records they're part of, decisions included.
 

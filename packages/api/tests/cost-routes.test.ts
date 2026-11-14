@@ -635,7 +635,7 @@ describe('API — cost aggregate', () => {
   });
 });
 
-describe('API — cost aggregate: the order and the cap (T171)', () => {
+describe('API — cost aggregate: the order and the cap', () => {
   const WINDOW = 'from=2026-09-01T00:00:00.000Z&to=2026-09-30T00:00:00.000Z';
   type Body = {
     groups: Array<{ key: Record<string, string | null>; totalUsd: number }>;
@@ -832,7 +832,7 @@ describe('API — cost scope filter', () => {
   });
 });
 
-describe("API — a model call's cost record (T135)", () => {
+describe("API — a model call's cost record", () => {
   const ROOT = randomUUID();
   const call = (over: Partial<CostRecord> = {}): CostRecord =>
     makeRecord({

@@ -28,7 +28,7 @@ export interface IdempotencyStore {
   /** Store an answer. It replaces a hold on the key, never a stored answer: the first stays. */
   set(key: string, entry: StoredIdempotencyEntry): Promise<void>;
   /**
-   * Hold a key while its request runs (T349), so a repeat sent meanwhile
+   * Hold a key while its request runs, so a repeat sent meanwhile
    * is answered 409 `idempotency-key-in-flight` instead of running the
    * operation again. Optional: a store without holds holds nothing, and
    * such a repeat runs again (the behaviour before 0.1.5).
@@ -157,7 +157,7 @@ const STORE_UNAVAILABLE_RETRY_AFTER_S = 5;
  *   nothing, and a failure (5xx) may be transient: neither is stored, so
  *   a retry with the same key after fixing the cause runs again instead
  *   of replaying the old error.
- * - With a store that holds keys (`store.holds`, T349): the key is held
+ * - With a store that holds keys (`store.holds`): the key is held
  *   while the handler runs (for `holdMs`, renewed every third of it), so
  *   a repeat sent meanwhile gets 409 `idempotency-key-in-flight` with
  *   `Retry-After`, or `idempotency-key-body-mismatch` for another body,
@@ -181,7 +181,7 @@ const STORE_UNAVAILABLE_RETRY_AFTER_S = 5;
  * key is the tenant, the caller (`user:…`, `service_account:…`, else the
  * key or session it came with), the route and the key: someone else in
  * the tenant who sends the same key and body runs the request themselves,
- * and never gets another caller's answer (T392).
+ * and never gets another caller's answer.
  *
  * A route whose answer carries a secret calls `withholdFromReplay`: its
  * answer isn't kept, only that it succeeded (status, when). A repeat with

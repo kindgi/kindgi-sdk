@@ -171,7 +171,8 @@ def run_indexer(
                 continue
             defined[version] = rel_path
             entries[kind].append(built["entry"])
-            if isinstance(primitive, Guardrail):
+            # A built-in's id is the runtime's, with no pack's prefix.
+            if isinstance(primitive, Guardrail) and not primitive.built_in:
                 warning = _unprefixed_check(primitive, rel_path, config.id)
                 if warning is not None:
                     warnings.append(warning)
@@ -306,8 +307,10 @@ def _guardrail_entry(guardrail: Guardrail, rel_path: str) -> dict[str, Any]:
             "action": dict(guardrail.action),
             "severity": guardrail.severity,
             "scope": _dict(guardrail.scope),
+            "at": guardrail.at,
             "checkModulePath": rel_path,
             "checkId": guardrail.check_id,
+            "checkBuiltIn": True if guardrail.built_in else None,
             "config": _dict(guardrail.config),
             "judgeCapabilities": _dict(guardrail.judge_capabilities),
             "configSchema": guardrail.config_schema,

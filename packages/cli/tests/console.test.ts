@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi console` (T374): checks that the runtime the CLI points at
+ * `kindgi console`: checks that the runtime the CLI points at
  * serves a console, then opens it, or with `--no-open` prints its URL.
  * The browser is a seam; nothing is opened for real.
  */

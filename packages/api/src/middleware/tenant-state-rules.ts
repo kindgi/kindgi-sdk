@@ -12,11 +12,11 @@
 export const ALWAYS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'DELETE']);
 
 /**
- * `POST`s a frozen tenant may still make: reads that are posts, its signed
- * exports, signing in and out, and every way this API deletes, erases and
- * revokes (unregistering is its soft delete). Nothing here creates or
- * changes what the tenant runs. Matched for `POST` only: any other write to
- * these paths is refused.
+ * `POST`s a frozen tenant may still make on `/v1`: reads that are posts,
+ * its signed exports, signing in and out, and every way this API deletes,
+ * erases and revokes (unregistering is its soft delete). Nothing here
+ * creates or changes what the tenant runs. Matched for `POST` only: any
+ * other write to these paths is refused.
  */
 export const ALLOWED_POSTS: readonly RegExp[] = [
   // signing in and out; registering or changing a provider is a write
@@ -39,7 +39,17 @@ export const ALLOWED_POSTS: readonly RegExp[] = [
   /\/revoke-sessions$/,
 ];
 
-/** Whether a frozen tenant may still make this request (`method` upper case, as sent). */
-export function frozenTenantMay(method: string, path: string): boolean {
-  return ALWAYS.has(method) || (method === 'POST' && ALLOWED_POSTS.some((re) => re.test(path)));
+/**
+ * Whether a frozen tenant may still make this request (`method` upper case,
+ * as sent). On the S3-compatible surface (`surface: 's3'`) a `POST` starts or
+ * completes a multipart upload, a write, so none is let through, whatever its
+ * path.
+ */
+export function frozenTenantMay(
+  method: string,
+  path: string,
+  surface: 'api' | 's3' = 'api',
+): boolean {
+  if (ALWAYS.has(method)) return true;
+  return method === 'POST' && surface !== 's3' && ALLOWED_POSTS.some((re) => re.test(path));
 }

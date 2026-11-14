@@ -446,7 +446,7 @@ describe('POST /v1/webhook-endpoints/generate-secret', () => {
     expect(binding.rows.size).toBe(0);
   });
 
-  test('with an Idempotency-Key, a retry gets 409 replay-withheld, never the secret again (T392)', async () => {
+  test('with an Idempotency-Key, a retry gets 409 replay-withheld, never the secret again', async () => {
     const { app } = makeApp();
     const send = () =>
       app.request('/v1/webhook-endpoints/generate-secret', {

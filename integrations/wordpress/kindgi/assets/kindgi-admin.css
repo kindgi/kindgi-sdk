@@ -351,6 +351,13 @@
   font-size: 12px;
 }
 
+/* The run behind the agent's words, or behind a turn still working: a quiet link to it on Activity. */
+.kindgi .kindgi-message .kindgi-on-activity,
+.kindgi .kindgi-progress .kindgi-on-activity {
+  margin: var(--kindgi-space-2) 0 0;
+  font-size: 12px;
+}
+
 .kindgi .kindgi-step {
   margin: 0 0 2px;
   padding-left: 14px;

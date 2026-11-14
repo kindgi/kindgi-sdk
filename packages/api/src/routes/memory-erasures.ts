@@ -22,7 +22,7 @@ import { parseTimeInput } from './time-input.js';
 import { UUID_RE } from './uuid-param.js';
 
 /**
- * Erasing a person's words (T273 M-5):
+ * Erasing a person's words:
  *
  *   - `POST /v1/memory/erasures`          start one (202); `409 legal-hold`
  *                                         when a fact it reaches is held

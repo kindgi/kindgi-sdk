@@ -415,7 +415,9 @@ export async function seenVersions(
 /**
  * The pins among `pins` whose version the caller can see, in order, by the
  * rule `seenVersions` applies to each pin's agent. One ask finds the agents
- * more than one project serves; only their versions are read further.
+ * more than one project serves; only their versions are read further, all
+ * of those agents' together: one read per agent, so a page of pins, which
+ * its list's limit caps at 100, starts at most 100 reads at once.
  */
 export async function seenPins<P extends Pick<AgentPinnedVersion, 'agentId' | 'version'>>(
   itemRights: ItemRights | undefined,
@@ -429,11 +431,14 @@ export async function seenPins<P extends Pick<AgentPinnedVersion, 'agentId' | 'v
     'agent',
     pins.map((p) => p.agentId),
   );
-  const visible = new Map<string, ReadonlySet<string>>();
-  for (const [agentId, projects] of multi) {
-    const versions = [...new Set(pins.filter((p) => p.agentId === agentId).map(versionOf))];
-    visible.set(agentId, await visibleOf(itemRights, c, agentId, projects, versions));
-  }
+  const visible = new Map(
+    await Promise.all(
+      [...multi].map(async ([agentId, projects]) => {
+        const versions = [...new Set(pins.filter((p) => p.agentId === agentId).map(versionOf))];
+        return [agentId, await visibleOf(itemRights, c, agentId, projects, versions)] as const;
+      }),
+    ),
+  );
   return pins.filter((p) => visible.get(p.agentId)?.has(versionOf(p)) ?? true);
 }
 

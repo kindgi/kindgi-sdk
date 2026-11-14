@@ -6,6 +6,7 @@ package com.kindgi.pack;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.kindgi.pack.internal.Specs;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -116,5 +117,127 @@ class GuardrailTest {
     Guardrail<Map<String, Object>> judged = Guardrail.define("acme.tone").kind("llm-judge").judgeCapabilities(needs)
         .onViolation("halt").check((config, trace) -> CheckResult.pass());
     assertThat(judged.entry()).containsEntry("judgeCapabilities", needs);
+  }
+
+  static final Guardrail<Map<String, Object>> NO_GUARANTEES = Guardrail.define("acme.no-guarantees")
+      .onViolation("halt")
+      .builtInCheck("forbidden-substring", Map.of("patterns", List.of("guaranteed", "we promise")));
+
+  @Test
+  void aBuiltInCheckIsNamedWithItsConfig() {
+    assertThat(NO_GUARANTEES.builtIn()).isTrue();
+    assertThat(NO_GUARANTEES.checkId()).isEqualTo("forbidden-substring");
+    assertThat(NO_GUARANTEES.configSchema()).isNull();
+    assertThat(NO_GUARANTEES.entry()).containsEntry("kind", "zero-llm").containsEntry("checkBuiltIn", true)
+        .containsEntry("config", Map.of("patterns", List.of("guaranteed", "we promise")));
+    assertThat(MIN_LENGTH.builtIn()).isFalse();
+    // Without a config, the built-in takes its defaults; a set("config", …) is the same as giving one.
+    assertThat(Guardrail.define("acme.cites").onViolation("halt").builtInCheck("must-cite").entry())
+        .doesNotContainKey("config");
+    Map<String, Object> patterns = Map.of("patterns", List.of("guaranteed"));
+    assertThat(Guardrail.define("acme.g").onViolation("halt").set("config", patterns)
+        .builtInCheck("forbidden-substring").entry()).containsEntry("config", patterns);
+  }
+
+  @Test
+  void aBuiltInRunsOnlyInTheRuntime() {
+    assertThatThrownBy(() -> NO_GUARANTEES.evaluate(Map.of(), new RunTrace(Map.of())))
+        .isInstanceOf(UnsupportedOperationException.class)
+        .hasMessageStartingWith("guardrail acme.no-guarantees names the built-in check \"forbidden-substring\": the"
+            + " Kindgi runtime runs it, not the Java SDK.");
+  }
+
+  @Test
+  void aBuiltInCheckIsOneOfTheBuiltIns() {
+    assertThatThrownBy(() -> Guardrail.define("acme.mine").onViolation("halt").builtInCheck("acme.checks.mine"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("guardrail acme.mine: \"acme.checks.mine\" isn't a built-in check. The built-ins are"
+            + " must-cite, never-call-tool, max-tool-calls, output-matches, tool-order, required-substring,"
+            + " forbidden-substring; a check of your own is check(…).");
+  }
+
+  @Test
+  void aBuiltInCheckRefusesWhatItDoesntTake() {
+    Map<String, Object> patterns = Map.of("patterns", List.of("guaranteed"));
+    assertThatThrownBy(() -> Guardrail.define("acme.g").builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: say what a failing check does (onViolation or action)");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("config", patterns)
+        .builtInCheck("forbidden-substring", patterns))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: its config is given twice, by set(\"config\", …) and by builtInCheck(…,"
+            + " config). Give it once.");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").config(MinLength.class)
+        .builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: a built-in's config is the runtime's to check, so it takes no typed config or"
+            + " config schema");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").configSchema(Map.of("type", "object"))
+        .builtInCheck("must-cite"))
+        .hasMessageContaining("takes no typed config or config schema");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt")
+        .set("configSchema", Map.of("type", "object")).builtInCheck("must-cite"))
+        .hasMessageContaining("takes no typed config or config schema");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").checkId("must-cite")
+        .builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: builtInCheck names its check, so it takes no checkId(…)");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("checkId", "must-cite")
+        .builtInCheck("must-cite"))
+        .hasMessage("guardrail acme.g: builtInCheck names its check, so it takes no checkId(…)");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").kind("llm-judge")
+        .builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: a built-in check is zero-llm, not llm-judge");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt")
+        .judgeCapabilities(Map.of("needs", List.of())).set("sandbox", "strict").set("network", Map.of())
+        .builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: the runtime runs a built-in check, which takes no judgeCapabilities, sandbox,"
+            + " network");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("limits", Map.of())
+        .builtInCheck("must-cite"))
+        .hasMessage("guardrail acme.g: the runtime runs a built-in check, which takes no limits");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void theGuardrailPointsAreThePackIndexSchemas() {
+    Map<String, Object> guardrail = (Map<String, Object>) ((Map<String, Object>) Specs.schema("pack-index")
+        .get("$defs")).get("guardrail");
+    Map<String, Object> at = (Map<String, Object>) ((Map<String, Object>) guardrail.get("properties")).get("at");
+    assertThat(Guardrail.GUARDRAIL_POINTS).isEqualTo(at.get("enum"));
+  }
+
+  @Test
+  void aBuiltInRunsWhereItCanAct() {
+    // TypeScript's indexer refuses the same guardrails at build.
+    Guardrail<Map<String, Object>> beforeTool = Guardrail.define("acme.g").onViolation("halt").set("at", "before-tool")
+        .set("scope", Map.of("tools", List.of("acme.*")))
+        .builtInCheck("never-call-tool", Map.of("tools", List.of("acme.refund")));
+    assertThat(beforeTool.entry()).containsEntry("at", "before-tool");
+    assertThat(Guardrail.define("acme.g").onViolation("escalate").builtInCheck("must-cite").entry())
+        .doesNotContainKey("at");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("at", "before-answer")
+        .builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: at must be one of before-tool, after-tool, model-step, final-answer");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("escalate").set("at", "before-tool")
+        .builtInCheck("never-call-tool"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: \"escalate\" is recorded at the final answer only, not at \"before-tool\"");
+    assertThatThrownBy(() -> Guardrail.define("acme.g").action(Map.of("on-violation", "compensate"))
+        .set("at", "model-step").builtInCheck("max-tool-calls"))
+        .hasMessageContaining("\"compensate\" is recorded at the final answer only, not at \"model-step\"");
+    for (Object tools : List.of(List.of(), List.of("acme.*.refund"), List.of(""), "acme.refund")) {
+      assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt").set("at", "before-tool")
+          .set("scope", Map.of("tools", tools)).builtInCheck("never-call-tool"))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessage("guardrail acme.g: scope.tools must name one or more tool ids, each with at most a trailing '*'");
+    }
+    assertThatThrownBy(() -> Guardrail.define("acme.g").onViolation("halt")
+        .set("scope", Map.of("tools", List.of("acme.*"))).builtInCheck("must-cite"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("guardrail acme.g: scope.tools is for \"before-tool\" and \"after-tool\", not \"final-answer\"");
   }
 }

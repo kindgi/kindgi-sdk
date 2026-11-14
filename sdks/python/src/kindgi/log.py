@@ -41,6 +41,7 @@ from typing import Any, Literal, TextIO, cast
 
 __all__ = [
     "LOG_LEVELS",
+    "MAX_CAUSE_CHARS",
     "REDACTED",
     "SEVERITY",
     "TRACE",
@@ -52,6 +53,7 @@ __all__ = [
     "child_span",
     "configure",
     "create_logger",
+    "describe_causes",
     "format_json",
     "format_pretty",
     "get_logger",
@@ -201,11 +203,42 @@ def _mask_token(m: re.Match[str]) -> str:
     return f"kgi_{kind}_…{tail}"
 
 
-def scrub_text(text: str) -> str:
-    """A string with known secret shapes masked: Kindgi tokens, `Bearer …`, a URL's password."""
-    text = _KINDGI_TOKEN.sub(_mask_token, text)
+def _redact_token(_m: re.Match[str]) -> str:
+    return REDACTED
+
+
+# A URL's query or fragment parameter: `?`, `&` or `#`, its name, `=`, its value.
+_URL_PARAM = re.compile(r"([?&#])([^\s=&#\"'<>]+)=([^\s&#\"'<>]*)")
+
+# More endings that make a parameter's name secret, on top of a secret key's: a signed URL's
+# signature (`X-Amz-Signature`, `X-Goog-Signature`, a SAS `sig`).
+_PARAM_SECRET_ENDINGS = ("signature", "sig")
+
+
+def _is_secret_param(name: str) -> bool:
+    """Whether a URL parameter's name looks secret: a secret key's endings and a signature's, or
+    exactly `key` (an API key, `?key=…`). Only exactly: `sort_key` and `idempotency_key` are ids."""
+    return _normalize(name) == "key" or is_secret_key(name, _PARAM_SECRET_ENDINGS)
+
+
+def _mask_param(m: re.Match[str]) -> str:
+    mark, name, value = m.group(1), m.group(2), m.group(3)
+    return f"{mark}{name}={REDACTED}" if value != "" and _is_secret_param(name) else m.group(0)
+
+
+def scrub_text(text: str, *, full_mask: bool = False) -> str:
+    """A string with known secret shapes masked: Kindgi tokens, `Bearer …`, a URL's password.
+
+    `full_mask` is for text more people read than a log's: a tool's error, on a run's record, in
+    the console and in the model's view. A Kindgi token then becomes `[redacted]` whole, with no
+    prefix and no last four, and a URL's query or fragment value whose name looks secret becomes
+    `[redacted]`, its name kept (`?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=`,
+    `?key=`). A record is never written with it.
+    """
+    text = _KINDGI_TOKEN.sub(_redact_token if full_mask else _mask_token, text)
     text = _BEARER.sub(r"\1 [redacted]", text)
-    return _URL_PASSWORD.sub(r"\1:***@", text)
+    text = _URL_PASSWORD.sub(r"\1:***@", text)
+    return _URL_PARAM.sub(_mask_param, text) if full_mask else text
 
 
 _MAX_DEPTH = 8
@@ -343,6 +376,19 @@ def _name_of(err: BaseException) -> str:
         return "Error"
 
 
+def _code_of(err: BaseException) -> str | None:
+    """An error's `code`, when it's a string or a number (not a bool)."""
+    code = _read(err, "code")
+    return str(code) if isinstance(code, (str, int)) and not isinstance(code, bool) else None
+
+
+def _message_of(err: BaseException) -> str:
+    try:
+        return str(err)
+    except Exception:
+        return ""
+
+
 def _stack_of(err: BaseException) -> str | None:
     try:
         return "".join(traceback.format_exception(type(err), err, err.__traceback__))
@@ -365,9 +411,9 @@ def _serialize_error(err: BaseException | Any, with_stack: bool, depth: int = 0)
     except Exception:
         message = ""
     out: dict[str, Any] = {"name": _name_of(err), "message": scrub_text(message)}
-    code = _read(err, "code")
-    if isinstance(code, (str, int)) and not isinstance(code, bool):
-        out["code"] = str(code)
+    code = _code_of(err)
+    if code is not None:
+        out["code"] = code
     if with_stack:
         stack = _stack_of(err)
         if stack is not None:
@@ -376,6 +422,89 @@ def _serialize_error(err: BaseException | Any, with_stack: bool, depth: int = 0)
     if cause is not None and depth < 3:
         out["cause"] = _serialize_error(cause, with_stack, depth + 1)
     return out
+
+
+MAX_CAUSE_CHARS = 500
+"""The most characters a cause is said in, `…` included."""
+
+# How many causes are said: the error and three below it, as a record's `err` has.
+_CAUSES = 3
+
+_SPACES = re.compile(r"\s+")
+
+
+def _same(text: str) -> str:
+    return text
+
+
+def describe_causes(err: BaseException, *, first: Callable[[str], str] | None = None) -> str:
+    """What an error's causes add to its message: `""` when it has none, else
+    `; caused by <Name> [<code>]: <message>` for each, in order. A tool's error then says why,
+    where the error alone says only what failed:
+    `RuntimeError: lookup failed; caused by ConnectionRefusedError: [Errno 111] Connection refused`.
+
+    - **`Name [code]: message`**, named as a record's `err` names an error: its class's name,
+      and its `code` when it's a string or a number. The code is left out when the cause's
+      message already holds it, and the message when it's empty.
+    - **Three causes at most** (`__cause__`, as `raise … from err` sets it, which a record's
+      `err` follows too) are looked at. One whose message its effect's message already holds,
+      its code too when it has one, is passed over and the next is looked at; one with an
+      empty message never is. An error met a second time (a cycle) ends the walk.
+    - **Each cause is masked with `scrub_text`'s full mask, then made one line,** then cut to
+      `MAX_CAUSE_CHARS` characters with `…`. The cut never splits a word, so no part of a token
+      shows past it; a word longer than the cut is left out whole.
+
+    `first` is what each message and code goes through before anything else: a caller's own
+    values taken out (a pack call's secrets), where the mask, the one line or the cut could
+    otherwise leave part of one that a match on the whole value no longer finds. It never
+    raises. The same rules as `@kindgi/log`'s `describeCauses`.
+    """
+    try:
+        take = first if first is not None else _same
+        parts = ""
+        effect = take(_message_of(err))
+        seen = {id(err)}
+        cause = _read(err, "__cause__")
+        for _ in range(_CAUSES):
+            if not isinstance(cause, BaseException) or id(cause) in seen:
+                break
+            seen.add(id(cause))
+            message = take(_message_of(cause))
+            found = _code_of(cause)
+            code = None if found is None else take(found)
+            if not _passed_over(message, code, effect):
+                coded = f" [{code}]" if code is not None and code not in message else ""
+                words = f": {message}" if message != "" else ""
+                parts += f"; caused by {_shown(f'{_name_of(cause)}{coded}{words}')}"
+            effect = message
+            cause = _read(cause, "__cause__")
+        return parts
+    except Exception:
+        return ""
+
+
+def _passed_over(message: str, code: str | None, effect: str) -> bool:
+    """Whether a cause adds nothing to its effect: its message isn't empty and the effect's
+    message holds it, and its code too when it has one."""
+    if message == "" or message not in effect:
+        return False
+    return code is None or code in effect
+
+
+def _shown(text: str) -> str:
+    """A cause's text masked, on one line, cut short."""
+    return _cut(_SPACES.sub(" ", scrub_text(text, full_mask=True)).strip())
+
+
+def _cut(text: str) -> str:
+    """`text` at `MAX_CAUSE_CHARS` characters at most, `…` included. A cut that lands inside a
+    word goes back to the space before it."""
+    if len(text) <= MAX_CAUSE_CHARS:
+        return text
+    end = MAX_CAUSE_CHARS - 1
+    in_word = text[end] != " " and text[end - 1] != " "
+    kept = text[: max(0, text.rfind(" ", 0, end))] if in_word else text[:end]
+    return f"{kept.rstrip()}…"
 
 
 def _build_record(

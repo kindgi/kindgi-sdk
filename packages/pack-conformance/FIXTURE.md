@@ -35,6 +35,7 @@ Pack: id `conformance`, version `1.0.0`. Every tool is version `1.0.0`.
 | `conformance.min-length` | `conformance.checks.min-length` | `{ minLength: integer ≥ 0, default 1 }` | Passes when the trace's `output`, trimmed, has at least `minLength` characters; otherwise `{ passed: false, reason: "too short" }`. Action `halt`, severity `error`. |
 | `conformance.check-throws` | `conformance.checks.throws` | none | Throws an error whose message is `check boom`. Action `log-only`. |
 | `conformance.judged` | `conformance.checks.judged` | `{ rubric: "The reply answers the message.", responseFormat: "pass-fail" }` | Kind `llm-judge`, with `judgeCapabilities` `{ needs: [{ feature: "structured-output" }] }`, carried in the index as declared. Its check passes; a runtime judges the guardrail with a model and never calls it. Action `log-only`. |
+| `conformance.no-guarantees` | `forbidden-substring`, a built-in | `{ patterns: ["guaranteed", "we promise"] }` | Names the built-in check, at `model-step`; the pack ships no check for it. Its index entry is the same in every language: `checkBuiltIn: true`, no `configSchema`. The service lists no check for it, and a `check-invoke` naming it answers `check-not-in-pack`. Action `halt`. |
 
 ## Agent and flow
 

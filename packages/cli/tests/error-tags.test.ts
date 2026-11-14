@@ -55,7 +55,7 @@ describe('error tags', () => {
   });
 });
 
-describe('formatThrown: a usage error (T348)', () => {
+describe('formatThrown: a usage error', () => {
   test('exits 2, with its message and where the usage is', () => {
     expect(
       formatThrown(new UsageError('Missing required argument: run-id'), {

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Tenant-wide routes ask for the tenant (T243 A, finding g): providers,
+ * Tenant-wide routes ask for the tenant: providers,
  * policies, adapters, capabilities, signing keys, deployments and the
  * sign-in provider catalog (`/v1/auth/providers`) need
  * `read` on the tenant to read and `admin` to change (a deployment's

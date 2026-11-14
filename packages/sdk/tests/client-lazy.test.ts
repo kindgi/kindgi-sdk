@@ -36,7 +36,7 @@ afterEach(async () => {
 const MISSING =
   "createClient(): KINDGI_API_URL and KINDGI_API_TOKEN aren't set. Set them in your env file (.env / .env.local), or pass { apiUrl, auth }.";
 
-describe('createClient() resolves on first use (T540)', () => {
+describe('createClient() resolves on first use', () => {
   test('in production with nothing set, calling it at module scope throws nothing', () => {
     vi.stubEnv('NODE_ENV', 'production');
     expect(() => createClient()).not.toThrow();

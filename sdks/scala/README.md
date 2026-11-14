@@ -163,7 +163,10 @@ config schema you give. `Flow("acme.pipeline")` builds a flow
 `edge(Map("id" -> "e2", "from" -> "classify", "to" -> "billing", "when" -> Map(…)))`.
 Maps and lists anywhere in these builders are Scala's. A check id
 (`checkId`, else the guardrail's id) can't be a built-in check's
-(`com.kindgi.pack.Guardrail.RESERVED_CHECK_IDS`): `check` refuses it. A unit
+(`com.kindgi.pack.Guardrail.RESERVED_CHECK_IDS`): `check` refuses it. To use
+a built-in, name it in place of a check, on a `Guardrail.json` builder:
+`builtInCheck("forbidden-substring", Map("patterns" -> List("guaranteed")))`,
+or `builtInCheck("must-cite")` for its defaults. The runtime runs it. A unit
 test runs a check with `evaluate`:
 `Checks.minLength.evaluate(MinLength(3), new RunTrace(java.util.Map.of("output", "abc")))`.
 

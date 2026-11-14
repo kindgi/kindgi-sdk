@@ -19,7 +19,7 @@ import {
 
 const BASE: RuntimeEnvInput = {
   apiPort: 4000,
-  // Published on another host port (T218): the banner names this one.
+  // Published on another host port: the banner names this one.
   publicUrl: 'http://127.0.0.1:4001',
   hostAlias: 'host.docker.internal',
   packDir: '/pack',
@@ -165,7 +165,7 @@ describe('runtime.env on disk', () => {
     expect(refs).toEqual({ ACME_HOST: 'api.example.com', ACME_KEY_FROM_SHELL: 'sk-shell' });
   });
 
-  test("a key that refers to itself (KEY=${KEY}, the docker-compose habit) takes the shell's value (T377)", async () => {
+  test("a key that refers to itself (KEY=${KEY}, the docker-compose habit) takes the shell's value", async () => {
     await writeFile(
       join(dir, '.env'),
       'ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\nPATHX=$PATHX:/extra\n',

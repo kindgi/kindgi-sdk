@@ -317,7 +317,7 @@ describe('envVarsForTarget — invitation emails', () => {
   });
 });
 
-describe('envVarsForTarget — the retention sweeper (T236)', () => {
+describe('envVarsForTarget — the retention sweeper', () => {
   test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')).toMatchObject({
@@ -333,7 +333,7 @@ describe('envVarsForTarget — the retention sweeper (T236)', () => {
   });
 });
 
-describe('envVarsForTarget — the compliance classifier (T250)', () => {
+describe('envVarsForTarget — the compliance classifier', () => {
   test("the server's, optional, in core; it says plainly that audit events are purged by kind", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     const setting = server.get('KINDGI_COMPLIANCE_CLASSIFIER');

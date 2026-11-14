@@ -99,7 +99,7 @@ describe('idempotencyMiddleware', () => {
 
 /**
  * A route whose handler waits until the test lets it answer, so a repeat
- * can arrive while the first request still runs (T349).
+ * can arrive while the first request still runs.
  */
 function slowApp(
   opts: { store?: IdempotencyStore; holdMs?: number; status?: number; throws?: boolean } = {},
@@ -145,7 +145,7 @@ function slowApp(
   return { store, post, started, release: () => gates.shift()?.(), ran: () => ran };
 }
 
-describe('idempotencyMiddleware: a key is held while its request runs (T349)', () => {
+describe('idempotencyMiddleware: a key is held while its request runs', () => {
   test('a repeat while the first runs gets 409 idempotency-key-in-flight with Retry-After; once it answers, the repeat gets its answer', async () => {
     const a = slowApp();
     const { answer: first } = await a.started('k1');

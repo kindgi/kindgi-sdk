@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Approvals and authorization (T243 A): on top of the reviewer role, a
+ * Approvals and authorization: on top of the reviewer role, a
  * reviewer sees and decides only approvals whose project it may read (the
  * approval's, else its run's). Another project's approval is not found,
  * as one above the reviewer's tier is, so neither leaks it exists.

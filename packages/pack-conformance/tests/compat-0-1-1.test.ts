@@ -105,6 +105,7 @@ if (!(await available('uv'))) {
     'tools/read.py',
     'tools/store.py',
     'guardrails/judged.py',
+    'guardrails/no_guarantees.py',
   ]);
   describeCallContextCompatibility({
     name: 'python 0.1.1',

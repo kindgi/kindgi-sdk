@@ -137,6 +137,17 @@ const INDEX: Index = {
       checkModulePath: 'guardrails/slow.mjs',
       checkId: 'pack.checks.slow',
     },
+    // A built-in, which the runtime runs: the pack has no code for it, so the service lists no
+    // check for it.
+    {
+      id: 'pack.no-guarantees',
+      kind: 'zero-llm',
+      action: { 'on-violation': 'halt' },
+      checkModulePath: 'guardrails/ok.mjs',
+      checkId: 'forbidden-substring',
+      checkBuiltIn: true,
+      config: { patterns: ['guaranteed'] },
+    },
   ],
   agents: [],
   flows: [],
@@ -318,6 +329,11 @@ describe('pack service — running tools and checks', () => {
     [
       'an unknown check',
       { v: 2, kind: 'check-invoke', check: { id: 'pack.checks.ghost' }, config: {}, trace: {} },
+      'check-not-in-pack',
+    ],
+    [
+      'a built-in check',
+      { v: 2, kind: 'check-invoke', check: { id: 'forbidden-substring' }, config: {}, trace: {} },
       'check-not-in-pack',
     ],
     [

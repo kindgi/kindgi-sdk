@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.15"
+version: "0.4.16"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -190,10 +190,11 @@ export default defined.value;
   `['invalid-arguments', 'unknown-tool']`, failures where nothing ran).
   Add `'tool-error'` to retry a tool that ran and failed — only when
   retrying it is safe (a mutating tool may have changed something before
-  failing). Each retry costs a step against `budget.maxSteps`. Past the
-  retries the turn fails as before, with `toolRetries` on the error. A
-  workspace's `tool-errors` policy can lower these (fewer retries, fewer
-  kinds), never raise them.
+  failing). The list replaces the default, so keep `'invalid-arguments'`
+  and `'unknown-tool'` in it. Each retry costs a step against
+  `budget.maxSteps`. Past the retries the turn fails as before, with
+  `toolRetries` on the error. A workspace's `tool-errors` policy can
+  lower these (fewer retries, fewer kinds), never raise them.
 - **`parallelToolCalls`** — optional, default on. When a model step asks for
   several calls at once, calls to read-only tools (`mutating: false`, no
   changing effect) that come one after another run at the same time, up to 8

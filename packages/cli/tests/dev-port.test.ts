@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * T218: the runtime's port is checked with real sockets: taken when
+ * The runtime's port is checked with real sockets: taken when
  * something listens on it, on `127.0.0.1` or on every address.
  */
 
@@ -40,7 +40,7 @@ async function released(): Promise<number> {
   return address.port;
 }
 
-describe('portInUse (T218)', () => {
+describe('portInUse', () => {
   test('a listener on 127.0.0.1: in use', async () => {
     expect(await portInUse(await listening('127.0.0.1'))).toBe(true);
   });
@@ -54,7 +54,7 @@ describe('portInUse (T218)', () => {
   });
 });
 
-describe('firstFreePort (T218)', () => {
+describe('firstFreePort', () => {
   test('the first port the check says is free, from the one given', async () => {
     const taken = new Set([5000, 5001, 5003]);
     expect(await firstFreePort(5000, async (p) => taken.has(p))).toBe(5002);

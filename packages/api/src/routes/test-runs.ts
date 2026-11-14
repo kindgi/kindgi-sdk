@@ -71,7 +71,7 @@ import { parseTimeInput } from './time-input.js';
  * reference keeps runs in memory; a durable binding can back them with
  * runs and their journal); this route only sees the surface.
  *
- * With an authorizer (T243 A): starting a run needs `write` on the
+ * With an authorizer: starting a run needs `write` on the
  * project it lands in and `execute` on what it evaluates (the agent or
  * flow), on top of the test-sets router's own check on the test set. A
  * test run is read through its test set: `read` on the test set to list, get or

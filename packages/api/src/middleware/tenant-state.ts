@@ -35,6 +35,8 @@ const RETRY_AFTER_S = 5;
  * On the S3-compatible surface (`surface: 's3'`) it answers in S3's terms,
  * which S3 clients parse: `403 AllAccessDisabled` for a frozen tenant, and
  * `503 ServiceUnavailable` with `Retry-After` when the state can't be read.
+ * There a `POST` starts or completes a multipart upload, a write, so none
+ * is let through, whatever its path.
  */
 export function tenantStateGate(
   states: TenantStateBinding | undefined,
@@ -45,7 +47,7 @@ export function tenantStateGate(
     if (stateOf === undefined || c.get('systemPrincipal') !== undefined) return next();
     const tenantId = c.get('tenantId');
     if (tenantId === undefined) return next();
-    if (frozenTenantMay(c.req.method, c.req.path)) return next();
+    if (frozenTenantMay(c.req.method, c.req.path, options.surface)) return next();
     const state = await stateOf(c, tenantId);
     return state === 'active' ? next() : frozenTenantRefusal(c, state, options.surface);
   };

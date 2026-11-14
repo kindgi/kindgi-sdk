@@ -148,6 +148,12 @@ in your env file, as the first lines show. In production (`KINDGI_ENV` or `NODE_
 `production`) it never reads `.kindgirc.json`. `Kindgi.builder()` sets the
 URL, the token, the timeout or your own `HttpClient`.
 
+Set both, or neither. With only the token set, the client never sends it to
+the URL in `.kindgirc.json`, and with only a URL other than `kindgi dev`'s,
+it never sends that file's token there. Either way it takes nothing from the
+file, and `Kindgi.create()` (or the builder's `build()`) throws an
+`IllegalStateException`, naming the file and what to set.
+
 ## 3. Find your way around
 
 **The methods follow the API's operations.** The operation

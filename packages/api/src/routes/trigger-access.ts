@@ -13,7 +13,7 @@ import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 
 /**
- * Who may manage an event trigger (T243 A): the flow it fires. (Schedules
+ * Who may manage an event trigger: the flow it fires. (Schedules
  * and webhook triggers have a project, and their routers check it.)
  * A trigger has no parent tuple of its own, so every check names its
  * flow: `read` to see it; `write` to pause, resume or unregister it; and

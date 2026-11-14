@@ -635,6 +635,26 @@ describe('a closing or suspended tenant is frozen, whatever way it comes in', ()
     },
   );
 
+  test.each(['closing', 'suspended'] as const)(
+    "on the S3 surface a %s tenant's POST, a multipart upload's start or end, is a write whatever its key",
+    async (state) => {
+      const send = s3App(state);
+      // Three of these keys end as /v1's deletes and revocations do, which a frozen
+      // tenant may still post there.
+      for (const path of [
+        '/s3/artifacts/report.txt?uploads',
+        '/s3/artifacts/agents/unregister?uploads',
+        '/s3/artifacts/keys/revoke?uploads',
+        '/s3/artifacts/users/revoke-sessions?uploadId=upload-1',
+      ]) {
+        expect(await send('POST', path), path).toMatchObject({
+          status: 403,
+          code: 'AllAccessDisabled',
+        });
+      }
+    },
+  );
+
   test("on the S3 surface, a state that can't be read refuses the write with S3's 503", async () => {
     const put = await s3App('unreadable')('PUT', '/s3/artifacts/report.txt', 'hello');
     expect(put).toMatchObject({ status: 503, code: 'ServiceUnavailable', retryAfter: '5' });

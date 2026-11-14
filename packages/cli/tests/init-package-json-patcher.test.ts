@@ -307,7 +307,7 @@ describe('patchPackageJson — errors', () => {
   });
 });
 
-describe('decideAllowScripts (T277)', () => {
+describe('decideAllowScripts', () => {
   test("adds the decision, keeping the file's indent, newline and other fields", async () => {
     const path = await writePkg('{\n    "name": "app",\n    "scripts": { "test": "vitest" }\n}\n');
     expect(await decideAllowScripts(path, 'esbuild', false)).toEqual({ kind: 'patched' });
