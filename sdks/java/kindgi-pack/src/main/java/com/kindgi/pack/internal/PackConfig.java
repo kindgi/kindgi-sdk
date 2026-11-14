@@ -30,7 +30,7 @@ import org.jspecify.annotations.Nullable;
  * @param path the file
  * @param layout the {@code language}'s source layout
  * @param id {@code pack.id}
- * @param version {@code pack.version}
+ * @param version {@code pack.version}: MAJOR.MINOR.PATCH, the version a tool that sets none takes
  * @param description {@code pack.description}
  * @param discovery the discovery globs by folder ({@code tools}, {@code guardrails}, {@code
  *     agents}, {@code flows}), defaults filled in
@@ -51,6 +51,9 @@ public record PackConfig(
   public static final String FILE_NAME = "kindgi.config.json";
 
   private static final Pattern ENV_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+  /** {@code pack.version}: MAJOR.MINOR.PATCH, a tool's own version rule, which a deploy holds it to. */
+  private static final Pattern PACK_VERSION =
+      Pattern.compile("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)");
   private static final String RESERVED_ENV_PREFIX = "KINDGI_";
 
   /**
@@ -132,6 +135,9 @@ public record PackConfig(
     }
     if (!(pack.get("version") instanceof String) || ((String) pack.get("version")).isEmpty()) {
       throw parseFailed(path, "'pack.version' is missing or not a non-empty string");
+    }
+    if (!PACK_VERSION.matcher((String) pack.get("version")).matches()) {
+      throw parseFailed(path, "'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '" + pack.get("version") + "'");
     }
     Object discovery = raw.getOrDefault("discovery", Map.of());
     if (!(discovery instanceof Map) || !((Map<String, Object>) discovery).values().stream().allMatch(v -> v instanceof String)) {

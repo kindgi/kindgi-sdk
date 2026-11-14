@@ -144,7 +144,7 @@ def test_an_http_tools_model_schema_compiles_as_the_runtime_compiles_it() -> Non
 def test_id_version_and_description_are_checked() -> None:
     with pytest.raises(DefinitionError, match="id must be a non-empty string"):
         lookup(id=" ")
-    with pytest.raises(DefinitionError, match="exact semver"):
+    with pytest.raises(DefinitionError, match=r"MAJOR\.MINOR\.PATCH"):
         lookup(version="^1.0.0")
     with pytest.raises(DefinitionError, match="needs a description"):
         lookup(description="")

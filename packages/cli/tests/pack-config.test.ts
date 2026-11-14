@@ -51,7 +51,7 @@ describe('loadPackConfig', () => {
   test('real files: a valid config loads with every field', async () => {
     await writeFile(
       join(dir, 'kindgi.config.mjs'),
-      "export default { pack: { id: 'p', version: '1' }, environments: { staging: {} } };",
+      "export default { pack: { id: 'p', version: '1.0.0' }, environments: { staging: {} } };",
     );
     const r = await loadPackConfig(noSeam, dir);
     expect(r.kind === 'ok' && r.config.environments).toEqual({ staging: {} });

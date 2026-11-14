@@ -170,7 +170,8 @@ It looks up `KINDGI_CONFIG_FILENAMES` in order and imports the first that
 exists (cache-busted by mtime, so a long-running process sees edits). With
 none, a `pyproject.toml` whose `[tool.kindgi]` table holds the same keys is
 the config — a **Python pack** (`language: 'python'`, unless the table says
-otherwise). It checks `pack.id` / `pack.version` and `language`. Never throws.
+otherwise). It checks `pack.id`, `pack.version` (`MAJOR.MINOR.PATCH`, such as
+`1.0.0`) and `language`. Never throws.
 
 - `findKindgiConfig(packDir)` — where the config is (`{ path, format: 'module' | 'pyproject' }`), or `undefined`; a `pyproject.toml` without the table is not a pack.
 - `packLanguage(config)` — `'node'` or `'python'`: which indexer reads the pack and which pack service runs it. `runIndexer` refuses a Python pack (`language-mismatch`); `python -m kindgi.pack index` indexes it.

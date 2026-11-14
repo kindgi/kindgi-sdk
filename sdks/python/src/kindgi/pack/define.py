@@ -82,11 +82,16 @@ __all__ = [
 P = ParamSpec("P")
 R = TypeVar("R")
 
-SEMVER = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
-    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
-)
+_CORE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+_PRERELEASE = r"(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+
+VERSION = re.compile(_CORE + rf"(?:-{_PRERELEASE}(?:\.{_PRERELEASE})*)?")
+"""An agent's or a flow's version, matched in full: an exact semver with no
+build metadata (`1.2.3`, `1.2.3-rc.1`). A deploy takes no build metadata."""
+
+TOOL_VERSION = re.compile(_CORE)
+"""A tool's version, matched in full: MAJOR.MINOR.PATCH only (`1.2.3`). A
+deploy's tool manifest takes no more."""
 
 
 class DefinitionError(ValueError):
@@ -672,8 +677,7 @@ class Agent:
             self.module = _defined_in(2)
         where = f'Agent "{self.id}"'
         _require_id(self.id, where)
-        if not SEMVER.match(self.version):
-            raise DefinitionError(f"{where}: version must be an exact semver, got {self.version!r}")
+        _check_exact_version(self.version, where)
         if not isinstance(self.instructions, str):
             ref: Mapping[str, Any] = self.instructions
             if not isinstance(ref.get("prompt"), str) or not isinstance(ref.get("version"), str):
@@ -712,6 +716,7 @@ class Flow:
             self.module = _defined_in(2)
         where = f'Flow "{self.id}"'
         _require_id(self.id, where)
+        _check_exact_version(self.version, where)
         _check_mcp(self.mcp, self.id, "flow", where)
 
 
@@ -724,9 +729,19 @@ Primitive = Tool[..., Any] | Guardrail | Agent | Flow
 
 
 def _check_version(version: str | None, where: str) -> None:
-    if version is not None and not SEMVER.match(version):
+    """A tool's own version, when it sets one (else it takes the pack's)."""
+    if version is not None and not TOOL_VERSION.fullmatch(version):
         raise DefinitionError(
-            f"{where}: version must be an exact semver (e.g. 1.2.3), got {version!r}"
+            f"{where}: version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got {version!r}"
+        )
+
+
+def _check_exact_version(version: str, where: str) -> None:
+    """An agent's or a flow's version."""
+    if not VERSION.fullmatch(version):
+        raise DefinitionError(
+            f"{where}: version must be an exact semver with no build metadata"
+            f" (e.g. 1.2.3 or 1.2.3-rc.1), got {version!r}"
         )
 
 

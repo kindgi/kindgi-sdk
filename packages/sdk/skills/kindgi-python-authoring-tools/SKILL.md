@@ -76,7 +76,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - **Id** — `<pack-id>.<tool-name>`, kebab-case, dot-namespaced.
 - **Description** — the docstring, or `description=`. The model reads
   it to decide when to call the tool: say what it does and returns.
-- **Version** — the pack's version, or `version=` (an exact semver).
+- **Version** — the pack's version, or `version=` (`MAJOR.MINOR.PATCH`).
 - **Schemas** — from the annotations: the first parameter is the input,
   the return annotation the output. A pydantic model, a `TypedDict`, a
   dataclass — anything pydantic understands — or `input=` / `output=`

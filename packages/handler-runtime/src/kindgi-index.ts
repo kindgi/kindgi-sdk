@@ -1353,6 +1353,13 @@ async function readJsonConfig(
   return { kind: 'ok', value: document as Record<string, unknown> };
 }
 
+/**
+ * `pack.version`: MAJOR.MINOR.PATCH, a tool's own version rule. A Java,
+ * Scala or Python tool that sets no version takes the pack's, and a deploy
+ * holds a tool's version to it.
+ */
+const PACK_VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
 /** The checks every config passes, whatever file it came from. */
 function checkConfig(
   record: Record<string, unknown>,
@@ -1377,6 +1384,12 @@ function checkConfig(
     return parseFailed(
       filePath,
       `Config file ${filePath}: 'pack.version' is missing or not a non-empty string`,
+    );
+  }
+  if (!PACK_VERSION_RE.test(packRec.version)) {
+    return parseFailed(
+      filePath,
+      `Config file ${filePath}: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '${packRec.version}'`,
     );
   }
   if (format === 'json') {
