@@ -1593,6 +1593,9 @@ plan_allowed_changes() {
   if plan_readds_one_attempt "$1"; then
     printf '%s\n' "google_cloud_scheduler_job.orchestrator retry_config.retry_count"
   fi
+  # The license renewal's Job runs the server's image too, with
+  # license_renewal_schedule set.
+  printf '%s\n' "google_cloud_run_v2_job.license_renewal template.template.containers.image"
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)

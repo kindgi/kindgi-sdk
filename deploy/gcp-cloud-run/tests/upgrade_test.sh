@@ -508,6 +508,21 @@ assert_out "plan check: it changes the image(s)"
 if grep -q -e "Steps that finish the switch" -e "pack-route-missing" -e "pack_service_token" "$OUT"; then fail "a run from 0.4.0's rc made the switch"; else pass; fi
 assert_out "0.4.0-rc.0 -> 0.4.0 applied"
 
+# 9a. With license_renewal_schedule, the license renewal's Job runs the
+# server's image too, and takes the new image beside it.
+RENEWAL_JOB_IMAGE="$(jq -cn --arg old "$RUNNING_IMAGE" --arg new "$NEW_IMAGE" '[{address: "google_cloud_run_v2_job.license_renewal[0]", mode: "managed",
+  type: "google_cloud_run_v2_job", name: "license_renewal", index: 0,
+  change: {actions: ["update"],
+    before: {name: "kindgi-license-renewal", template: [{template: [{containers: [{image: $old}]}]}]},
+    after: {name: "kindgi-license-renewal", template: [{template: [{containers: [{image: $new}]}]}]},
+    after_unknown: {}}}]')"
+case_start "the license renewal job takes the new image"
+reset_env; export STUB_TAGS="0.4.0-rc.0" STUB_PLAN_CHANGES="$RENEWAL_JOB_IMAGE"; V_OKV="1"
+run "yes"
+assert_rc 0 "the renewal job's new image is allowed"
+assert_out "plan check: it changes the image(s)"
+assert_out "0.4.0-rc.0 -> 0.4.0 applied"
+
 # 10. To an rc: its release's steps are included.
 case_start "0.1.8 to an rc"
 reset_env; export STUB_TAGS="0.1.8"

@@ -70,3 +70,13 @@ output "nat_ip" {
   description = "The static egress address (nat_static_ip = true), for allowlists; null when Google picks it."
   value       = local.direct && var.nat_static_ip ? google_compute_address.nat[0].address : null
 }
+
+output "license_enroll_command" {
+  description = "Run once per deployment, with your GitHub login (for a key Kindgi issued: the key's subject): it makes the renewer key, keeps it in the renewer secret, and prints the line to add at access.kindgi.com (or send to Kindgi, for a key Kindgi issued). README, step 8."
+  value       = "kindgi license enroll --for <your GitHub login, or your license subject> --renewer ${local.license_renewer_ref}"
+}
+
+output "license_renew_command" {
+  description = "Renews the license key, by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it; with license_usage_key_secret, it renews with --runtime and --runtime-token, for the counts and the key's hand-over to the server. README, step 8."
+  value       = "kindgi ${join(" ", local.license_renew_args)}"
+}

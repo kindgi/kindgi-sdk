@@ -117,6 +117,48 @@ function azureAlert(resource: string): (line: string) => boolean {
   return (line) => keeps.every((keep) => keep(line));
 }
 
+/**
+ * The Cloud Run module's alerts on the renewal job's log, read from their
+ * Cloud Logging filters, as the Azure module's are from its KQL. Cloud Run
+ * logs each line of stdout and stderr as `textPayload`.
+ */
+const GCP_RENEWAL_TF = fileURLToPath(
+  new URL('../../../deploy/gcp-cloud-run/renewal.tf', import.meta.url),
+);
+
+// `textPayload =~ "<regex>"`, or its NOT. No backslash: Cloud Logging and HCL
+// would each take one away, so a character class ([(]) stands in for an escape.
+const TEXT_PAYLOAD = /^(NOT )?textPayload =~ "([^"\\]*)"$/;
+
+function gcpAlert(resource: string): (line: string) => boolean {
+  const tf = readFileSync(GCP_RENEWAL_TF, 'utf8');
+  const at = tf.indexOf(`"google_monitoring_alert_policy" "${resource}"`);
+  const literal =
+    at < 0
+      ? undefined
+      : /condition_matched_log \{\s*filter = ("(?:[^"\\]|\\.)*")/.exec(tf.slice(at))?.[1];
+  if (literal === undefined) throw new Error(`no log filter for ${resource} in ${GCP_RENEWAL_TF}`);
+  // HCL escapes its quotes as JSON does.
+  const [type, job, ...rest] = (JSON.parse(literal) as string).split(' AND ');
+  expect(type, resource).toBe('resource.type = "cloud_run_job"');
+  expect(job, resource).toBe('resource.labels.job_name = "${local.renewal_job}"');
+  const keeps = rest.map((term): ((log: string) => boolean) => {
+    const where = TEXT_PAYLOAD.exec(term);
+    if (where === null)
+      throw new Error(`${resource}: a filter term this test doesn't read: ${term}`);
+    const [, not, text = ''] = where;
+    if (/[$%]\{/.test(text)) throw new Error(`${resource}: Terraform fills in ${text}`);
+    // Cloud Logging's regexes are RE2's too.
+    if (/\(\?<?[=!]/.test(text)) {
+      throw new Error(`${resource}: RE2 has no lookaround: ${text}`);
+    }
+    const regex = new RegExp(text);
+    return not === undefined ? (log) => regex.test(log) : (log) => !regex.test(log);
+  });
+  if (keeps.length === 0) throw new Error(`${resource}: its filter tests no textPayload`);
+  return (line) => keeps.every((keep) => keep(line));
+}
+
 const fires = (alert: (line: string) => boolean, out: { stdout: string; stderr: string }) =>
   [...out.stdout.split('\n'), ...out.stderr.split('\n')].some(alert);
 
@@ -440,15 +482,21 @@ describe('kindgi license renew', () => {
     expect(out.stdout).not.toContain(next === 'contact' ? 'sign in' : 'contact@kindgi.com');
   });
 
-  // The Azure module's expiring alert, as its query reads this run's lines.
-  test("the Azure module's expiring alert, from its query: within a week and past the key's date, not at 7 days", async () => {
-    const expiring = azureAlert('license_key_expiring');
+  // Both modules' expiring alerts, as their queries read this run's lines:
+  // they follow the warning line, which follows the key's warning window.
+  test("both modules' expiring alerts, from their queries: inside the key's warning window and past its date, never before it", async () => {
+    const alerts = [
+      ['azure', azureAlert('license_key_expiring')],
+      ['gcp', gcpAlert('license_key_expiring')],
+    ] as const;
     for (const [days, raised] of [
+      [30, true],
+      [10, true],
       [6, true],
       [0, true],
       [-3, true],
-      [7, false],
-      [10, false],
+      [31, false],
+      [45, false],
     ] as const) {
       const key = licenseKey({ exp: NOW / 1000 + days * DAY });
       const { dir, renewer } = await enrolled(key);
@@ -458,9 +506,11 @@ describe('kindgi license renew', () => {
         { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: key })) },
       );
       expect(out.exitCode, `${days} days`).toBe(0);
-      // The 30-day warning is there either way: the alert reads its days.
-      expect(out.stdout, `${days} days`).toMatch(/^⚠ /m);
-      expect(fires(expiring, out), `${days} days`).toBe(raised);
+      // The alerts fire on the warning line, and only on it.
+      expect(/^⚠ It expires in /m.test(out.stdout), `${days} days`).toBe(raised);
+      for (const [module, expiring] of alerts) {
+        expect(fires(expiring, out), `${module}, ${days} days`).toBe(raised);
+      }
     }
   });
 
@@ -817,9 +867,14 @@ describe('kindgi license renew', () => {
     ]);
   });
 
-  // The Azure module's counts alert, as its query reads this run's lines.
-  test("the Azure module's counts alert, from its query: renewed, unchanged or refused without counts, never with them or a production key's", async () => {
-    const notSent = azureAlert('license_counts_not_sent');
+  // Both modules' counts alerts, as their queries read this run's lines.
+  test("both modules' counts alerts, from their queries: renewed, unchanged or refused without counts, never with them or a production key's", async () => {
+    const azure = azureAlert('license_counts_not_sent');
+    const gcp = gcpAlert('license_counts_not_sent');
+    const notSent = (line: string) => {
+      expect(gcp(line), line).toBe(azure(line));
+      return azure(line);
+    };
     const notFound = runtime(async () => {
       throw new KindgiApiError({
         code: 'not-found',
@@ -1069,12 +1124,12 @@ describe('kindgi license renew', () => {
     }
   });
 
-  test("the Azure module's alerts fire the same under --quiet and --json: the job's log has the warnings either way", async () => {
-    const expiring = azureAlert('license_key_expiring');
+  test("both modules' alerts fire the same under --quiet and --json: the job's log has the warnings either way", async () => {
+    const expirings = [azureAlert('license_key_expiring'), gcpAlert('license_key_expiring')];
     for (const [days, raised] of [
       [6, true],
       [-3, true],
-      [7, false],
+      [31, false],
     ] as const) {
       const key = licenseKey({ exp: NOW / 1000 + days * DAY });
       const { dir, renewer } = await enrolled(key);
@@ -1083,11 +1138,13 @@ describe('kindgi license renew', () => {
           ...deps,
           fetchImpl: service(renewer, () => Response.json({ licenseKey: key })),
         });
-        expect(fires(expiring, out), `${days} days ${flags.join(' ')}`).toBe(raised);
+        for (const expiring of expirings) {
+          expect(fires(expiring, out), `${days} days ${flags.join(' ')}`).toBe(raised);
+        }
       }
     }
 
-    const notSent = azureAlert('license_counts_not_sent');
+    const notSents = [azureAlert('license_counts_not_sent'), gcpAlert('license_counts_not_sent')];
     const notFound = runtime(async () => {
       throw new KindgiApiError({
         code: 'not-found',
@@ -1112,7 +1169,9 @@ describe('kindgi license renew', () => {
           clientFactory,
         });
         expect(out.exitCode, `${label} ${flags.join(' ')}`).toBe(0);
-        expect(fires(notSent, out), `${label} ${flags.join(' ')}`).toBe(raised);
+        for (const notSent of notSents) {
+          expect(fires(notSent, out), `${label} ${flags.join(' ')}`).toBe(raised);
+        }
       }
     }
   });

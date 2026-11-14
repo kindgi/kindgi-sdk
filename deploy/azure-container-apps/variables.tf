@@ -409,7 +409,7 @@ variable "server_secret_env" {
 # ---- renewing the license key (optional) ----------------------------------------
 
 variable "license_renewal_schedule" {
-  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job, and nothing in this deployment calls Kindgi; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output)."
+  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output)."
   type        = string
   default     = ""
 
@@ -431,7 +431,7 @@ variable "license_renewer_secret" {
 }
 
 variable "license_usage_key_secret" {
-  description = "The vault secret that holds a system key reading this deployment's use: one holding system:license alone, which you mint with the deployment's own token and put in the vault yourself (README, \"Renewing the license key\"). Terraform never holds it. With it, renewing carries counts of the deployment's use: the job (license_renewal_schedule) reads the key and passes --runtime and --runtime-token, as the license_renew_command output does. Empty (the default): renewing carries no counts."
+  description = "The vault secret that holds a system key reading this deployment's use: one holding system:license alone, which you mint with the deployment's own token and put in the vault yourself (README, \"Renewing the license key\"). Terraform never holds it. With it, the job (license_renewal_schedule) reads the key and passes --runtime and --runtime-token, as the license_renew_command output does: renewing then carries counts of the deployment's use, and offers a renewed key to the running server, which runtime 0.7.0 can't take while it runs. Empty (the default): renewing carries no counts, and the server takes a renewed key when it next reads the secret."
   type        = string
   default     = ""
 
@@ -442,7 +442,7 @@ variable "license_usage_key_secret" {
 }
 
 variable "alert_action_groups" {
-  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, a key within 7 days of expiring, and, with license_usage_key_secret, a renewal that sent no counts. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
+  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, a key inside its warning window, and, with license_usage_key_secret, a renewal that sent no counts. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
   type        = list(string)
   default     = []
 
