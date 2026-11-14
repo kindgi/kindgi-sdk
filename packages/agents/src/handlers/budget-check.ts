@@ -135,7 +135,7 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
     const spec = ctx.input.agent.output;
     if (finishedTurn && spec !== undefined && !kctx.dryRun) {
       checker ??= outputChecker(spec);
-      const repair = outputRepair(spec, checker, partial.message, partial.nextMessages, {
+      const repair = outputRepair(ctx, spec, checker, partial.message, partial.nextMessages, {
         stepsLeft: ctx.usage.steps < maxSteps,
       });
       if (repair !== undefined) {
@@ -276,6 +276,7 @@ async function guardrailRetry(
  * turn fails with `output-schema-violation`.
  */
 function outputRepair(
+  ctx: TurnContext,
   spec: AgentOutputSpec,
   checker: OutputChecker,
   answer: ModelMessage,
@@ -284,7 +285,7 @@ function outputRepair(
 ): readonly ModelMessage[] | undefined {
   const checked = checker.check(answer.content);
   if (checked.kind === 'ok') return undefined;
-  const repairs = repairsSoFar(sent);
+  const repairs = repairsSoFar(ctx, sent);
   if (repairs < (spec.maxRepairs ?? DEFAULT_MAX_REPAIRS) && budget.stepsLeft) {
     return [...sent, answer, repairMessage(spec, checked.errors)];
   }
