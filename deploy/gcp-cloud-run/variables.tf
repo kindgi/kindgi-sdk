@@ -494,6 +494,17 @@ variable "orchestrator_key_version" {
   }
 }
 
+variable "server_rotation" {
+  description = "Changed, rolls a new revision of the server, which reads each secret it takes at \"latest\" again (its database URL, API token, license key and signing keys, and each server_secret_env entry at \"latest\"): after you add a secret's new version, set it to a value it hasn't had, such as the date and time (\"2026-11-06-1530\"), and apply. It is the revision's rotated label. \"\" (the default) sets no label."
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = can(regex("^[a-z0-9_-]{0,63}$", var.server_rotation))
+    error_message = "server_rotation is a label value: at most 63 lowercase letters, digits, dashes and underscores, such as \"2026-11-06-1530\"."
+  }
+}
+
 variable "secrets_backend" {
   description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under the module's Cloud KMS key, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no AAD key), so a pack gets its plain env values and cloud secrets (pack_secret_readers), never a secret stored in Kindgi; for a deployment whose model uses the service's own credentials. The KMS key exists either way: each pack endpoint's token is sealed under it."
   type        = string
