@@ -9,7 +9,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Region for Cloud Run, Cloud SQL, Artifact Registry and the KMS key ring."
+  description = "Region for Cloud Run, Cloud SQL, Artifact Registry, the KMS key ring and the module's Secret Manager secrets. A secret stays in the region it was made in: changing this doesn't move it."
   type        = string
   default     = "northamerica-northeast2"
 }
@@ -494,6 +494,16 @@ variable "orchestrator_key_version" {
   }
 }
 
+variable "pagination_key_version" {
+  description = "The Secret Manager version of <name_prefix>-pagination-key the server reads as KINDGI_PAGINATION_KEY, \"1\" for a new deployment (the first version added): the key its page cursors are sealed with, the same on every instance and every revision, so a cursor outlives a restart and any instance opens another's. null (the default) leaves it out, and the server makes a key at each start, kept nowhere, as before the module had one: set it once the secret has a version. Pin it; never \"latest\", which each instance reads when it starts. While it rotates, the version before it goes in server_secret_env as KINDGI_PAGINATION_PREVIOUS_KEY."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.pagination_key_version == null || can(regex("^[1-9][0-9]*$", var.pagination_key_version))
+    error_message = "pagination_key_version is a version number (\"1\" for a new deployment), never \"latest\": each instance reads latest when it starts, so once a version is added, two instances could seal cursors with different keys."
+  }
+}
+
 variable "secrets_backend" {
   description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under the module's Cloud KMS key, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no AAD key), so a pack gets its plain env values and cloud secrets (pack_secret_readers), never a secret stored in Kindgi; for a deployment whose model uses the service's own credentials. The KMS key exists either way: each pack endpoint's token is sealed under it."
   type        = string
@@ -546,13 +556,13 @@ variable "server_env" {
     error_message = "server_env: a name is upper-case letters, digits and underscores."
   }
   validation {
-    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$|_PRESHARED_KEY$", name))])
-    error_message = "server_env: a secret (a *SECRET* name, a preshared key, or the SMTP URL with its password) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
+    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$|_PRESHARED_KEY$|^KINDGI_PAGINATION_PREVIOUS_KEY$", name))])
+    error_message = "server_env: a secret (a *SECRET* name, a preshared key, the SMTP URL with its password, or the previous page-cursor key) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
   }
 }
 
 variable "server_secret_env" {
-  description = "The server's secret settings, by reference to Secret Manager: `KINDGI_AUTH_SECRET`, `KINDGI_AUTH_EMAIL_SMTP_URL`, ... The operator creates each secret; the server's service account gets read access to exactly these (one in another project is granted there). A name the module sets itself is refused."
+  description = "The server's secret settings, by reference to Secret Manager: `KINDGI_AUTH_SECRET`, `KINDGI_AUTH_EMAIL_SMTP_URL`, ..., and while the page-cursor key rotates, `KINDGI_PAGINATION_PREVIOUS_KEY` (the version of <name_prefix>-pagination-key before pagination_key_version's). The operator creates each secret; the server's service account gets read access to exactly these (one in another project is granted there; the module's own <name_prefix>-pagination-key, which it reads already, gets no second grant). A name the module sets itself is refused."
   type = map(object({
     secret  = string
     version = string
