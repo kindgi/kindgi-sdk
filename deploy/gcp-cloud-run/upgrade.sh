@@ -432,7 +432,18 @@ EOT
 # run uses. A check job's name is at most 63 characters: the prefix is cut to
 # 45 (the rest adds 18) and loses a trailing "-". $2 is the run's HHMMSS.
 # >>> same in both modules: checks
-readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials" "identity-provider-keys")
+# The first release whose runtime has identity-provider-keys. A run to an
+# earlier release leaves the check out (RUN_CHECKS): its runtime has no such
+# check. The release's rcs and server fixes count as the release.
+readonly IDENTITY_PROVIDER_KEYS_RELEASE="0.7.0"
+# The release a check came with, for one an earlier target's runtime lacks;
+# nothing for the others.
+check_release() {
+  case "$1" in
+    identity-provider-keys) printf '%s' "$IDENTITY_PROVIDER_KEYS_RELEASE" ;;
+  esac
+}
 # <<<
 check_job_name() {
   local prefix="${NAME_PREFIX:0:45}" suffix
@@ -441,6 +452,7 @@ check_job_name() {
     provider-keys) suffix="pk" ;;
     secret-scopes) suffix="ss" ;;
     mcp-header-credentials) suffix="mhc" ;;
+    identity-provider-keys) suffix="ipk" ;;
   esac
   printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
 }
@@ -523,6 +535,27 @@ if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" 
 # <<<
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$MODULE_RUNTIME_FLOOR")" ]] \
   || die "--to $TARGET: the module here is ${MODULE_RUNTIME_FLOOR}'s, which needs the ${MODULE_RUNTIME_FLOOR} runtime or later. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
+
+# >>> same in both modules: target-checks
+# The checks this run makes: each of CHECKS that the target's runtime has.
+RUN_CHECKS=()
+for check in "${CHECKS[@]}"; do
+  since="$(check_release "$check")"
+  if [[ -z $since ]] || [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$since")" ]]; then
+    RUN_CHECKS+=("$check")
+  fi
+done
+# Each check the target's runtime lacks, said where a run lists its checks
+# ($1, the line's indent).
+say_checks_left_out() {
+  local check
+  for check in "${CHECKS[@]}"; do
+    if [[ " ${RUN_CHECKS[*]} " != *" $check "* ]]; then
+      info "${1}check $check isn't run: the $TARGET runtime doesn't have it ($(check_release "$check") and later do)"
+    fi
+  done
+}
+# <<<
 
 require_cmd terraform gcloud jq docker
 
@@ -1835,10 +1868,11 @@ if [[ $DRY_RUN == true ]]; then
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to Artifact Registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
-  info "2. create, run and then delete ${#CHECKS[@]} Cloud Run jobs with the new image, one per check:"
-  for check in "${CHECKS[@]}"; do
+  info "2. create, run and then delete ${#RUN_CHECKS[@]} Cloud Run jobs with the new image, one per check:"
+  for check in "${RUN_CHECKS[@]}"; do
     info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
   done
+  say_checks_left_out "   "
   if [[ -n $JOB_NET_SAID ]]; then info "   with the server's VPC egress: ${JOB_NET_SAID}"; fi
   if [[ $DATABASE_PRIVATE == true ]]; then
     info "   reaching the database at its private IP, its certificate checked against the instance's CAs"
@@ -1891,10 +1925,12 @@ info "mirrored to $NEW_SERVER_IMAGE"
 # need only KINDGI_DATABASE_URL: nothing starts, no migrations, no license. The
 # check name is baked into the job's args at create time, since `jobs execute`
 # can't override them across gcloud versions. provider-keys, secret-scopes and
-# mcp-header-credentials apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore
+# mcp-header-credentials apply for 0.1.8 -> 0.1.10, and identity-provider-keys
+# to IDENTITY_PROVIDER_KEYS_RELEASE or later (stored-secrets is a restore
 # check; purged-tenants is multi-tenant only).
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
+say_checks_left_out ""
 # The way to the database, as the server's: its VPC egress, then the /cloudsql
 # socket, or the CAs a private-IP database's certificate is checked against
 # (PEM text over several lines, so it goes in an env-vars file: YAML, which
@@ -1906,7 +1942,7 @@ if [[ $DATABASE_PRIVATE == true ]]; then
 else
   job_db_args+=(--set-cloudsql-instances="$SQL_CONNECTION_NAME")
 fi
-for check in "${CHECKS[@]}"; do
+for check in "${RUN_CHECKS[@]}"; do
   job="$(check_job_name "$check" "$check_stamp")"
   args="check,${check}"
   if [[ -n $CHECK_TENANT ]]; then args="${args},--tenant,${CHECK_TENANT}"; fi

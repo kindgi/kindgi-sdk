@@ -814,6 +814,8 @@ assert_file_has "$OUT" "   (both platforms, through this machine; on a slow upli
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-mhc  (check mcp-header-credentials)" "the mcp-header-credentials job"
+assert_file_has "$OUT" "2. create, run and then delete 3 Cloud Run jobs with the new image, one per check:" "the jobs' count"
+assert_file_has "$OUT" "     check identity-provider-keys isn't run: the 0.4.0 runtime doesn't have it (0.7.0 and later do)" "the check 0.4.0 lacks"
 assert_file_has "$OUT" "grant serviceAccount:p-sql@demo-proj.iam.gserviceaccount.com roles/storage.objectAdmin on gs://backups " "the grant"
 assert_file_has "$OUT" "export the \"kindgi\" database to gs://backups/dev/kindgi-kindgi-0.1.10-<YYYYMMDDTHHMMSSZ>.sql.gz" "the export"
 assert_file_has "$OUT" "4. nothing to build: the apply deletes the one pack service, and the pack orchestrator makes each deployment's own" "the pack service's step"
@@ -2106,6 +2108,45 @@ run "yes" --var-file "$PACK_ENV_FILE"
 assert_rc 0 "it runs"
 assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
 if grep -q "pack_min_instances was" "$OUT"; then fail "a pack service at 0 got the scale-to-zero note"; else pass; fi
+
+# 84. A target before identity-provider-keys' release (0.7.0): the run makes
+# no job for that check, and says so before the jobs it makes.
+case_start "a target before identity-provider-keys"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.4.0 runs"
+assert_file_has "$OUT" "  check identity-provider-keys isn't run: the 0.4.0 runtime doesn't have it (0.7.0 and later do)" "the check it leaves out, said"
+if [[ $(grep -c -- "--args=check," "$STUB_JOBS_LOG") -eq 3 ]]; then pass; else fail "the run didn't make exactly 3 check jobs"; fi
+if grep -q -e "-ipk " -e "--args=check,identity-provider-keys" "$STUB_JOBS_LOG"; then fail "a job for identity-provider-keys was made"; else pass; fi
+
+# 85. The same script knowing 0.6.0 and 0.7.0, which this copy doesn't list
+# yet, so no real run reaches them: a target of 0.7.0 or its rc makes the
+# identity-provider-keys job too, and its dry run lists 4 jobs and leaves
+# nothing out.
+IPK_SCRIPT="$TMP/upgrade-ipk.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")/' "$SCRIPT" >"$IPK_SCRIPT"
+chmod +x "$IPK_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")' "$IPK_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$IPK_SCRIPT"
+
+case_start "0.4.0 to 0.7.0-rc.0: the identity-provider-keys job too"
+reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
+run "yes" --to 0.7.0-rc.0
+assert_rc 0 "0.4.0 -> 0.7.0-rc.0 runs"
+assert_file_has "$STUB_JOBS_LOG" "--args=check,identity-provider-keys" "the identity-provider-keys job"
+if [[ $(grep -c -- "--args=check," "$STUB_JOBS_LOG") -eq 4 ]]; then pass; else fail "the run didn't make exactly 4 check jobs"; fi
+if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 run"; else pass; fi
+
+case_start "a dry run to 0.7.0 lists the identity-provider-keys job"
+reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
+run "yes" --to 0.7.0 --dry-run
+assert_rc 0 "a dry run to 0.7.0 exits 0"
+assert_file_has "$OUT" "2. create, run and then delete 4 Cloud Run jobs with the new image, one per check:" "the jobs' count"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ipk  (check identity-provider-keys)" "the identity-provider-keys job"
+if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 dry run"; else pass; fi
+assert_absent "$STUB_JOBS_LOG" "a check job"
+
+SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

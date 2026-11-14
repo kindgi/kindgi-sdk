@@ -51,10 +51,11 @@
 #     az acr login --expose-token, on docker login's stdin) and adds the
 #     image tag <registry>/runtime:<version> there.
 #   - It creates a Container Apps job for each check,
-#     <name_prefix>-upgchk-<HHMMSS>-pk, -ss and -mhc, runs it once, and
-#     deletes it when it ends, however it ends. It prints each job's name
-#     when it creates it: a run that's killed outright (kill -9, a closed
-#     laptop) can't delete them, so delete a leftover one by that name:
+#     <name_prefix>-upgchk-<HHMMSS>-pk, -ss, -mhc and, to 0.7.0 or later,
+#     -ipk, runs it once, and deletes it when it ends, however it ends. It
+#     prints each job's name when it creates it: a run that's killed
+#     outright (kill -9, a closed laptop) can't delete them, so delete a
+#     leftover one by that name:
 #       az containerapp job delete -n <name> -g <resource group> --yes
 #   - On a server tier that takes them, it takes an on-demand backup,
 #     pre-upgrade-<from>-to-<to>-<UTC time> (a server keeps up to seven).
@@ -406,7 +407,18 @@ EOT
 # run uses. A Container Apps job's name is at most 32 characters: the prefix
 # (12 at most, as the module takes it) and 18 more. $2 is the run's HHMMSS.
 # >>> same in both modules: checks
-readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials" "identity-provider-keys")
+# The first release whose runtime has identity-provider-keys. A run to an
+# earlier release leaves the check out (RUN_CHECKS): its runtime has no such
+# check. The release's rcs and server fixes count as the release.
+readonly IDENTITY_PROVIDER_KEYS_RELEASE="0.7.0"
+# The release a check came with, for one an earlier target's runtime lacks;
+# nothing for the others.
+check_release() {
+  case "$1" in
+    identity-provider-keys) printf '%s' "$IDENTITY_PROVIDER_KEYS_RELEASE" ;;
+  esac
+}
 # <<<
 check_job_name() {
   local prefix="${NAME_PREFIX:0:12}" suffix
@@ -415,6 +427,7 @@ check_job_name() {
     provider-keys) suffix="pk" ;;
     secret-scopes) suffix="ss" ;;
     mcp-header-credentials) suffix="mhc" ;;
+    identity-provider-keys) suffix="ipk" ;;
   esac
   printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
 }
@@ -494,6 +507,27 @@ if [[ -n $CHECK_TENANT ]]; then
   [[ $CHECK_TENANT =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] \
     || die "--check-tenant \"$CHECK_TENANT\" isn't a tenant id (a uuid)."
 fi
+
+# >>> same in both modules: target-checks
+# The checks this run makes: each of CHECKS that the target's runtime has.
+RUN_CHECKS=()
+for check in "${CHECKS[@]}"; do
+  since="$(check_release "$check")"
+  if [[ -z $since ]] || [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$since")" ]]; then
+    RUN_CHECKS+=("$check")
+  fi
+done
+# Each check the target's runtime lacks, said where a run lists its checks
+# ($1, the line's indent).
+say_checks_left_out() {
+  local check
+  for check in "${CHECKS[@]}"; do
+    if [[ " ${RUN_CHECKS[*]} " != *" $check "* ]]; then
+      info "${1}check $check isn't run: the $TARGET runtime doesn't have it ($(check_release "$check") and later do)"
+    fi
+  done
+}
+# <<<
 
 require_cmd terraform az jq docker
 
@@ -1396,10 +1430,11 @@ if [[ $DRY_RUN == true ]]; then
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to the module's registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
-  info "2. create, run and then delete ${#CHECKS[@]} Container Apps jobs with the new image, one per check:"
-  for check in "${CHECKS[@]}"; do
+  info "2. create, run and then delete ${#RUN_CHECKS[@]} Container Apps jobs with the new image, one per check:"
+  for check in "${RUN_CHECKS[@]}"; do
     info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
   done
+  say_checks_left_out "   "
   info "   in the environment ${ENVIRONMENT}, as the server's identity, reading database-url from the vault ${KEY_VAULT}"
   info "   A dry run doesn't run them; a real run stops before the plan if one fails."
   info "3. nothing yet: the backup is ${DB_SERVER}'s point-in-time restore (${RETENTION_DAYS} days kept, the earliest restore point ${EARLIEST_RESTORE})"
@@ -1515,7 +1550,8 @@ run_check() {
 # l.151-155), and gets the database URL as a Key Vault reference without a
 # version, as the server does. The check name is baked into the job's args
 # at create time. provider-keys, secret-scopes and mcp-header-credentials
-# apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore check;
+# apply for 0.1.8 -> 0.1.10, and identity-provider-keys to
+# IDENTITY_PROVIDER_KEYS_RELEASE or later (stored-secrets is a restore check;
 # purged-tenants is multi-tenant only).
 #
 # Each job is made from its whole resource, through Resource Manager, which
@@ -1550,7 +1586,8 @@ check_job_spec() {
 }
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
-for check in "${CHECKS[@]}"; do
+say_checks_left_out ""
+for check in "${RUN_CHECKS[@]}"; do
   job="$(check_job_name "$check" "$check_stamp")"
   spec="$WORK/$job.json"
   (umask 077 && check_job_spec "$job" "$check" >"$spec")
