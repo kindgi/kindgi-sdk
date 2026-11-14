@@ -29,6 +29,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
   read doesn't change.
+- `kindgi`: **`http_tool` refuses a placeholder in the URL's host or port.**
+  There, a run's input or a model's arguments would choose where the runtime
+  sends the request. The URL must also start with `http://` or `https://` and
+  a host. TypeScript's `defineTool` and Java's `Tool.Builder.http` already
+  refused these with the same messages, and so did a deployment of the pack.
+  Python now refuses them when the tool is defined, with a `DefinitionError`.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's

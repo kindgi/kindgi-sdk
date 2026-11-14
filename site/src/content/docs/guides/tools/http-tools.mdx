@@ -186,7 +186,9 @@ object AddOrderNote {
 
 - **The URL.** Each `{name}` in the URL template is filled from the input
   field with that wire name, URL-encoded. Every placeholder must be an input
-  field.
+  field. The URL starts with `http://` or `https://` and a host, and
+  placeholders go in its path and query only, never in its host or port:
+  there, the input would choose where the request goes.
 - **The body.** A `POST`, `PUT`, `PATCH` or `DELETE` sends the input fields
   the URL didn't use, as JSON: here `{"text": …}`. A `GET` sends no body.
   For another shape, set the request body. `input-passthrough` sends the

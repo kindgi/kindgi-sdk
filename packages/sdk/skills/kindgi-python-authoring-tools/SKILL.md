@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -377,8 +377,11 @@ lookup_case = http_tool(
 ```
 
 - `{name}` placeholders in `url_template` are filled from the input's
-  fields, URL-encoded; each must be a field of the input model, or the
-  indexer reports it.
+  fields, URL-encoded. The URL starts with `http://` or `https://` and a
+  host, and its placeholders go in the path and query only, never in the
+  host or port: there, the input would choose where the request goes.
+  Each placeholder must be a field of the input model. `http_tool` raises
+  `DefinitionError` when any of this doesn't hold.
 - `authorization`: `{"kind": "bearer", "secretRef": …}` or
   `{"kind": "header", "headerName": "X-Api-Key", "secretRef": …}`. The
   runtime resolves the secret on every call — `envName` `local` is the
