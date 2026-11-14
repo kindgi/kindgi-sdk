@@ -9,19 +9,25 @@
  * The CLI is project-local: a project runs the `kindgi` it pins, never a
  * global one.
  *
- * Three cases, decided by where the running CLI lives:
+ * Three cases, decided by the `@kindgi/sdk` spec in the running CLI's own
+ * package.json (`classifyCli`), not by where the CLI lives: a packed CLI
+ * can be copied anywhere (a deploy folder, an unpacked tarball), and only
+ * a checkout keeps `workspace:*`.
  *
- *   - **published** — the CLI sits under `node_modules`. `@kindgi/cli`
- *     pins the running CLI's version; `@kindgi/sdk` uses the spec the
- *     published CLI itself depends on (pnpm rewrites `workspace:*` at
- *     publish time). `@kindgi/connections` pins the CLI's version too:
- *     every `@kindgi/*` package is released at one version.
+ *   - **published** — the spec is a version (pnpm rewrites `workspace:*`
+ *     when it packs the CLI). `@kindgi/cli` pins the running CLI's
+ *     version; `@kindgi/sdk` uses that spec. `@kindgi/connections` pins
+ *     the CLI's version too: every `@kindgi/*` package is released at one
+ *     version.
  *   - **workspace** — a source checkout, and the target is inside the
  *     same pnpm workspace (`packs/foo`): `workspace:*` for both.
  *   - **local-checkout** — a source checkout, target elsewhere (an
  *     existing app, a pilot repo) or `--link-local`: symlink the
  *     packages from the checkout (`link:`, or `file:` for npm);
  *     `@kindgi/connections` is the SDK's sibling there.
+ *
+ * Any other spec is an error that names it, and so is a `workspace:` spec
+ * that isn't in a checkout.
  *
  * Never `latest` — an unpinned spec resolves to whatever the registry
  * serves that day, and before publishing it resolves to nothing.
@@ -74,7 +80,14 @@ export async function resolveKindgiDependencySpecs(
   }
   const cliRoot = await realpath(cli.root);
 
-  if (cliRoot.split(sep).includes('node_modules')) return publishedSpecs(cli);
+  const install = await classifyCli(cli, cliRoot, exists);
+  if (install.kind === 'error') return install;
+  if (install.kind === 'published') {
+    return {
+      kind: 'ok',
+      specs: { source: 'published', sdk: install.sdk, cli: cli.version, connections: cli.version },
+    };
+  }
 
   const sdkRootRaw = input.sdkRoot ?? resolveSdkPackageRoot();
   if (sdkRootRaw === undefined) {
@@ -86,9 +99,8 @@ export async function resolveKindgiDependencySpecs(
   const sdkRoot = await realpath(sdkRootRaw);
 
   if (input.forceLocal !== true) {
-    const workspace = await findPnpmWorkspaceRoot(cliRoot, exists);
     const target = await realpath(input.targetDir);
-    if (workspace !== undefined && isInside(target, workspace)) {
+    if (isInside(target, install.workspace)) {
       return {
         kind: 'ok',
         specs: {
@@ -113,17 +125,55 @@ export async function resolveKindgiDependencySpecs(
   };
 }
 
-function publishedSpecs(cli: CliPackageInfo): ResolveDependencySpecsResult {
+type CliInstall =
+  | { readonly kind: 'published'; readonly sdk: string }
+  | { readonly kind: 'checkout'; readonly workspace: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/**
+ * A version as a packed CLI lists it: `MAJOR.MINOR.PATCH`, with any
+ * pre-release, led by `^` or `~` or neither, as pnpm writes `workspace:*`,
+ * `workspace:^` and `workspace:~`.
+ */
+const PLAIN_VERSION = /^[\^~]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * What the running CLI is, by the `@kindgi/sdk` spec in its own
+ * package.json, checked in this order:
+ *
+ *   1. `workspace:` under a `node_modules`: a bad publish, even inside an
+ *      app that is itself a pnpm workspace.
+ *   2. A version: published, wherever the CLI was copied.
+ *   3. `workspace:` with a pnpm workspace at or above the CLI: a checkout.
+ *   4. `workspace:` with none: a packed or deployed copy whose specs were
+ *      never replaced.
+ *   5. Anything else (`link:`, `file:`, `catalog:`, a URL, `latest`, none):
+ *      nothing a project can pin.
+ */
+async function classifyCli(
+  cli: CliPackageInfo,
+  cliRoot: string,
+  exists: (path: string) => Promise<boolean>,
+): Promise<CliInstall> {
   const sdk = cli.sdkDependency;
-  if (sdk === undefined || sdk.startsWith('workspace:')) {
+  if (sdk?.startsWith('workspace:')) {
+    if (cliRoot.split(sep).includes('node_modules')) {
+      return {
+        kind: 'error',
+        message: `This @kindgi/cli (${cli.version}) lists @kindgi/sdk as "${sdk}", not a published version — publisher misconfiguration.`,
+      };
+    }
+    const workspace = await findPnpmWorkspaceRoot(cliRoot, exists);
+    if (workspace !== undefined) return { kind: 'checkout', workspace };
     return {
       kind: 'error',
-      message: `This @kindgi/cli (${cli.version}) lists @kindgi/sdk as "${sdk ?? '(missing)'}", not a published version — publisher misconfiguration.`,
+      message: `This @kindgi/cli (${cliRoot}) lists @kindgi/sdk as "${sdk}" but isn't in a Kindgi checkout: no pnpm-workspace.yaml at or above it. A packed or deployed CLI needs its workspace: specs replaced by versions.`,
     };
   }
+  if (sdk !== undefined && PLAIN_VERSION.test(sdk)) return { kind: 'published', sdk };
   return {
-    kind: 'ok',
-    specs: { source: 'published', sdk, cli: cli.version, connections: cli.version },
+    kind: 'error',
+    message: `This @kindgi/cli (${cliRoot}) lists @kindgi/sdk as "${sdk ?? '(missing)'}", not a published version. Install a released @kindgi/cli, or pack this one with pnpm so its dependencies are versions.`,
   };
 }
 
@@ -226,7 +276,9 @@ export async function resolveKindgiPythonSource(
       message: 'Cannot locate the @kindgi/cli package.json — broken install.',
     };
   }
-  if ((await realpath(cli.root)).split(sep).includes('node_modules')) {
+  const install = await classifyCli(cli, await realpath(cli.root), exists);
+  if (install.kind === 'error') return install;
+  if (install.kind === 'published') {
     const requirement = kindgiRequirement(cli.version);
     if (requirement === undefined) {
       return {
@@ -293,9 +345,9 @@ export async function resolveKindgiJavaSource(
       message: 'Cannot locate the @kindgi/cli package.json — broken install.',
     };
   }
-  if ((await realpath(cli.root)).split(sep).includes('node_modules')) {
-    return { kind: 'published', version: cli.version };
-  }
+  const install = await classifyCli(cli, await realpath(cli.root), exists);
+  if (install.kind === 'error') return install;
+  if (install.kind === 'published') return { kind: 'published', version: cli.version };
   const sdkRootRaw = input.sdkRoot ?? resolveSdkPackageRoot();
   if (sdkRootRaw === undefined) {
     return {
