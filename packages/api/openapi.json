@@ -5916,6 +5916,24 @@
           }
         }
       },
+      "RuntimeConnections": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "on"
+        ],
+        "description": "Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "The runtime serves connections."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says."
+          }
+        }
+      },
       "RuntimeInfo": {
         "type": "object",
         "additionalProperties": false,
@@ -5941,6 +5959,10 @@
           "development": {
             "type": "boolean",
             "description": "The runtime runs in development mode, which allows development-only settings."
+          },
+          "connections": {
+            "$ref": "#/components/schemas/RuntimeConnections",
+            "description": "Whether the runtime serves connections to other apps. Absent when the runtime doesn't say."
           }
         }
       },
@@ -49298,7 +49320,7 @@
             }
           }
         },
-        "description": "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.",
+        "description": "Its version, how many tenants it serves, whether it runs in development mode, and whether it serves connections to other apps: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []

@@ -1956,6 +1956,25 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class RuntimeConnections(BaseModel):
+    """
+    Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    on: bool
+    """
+    The runtime serves connections.
+    """
+    reason: str | None = None
+    """
+    Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says.
+    """
+
+
 class RuntimeInfo(BaseModel):
     """
     Which runtime answers: what a client says about the runtime it's connected to.
@@ -1976,6 +1995,10 @@ class RuntimeInfo(BaseModel):
     development: bool
     """
     The runtime runs in development mode, which allows development-only settings.
+    """
+    connections: RuntimeConnections | None = None
+    """
+    Whether the runtime serves connections to other apps. Absent when the runtime doesn't say.
     """
 
 

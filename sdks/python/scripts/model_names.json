@@ -944,6 +944,7 @@
   "RunWaitingToken": ["RunWaitingToken"],
   "RunWaitingTokenTool": ["RunWaitingTokenTool"],
   "Runs": ["DeployCheckStop.runs"],
+  "RuntimeConnections": ["RuntimeConnections"],
   "RuntimeInfo": ["RuntimeInfo"],
   "RuntimeLimits": ["RuntimeLimits"],
   "SamlIdentityProviderConfig": ["SamlIdentityProviderConfig"],

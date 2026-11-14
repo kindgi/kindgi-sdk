@@ -3268,6 +3268,22 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const RuntimeConnectionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['on'],
+  description:
+    'Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.',
+  properties: {
+    on: { type: 'boolean', description: 'The runtime serves connections.' },
+    reason: {
+      type: 'string',
+      description:
+        "Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says.",
+    },
+  },
+};
+
 export const RuntimeInfoSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3287,6 +3303,11 @@ export const RuntimeInfoSchema: JsonSchema = {
     development: {
       type: 'boolean',
       description: 'The runtime runs in development mode, which allows development-only settings.',
+    },
+    connections: {
+      $ref: '#/components/schemas/RuntimeConnections',
+      description:
+        "Whether the runtime serves connections to other apps. Absent when the runtime doesn't say.",
     },
   },
 };
@@ -18449,6 +18470,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['RuntimeConnections', RuntimeConnectionsSchema],
   ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
