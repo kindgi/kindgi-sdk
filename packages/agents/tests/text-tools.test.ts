@@ -513,7 +513,7 @@ describe('an agent naming a texts tool', () => {
     expect(r.kind === 'err' && r.error.issues).toContainEqual({
       path: '/tools/0/id',
       message:
-        '"kindgi_reply_to_text" is a tool built into Kindgi (the "kindgi_" prefix): an agent gets it from its declaration (memory.remember for kindgi_remember) or its run (a run a text started gets kindgi_reply_to_text and kindgi_hand_to_person), not from tools',
+        '"kindgi_reply_to_text" is a tool built into Kindgi (the "kindgi_" prefix): an agent gets it from its declaration (memory.remember for kindgi_remember, files.update for kindgi_update_file, files.create for kindgi_create_file) or its run (a run a text started gets kindgi_reply_to_text and kindgi_hand_to_person), not from tools',
     });
   });
 });
