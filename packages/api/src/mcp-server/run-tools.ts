@@ -92,6 +92,16 @@ const RUN_STATE_OUTPUT = {
           name: { type: 'string' },
           contentType: { type: 'string' },
           size: { type: 'integer' },
+          fileId: {
+            type: 'string',
+            description:
+              "The file's id, which names it through every version: what the files routes take.",
+          },
+          version: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Which version of the file this lists: its Latest when the run was read.',
+          },
         },
       },
     },
@@ -103,7 +113,7 @@ const RUN_STATE_OUTPUT = {
 export function runStateTools(wait: RunWait = RUN_STATE_WAIT): McpToolSet {
   return {
     scopes: ['kindgi:read', 'kindgi:run'],
-    routes: ['GET /v1/runs/:runId', 'GET /v1/artifacts'],
+    routes: ['GET /v1/runs/:runId', 'GET /v1/files', 'GET /v1/artifacts'],
     register(server, context) {
       server.registerResource(
         'kindgi_run_view',
@@ -203,6 +213,7 @@ export function agentTools(wait: RunWait = RUN_WAIT): McpToolSet {
       'GET /v1/flows/:flowId',
       'POST /v1/runs',
       'GET /v1/runs/:runId',
+      'GET /v1/files',
       'GET /v1/artifacts',
     ],
     async register(server, context) {
