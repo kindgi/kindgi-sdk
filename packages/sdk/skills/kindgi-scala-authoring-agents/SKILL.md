@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.10"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -183,7 +183,9 @@ object BriefWriter {
 - **`set("toolErrors", …)`:** `maxRetries` and `retryOn`. A failed tool call
   goes back to the model as the call's result, so it can fix the call. The
   default kinds are `invalid-arguments` and `unknown-tool` (nothing ran). Add
-  `tool-error` only when retrying the tool is safe. Each retry costs a step.
+  `tool-error` only when retrying the tool is safe. The list replaces the
+  default, so keep `invalid-arguments` and `unknown-tool` in it. Each retry
+  costs a step.
 - **`set("parallelToolCalls", false)`:** when a model step asks for several
   calls at once, an agent runs calls to read-only tools (`mutating(false)`, no
   changing effect) that come one after another at the same time, up to 8 of
