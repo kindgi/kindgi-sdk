@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { RunStatus } from '@kindgi/runtime';
+import type { RunStartedBy, RunStatus } from '@kindgi/runtime';
 import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
 import type { ScopeRef } from '../scope-wire.js';
 
@@ -202,7 +202,10 @@ export interface RunsClient {
   cancel(runId: RunId, options?: { readonly idempotencyKey?: string }): Promise<Run>;
 
   /**
-   * Cursor-paginated list of runs for the workspace.
+   * Cursor-paginated list of runs for the workspace, newest first. With
+   * `completedAfter` or `completedBefore`, oldest ended first, and the next
+   * page is `completedAfter` and `afterRunId` set to the last run's
+   * `completedAt` and `id` (no `nextCursor` comes back).
    *
    * @wire `GET /v1/runs` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs/get`.
@@ -289,6 +292,24 @@ export interface ListRunsFilter {
   readonly createdAfter?: Timestamp | string;
   /** Only runs created strictly before this time. */
   readonly createdBefore?: Timestamp | string;
+  /**
+   * Only runs that ended strictly after this time, or at exactly this time
+   * with an id after `afterRunId`. Pass a run's `completedAt` as the API
+   * returned it: its fraction of a second is kept. Lists oldest ended first,
+   * and can't be combined with `cursor`. A runtime before Kindgi 0.7.0
+   * ignores it.
+   */
+  readonly completedAfter?: Timestamp | string;
+  /** With `completedAfter`: the id of the last run of the previous page. */
+  readonly afterRunId?: RunId | string;
+  /** Only runs that ended at or before this time; lists as `completedAfter` does. */
+  readonly completedBefore?: Timestamp | string;
+  /**
+   * Only runs started this way (a run's `startedBy`). A child run has its
+   * parent's, so add `topLevel: true` for the runs schedules started. A
+   * runtime before Kindgi 0.7.0 ignores it.
+   */
+  readonly startedBy?: RunStartedBy;
   /** With `agentId`: only the turns that ran this version. */
   readonly agentVersion?: string;
   /** Only runs of this flow (an agent's turns run `agent.turn`; use `agentId` for an agent's). */
@@ -303,6 +324,12 @@ export interface ListRunsFilter {
   readonly actsFor?: 'me';
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
+  /**
+   * Include what each suspended run waits for (`waitingFor`, as `get` gives
+   * it). A page then holds at most 25 runs. An older runtime refuses it
+   * (`400 bad-input`).
+   */
+  readonly includeWaitingFor?: boolean;
 }
 
 export interface RunPage {
@@ -430,7 +457,7 @@ export interface RunFailure {
  */
 export interface RunTrigger {
   readonly triggerId: string;
-  readonly kind: 'schedule' | 'event' | 'webhook' | 'mail';
+  readonly kind: 'schedule' | 'event' | 'webhook' | 'mail' | 'text';
   readonly fireId: string;
   /** A schedule's fire: the occurrence the run is for. */
   readonly scheduledFor?: Timestamp;
@@ -490,10 +517,10 @@ export interface Run {
    */
   readonly contentErasedAt?: string;
   /**
-   * Set on a suspended run by `get` (not `list`): what it waits for. Its
-   * approvals still to be decided, its waits for another system's answer
-   * (`tokens`, answered with `resume`) and the rest. Absent from an older
-   * runtime, or when the run's journal can't be read.
+   * Set on a suspended run by `get`, and by `list` with `includeWaitingFor`:
+   * what it waits for. Its approvals still to be decided, its waits for
+   * another system's answer (`tokens`, answered with `resume`) and the rest.
+   * Absent from an older runtime, or when the run's journal can't be read.
    */
   readonly waitingFor?: RunWaitingFor;
   /**
@@ -535,6 +562,18 @@ function waitedStartTimeout(e: unknown): unknown {
     cause: e.error.cause,
     timeoutMs,
   });
+}
+
+/**
+ * The list's `include`: the extras asked for, joined with commas, or none.
+ * The query takes any string, so the joined one needs no cast.
+ */
+function includeOf(filter: ListRunsFilter | undefined): string | undefined {
+  const include = [
+    ...(filter?.includeOutput === true ? ['output'] : []),
+    ...(filter?.includeWaitingFor === true ? ['waitingFor'] : []),
+  ];
+  return include.length > 0 ? include.join(',') : undefined;
 }
 
 export function makeRunsClient(transport: Transport): RunsClient {
@@ -659,6 +698,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
     },
 
     async list(filter) {
+      const include = includeOf(filter);
       return transport.request<RunPage>({
         method: 'GET',
         path: '/v1/runs',
@@ -683,11 +723,12 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.createdBefore !== undefined && {
             createdBefore: filter.createdBefore as unknown as string,
           }),
+          ...completionQuery(filter),
           ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
           ...(filter?.flowId !== undefined && { flowId: filter.flowId as string }),
           ...(filter?.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
           ...(filter?.actsFor !== undefined && { actsFor: filter.actsFor }),
-          ...(filter?.includeOutput === true && { include: 'output' }),
+          ...(include !== undefined && { include }),
         },
       });
     },
@@ -720,5 +761,19 @@ export function makeRunsClient(transport: Transport): RunsClient {
         },
       });
     },
+  };
+}
+
+/** `GET /v1/runs`'s bounds on when runs ended, and `startedBy`, each when given. */
+function completionQuery(filter: ListRunsFilter | undefined): Record<string, string> {
+  return {
+    ...(filter?.completedAfter !== undefined && {
+      completedAfter: filter.completedAfter as unknown as string,
+    }),
+    ...(filter?.afterRunId !== undefined && { afterRunId: filter.afterRunId as unknown as string }),
+    ...(filter?.completedBefore !== undefined && {
+      completedBefore: filter.completedBefore as unknown as string,
+    }),
+    ...(filter?.startedBy !== undefined && { startedBy: filter.startedBy }),
   };
 }

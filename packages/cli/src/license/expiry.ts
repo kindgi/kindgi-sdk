@@ -6,8 +6,8 @@
  * what to do about it: `kindgi doctor` and `kindgi license renew` say the
  * same thing the runtime's banner does.
  *
- * - more than 30 days left: valid;
- * - 30 days or fewer: expiring (the runtime warns);
+ * - more days left than the key's warning window (`warn`, else 30): valid;
+ * - within it: expiring (the runtime warns);
  * - expired less than 14 days ago: the runtime still starts, with a warning;
  * - after that: the runtime doesn't start with it.
  */
@@ -27,7 +27,7 @@ export function standingOf(claims: LicenseClaims, now: number): LicenseStanding 
   const left = claims.expiresAt.getTime() - now;
   if (left > 0) {
     const daysLeft = Math.floor(left / DAY_MS);
-    return { kind: daysLeft <= LICENSE_WARN_DAYS ? 'expiring' : 'valid', daysLeft };
+    return { kind: daysLeft <= warnDaysOf(claims) ? 'expiring' : 'valid', daysLeft };
   }
   if (-left < LICENSE_GRACE_DAYS * DAY_MS) {
     return {
@@ -38,9 +38,18 @@ export function standingOf(claims: LicenseClaims, now: number): LicenseStanding 
   return { kind: 'expired' };
 }
 
-/** A key from access.kindgi.com (`gh-<id>`, `dom-<domain>`), not one Kindgi issued by hand. */
+/** The days before it expires that a key warns from: its own `warn`, or 30. */
+export function warnDaysOf(claims: LicenseClaims): number {
+  return claims.warnDays ?? LICENSE_WARN_DAYS;
+}
+
+/** A key from access.kindgi.com (`gh-<id>`, `em-<id>`, `dom-<domain>`), not one Kindgi issued by hand. */
 export function isSelfServe(subject: string): boolean {
-  return /^gh-\d+$/.test(subject) || /^dom-[a-z0-9.-]+$/.test(subject);
+  return (
+    /^gh-\d+$/.test(subject) ||
+    /^em-[a-z2-7]{26}$/.test(subject) ||
+    /^dom-[a-z0-9.-]+$/.test(subject)
+  );
 }
 
 /**

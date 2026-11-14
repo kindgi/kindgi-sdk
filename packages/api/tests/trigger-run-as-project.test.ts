@@ -7,8 +7,8 @@
  * runs as the project, with `editor` on it. Naming the project takes a
  * project admin (without an authorization store, a tenant-admin key), and
  * no `act_as`. The account has no keys, its grant is fixed, and it isn't
- * named by id; a tenant admin may unregister it, and deleting the project
- * unregisters it. Such a trigger is shared under the owner rule.
+ * named by id; a tenant admin may unregister it, and a deleted project keeps
+ * it, for its restore. Such a trigger is shared under the owner rule.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -599,6 +599,33 @@ describe('a schedule with no project', () => {
   });
 });
 
+describe('a schedule that sends its results to `me`', () => {
+  test("a take-over to the project's account is a 400, as at a save, and the owner stays; without `me` it goes", async () => {
+    const h = harness();
+    const made = await register(
+      h,
+      'schedule',
+      { sendResultsTo: [{ to: 'me', on: ['failed'] }] },
+      'ada',
+    );
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const id = KINDS.schedule.idOf(made.body);
+    const res = await h.call('POST', `/v1/schedules/${id}/owner`, { runAsProject: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error.message).toBe(
+      "`sendResultsTo[0].to` is `me`, its owner's own email, and a service account has none: change `sendResultsTo` with PATCH first",
+    );
+    const read = await h.call('GET', `/v1/schedules/${id}`);
+    expect(read.body.owner).toMatchObject({ kind: 'user', id: ADA });
+
+    const cleared = await h.call('PATCH', `/v1/schedules/${id}`, { sendResultsTo: [] });
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
+    const taken = await h.call('POST', `/v1/schedules/${id}/owner`, { runAsProject: true });
+    expect(taken.status, JSON.stringify(taken.body)).toBe(200);
+    expect(taken.body.owner).toMatchObject({ kind: 'service', isProjectAccount: true });
+  });
+});
+
 describe("the project's own account itself", () => {
   test('it shows its project, and a grant or ungrant on it is a 409', async () => {
     const h = harness();
@@ -698,18 +725,15 @@ describe("a project's deletion", () => {
     return { status: del.status, account: accounts.activeFor(projectId), lines };
   }
 
-  test('unregisters its own account', async () => {
-    const { status, account } = await withProject();
-    expect(status).toBe(204);
-    expect(account).toBeUndefined();
-  });
-
-  test('an unregister that fails is logged, and the delete still answers 204', async () => {
-    const { status, lines } = await withProject(async () => {
-      throw new Error('store down');
+  test('keeps its own account, for its restore: nothing unregisters it', async () => {
+    const asked: string[] = [];
+    const { status, account } = await withProject(async (input) => {
+      asked.push(input.serviceAccountId as unknown as string);
+      throw new Error('a deleted project keeps its account');
     });
     expect(status).toBe(204);
-    expect(lines.join('\n')).toMatch(/its own account wasn't unregistered .*store down/);
+    expect(account).toBeDefined();
+    expect(asked).toEqual([]);
   });
 
   test('a delete refused leaves the account', async () => {

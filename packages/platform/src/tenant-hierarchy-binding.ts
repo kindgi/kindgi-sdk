@@ -86,11 +86,13 @@ export type CreateProjectError =
       /**
        * Another project in its org has `spec.slug`, or, with
        * `heldAs: 'old-slug'`, another project of the workspace had it before it
-       * was renamed (`ProjectBinding.create`'s outcome, the same way).
+       * was renamed; `deletedProject: true` when that project is deleted
+       * (`ProjectBinding.create`'s outcome, the same way).
        */
       readonly code: 'slug-conflict';
       readonly message: string;
       readonly heldAs?: 'old-slug';
+      readonly deletedProject?: true;
       readonly cause?: unknown;
     }
   /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
@@ -280,6 +282,17 @@ export interface TenantLimits {
    * limit, the next one waits until enough come out.
    */
   readonly projectsInProduction?: number;
+  /**
+   * Flows in production, each counted once however many of the
+   * workspace's projects in production run it. There's a margin: a write
+   * that would take the count past the most, the larger of 1.2 times this
+   * (rounded down) and one more than it, is refused with 403
+   * `plan-limit-reached` (`scope: 'tenant'`), and a write's answer warns
+   * from this number on. Lowering it takes nothing out of production.
+   */
+  readonly flowsInProduction?: number;
+  /** Agents in production, counted as `flowsInProduction` is, with the same margin and refusal. */
+  readonly agentsInProduction?: number;
 }
 
 /** A workspace's new name, slug, or both (`renameTenant`). A field left out stays as it is. */

@@ -1,7 +1,7 @@
 {
   "name": "@kindgi/connections",
   "version": "0.6.0",
-  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub, Microsoft and LinkedIn entries, and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues; posting on LinkedIn as a person).",
+  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub, Microsoft, LinkedIn and Texts entries, and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues; posting on LinkedIn as a person).",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -70,6 +70,11 @@
       "types": "./dist/linkedin-tools.d.ts",
       "import": "./dist/linkedin-tools.js",
       "default": "./dist/linkedin-tools.js"
+    },
+    "./texts": {
+      "types": "./dist/texts.d.ts",
+      "import": "./dist/texts.js",
+      "default": "./dist/texts.js"
     },
     "./app-fetch": {
       "types": "./dist/app-fetch.d.ts",

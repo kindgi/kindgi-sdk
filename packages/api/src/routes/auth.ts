@@ -16,12 +16,19 @@ import type {
   ClaimMappingSpec,
   IdentityProviderBinding,
   ProviderConfig,
+  ProviderJoinRole,
   SamlAttributeMapping,
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type ProviderKeys,
+  type SecretUse,
+  identityProviderSecretNames,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import type { SessionCreateOutput, SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability, refused } from './denied.js';
@@ -59,6 +66,13 @@ export interface AuthRouterOptions {
    * names secrets (`refuseSecretNames`).
    */
   readonly providerKeys?: ProviderKeys;
+  /** Nor a texts registration's account key (`connection-key-refused`); absent, not checked. */
+  readonly connectionKeys?: ConnectionKeys;
+  /**
+   * What in the tenant uses a secret: a provider's secret can't be one of
+   * them (`409 identity-provider-key-in-use`). Absent: not checked.
+   */
+  readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
   /** `signed-out` events, best effort. */
   readonly auditEvents?: AuditEventBinding;
 }
@@ -70,6 +84,9 @@ export const OPERATOR_MANAGED_MESSAGE =
 /** The answer to adding or changing a provider on a deployment without a secrets store. */
 export const NEEDS_SECRETS_STORE_MESSAGE =
   "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one.";
+
+export const DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE =
+  "This deployment has no authorization store (KINDGI_OPENFGA_API_URL), so it doesn't let people join by domain: without one, roles aren't checked, and a joiner would work in every project. Add people one by one, or give the deployment an authorization store.";
 
 /**
  * Build the auth router, mounted inside the `/v1/*` bearer chain:
@@ -83,17 +100,47 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
 
   const authed = new Hono<AppEnv>();
 
-  // A reserved `kindgi.` name or a model provider's key is never an identity provider's.
+  // A reserved `kindgi.` name, a model provider's key or a texts
+  // registration's account key is never an identity provider's.
   const refusedSecret = async (c: Context<AppEnv>, config: ProviderConfig) => {
     const refusal = await refuseSecretNames(
       options.providerKeys,
       c.get('tenantId') as TenantId,
-      providerSecretNames(config),
+      identityProviderSecretNames(config),
       'an identity provider',
+      { keys: options.connectionKeys },
     );
-    if (refusal === undefined) return undefined;
-    c.status(statusFor(refusal.code) as never);
-    return c.json(toWireError(refusal, c.get('requestId')));
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, c.get('requestId')));
+    }
+    return secretInUse(c, config);
+  };
+
+  // An identity provider's secret is sign-in's only: a secret a tool, an
+  // endpoint, a webhook trigger, a destination or a connection app already
+  // uses would be refused to it from then on, so say so now.
+  const secretInUse = async (c: Context<AppEnv>, config: ProviderConfig) => {
+    const secretUsers = options.secretUsers;
+    if (secretUsers === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    for (const name of identityProviderSecretNames(config)) {
+      const usedBy = await secretUsers(tenantId, name);
+      if (usedBy.length === 0) continue;
+      c.status(statusFor('identity-provider-key-in-use') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'identity-provider-key-in-use',
+            message: `\`${name}\` is used by ${usedBy.map((u) => `${u.kind} "${u.id}"`).join(', ')}: an identity provider's secret is sign-in's only, so none of them could read it from then on. Store the identity provider's own secret under a name of its own and name that. If one app registration serves both, give it a second client secret`,
+            secret: name,
+            usedBy,
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+    return undefined;
   };
 
   // The provider catalog is tenant-wide: any GET (the list, one provider,
@@ -161,6 +208,14 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
           },
           requestId,
         ),
+      );
+    }
+
+    const joinRefused = joinRefusal(identityProvider, parsed.value, parsed.value);
+    if (joinRefused !== undefined) {
+      c.status(statusFor(joinRefused.error.code) as never);
+      return c.json(
+        toWireError({ ...joinRefused.error, providerId: parsed.value.providerId }, requestId),
       );
     }
 
@@ -275,6 +330,21 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       if (parsed.kind === 'err') {
         c.status(statusFor(parsed.error.code) as never);
         return c.json(toWireError(parsed.error, requestId));
+      }
+      // A field sent back at its stored value leaves it alone, so the edit that
+      // reads a provider and sends it back with one change goes through.
+      const body = parsedJson.value as Record<string, unknown>;
+      const joinRefused = joinRefusal(
+        identityProvider,
+        {
+          join: body.join !== existing.join ? body.join : undefined,
+          joinRole: body.joinRole !== existing.joinRole ? body.joinRole : undefined,
+        },
+        parsed.value,
+      );
+      if (joinRefused !== undefined) {
+        c.status(statusFor(joinRefused.error.code) as never);
+        return c.json(toWireError({ ...joinRefused.error, providerId }, requestId));
       }
 
       // The whole merged provider, so one that already names such a key is refused too.
@@ -437,6 +507,38 @@ function providerNotFound(c: Context<AppEnv>, providerId: string): Response {
   );
 }
 
+/**
+ * Refuses a registration or change that sets `join: domain` or `joinRole`
+ * (`set`: a registration's body, or what a change's body changes from the
+ * stored provider) on a deployment that can't join by domain, and a
+ * `joinRole` the provider wouldn't use (`result`, the provider after the
+ * change, isn't `join: domain`). A change that leaves both alone goes
+ * through, so a provider stored with them keeps them, and `join: invite`
+ * keeps a stored `joinRole`.
+ */
+function joinRefusal(
+  identityProvider: IdentityProviderBinding,
+  set: { readonly join?: unknown; readonly joinRole?: unknown },
+  result: ProviderConfig,
+): ParsedErr | undefined {
+  const setsRole = set.joinRole !== undefined && set.joinRole !== null;
+  if ((set.join === 'domain' || setsRole) && identityProvider.joinsByDomain !== true) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'domain-join-needs-authorization',
+        message: DOMAIN_JOIN_NEEDS_AUTHORIZATION_MESSAGE,
+      },
+    };
+  }
+  if (setsRole && result.join !== 'domain') {
+    return invalid(
+      '`joinRole` needs `join: domain`: it says what someone who joins by domain gets',
+    );
+  }
+  return undefined;
+}
+
 function needsSecretsStore(c: Context<AppEnv>, providerId: string): Response {
   c.status(statusFor('identity-providers-need-secrets-store') as never);
   return c.json(
@@ -449,23 +551,6 @@ function needsSecretsStore(c: Context<AppEnv>, providerId: string): Response {
       c.get('requestId'),
     ),
   );
-}
-
-/**
- * The names a provider's secret references give in the tenant's store. A
- * reference is `<name>`, or `<env>/<name>` for another environment's, and a
- * name is checked whatever its environment, as a model provider's key is.
- */
-function providerSecretNames(config: ProviderConfig): string[] {
-  const refs =
-    config.kind === 'oidc'
-      ? [config.clientSecretRef]
-      : [config.spSigningKeyRef, config.spDecryptionKeyRef];
-  return refs.flatMap((ref) => {
-    if (ref === undefined) return [];
-    const trimmed = ref.trim();
-    return [trimmed.slice(trimmed.indexOf('/') + 1)];
-  });
 }
 
 /** What the issuer's discovery gave: stale once the issuer changes. */
@@ -523,7 +608,7 @@ function serializeProviderConfig(c: ProviderConfig): Record<string, unknown> {
   const base = {
     providerId: c.providerId,
     kind: c.kind,
-    ...definedOf(c, ['displayName', 'domains', 'join', 'signIn', 'metadata']),
+    ...definedOf(c, ['displayName', 'domains', 'join', 'joinRole', 'signIn', 'metadata']),
   };
   switch (c.kind) {
     case 'oidc':
@@ -616,6 +701,8 @@ const REMOVED_FIELDS: Readonly<Record<string, string>> = {
 };
 
 const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+const JOIN_ROLES: readonly ProviderJoinRole[] = ['viewer', 'runner', 'none'];
 
 function invalid(message: string): ParsedErr {
   return { kind: 'err', error: { code: 'invalid-provider-config', message } };
@@ -738,12 +825,17 @@ function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedEr
   if (join === 'domain' && (domains === undefined || domains.length === 0)) {
     r.error ??= invalid('`join: domain` needs `domains`');
   }
+  const joinRole = b.joinRole;
+  if (joinRole !== undefined && !JOIN_ROLES.includes(joinRole as ProviderJoinRole)) {
+    r.error ??= invalid('`joinRole` must be `viewer`, `runner` or `none`');
+  }
   const metadata = r.object('metadata');
   const base = {
     providerId,
     ...(displayName !== undefined && { displayName }),
     ...(domains !== undefined && { domains }),
     ...(join !== undefined && { join: join as 'invite' | 'domain' }),
+    ...(joinRole !== undefined && { joinRole: joinRole as ProviderJoinRole }),
     ...(metadata !== undefined && { metadata }),
   };
 

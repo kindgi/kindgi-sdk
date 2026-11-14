@@ -4,7 +4,12 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type { ProjectBinding, TenantHierarchyBinding, TenantSummary } from '@kindgi/platform';
+import type {
+  ProjectBinding,
+  ProjectProductionOutcome,
+  TenantHierarchyBinding,
+  TenantSummary,
+} from '@kindgi/platform';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
 import type { Deployment, DeploymentBinding } from '../deployment-binding.js';
@@ -12,6 +17,8 @@ import { PROMOTE_ONLY_KEY_PREFIX } from '../deployment-envelope.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
+import type { PlanAdmitted, PlanGate } from '../plan-limits.js';
+import { admitPlan, planWarningField } from '../plan-limits.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { AppEnv } from '../types.js';
 import { promoteOnlyDeploymentIn } from './promote-only-builds.js';
@@ -51,6 +58,8 @@ export interface ProjectProductionRouterOptions {
     readonly ledger: Pick<DeploymentBinding, 'list'>;
     readonly keys: Pick<SigningKeyRegistryBinding, 'listTrusted'>;
   };
+  /** The plan limits (`plan-limits-binding.ts`), asked as a project goes in. */
+  readonly plan?: PlanGate;
 }
 
 /**
@@ -75,6 +84,11 @@ export interface ProjectProductionRouterOptions {
  *   (`promote-only-builds.ts`): such a build reaches a project in
  *   production only by promotion, and one out of service can be brought
  *   back. So a project one was deployed into never goes into production.
+ * - **The plan limits:** turning it on adds every agent and flow the
+ *   project reaches to the ones in production, and is refused with `403
+ *   plan-limit-reached` when that's past the most the plan allows (`503
+ *   plan-count-busy` when the count can't be had in time). A repeat and
+ *   taking a project out add nothing, and aren't counted.
  * - **Repeats answer 200 unchanged:** setting what's already set writes
  *   nothing, and keeps the first `productionSince`.
  * - **The answer:** `{ projectId, productionSince }`, `null` when it's out
@@ -122,13 +136,38 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     // The gate and the promote-only check guard going into production, not
     // staying there: a project already in production answers its repeat
     // unchanged. The binding checks the limit, and the promote-only builds
-    // again in its own step.
+    // again in its own step. Every put into production asks the plan
+    // limits, which count under their own lock: a project already in adds
+    // nothing there, and one a racing take-out let out is counted coming
+    // back.
     if (production && project.productionSince === undefined) {
       const refused = await entryRefusal(tenantId, projectId);
       if (refused !== undefined) return refuse(c, requestId, refused);
     }
 
-    const outcome = await projects.setProduction(tenantId, projectId, production);
+    const setProduction = projects.setProduction;
+    const admitted = await admitPlan(
+      c,
+      production ? options.plan : undefined,
+      { tenantId, projectId, adding: 'whole-project' },
+      () => setProduction.call(projects, tenantId, projectId, production),
+      true,
+    );
+    return productionAnswer(c, requestId, projectId, admitted);
+  });
+
+  /**
+   * The answer to a production write: the plan limits' refusal, the
+   * binding's, or `{ projectId, productionSince, planWarning? }`.
+   */
+  function productionAnswer(
+    c: Context<AppEnv>,
+    requestId: string,
+    projectId: ProjectId,
+    admitted: PlanAdmitted<ProjectProductionOutcome>,
+  ): Response {
+    if (admitted.kind === 'answer') return admitted.response;
+    const outcome = admitted.value;
     if (outcome.kind === 'project-not-found') {
       return refuse(c, requestId, projectNotFound(projectId));
     }
@@ -142,8 +181,9 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     return c.json({
       projectId: projectId as unknown as string,
       productionSince: outcome.productionSince as unknown as string | null,
+      ...planWarningField(admitted.planWarning),
     });
-  });
+  }
 
   /**
    * Why the project can't go into production now, or `undefined`: the

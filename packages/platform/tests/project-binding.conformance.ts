@@ -18,10 +18,16 @@
  *   another org) resolve to `slug-conflict`; another org, or another
  *   tenant, may reuse the slug.
  * - A renamed project's old slugs (`Project.formerSlugs`, newest first):
- *   they stay the project's until it's deleted, so a create or a rename
- *   to one, in any org of the tenant, resolves to `slug-conflict` with
- *   `heldAs: 'old-slug'`; the project may take one back unless another
- *   project holds it too; two renames at once both keep theirs.
+ *   they stay the project's, so a create or a rename to one, in any org of
+ *   the tenant, resolves to `slug-conflict` with `heldAs: 'old-slug'`; the
+ *   project may take one back unless another project holds it too; two
+ *   renames at once both keep theirs.
+ * - A deleted project is kept: it's gone from every read and list, its
+ *   slugs stay its own (`deletedProject: true` on the conflict), and the
+ *   default project is refused (`project-is-default`). With `restore`, it
+ *   comes back as it was, and the deleted list names it; with
+ *   `productionLimit` too, one in production counts again, so at the limit
+ *   its restore is `limit-reached`.
  * - `project-not-found` / `project-membership-not-found` outcomes from
  *   writes on a missing row.
  * - `listForUser` aggregates memberships across projects.
@@ -133,6 +139,12 @@ export function runProjectBindingConformance(
      * `clearEnvironmentOrder` on the binding.
      */
     readonly checksEnvironmentOrders?: boolean;
+    /**
+     * The binding implements `restore` and `listDeleted`: a deleted project
+     * comes back as it was, and the workspace's deleted projects are listed,
+     * newest first, each with the time it was first deleted.
+     */
+    readonly restore?: boolean;
   } = {},
 ): void {
   describe(`${label} — project CRUD`, () => {
@@ -188,18 +200,223 @@ export function runProjectBindingConformance(
       expect(listed.items.find((p) => p.id === plain)?.everyoneCanRun).toBe(true);
     });
 
-    it('deletes a project + cascades memberships + grants', async () => {
+    it('deletes a project: its memberships and grants are out of every list', async () => {
       const { projects, memberships, grants } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
       await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
-      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
       const mPage = await memberships.listForUser(T1, U1, {});
       expect(mPage.items).toHaveLength(0);
       const gPage = await grants.listForTeam(T1, TEAM_A, {});
       expect(gPage.items).toHaveLength(0);
     });
   });
+
+  describe(`${label} — a deleted project`, () => {
+    it('is gone from get, list and update; deleting it again, or an unknown id, is ok and changes nothing', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      const kept = await createProject(projects, T1, { name: 'B', slug: 'b' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
+      expect(await projects.get(T1, id)).toBeUndefined();
+      expect((await projects.list(T1, {})).items.map((p) => p.id)).toEqual([kept]);
+      expect(await projects.update(T1, id, { name: 'A2' })).toEqual({ kind: 'project-not-found' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: false });
+      expect(await projects.delete(T1, 'never-a-project' as ProjectId)).toEqual({
+        kind: 'ok',
+        changed: false,
+      });
+    });
+
+    it('the default project is refused: project-is-default, and it stays', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'D', slug: 'd', isDefault: true });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'project-is-default' });
+      expect((await projects.getDefault(T1))?.id).toBe(id);
+      expect((await projects.get(T1, id))?.id).toBe(id);
+    });
+
+    it('its memberships take no new member or role, and its team grants are out of the project list', async () => {
+      const { projects, memberships, grants } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
+      await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
+      await projects.delete(T1, id);
+      expect((await memberships.list(T1, id, {})).items).toEqual([]);
+      expect(await memberships.add(T1, { projectId: id, userId: U2, role: 'viewer' })).toEqual({
+        kind: 'project-not-found',
+      });
+      expect(await memberships.updateRole(T1, id, U1, 'admin')).toEqual({
+        kind: 'project-not-found',
+      });
+      expect((await grants.listForProject(T1, id, {})).items).toEqual([]);
+    });
+
+    it('its slugs stay its own: a create or rename onto one is slug-conflict, with deletedProject', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'shop', orgId: ORG_A });
+      await projects.update(T1, id, { slug: 'store' });
+      await projects.delete(T1, id);
+      // Its slug now, where it is: in its org.
+      expect(await projects.create(T1, { name: 'B', slug: 'store', orgId: ORG_A })).toEqual({
+        kind: 'slug-conflict',
+        slug: 'store',
+        deletedProject: true,
+      });
+      // A slug it had before a rename: anywhere in the tenant.
+      expect(await projects.create(T1, { name: 'B', slug: 'shop', orgId: ORG_B })).toEqual({
+        kind: 'slug-conflict',
+        slug: 'shop',
+        heldAs: 'old-slug',
+        deletedProject: true,
+      });
+      const other = await createProject(projects, T1, { name: 'C', slug: 'c', orgId: ORG_A });
+      expect(await projects.update(T1, other, { slug: 'store' })).toEqual({
+        kind: 'slug-conflict',
+        slug: 'store',
+        deletedProject: true,
+      });
+      // Its slug now is unique in its org only, as any project's slug is.
+      expect((await projects.create(T1, { name: 'D', slug: 'store', orgId: ORG_B })).kind).toBe(
+        'ok',
+      );
+      expect((await projects.create(T2, { name: 'E', slug: 'shop' })).kind).toBe('ok');
+    });
+
+    it("another tenant's delete of it changes nothing", async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      expect(await projects.delete(T2, id)).toEqual({ kind: 'ok', changed: false });
+      expect((await projects.get(T1, id))?.id).toBe(id);
+    });
+  });
+
+  if (options.restore === true) {
+    describe(`${label} — restore and the deleted list`, () => {
+      function lifecycle(projects: ProjectBinding) {
+        const restore = projects.restore?.bind(projects);
+        const listDeleted = projects.listDeleted?.bind(projects);
+        if (restore === undefined || listDeleted === undefined) {
+          throw new Error('restore: the binding needs restore + listDeleted');
+        }
+        return { restore, listDeleted };
+      }
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+      it('a restore brings it back as it was: get, list, members, team grants and slugs', async () => {
+        const { projects, memberships, grants } = makeBinding();
+        const { restore } = lifecycle(projects);
+        const id = await createProject(projects, T1, { name: 'A', slug: 'shop', orgId: ORG_A });
+        await projects.update(T1, id, { slug: 'store' });
+        await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
+        await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'viewer' });
+        const before = await projects.get(T1, id);
+        await projects.delete(T1, id);
+        await tick();
+        const restored = await restore(T1, id);
+        expect(restored.kind).toBe('ok');
+        if (restored.kind !== 'ok') return;
+        expect(restored.changed).toBe(true);
+        expect(restored.project.id).toBe(id);
+        // A restore is a change to the project, as a suspend or a resume is.
+        expect(before?.updatedAt).toBeDefined();
+        expect(restored.project.updatedAt).not.toBe(before?.updatedAt);
+        const got = await projects.get(T1, id);
+        expect(got?.updatedAt).toBe(restored.project.updatedAt);
+        expect(got?.slug).toBe('store');
+        expect(got?.formerSlugs).toEqual(['shop']);
+        expect(got?.orgId).toBe(before?.orgId);
+        expect((await projects.list(T1, {})).items.map((p) => p.id)).toEqual([id]);
+        expect((await memberships.listForUser(T1, U1, {})).items.map((m) => m.role)).toEqual([
+          'editor',
+        ]);
+        expect((await grants.listForTeam(T1, TEAM_A, {})).items.map((g) => g.role)).toEqual([
+          'viewer',
+        ]);
+      });
+
+      it('restoring a live project changes nothing; an unknown id, or another tenant, is project-not-found', async () => {
+        const { projects } = makeBinding();
+        const { restore } = lifecycle(projects);
+        const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+        const created = await projects.get(T1, id);
+        await tick();
+        const live = await restore(T1, id);
+        expect(live.kind === 'ok' && live.changed).toBe(false);
+        expect(live.kind === 'ok' && live.project.id).toBe(id);
+        expect(live.kind === 'ok' && live.project.updatedAt).toBe(created?.updatedAt);
+        expect(await restore(T1, 'never-a-project' as ProjectId)).toEqual({
+          kind: 'project-not-found',
+        });
+        await projects.delete(T1, id);
+        expect(await restore(T2, id)).toEqual({ kind: 'project-not-found' });
+        expect(await projects.get(T1, id)).toBeUndefined();
+      });
+
+      it('the deleted list: newest first, with when; a second delete keeps the first time; a restore takes it off', async () => {
+        const { projects } = makeBinding();
+        const { restore, listDeleted } = lifecycle(projects);
+        const a = await createProject(projects, T1, { name: 'A', slug: 'a', orgId: ORG_A });
+        const b = await createProject(projects, T1, { name: 'B', slug: 'b' });
+        await createProject(projects, T1, { name: 'Live', slug: 'live' });
+        await createProject(projects, T2, { name: 'Other', slug: 'a' });
+        await projects.update(T1, a, { slug: 'a2' });
+        await projects.delete(T1, a);
+        await tick();
+        await projects.delete(T1, b);
+        const first = await listDeleted(T1, {});
+        expect(first.items.map((p) => p.id)).toEqual([b, a]);
+        const aEntry = first.items[1];
+        expect(aEntry).toMatchObject({
+          id: a,
+          tenantId: T1,
+          orgId: ORG_A,
+          name: 'A',
+          slug: 'a2',
+          formerSlugs: ['a'],
+        });
+        expect(typeof aEntry?.deletedAt).toBe('string');
+        expect(first.items[0]?.orgId).toBeUndefined();
+        await tick();
+        await projects.delete(T1, a);
+        const again = await listDeleted(T1, {});
+        expect(again.items.map((p) => [p.id, p.deletedAt])).toEqual(
+          first.items.map((p) => [p.id, p.deletedAt]),
+        );
+        await restore(T1, b);
+        expect((await listDeleted(T1, {})).items.map((p) => p.id)).toEqual([a]);
+        expect((await listDeleted(T2, {})).items).toEqual([]);
+      });
+
+      it('a delete after a restore is a new time, and the deleted list pages', async () => {
+        const { projects } = makeBinding();
+        const { restore, listDeleted } = lifecycle(projects);
+        const ids: ProjectId[] = [];
+        for (const slug of ['p1', 'p2', 'p3']) {
+          const id = await createProject(projects, T1, { name: slug, slug });
+          ids.push(id);
+          await projects.delete(T1, id);
+          await tick();
+        }
+        const [p1, p2, p3] = ids;
+        const firstTime = (await listDeleted(T1, {})).items.find((p) => p.id === p1)?.deletedAt;
+        await restore(T1, p1 as ProjectId);
+        await tick();
+        await projects.delete(T1, p1 as ProjectId);
+        const page1 = await listDeleted(T1, { limit: 2 });
+        expect(page1.items.map((p) => p.id)).toEqual([p1, p3]);
+        expect(page1.items[0]?.deletedAt).not.toBe(firstTime);
+        expect(page1.nextCursor).toBeDefined();
+        const page2 = await listDeleted(T1, {
+          limit: 2,
+          ...(page1.nextCursor !== undefined && { cursor: page1.nextCursor }),
+        });
+        expect(page2.items.map((p) => p.id)).toEqual([p2]);
+        expect(page2.nextCursor).toBeUndefined();
+      });
+    });
+  }
 
   if (options.checksEnvironmentOrders === true) {
     describe(`${label} — environment-order guard`, () => {
@@ -305,7 +522,7 @@ export function runProjectBindingConformance(
         const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
         await put(T1, id);
         await clear(T1, id);
-        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
         expect(await projects.get(T1, id)).toBeUndefined();
       });
     });
@@ -554,6 +771,61 @@ export function runProjectBindingConformance(
         );
         expect(live).toHaveLength(1);
       });
+
+      if (options.restore === true) {
+        /** The binding's `restore`, which `restore: true` says it has. */
+        function restoreOf(projects: ProjectBinding) {
+          const restore = projects.restore?.bind(projects);
+          if (restore === undefined) throw new Error('restore: the binding needs restore');
+          return restore;
+        }
+
+        it("a deleted project isn't counted; restored in production at the limit, limit-reached, and it stays deleted", async () => {
+          const { projects, set, limit } = limited();
+          const restore = restoreOf(projects);
+          const [a, b] = await threeProjects(projects, T1);
+          await limit(T1, 1);
+          expect((await set(T1, a, true)).kind).toBe('ok');
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok', changed: true });
+          expect((await set(T1, b, true)).kind).toBe('ok');
+          expect(await restore(T1, a)).toEqual({
+            kind: 'limit-reached',
+            projectsInProduction: 1,
+            inProduction: 1,
+          });
+          expect(await projects.get(T1, a)).toBeUndefined();
+          expect((await projects.listDeleted?.(T1, {}))?.items.map((d) => d.id)).toEqual([a]);
+          // Once there's room, it comes back in production, as it was.
+          expect(await set(T1, b, false)).toMatchObject({ kind: 'ok', changed: true });
+          expect(await restore(T1, a)).toMatchObject({ kind: 'ok', changed: true });
+          expect((await projects.get(T1, a))?.productionSince).toBeDefined();
+        });
+
+        it('a deleted project out of production restores at the limit', async () => {
+          const { projects, set, limit } = limited();
+          const restore = restoreOf(projects);
+          const [a, b] = await threeProjects(projects, T1);
+          await limit(T1, 1);
+          expect((await set(T1, b, true)).kind).toBe('ok');
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok', changed: true });
+          expect(await restore(T1, a)).toMatchObject({ kind: 'ok', changed: true });
+        });
+
+        it('a restore and a project put in production at once, with one place left: one goes in', async () => {
+          const { projects, set, limit } = limited();
+          const restore = restoreOf(projects);
+          const [a, b] = await threeProjects(projects, T1);
+          expect((await set(T1, a, true)).kind).toBe('ok');
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok', changed: true });
+          await limit(T1, 1);
+          const outcomes = await Promise.all([restore(T1, a), set(T1, b, true)]);
+          expect(outcomes.map((o) => o.kind).sort()).toEqual(['limit-reached', 'ok']);
+          const inProduction = [await projects.get(T1, a), await projects.get(T1, b)].filter(
+            (p) => p?.productionSince !== undefined,
+          );
+          expect(inProduction).toHaveLength(1);
+        });
+      }
     });
   }
 
@@ -1004,13 +1276,20 @@ export function runProjectBindingConformance(
       expect(await projects.create(T1, { name: 'B', slug: 's1' })).toEqual(held('s1'));
     });
 
-    it('a delete frees its slugs, old and current', async () => {
+    it('a delete keeps its slugs, old and current', async () => {
       const { projects } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       await projects.update(T1, id, { slug: 'b' });
-      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
-      expect((await projects.create(T1, { name: 'B', slug: 'a' })).kind).toBe('ok');
-      expect((await projects.create(T1, { name: 'C', slug: 'b' })).kind).toBe('ok');
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
+      expect(await projects.create(T1, { name: 'B', slug: 'a' })).toEqual({
+        ...held('a'),
+        deletedProject: true,
+      });
+      expect(await projects.create(T1, { name: 'C', slug: 'b' })).toEqual({
+        kind: 'slug-conflict',
+        slug: 'b',
+        deletedProject: true,
+      });
     });
   });
 

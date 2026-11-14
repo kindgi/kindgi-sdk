@@ -66,6 +66,8 @@ import type {
   LatestAnswer,
   ListImproveRunsInput,
   Pin,
+  PlanLimitsBinding,
+  PlanRefused,
   ReferenceScopeBinding,
   ReleaseGate,
   ReleaseGateSpec,
@@ -87,6 +89,7 @@ import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
+import { planLimits } from './support/plan-limits.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
@@ -659,6 +662,7 @@ async function harness(
     preferredModel?: string;
     referenceScope?: ReferenceScopeBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    projectDeleted?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
     /** The tenant's environment orders; the agent's project is in them or not. */
     orders?: readonly (readonly ProjectId[])[];
     /** The projects that serve each item (an order carries it); absent: one each. */
@@ -672,6 +676,9 @@ async function harness(
     freezes?: boolean;
     /** The tenant's projects, for a project binding; absent: none is wired. */
     projects?: readonly ProjectId[];
+    /** The plan limits (`support/plan-limits.ts`), and where a larger plan is. */
+    plan?: PlanLimitsBinding;
+    next?: string;
   } = {},
 ) {
   const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
@@ -771,6 +778,8 @@ async function harness(
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    ...(opts.plan !== undefined && { planLimits: opts.plan }),
+    ...(opts.next !== undefined && { production: { next: opts.next } }),
     auditEvents: {
       ...audit,
       append: async (events) => {
@@ -791,6 +800,7 @@ async function harness(
     ...(opts.improveRuns !== undefined && { improveRuns: opts.improveRuns }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
+    ...(opts.projectDeleted !== undefined && { projectDeleted: opts.projectDeleted }),
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
     ...(opts.correctionRegistry !== undefined && { correctionRegistry: opts.correctionRegistry }),
@@ -1642,6 +1652,20 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
         pinned: { version: '1.0.1', by: { kind: 'user', id: 'user-1' } },
       },
     });
+  });
+
+  test("its project deleted: 404 project-not-found from the pin's gate, and nothing is pinned", async () => {
+    let deleted = false;
+    const { call, id, pinStore } = await checked(0.1, {
+      projectDeleted: async (_tenantId, pid) => deleted && pid === projectId,
+    });
+    deleted = true;
+    const before = [...pinStore.pins];
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(res.body.error.code).toBe('project-not-found');
+    expect(pinStore.calls.find((c) => c.method === 'request')).toBeUndefined();
+    expect(pinStore.pins).toEqual(before);
   });
 
   test('with no release gate it pins the version for the project (201)', async () => {
@@ -3898,6 +3922,27 @@ describe('Improve runs', () => {
     expect(improveRuns.started).toHaveLength(1);
   });
 
+  test('no Improve run starts or is checked for a deleted project: 404 project-not-found, before the suspended check', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const asked: string[] = [];
+    const h = await harness({
+      improveRuns: improveRuns.binding,
+      projectDeleted: async (_tenantId, pid) => {
+        asked.push(pid as unknown as string);
+        return true;
+      },
+      projectSuspended: async () => true,
+    });
+    for (const path of ['/v1/improve-runs', '/v1/improve-runs/check']) {
+      const refused = await h.call('POST', path, IMPROVE);
+      expect(refused.status, JSON.stringify(refused.body)).toBe(404);
+      expect(refused.body.error.code).toBe('project-not-found');
+    }
+    expect(asked).toEqual([projectId, projectId]);
+    expect(improveRuns.started).toEqual([]);
+    expect(improveRuns.checked).toEqual([]);
+  });
+
   test("an Improve run's comparisons show a refused template's issues and each drafted template's why", async () => {
     const improveRuns = inMemoryImproveRuns();
     const h = await harness({ improveRuns: improveRuns.binding });
@@ -4740,5 +4785,64 @@ describe('an Improve run started by hand works in the project `projectId` names'
     }
     expect(h.improveRuns.checked).toEqual([]);
     expect(h.improveRuns.started).toEqual([]);
+  });
+});
+
+describe('a suggested change through the plan limits', () => {
+  const OVER: PlanRefused = {
+    kind: 'refused',
+    over: [{ limit: 'agents', adding: 1, numbers: { plan: 1, most: 2, inUse: 2 } }],
+    newIds: { flows: [], agents: [AGENT] },
+  };
+
+  test('making one asks admit with its agent, in its project', async () => {
+    const plan = planLimits({ kind: 'done' });
+    await made({ plan: plan.binding });
+    expect(plan.admitted).toEqual([
+      { tenantId, projectId, adding: { agents: [AGENT], flows: [] } },
+    ]);
+  });
+
+  test('refused: 403 plan-limit-reached naming where a larger plan is; the suggested change is kept, with no new version, to check again', async () => {
+    const h = await harness({ plan: planLimits(OVER).binding, next: 'https://example.com/plans' });
+    h.pinStore.pin(PROJECT, '1.0.0');
+    const res = await h.call('POST', '/v1/suggested-changes', CARD);
+    expect(res.status).toBe(403);
+    const [kept] = [...h.suggestedChanges.rows.values()];
+    const id = kept?.id as unknown as string;
+    expect(res.body.error).toEqual({
+      code: 'plan-limit-reached',
+      message: `Suggested change ${id} was made, but its check didn't start: This adds 1 agent to production, and this runtime's license key runs at most 2: its plan's 1, and a margin. 2 run in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or get a larger plan: https://example.com/plans. Check it again with POST /v1/suggested-changes/${id}/check.`,
+      details: {
+        projectId,
+        limit: 'agents',
+        adding: 1,
+        plan: 1,
+        most: 2,
+        inUse: 2,
+        over: [{ limit: 'agents', adding: 1, plan: 1, most: 2, inUse: 2 }],
+        newIds: { flows: [], agents: [AGENT] },
+        next: 'https://example.com/plans',
+        suggestedChangeId: id,
+      },
+      requestId: expect.any(String),
+    });
+    expect(h.suggestedChanges.rows.size).toBe(1);
+    expect(kept?.candidate).toBeUndefined();
+    // Its edit's block version stays stored, as after a failed check.
+    expect(h.blocks.rows.get(`${WEIGHTS}@1.0.1`)?.content).toMatchObject({ values: CARD.values });
+  });
+
+  test('busy: 503 plan-count-busy with Retry-After 5; the suggested change is kept, with no new version', async () => {
+    const h = await harness({ plan: planLimits({ kind: 'busy' }).binding });
+    h.pinStore.pin(PROJECT, '1.0.0');
+    const res = await h.call('POST', '/v1/suggested-changes', CARD);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    expect(res.body.error.code).toBe('plan-count-busy');
+    const [kept] = [...h.suggestedChanges.rows.values()];
+    expect(kept?.candidate).toBeUndefined();
+    // Its edit's block version stays stored, as after a failed check.
+    expect(h.blocks.rows.get(`${WEIGHTS}@1.0.1`)?.content).toMatchObject({ values: CARD.values });
   });
 });

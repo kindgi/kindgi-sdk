@@ -15,8 +15,11 @@ has **service accounts**, which act for a pipeline or an app. A **tenant
 admin** adds them. With authorization on, what each may do is kept in
 OpenFGA, and the first tenant admin is the runtime's seed user:
 `KINDGI_SEED_USER_ID`, or the API token's user. The runtime makes the seed
-user a tenant admin at every start. Without authorization, roles aren't
-checked ([Without authorization](#without-authorization)).
+user a tenant admin at every start. On a runtime that serves one workspace,
+`KINDGI_ADMIN_EMAILS` names more, who are tenant admins from their first
+sign-in ([Tenant admins by email](#tenant-admins-by-email)). Without
+authorization, roles aren't checked
+([Without authorization](#without-authorization)).
 
 :::note[On Kindgi Cloud]
 Whoever signs up is the workspace's first tenant admin. Authorization is
@@ -97,6 +100,12 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 - **Roles aren't checked.** A project role you record, and a service
   account's grants, give nothing more here. Making a person a tenant admin
   answers `501 person-grants-unsupported`.
+- **Neither tenant admins by email nor domain join works here.** The
+  runtime refuses `KINDGI_ADMIN_EMAILS` at start without a store, since a
+  person who signs in can't be a tenant admin. Setting an identity
+  provider's `join: domain` answers `409 domain-join-needs-authorization`,
+  since a joiner would work in every project. Add people one by one, or
+  run with authorization for either.
 - **Schedules and webhook triggers keep to their owners** (runtime 0.2.0 or
   later). Only a tenant admin changes, pauses, fires or unregisters someone
   else's personal one, changes what a shared one runs, sets one's tools
@@ -290,6 +299,73 @@ added; its `inviteEmail` says whether the invitation was emailed, and is
 absent on a runtime that doesn't invite. `users.resendInvite(userId)`
 sends it again, and `users.list({ pending: true })` lists the invited.
 
+### Let people at your domain join
+
+Rather than add each person, a tenant admin can let everyone at the
+company's email domain join the workspace (runtime 0.8.0 or later, with an
+authorization store). Someone who signs in with a mailbox at an allowed
+domain, by a way that proves it, and whom the workspace doesn't have yet,
+is offered the workspace and joins with a press:
+
+- **The ways that prove a mailbox** are a Google Workspace account at that
+  domain, a Microsoft work account, and the emailed link. GitHub never
+  counts. A sign-in through the workspace's own identity provider follows
+  that provider's own `join` setting instead
+  ([Or let your colleagues join](../../guides/sso/#or-let-your-colleagues-join)).
+- **A joiner gets the domain's role:** `viewer` (the default) or `runner`
+  (who also runs its agents and flows) on the default project, or `none`, a
+  member only. Never tenant admin. Their `createdBy` is
+  `email_domain:<domain>`.
+- **Someone removed stays out.** Stopping allowing a domain stops new
+  joins; the people who joined stay.
+- **Never a public mailbox domain,** such as gmail.com or outlook.com
+  (`400 join-domain-public`), and never a domain the operator verified for
+  another workspace (`409 join-domain-verified-elsewhere`).
+
+The domain's own mailbox is the proof. So allowing a domain, or giving its
+joiners more, takes a tenant admin whose sign-in proved an email at
+exactly that domain (no subdomain, no parent), by one of those ways. An API
+key or a service account can't. Anyone else is refused with
+`403 join-domain-not-yours`, and the refusal is recorded. Lowering the
+role, or stopping allowing the domain, takes any tenant admin, a key too.
+The deployment's operator can always do both.
+
+| Route | What it does |
+|---|---|
+| `GET /v1/auth/join-domains` | The allowed domains, the first allowed first. Anyone in the workspace may read them |
+| `POST /v1/auth/join-domains` | Allows one: `{"domain": "acme.com", "role": "viewer"}`. `409 join-domain-exists` if it is already |
+| `PATCH /v1/auth/join-domains/{domain}` | Changes what joiners get: `{"role": "runner"}`. The same role writes nothing |
+| `POST /v1/auth/join-domains/{domain}/unregister` | Stops allowing it |
+
+A domain is stored lower case, as its A-label: `bücher.de` is
+`xn--bcher-kva.de`. In the TypeScript client, it's `auth.joinDomains`:
+`list()`, `allow({ domain, role })`, `update(domain, { role })` and
+`unregister(domain)`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi sign-in join-domains list --table
+pnpm exec kindgi sign-in join-domains allow acme.com --role=runner
+pnpm exec kindgi sign-in join-domains remove acme.com
+```
+
+The CLI signs in with an API key, which proves no email, so `allow` takes
+the operator's key. On a runtime serving one tenant, make one with the
+deployment's own token,
+`kindgi tokens create --role=admin --capability=kindgi:system`, and sign in
+with it (`kindgi auth login --token`). A tenant admin allows their own
+domain from the console's **Sign-in** page instead. Anyone's key in the
+workspace can `list`, and any tenant admin's can `remove`.
+
+Where the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`),
+allowing a domain or giving joiners more takes the operator's credential,
+and a tenant admin's is refused with `403 join-domains-operator-managed`.
+On a runtime serving many tenants, the operator manages each tenant's
+domains on `/v1/system/tenants/{tenantId}/join-domains`, with a system key
+holding `system:join-domains`
+([The operator's keys](../self-hosted/serve-many-tenants/#the-operators-keys)).
+
 ## Make someone a tenant admin
 
 A tenant admin can do everything in the workspace. `grant` makes someone one,
@@ -320,13 +396,17 @@ In TypeScript, that's `users.list({ includeGrants: true })`, and in Python
 the same shape as their own grants read. A runtime without an authorization
 store lists the people without them.
 
-Taking tenant admin away is refused in two cases:
+Taking tenant admin away is refused in three cases:
 
 - `409 last-tenant-admin`: they're the only one. Make someone else a tenant
   admin first.
 - `409 seed-user-admin`: they're the seed user, whom the runtime makes a
   tenant admin again at every start. Unset `KINDGI_SEED_USER_ID` and restart
   the runtime first.
+- `409 listed-admin`: the server's `KINDGI_ADMIN_EMAILS` names them, and
+  every start makes them a tenant admin again. Take their address off the
+  list and restart the runtime first
+  ([Tenant admins by email](#tenant-admins-by-email)).
 
 If the first admin stops being a tenant admin, the capabilities they held
 are revoked, and the audit entry lists them. A key acts as the person or
@@ -363,6 +443,52 @@ CI's deploy key is a tenant admin's key too, with no capability. It can
 still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
+
+### Tenant admins by email
+
+On a runtime that serves one workspace and has an authorization store,
+name its tenant admins by email. They're tenant admins from their first
+sign-in, with no step that needs the API token:
+
+```sh
+KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com
+```
+
+- **At every start,** each listed address that isn't a tenant admin yet is
+  made one. If no one in the workspace has that email, the runtime adds
+  them first, with no invitation. They sign in by that address, through the
+  workspace's identity provider or the deployment's own ways in. They get
+  what a first admin holds, as `kindgi-runtime tenants make-admin` gives it,
+  and each change is audited.
+- **While an address is listed, the list holds.** Taking tenant admin from
+  that person answers `409 listed-admin`. Removing them answers
+  `409 identity-user-unregister-refused`, with `reason` `listed-admin`,
+  since the next start would add them back as someone new. Their grants
+  read `tenantAdminFromSetting: true`. In the console, People's Access
+  column says "tenant admin, from the server's setting", and on their page
+  both actions are off, with the way to change it under each.
+- **Take an address off the list and restart:** someone the list made a
+  tenant admin stops being one at that start. They lose what a first admin
+  holds, as when tenant admin is taken from them, and stay a member.
+- **Unset or empty is an empty list.** A start without
+  `KINDGI_ADMIN_EMAILS`, or with it empty, takes every address off: everyone
+  the list made a tenant admin stops being one, and the start log says the
+  list is unset or empty. A redeploy that drops the variable does the same,
+  so keep the line in the runtime's environment for as long as they should
+  be admins. Where the list made no one a tenant admin, unset changes
+  nothing.
+- **Tenant admins made any other way aren't touched.** That's `people
+  grant`, the console or `tenants make-admin`. Listing them, or taking them
+  off the list, changes nothing for them.
+- **The start log** names whom it made a tenant admin, and who stopped
+  being one. When no one who signs in would be left a tenant admin, it
+  still follows the list and says so. The seed user is still one, so the
+  way back is the API token, or `tenants make-admin`.
+- **It's refused at start** when the runtime serves several workspaces,
+  where each one's first admin comes with it (`firstAdmin` on
+  `POST /v1/system/tenants`), and without an authorization store
+  ([Without authorization](#without-authorization)). A malformed address
+  stops the runtime at start too.
 
 ## What you may do
 
@@ -713,7 +839,8 @@ runtime can't make a project's own account."
 - **A tenant admin may unregister it.** The project's triggers that run as
   it then stop, until a project admin takes each over. A take-over with
   `--run-as=project` makes the project a new account.
-- **Deleting the project unregisters it.**
+- **Deleting the project keeps it.** It reaches nothing while the project
+  is deleted, and a restore brings it back with the project.
 - **Without an authorization store,** running a trigger as the project
   takes a tenant-admin key, and its grant is kept as a record only: each
   fire or delivery checks only that the account is registered.
@@ -806,8 +933,9 @@ webhook triggers, upgrade the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`
 on someone already removed takes what's left.
 
-It's refused for yourself and for the seed user, with
-`identity-user-unregister-refused`, and for the only tenant admin, with
+It's refused for yourself, for the seed user, and for someone the server's
+`KINDGI_ADMIN_EMAILS` names, with `identity-user-unregister-refused` (its
+`reason` says which), and for the only tenant admin, with
 `last-tenant-admin`. Removed people are left out of lists.
 `kindgi people list --include-removed` shows them too.
 

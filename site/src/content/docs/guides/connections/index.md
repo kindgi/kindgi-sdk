@@ -142,6 +142,8 @@ npx --yes @kindgi/cli@0.6 connections connect google --permissions=gmail.send
   your organization.
 - [LinkedIn](linkedin/): create your LinkedIn app, register it, and connect
   a profile to post as.
+- [Texts](texts/): connect your business's WhatsApp number through your
+  Telnyx account, and answer its texts.
 - [Use a connection in a tool](use-a-connection/): declare what a tool
   needs, and read the token in its handler.
 - [Choose a connection](choose-a-connection/): name connections, and say

@@ -60,6 +60,21 @@ describe('systemTenants — wire round-trip', () => {
     expect(`${call.method} ${call.url}`).toBe(`PUT ${API}/v1/system/tenants/${TENANT}/limits`);
     expect(JSON.parse(call.body ?? '{}')).toEqual(limits);
   });
+
+  it('setPlan: PUT …/plan with { plan }, null to clear', async () => {
+    for (const plan of ['starter', null]) {
+      const stub = jsonFetch({ tenantId: TENANT, plan });
+      const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+      expect(await client.systemTenants.setPlan(TENANT, plan, { idempotencyKey: 'k-3' })).toEqual({
+        tenantId: TENANT,
+        plan,
+      });
+      const call = stub.calls[0]!;
+      expect(`${call.method} ${call.url}`).toBe(`PUT ${API}/v1/system/tenants/${TENANT}/plan`);
+      expect(JSON.parse(call.body ?? '{}')).toEqual({ plan });
+      expect(call.headers['idempotency-key']).toBe('k-3');
+    }
+  });
 });
 
 describe('systemTenants — P1 routes, wire round-trip', () => {
@@ -170,5 +185,58 @@ describe('systemTenants — P1 routes, wire round-trip', () => {
       await createClient({ apiUrl: API, auth: AUTH, fetch: meStub.fetch }).systemKeys.whoami(),
     ).toEqual({ keyId: 'k-1', scopes: ['system:tenants'] });
     expect(meStub.calls[0]!.url).toBe(`${API}/v1/system/whoami`);
+  });
+});
+
+describe("systemTenants' join domains — the operator's, and a sign-up page's lookup", () => {
+  const acme = {
+    domain: 'acme.com',
+    role: 'viewer',
+    createdAt: '2026-11-06T00:00:00.000Z',
+    createdBy: 'system-key:k-1',
+  };
+  const client = (body: unknown) => {
+    const stub = jsonFetch(body);
+    return {
+      stub,
+      systemTenants: createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch }).systemTenants,
+    };
+  };
+
+  it("reads a tenant's domains, and changes them, at the tenant's own path", async () => {
+    const list = client({ data: [acme], hasMore: false });
+    expect(await list.systemTenants.joinDomains(TENANT)).toEqual([acme]);
+    expect(list.stub.calls[0]!.url).toBe(`${API}/v1/system/tenants/${TENANT}/join-domains`);
+    const allow = client(acme);
+    await allow.systemTenants.allowJoinDomain(
+      TENANT,
+      { domain: 'acme.com', role: 'none' },
+      { idempotencyKey: 'k' },
+    );
+    expect([allow.stub.calls[0]!.method, JSON.parse(allow.stub.calls[0]!.body ?? '{}')]).toEqual([
+      'POST',
+      { domain: 'acme.com', role: 'none' },
+    ]);
+    const update = client(acme);
+    await update.systemTenants.updateJoinDomain(TENANT, 'acme.com', { role: 'runner' });
+    expect(update.stub.calls[0]!.url).toBe(
+      `${API}/v1/system/tenants/${TENANT}/join-domains/acme.com`,
+    );
+    const gone = client({ domain: 'acme.com', unregistered: true });
+    await gone.systemTenants.unregisterJoinDomain(TENANT, 'acme.com');
+    expect(gone.stub.calls[0]!.url).toBe(
+      `${API}/v1/system/tenants/${TENANT}/join-domains/acme.com/unregister`,
+    );
+  });
+
+  it('looks up one email in the body, and answers the workspaces, each marked join or member', async () => {
+    const workspaces = [
+      { kind: 'join', tenantId: TENANT, name: 'Acme', role: 'viewer' },
+      { kind: 'member', tenantId: '0b7c4a2e-9d1f-4e3a-8b6c-5d4e3f2a1b0c', name: 'Acme Labs' },
+    ];
+    const lookup = client({ data: workspaces, hasMore: false });
+    expect(await lookup.systemTenants.lookupJoinDomains('lee@acme.com')).toEqual(workspaces);
+    expect(lookup.stub.calls[0]!.url).toBe(`${API}/v1/system/join-domains/lookup`);
+    expect(JSON.parse(lookup.stub.calls[0]!.body ?? '{}')).toEqual({ email: 'lee@acme.com' });
   });
 });

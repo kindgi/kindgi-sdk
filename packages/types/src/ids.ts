@@ -111,6 +111,14 @@ export type AgentId = Brand<string, 'AgentId'>;
 export type ToolId = Brand<string, 'ToolId'>;
 
 /**
+ * The prefix of tools built into Kindgi (e.g. `kindgi_remember`): their
+ * ids are what the model calls, verbatim, so they have no dots. A
+ * published tool can't use it, and neither an agent's `tools` nor a flow's
+ * tool node names one; pack tools are `<pack>.<tool>`.
+ */
+export const BUILT_IN_TOOL_PREFIX = 'kindgi_';
+
+/**
  * Guardrail declaration id. Convention: `<pack-id>.<guardrail-name>`
  * (kebab-case, dot-namespaced) — e.g. `acme.no-fabricated-quotes`,
  * `demo.response-not-empty`. `<guardrail-name>` describes the
@@ -190,6 +198,12 @@ export type WebhookEventId = Brand<string, 'WebhookEventId'>;
 
 /** One event's delivery to one outbound endpoint, across all its attempts. */
 export type WebhookDeliveryId = Brand<string, 'WebhookDeliveryId'>;
+
+/** A destination: a named place outside Kindgi that a schedule's results go to (a schedule's `sendResultsTo`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** One message to one destination, or to a schedule owner's own email, across all its attempts. */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
 
 /** An installed pack instance for a workspace. Reserved: no package in this repository issues one. */
 export type InstallationId = Brand<string, 'InstallationId'>;

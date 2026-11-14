@@ -326,6 +326,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_ADMIN_EMAILS',
+    description:
+      "Comma-separated email addresses (read in lower case) of the people who are tenant admins by this setting, on a runtime that serves one tenant and has an authorization store (`KINDGI_OPENFGA_API_URL`). At every start, each listed address that isn't a tenant admin yet is added as a person if there's none with that email (with no invitation), and made a tenant admin with what a first admin holds, as `kindgi-runtime tenants make-admin` does. They sign in by that address, through the tenant's identity provider or the deployment's ways in. While an address is listed, its person can't be made a non-admin or removed. Taken off the list, someone this setting made admin stops being one at the next start, and stays a member. Unset or empty is an empty list, so everyone it made admin stops being one at the next start. Tenant admins made in People aren't touched either way. With several tenants, or with no authorization store, the runtime refuses this setting at start, and a malformed address stops it at start too.",
+    example: 'dana@acme.com,lee@acme.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_DOCS',
     description: 'Mount `/docs` (Scalar API reference). `true` (default) | `false`.',
     example: 'true',
@@ -540,7 +549,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AUTH_TENANT_PROVIDERS',
     description:
-      "Whether a tenant's admins may add, change and remove its identity providers: `on` or `off`. Default `on`. `off` when the operator manages sign-in: then only the deployment's own token (`KINDGI_API_TOKEN`) can, and a tenant's change answers `403 identity-providers-operator-managed`. The providers already there keep signing people in either way, and anyone may still read them.",
+      "Whether a tenant's admins may add, change and remove its identity providers: `on` or `off`. Default `on`. `off` when the operator manages sign-in: then only the deployment's own token (`KINDGI_API_TOKEN`) can, and a tenant's change answers `403 identity-providers-operator-managed`. The providers already there keep signing people in either way, and anyone may still read them. `off` also keeps who joins by email domain to the operator: letting people at a domain join, or giving joiners more, answers `403 join-domains-operator-managed`, while a tenant admin may still lower joiners' role or stop allowing a domain.",
     example: 'off',
     required: false,
     appliesTo: appliesToServer,

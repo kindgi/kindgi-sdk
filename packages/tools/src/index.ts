@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+export { BUILT_IN_TOOL_PREFIX } from '@kindgi/types';
 export {
-  BUILT_IN_TOOL_PREFIX,
+  BUILT_IN_ONLY_APPS,
   defineTool,
   defineToolAsync,
   validateToolManifest,

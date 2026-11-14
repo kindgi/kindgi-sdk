@@ -16,6 +16,7 @@ import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from 
 import type {
   AgentPublishOutcome,
   AgentRegistryBinding,
+  AgentReinstateVersionOutcome,
   AgentVersionRecord,
 } from '../agent-binding.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
@@ -27,10 +28,14 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import {
+  type HeldProjects,
   type ItemCheck,
   type ItemRights,
   type ItemServing,
   agentPinChangeRefusal,
+  agentPinScopeCheck,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
   readCheck,
@@ -43,6 +48,8 @@ import { beforeHandler } from '../middleware/error-mapper.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import type { PlanAdmitted, PlanGate } from '../plan-limits.js';
+import { admitPlan, planWarningField } from '../plan-limits.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -121,6 +128,8 @@ export function agentsRouter(
   pinnedVersions?: PinnedVersionBinding,
   /** Who an owner is (`owner.name`), and that a new owner is a person of the tenant; absent → the id alone. */
   identityDirectory?: Pick<IdentityDirectoryBinding, 'getUser'>,
+  /** The plan limits a publish or a reinstate asks (`plan-limits-binding.ts`); absent → nothing is counted. */
+  plan?: PlanGate,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -250,6 +259,29 @@ export function agentsRouter(
       const tenantId = c.get('tenantId') as TenantId;
       return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
     });
+    // Nor changes an agent by its id beyond its project, as a store asks
+    // it (`itemHold`): a version, its owner, or what's pinned. The test
+    // set's routes hold for themselves (`agent-test-set.ts`).
+    r.use(
+      '/:agentId/*',
+      itemHold({
+        kind: 'agent',
+        id: (c) => c.req.param('agentId') ?? '',
+        today: (c) =>
+          isTestSetPath(c.req.path) || isAgentPinCheck(c.req.method, c.req.path)
+            ? undefined
+            : isAgentPinWrite(c.req.method, c.req.path)
+              ? 'pin'
+              : 'admin',
+        check: async (c) =>
+          isAgentPinWrite(c.req.method, c.req.path)
+            ? agentPinScopeCheck(await bodyScope(c))
+            : itemPathCheck(c),
+        held: heldProjects(itemServing, 'agent', (c, id) =>
+          ownProject(c.get('tenantId') as TenantId, id as AgentId),
+        ),
+      }),
+    );
   }
 
   /**
@@ -749,22 +781,31 @@ export function agentsRouter(
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await binding.publish({
-      tenantId,
-      projectId,
-      agent,
-      // A full publish is the person's own version: Latest in its project at once.
-      madeFor: 'latest',
-      latestBy: actorOf(c),
-      // Write the authorization tuples in the same transaction as the
-      // registry row. The binding calls this with the business
-      // `agentId`.
-      enqueueTuples: (agentId) =>
-        tuplesForCreate(
-          { kind: 'agent', id: agentId as AgentId, tenantId, projectId },
-          creatorUserId,
-        ),
-    });
+    // Only the write counts against the plan limits, after every check.
+    const admitted = await admitPlan(
+      c,
+      plan,
+      { tenantId, projectId, adding: { agents: [agent.id as unknown as string], flows: [] } },
+      () =>
+        binding.publish({
+          tenantId,
+          projectId,
+          agent,
+          // A full publish is the person's own version: Latest in its project at once.
+          madeFor: 'latest',
+          latestBy: actorOf(c),
+          // Write the authorization tuples in the same transaction as the
+          // registry row. The binding calls this with the business
+          // `agentId`.
+          enqueueTuples: (agentId) =>
+            tuplesForCreate(
+              { kind: 'agent', id: agentId as AgentId, tenantId, projectId },
+              creatorUserId,
+            ),
+        }),
+    );
+    if (admitted.kind === 'answer') return admitted.response;
+    const outcome = admitted.value;
     if (outcome.kind !== 'ok') {
       return publishRefusedResponse(c, { binding, tenantId, agent }, outcome);
     }
@@ -774,6 +815,7 @@ export function agentsRouter(
       agentId: outcome.agentId as unknown as string,
       version: outcome.version as unknown as string,
       ...(warnings.length > 0 && { warnings }),
+      ...(admitted.planWarning !== undefined && { planWarning: admitted.planWarning }),
     });
   });
 
@@ -849,7 +891,33 @@ export function agentsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
-    const outcome = await binding.reinstateVersion({ tenantId, agentId, version });
+    // A retired version counts again wherever it runs, so only a retired
+    // one is asked about: reinstating an active one adds nothing.
+    const madeIn = retired?.madeInProjectId ?? retired?.projectId;
+    const reinstating: PlanAdmitted<AgentReinstateVersionOutcome> =
+      retired?.unregisteredAt !== undefined
+        ? await admitPlan(
+            c,
+            plan,
+            {
+              tenantId,
+              ...(madeIn !== undefined && { projectId: madeIn }),
+              adding: {
+                reinstate: {
+                  limit: 'agents',
+                  id: agentId as unknown as string,
+                  version: version as unknown as string,
+                },
+              },
+            },
+            () => binding.reinstateVersion({ tenantId, agentId, version }),
+          )
+        : {
+            kind: 'done' as const,
+            value: await binding.reinstateVersion({ tenantId, agentId, version }),
+          };
+    if (reinstating.kind === 'answer') return reinstating.response;
+    const outcome = reinstating.value;
     if (outcome.kind === 'not-found') {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
@@ -868,6 +936,7 @@ export function agentsRouter(
       agentId: outcome.agentId as unknown as string,
       version: outcome.version as unknown as string,
       wasTombstoned: outcome.wasTombstoned,
+      ...planWarningField(reinstating.planWarning),
     });
   });
 
@@ -1180,6 +1249,22 @@ export async function agentOwnProject(
   });
   const projectId = page.data[0]?.projectId;
   return projectId !== undefined ? [projectId] : [];
+}
+
+/**
+ * Where the hold without a store reads an agent's projects, for a route
+ * of another router (`HeldProjects`): the host's binding, else its own
+ * project (`agentOwnProject`). No registry: none recorded.
+ */
+export function heldAgentProjects(
+  binding: Pick<AgentRegistryBinding, 'headExists' | 'listVersions'> | undefined,
+  serving: ItemServing | undefined,
+): HeldProjects {
+  return heldProjects(serving, 'agent', async (c, id) =>
+    binding === undefined
+      ? []
+      : agentOwnProject(binding, c.get('tenantId') as TenantId, id as AgentId),
+  );
 }
 
 /**

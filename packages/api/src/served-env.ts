@@ -4,6 +4,7 @@
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId } from '@kindgi/types';
 
+import type { DestinationBinding } from './destination-binding.js';
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretRefs } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import { pages } from './provider-keys.js';
@@ -17,8 +18,8 @@ import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
  * so the API refuses to store one (`env-not-served`), and a new registration
  * must name its secret under the served env.
  *
- * Except what a reference still reads: a provider, MCP endpoint or webhook
- * endpoint registered before names its own env, and is read there, at the
+ * Except what a reference still reads: a provider, MCP endpoint, webhook
+ * endpoint or destination registered before names its own env, and is read there, at the
  * scopes it's read at. A secret at that (env, name), at one of those
  * scopes, can still be written, so a value in use can be rotated. Reads and
  * deletes are never refused: a value stored before can still be found and
@@ -26,7 +27,7 @@ import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
  */
 export interface ServedEnvRule {
   readonly envName: EnvName;
-  /** Each secret a provider, MCP endpoint or webhook endpoint of the tenant names, with its env and scope. */
+  /** Each secret a provider, MCP endpoint, webhook endpoint or destination of the tenant names, with its env and scope. */
   references(tenantId: TenantId): Promise<readonly SecretReference[]>;
 }
 
@@ -34,7 +35,7 @@ export interface ServedEnvRule {
  * A registration's reference to a secret, read under its own env at
  * `scope`: a provider's at `'every'` scope of the tenant, since a run reads
  * its key at the run's project, else the project's org, else the tenant;
- * a webhook endpoint's at the tenant's; an MCP endpoint's at the scope
+ * a webhook endpoint's and a destination's at the tenant's; an MCP endpoint's at the scope
  * recorded for the secret (none recorded: the tenant's).
  */
 export interface SecretReference {
@@ -42,7 +43,7 @@ export interface SecretReference {
   readonly envName: string;
   readonly name: string;
   readonly by: {
-    readonly kind: 'provider' | 'mcp-endpoint' | 'webhook-endpoint';
+    readonly kind: 'provider' | 'mcp-endpoint' | 'webhook-endpoint' | 'destination';
     readonly id: string;
   };
 }
@@ -52,6 +53,7 @@ export interface SecretReferencesDeps {
   readonly providers?: ProviderRegistryBinding;
   readonly mcpEndpoints?: MCPEndpointRegistryBinding;
   readonly webhookEndpoints?: WebhookEndpointBinding;
+  readonly destinations?: DestinationBinding;
 }
 
 /** A page's worth, as `usersOfSecret` reads them. */
@@ -110,8 +112,35 @@ export function secretReferencesOf(
         });
       }
     }
+    if (deps.destinations !== undefined) {
+      out.push(...(await destinationReferences(deps.destinations, tenant, tenantId)));
+    }
     return out;
   };
+}
+
+/** Each secret a destination names (`urlRef`, `secretRef`), read at the tenant's scope. */
+async function destinationReferences(
+  destinations: DestinationBinding,
+  tenant: Scope,
+  tenantId: TenantId,
+): Promise<SecretReference[]> {
+  const out: SecretReference[] = [];
+  for await (const d of pages((cursor) =>
+    destinations.list({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+  )) {
+    const id = d.destinationId as unknown as string;
+    for (const ref of [d.urlRef, d.secretRef]) {
+      if (ref === undefined) continue;
+      out.push({
+        scope: tenant,
+        envName: ref.envName,
+        name: ref.name,
+        by: { kind: 'destination', id },
+      });
+    }
+  }
+  return out;
 }
 
 /**

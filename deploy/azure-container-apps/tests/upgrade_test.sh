@@ -1189,7 +1189,8 @@ reset_env
 run "" --help
 assert_rc 0 "--help exits 0"
 assert_file_has "$OUT" "az containerapp job delete -n <name> -g <resource group> --yes" "how to delete a leftover job"
-assert_file_has "$OUT" "<name_prefix>-upgchk-<HHMMSS>-pk, -ss and -mhc" "the jobs' names"
+assert_file_has "$OUT" "<name_prefix>-upgchk-<HHMMSS>-pk, -ss, -mhc and, to 0.7.0 or later," "the jobs' names"
+assert_file_has "$OUT" "-ipk, runs it once, and deletes it when it ends, however it ends." "the identity-provider-keys job's name"
 assert_out "It doesn't start while database_url_version is set"
 assert_absent "$STUB_CALLS_LOG" "a call"
 
@@ -1211,6 +1212,8 @@ assert_file_has "$OUT" "   (both platforms, through this machine; on a slow upli
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-mhc  (check mcp-header-credentials)" "the mcp-header-credentials job"
+assert_file_has "$OUT" "2. create, run and then delete 3 Container Apps jobs with the new image, one per check:" "the jobs' count"
+assert_file_has "$OUT" "     check identity-provider-keys isn't run: the 0.2.0 runtime doesn't have it (0.7.0 and later do)" "the check 0.2.0 lacks"
 assert_file_has "$OUT" "in the environment kindgi-env, as the server's identity, reading database-url from the vault $VAULT" "where the jobs run"
 assert_file_has "$OUT" "3. nothing yet: the backup is $DB_SERVER's point-in-time restore (7 days kept, the earliest restore point 2026-01-05T08:12:45.123456+00:00)" "the backup"
 assert_file_has "$OUT" "rebuild and push the pack from $PACK_DIR " "the pack build"
@@ -1956,6 +1959,50 @@ assert_rc 0 "it runs"
 assert_file_has "$STUB_WARNED" "console acme_note" "console warned"
 if grep -q "^console server_image" "$STUB_WARNED"; then fail "console warned for a declared variable"; else pass; fi
 assert_out "crossing: 0.2.0$"
+
+# 67. A target before identity-provider-keys' release (0.7.0): the run makes
+# no job for that check, and says so before the jobs it makes.
+case_start "a target before identity-provider-keys"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.2.0 runs"
+assert_file_has "$OUT" "  check identity-provider-keys isn't run: the 0.2.0 runtime doesn't have it (0.7.0 and later do)" "the check it leaves out, said"
+if [[ "$(jobs_made | wc -l | tr -d ' ')" == 3 ]]; then pass; else fail "wanted 3 check jobs, got $(jobs_made | tr '\n' ' ')"; fi
+if jobs_made | grep -q -- '-ipk$'; then fail "a job for identity-provider-keys was made"; else pass; fi
+
+# 68. The same script knowing 0.6.0 and 0.7.0, which this copy doesn't list
+# yet, so no real run reaches them: a target of 0.7.0 or its rc makes the
+# identity-provider-keys job too, and its dry run lists 4 jobs and leaves
+# nothing out.
+IPK_SCRIPT="$TMP/upgrade-ipk.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")/' "$SCRIPT" >"$IPK_SCRIPT"
+chmod +x "$IPK_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")' "$IPK_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$IPK_SCRIPT"
+
+case_start "0.4.0 to 0.7.0-rc.0: the identity-provider-keys job too"
+reset_env; export STUB_TAGS="0.4.0"
+run "yes" --to 0.7.0-rc.0
+assert_rc 0 "0.4.0 -> 0.7.0-rc.0 runs"
+if [[ "$(jobs_made | wc -l | tr -d ' ')" == 4 ]]; then pass; else fail "wanted 4 check jobs, got $(jobs_made | tr '\n' ' ')"; fi
+job="$(jobs_made | grep -- '-ipk$')"
+args="$(jq -c '.properties.template.containers[0].args' "$STUB_SPECS_DIR/$job.json" 2>/dev/null)"
+if [[ $args == '["check","identity-provider-keys"]' ]]; then pass; else fail "the -ipk job's args: ${args:-(no job)}"; fi
+assert_jobs_named
+assert_jobs_deleted "after a run to 0.7.0-rc.0"
+assert_out "check identity-provider-keys: ok"
+if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 run"; else pass; fi
+
+case_start "a dry run to 0.7.0 lists the identity-provider-keys job"
+reset_env; export STUB_TAGS="0.4.0"
+run "yes" --to 0.7.0 --dry-run
+assert_rc 0 "a dry run to 0.7.0 exits 0"
+assert_file_has "$OUT" "2. create, run and then delete 4 Container Apps jobs with the new image, one per check:" "the jobs' count"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ipk  (check identity-provider-keys)" "the identity-provider-keys job"
+if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 dry run"; else pass; fi
+assert_absent "$STUB_JOBS_LOG" "a check job"
+
+SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

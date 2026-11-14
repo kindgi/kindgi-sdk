@@ -14,15 +14,23 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type ItemRights,
   type ItemServing,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
+  recordedProjects,
   shownLatest,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -90,6 +98,16 @@ export function toolsRouter(
   onWrite?: ToolWriteHook,
   options: {
     readonly providerKeys?: ProviderKeys;
+    /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /** Where each secret a tool names is read is recorded at publish (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
@@ -112,6 +130,18 @@ export function toolsRouter(
   } = {},
 ): Hono<AppEnv> {
   const { itemRights, pinnedVersions } = options;
+  // Without a store, where a tool's projects are read: the host's, else
+  // its record's (`heldProjects`).
+  const held = heldProjects(options.itemServing, 'tool', (c, id) =>
+    recordedProjects(
+      binding.listVersions({
+        tenantId: c.get('tenantId') as TenantId,
+        toolId: id as ToolId,
+        limit: 1,
+        includeTombstoned: true,
+      }),
+    ),
+  );
   const pinDeps = {
     ...(authorizer !== undefined && { authorizer }),
     ...(itemRights !== undefined && { itemRights }),
@@ -119,6 +149,7 @@ export function toolsRouter(
     ...(options.environmentOrders !== undefined && {
       environmentOrders: options.environmentOrders,
     }),
+    held,
   };
   const pinWrite = (c: Context<AppEnv>) =>
     pinnedVersions !== undefined && isPinWrite(c.req.method, c.req.path);
@@ -183,6 +214,18 @@ export function toolsRouter(
     if (pinnedVersions !== undefined) {
       r.use('/:toolId/*', pinRightsMiddleware('tool', 'toolId', pinDeps));
     }
+    // Nor changes a tool by its id beyond its project, as a store asks it
+    // (`itemHold`): a version. A pin write is held above.
+    r.use(
+      '/:toolId/*',
+      itemHold({
+        kind: 'tool',
+        id: (c) => c.req.param('toolId') ?? '',
+        today: (c) => (pinWrite(c) ? undefined : 'admin'),
+        check: itemPathCheck,
+        held,
+      }),
+    );
   }
 
   /** A version of the tool that isn't there, or that the caller can't see: one 404 for both. */
@@ -491,12 +534,15 @@ export function toolsRouter(
       );
     }
 
-    // A reserved `kindgi.` name or a model provider's key is never a tool's.
+    // A reserved `kindgi.` name, a model provider's key or a texts
+    // registration's account key is never a tool's.
     const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       toolSecretNames(validated.value),
       'a tool',
+      { keys: options.connectionKeys },
+      options.identityProviderKeys,
     );
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
@@ -645,6 +691,8 @@ export function toolsRouter(
             tenantId,
             toolSecretNames(retired),
             'a tool',
+            { keys: options.connectionKeys },
+            options.identityProviderKeys,
           );
     if (named !== undefined) {
       c.status(statusFor(named.code) as never);

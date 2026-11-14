@@ -47,11 +47,6 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
-- `kindgi`: **the identity provider models' `join` docstring says `domain`
-  lets no one in on its own.** `OidcIdentityProviderConfig.join` and
-  `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
-  provider's `domains`, but sign-in doesn't use it: with either value, only
-  people a tenant admin added get in. What you pass or read doesn't change.
 - `kindgi`: **the docstrings say what a key or session limited to a project
   may do on `identity.users.list_sessions`, `identity.users.revoke_sessions`,
   `identity.users.grants`, `identity.me`'s second factor, `connections` and
@@ -60,6 +55,40 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
+- `kindgi`: **a tenant's own limits on the flows and agents in production,
+  and its plan id.** `TenantLimits` gains `flows_in_production` and
+  `agents_in_production`, and `TenantLimitsInUse` their counts.
+  `TenantLimitsResult` gains `plan`: the tenant's plan id, `None` while none
+  is set, absent from a runtime that doesn't keep it.
+  `client.system_tenants.set_plan(tenant_id, plan="starter")` sets it, and
+  `plan=None` clears it (`TenantPlanBody`, answering `TenantPlan`).
+- `kindgi`: **the client's models carry a runtime's plan warning.** Once a
+  count of the flows or agents in production reaches the runtime's license
+  key's plan, `plan_warning` (`PlanWarning`: `flows` and `agents`, each a
+  `PlanCount` with `plan`, `most` and `in_use`) is on a published agent's or
+  flow's answer, a deployment, a deploy check, a promotion and its check, and
+  a project's production answer; a runtime that doesn't count them leaves it
+  out. `DeployCheckBody` gains `flows`.
+- `kindgi`: **a deleted project is kept, and a workspace admin can restore
+  it.** `projects.restore` brings one back as it was, and
+  `projects.list_deleted` lists the workspace's deleted projects, newest first
+  (the new `DeletedProject` model). A webhook delivery to a deleted project
+  answers `skipped: "project-deleted"`, a system deployment retired with its
+  project says `reason: "project-deleted"`, and an audit event's `kind` can be
+  `project-deleted` or `project-restored`.
+- `kindgi`: **a workspace can let people at its email domain join.** `client.auth.join_domains` lists the domains a workspace lets people join from, and allows, changes and stops allowing one (`list`, `allow`, `update`, `unregister`); `client.system_tenants` gains `join_domains`, `allow_join_domain`, `update_join_domain`, `unregister_join_domain` and, for a sign-up page, `lookup_join_domains`. The new models are `JoinDomain`, `JoinDomainList`, `AllowJoinDomainBody`, `ChangeJoinDomainBody`, `UnregisterJoinDomainResult`, `JoinDomainLookupBody`, `JoinDomainLookupResult` and `JoinLookupWorkspaceJoin` or `JoinLookupWorkspaceMember`. `join-domain-not-yours` and `join-domains-operator-managed` raise `AuthError` with `reason` `forbidden`.
+- `kindgi`: a person's record (`UserRecord`, `UserCreated`) gains `created_by`, who added them, as ids only: `user:<id>`, `service_account:<id>`, `identity_provider:<providerId>` or `email_domain:<domain>` for someone who joined by domain, or `site:<siteId>`. `None` for the seed user, and from a runtime that doesn't keep it.
+- `kindgi`: **an identity provider can let colleagues join by domain, and a person's grants say when the server's setting makes them a tenant admin.** The identity provider models, and their register and update bodies, gain `join_role` (`viewer`, `runner` or `none`), what someone who joins by domain gets, and `join`'s description says what `domain` now does. `PersonGrants` gains `tenant_admin_from_setting`: the server's `KINDGI_ADMIN_EMAILS` names the person, and taking tenant admin from them, or removing them, is refused with `listed-admin`.
+- `kindgi`: **`client.runs.list(include="waitingFor")` says what each
+  suspended run waits for** (its `waiting_for`, as `client.runs.get` gives
+  it). A page with it holds at most 25 runs. A runtime before Kindgi 0.7.0
+  refuses it with `400 bad-input`.
+- `kindgi`: **an `include` takes a value or a list:
+  `client.runs.list(include=["output", "waitingFor"])`.** The runs list, an
+  agent's test cases, the cost records and the people list send a list as
+  one comma-separated parameter. One value works as before.
+- `kindgi`: **`client.license.replace(key=...)` hands a running server a renewed license key** (`PUT /v1/license`), with the deployment's own token or a system key holding `system:license`. A server that takes it runs the new key without a restart. Runtime 0.7.0 doesn't serve the route, so it runs a renewed key from its next start. A key the server refuses raises `ConflictError` (`license-key-refused`, with `details["reason"]`); `LicenseKeyBody` is the request. `LicenseStatus` gains `limits` (`LicenseLimits`: `flows` and `agents`, each a `LicenseLimit` with `plan`, `most` and `in_use`), set only when the key carries limits, and only in the operator's view.
 - `kindgi`: **`Tool.mutating`'s description says a tool that isn't read-only asks before
   each call**, not only the first time: an approval isn't remembered, so
   `ask_on_first_use` asks before every call, as `always_ask` does. The client's

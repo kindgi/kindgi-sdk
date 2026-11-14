@@ -324,6 +324,38 @@ describe('kindgi promote', () => {
     expect(out.stdout).not.toContain('Promoted');
   });
 
+  test("at its plan's flows or agents, the check and the promotion warn, a line for each, flows first", async () => {
+    const planWarning = {
+      agents: { plan: 10, most: 12, inUse: 11 },
+      flows: { plan: 3, most: 4, inUse: 3 },
+    };
+    const lines =
+      '⚠ 3 flows run in production; your plan has 3. Past 4, new ones are refused.\n' +
+      '⚠ 11 agents run in production; your plan has 10. Past 12, new ones are refused.\n';
+    const checked = await run(['promote', '--from=staging', '--to=prod', '--check'], {
+      check: { ...READY_CHECK, planWarning },
+    });
+    expect(checked.out.stdout).toContain(lines);
+    expect(checked.out.stdout.indexOf('Every value')).toBeLessThan(checked.out.stdout.indexOf('⚠'));
+
+    const promoted = await run(['promote', '--from=staging', '--to=prod'], {
+      check: { ...READY_CHECK, planWarning },
+      promote: () => ({
+        deployment: deployment('dep-prod-1'),
+        created: true,
+        moved: MOVES,
+        planWarning,
+      }),
+    });
+    expect(promoted.out.stdout).toContain(lines);
+    // The promotion's own answer warns, once, after what it did.
+    expect(promoted.out.stdout.split('⚠')).toHaveLength(3);
+    expect(promoted.out.stdout.indexOf('Promoted')).toBeLessThan(promoted.out.stdout.indexOf('⚠'));
+
+    const below = await run(['promote', '--from=staging', '--to=prod']);
+    expect(below.out.stdout).not.toContain('⚠');
+  });
+
   test('the target had the build already: says so', async () => {
     const { out } = await run(['promote', '--from=staging', '--to=prod'], {
       promote: () => ({ deployment: deployment('dep-prod-0'), created: false, moved: MOVES }),

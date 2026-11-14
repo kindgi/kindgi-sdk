@@ -99,10 +99,11 @@ export interface TestRunSubjectInvokeOutcome {
   readonly erased?: true;
   /**
    * The case couldn't start: its project or tenant takes no new runs
-   * (`project-suspended`, `tenant-suspended`, `tenant-closing`, as a run
-   * start is refused). Not the case's error: the dispatcher stops at it,
-   * counting it nowhere, and the test run ends `cancelled` with `reason`
-   * as its `cancelReason`. A runtime that refuses no starts never sets it.
+   * (`project-suspended`, `project-deleted`, `tenant-suspended`,
+   * `tenant-closing`, as a run start is refused). Not the case's error: the
+   * dispatcher stops at it, counting it nowhere, and the test run ends
+   * `cancelled` with `reason` as its `cancelReason`. A runtime that refuses
+   * no starts never sets it.
    */
   readonly halt?: { readonly reason: string; readonly message: string };
 }

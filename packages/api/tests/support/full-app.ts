@@ -33,6 +33,7 @@ import type {
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
+  DestinationBinding,
   EnvBinding,
   EnvironmentOrderBinding,
   ExpertQueueBinding,
@@ -272,7 +273,8 @@ const connectionNoop = {
   error: { code: 'connection-store-failed', message: 'noop' },
 } as const;
 
-const noopConnections: ConnectionBinding = {
+/** Every read empty, every write and every sender's request `connection-store-failed`. */
+export const noopConnections: ConnectionBinding = {
   entries: () => [],
   listApps: async () => ({ data: [] }),
   getApp: async () => null,
@@ -296,6 +298,7 @@ const noopConnections: ConnectionBinding = {
   startRequest: async () => connectionNoop,
   finishRequest: async () => connectionNoop,
   receiveNotice: async () => connectionNoop,
+  receiveTexts: async () => connectionNoop,
 };
 
 const noopWebhookEndpoints: WebhookEndpointBinding = {
@@ -307,6 +310,18 @@ const noopWebhookEndpoints: WebhookEndpointBinding = {
   listDeliveries: async () => ({ kind: 'not-found' }),
   redeliver: async () => ({ kind: 'not-found' }),
   sendTest: async () => ({ kind: 'not-found' }),
+};
+
+const noopDestinations: DestinationBinding = {
+  create: async () => ({ kind: 'url-refused', reason: 'noop' }),
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  update: async () => ({ kind: 'not-found' }),
+  remove: async () => ({ removed: false }),
+  listDeliveries: async () => ({ kind: 'not-found' }),
+  redeliver: async () => ({ kind: 'not-found' }),
+  sendTest: async () => ({ kind: 'not-found' }),
+  listScheduleDeliveries: async () => ({ kind: 'not-found' }),
 };
 
 const noopTriggerRegistry: TriggerRegistryBinding = {
@@ -720,6 +735,7 @@ export function fullAppInput(): CreateAppInput {
     adapterRegistry: noopAdapterRegistry,
     triggerRegistry: noopTriggerRegistry,
     webhookEndpoints: noopWebhookEndpoints,
+    destinations: noopDestinations,
     connections: noopConnections,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
@@ -735,6 +751,14 @@ export function fullAppInput(): CreateAppInput {
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     identityDirectory: noopIdentityDirectory,
+    // An API key is no person: the binding refuses the sweep's admin key, as the deployment's would.
+    joinDomains: {
+      list: async () => [],
+      allow: async () => ({ kind: 'not-yours', reason: 'not-a-person' }),
+      change: async () => ({ kind: 'not-found' }),
+      remove: async () => ({ kind: 'not-found' }),
+      lookup: async () => [],
+    },
     secondFactor: noopSecondFactor,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,
@@ -777,6 +801,7 @@ export function fullAppInput(): CreateAppInput {
         runs: 0,
         people: 0,
       }),
+      replace: async () => ({ kind: 'taken' }),
     },
     runtime: { version: '0.0.0', development: false },
     systemKeys: {

@@ -493,6 +493,10 @@ function faultOf(code: SecretError['code']): ReadFault {
     case 'secret-provider-unavailable':
     case 'secret-provider-rate-limited':
       return { kind: 'store' };
+    // A texts registration's account key, refused to a pack's env: never
+    // given, and the deployment is held while a live registration holds it.
+    case 'connection-key-refused':
+      return { kind: 'unreadable' };
     default:
       return { kind: 'unreadable' };
   }

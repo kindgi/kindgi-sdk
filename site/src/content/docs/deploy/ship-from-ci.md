@@ -474,7 +474,11 @@ stops, deploys nothing, and exits 1:
   `kindgi deploy` deploys as before, and says so in one line. A key the
   check refuses (`403`) goes on without it too, and says so: the deploy
   asks the same right as the check, so a runtime with the check refuses
-  the deploy the same way.
+  the deploy the same way. A deploy that would take the flows or agents in
+  production past the most the license key runs is refused by the check
+  and by the deploy alike, `403 plan-limit-reached`, and `kindgi deploy`
+  stops there with nothing deployed
+  ([Plan limits](../self-hosted/plan-limits/)).
 - **A promotion that pins is checked too,** against what runs in the target
   environment only: `kindgi promote --pin` puts the build's blocks there.
   A stop prints the same table ("Nothing was promoted.") and exits 1, with

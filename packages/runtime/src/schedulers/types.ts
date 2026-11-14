@@ -139,3 +139,27 @@ export interface MailTriggerConfig {
    */
   readonly runsPerHour?: number;
 }
+
+/**
+ * A text trigger's settings. Texts (SMS or WhatsApp) to one business phone
+ * number start its runs; the receiver pushes each one in, nothing polls.
+ */
+export interface TextTriggerConfig {
+  /**
+   * The connection the texts come in on: one of the project's company
+   * connections of app `texts`, one per number. One live text trigger
+   * answers a connection.
+   */
+  readonly connectionId: string;
+  /**
+   * Runs it starts an hour at most (`TEXT_TRIGGER_LIMITS`). Absent: 60.
+   * Past it, a text's fire is refused (`over-limit:`) and never runs.
+   */
+  readonly runsPerHour?: number;
+  /**
+   * Runs one sender's texts start an hour at most (`TEXT_TRIGGER_LIMITS`).
+   * Absent: 10. Past it, a text's fire is refused (`over-limit:`) and never
+   * runs.
+   */
+  readonly perSenderPerHour?: number;
+}

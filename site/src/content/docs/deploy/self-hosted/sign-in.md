@@ -213,6 +213,13 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 
   ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, acme-ops listed with a Try icon only, and the Second factor box](../../../../assets/sso/console-providers-operator.png)
 
+- **Who may join by email domain is the operator's too** (runtime 0.8.0
+  or later): allowing a domain, or giving its joiners more, takes the
+  deployment's own token or a key holding `kindgi:system`, and a tenant
+  admin's is refused with `403 join-domains-operator-managed`. A tenant
+  admin may still lower joiners' role or stop allowing a domain
+  ([Let people at your domain join](../../people-and-keys/#let-people-at-your-domain-join)).
+
 `on` is the default. Like the other settings here, it needs sign-in on.
 
 Without a secrets store (`KINDGI_SECRETS_BACKEND=none`), nobody adds or
@@ -324,6 +331,22 @@ nothing. Access is decided after the provider signs them in:
    until an admin of that workspace sends the invitation again:
 
    ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask a tenant admin of this workspace to send it again, then sign in. Detail: invite-expired. Below it, Your email and Continue.](../../../../assets/sso/sign-in-invite-expired.png)
+
+   A workspace's own identity provider can let in more: with `join: domain`,
+   someone it signs in for the first time, with a verified email at one of
+   its domains, is added with the provider's join role, never tenant admin.
+   It needs an authorization store, and someone removed stays out
+   ([Or let your colleagues join](../../../guides/sso/#or-let-your-colleagues-join)).
+   A workspace can also let people at its email domain join (runtime 0.8.0
+   or later): someone who signs in with a mailbox at an allowed domain,
+   proved by a Google Workspace account at it, a Microsoft work account or
+   the emailed link (never GitHub), is offered the workspace and joins with
+   a press, with the domain's join role, never tenant admin. Someone
+   removed stays out
+   ([Let people at your domain join](../../people-and-keys/#let-people-at-your-domain-join)).
+   With `KINDGI_ADMIN_EMAILS`, the listed people are added at start, so
+   they're found here too, as tenant admins
+   ([Tenant admins by email](../../people-and-keys/#tenant-admins-by-email)).
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't

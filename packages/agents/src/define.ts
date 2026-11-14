@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { type ToolErrorsSpec, validateToolErrorsSpec } from '@kindgi/policy-contract';
+import { HAND_TO_PERSON_TOOL_ID, REPLY_TO_TEXT_TOOL_ID } from '@kindgi/runtime';
 import {
   type AnySchema,
   compileInlineSchema,
@@ -408,7 +409,7 @@ function validateToolRef(ref: unknown, i: number): Issue[] {
   } else if (obj.id.startsWith(BUILT_IN_TOOL_PREFIX)) {
     out.push({
       path: `/tools/${i}/id`,
-      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}), not from tools`,
+      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}) or its run (a run a text started gets ${REPLY_TO_TEXT_TOOL_ID} and ${HAND_TO_PERSON_TOOL_ID}), not from tools`,
     });
   }
   if (typeof obj.version !== 'string' || obj.version.trim().length === 0) {

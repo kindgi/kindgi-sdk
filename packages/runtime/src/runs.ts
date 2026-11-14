@@ -24,6 +24,7 @@ import type {
 } from '@kindgi/types';
 
 import type { RunActsFor, RunAgentRef, RunMailbox, RunStartedBy, RunTriggerRef } from './inputs.js';
+import type { RunTextThread } from './texts.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -102,6 +103,11 @@ export interface KernelRunRecord {
    */
   readonly mailbox?: RunMailbox;
   /**
+   * The thread its text came from (`RunFlowInput.textThread`), on a run a
+   * text trigger started. Absent on every other run.
+   */
+  readonly textThread?: RunTextThread;
+  /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.
    */
@@ -172,6 +178,22 @@ export interface ListRunsInput {
   readonly createdAfter?: Timestamp;
   /** Only runs created strictly before this time. */
   readonly createdBefore?: Timestamp;
+  /**
+   * Only runs that ended strictly after this time, or at it with an id
+   * greater than `afterRunId`. With it or `completedBefore`, a page is
+   * ordered `(completedAt asc, id asc)`, runs that haven't ended never
+   * match, and `cursor` is never given: the next page is this pair set to
+   * the last run's `completedAt` and `id`. As the caller gave it, an ISO
+   * date-time that may carry microseconds: a binding compares it as given,
+   * never through a JS `Date` (see `RunListCursor.createdAt`).
+   */
+  readonly completedAfter?: Timestamp;
+  /** With `completedAfter`: the tie-break among runs that ended at exactly that time. */
+  readonly afterRunId?: RunId;
+  /** Only runs that ended at or before this time, compared as given. */
+  readonly completedBefore?: Timestamp;
+  /** Only runs started this way (`KernelRunRecord.startedBy`). Runs that record none never match. */
+  readonly startedBy?: RunStartedBy;
   /** With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match. */
   readonly agentVersion?: string;
   /** Only runs of this flow (an agent's turns run `agent.turn`). */

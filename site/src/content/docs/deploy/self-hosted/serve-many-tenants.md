@@ -101,7 +101,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:create` | Creating tenants only: each with a first admin, production blocked, no image repository, not a test tenant |
 | `system:tenants:image-prefix` | Setting a tenant's image repository |
 | `system:tenants:production` | A tenant's production switch |
-| `system:tenants:limits` | A tenant's limits |
+| `system:tenants:limits` | A tenant's limits, and the id of the plan it's on |
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
 | `system:tenants:purge` | [Purging a closed tenant](#close-and-purge-a-tenant), once its window has passed (runtime 0.1.10 or later). No other scope includes it |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
@@ -111,6 +111,8 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:kept-repos` | [Kept repos](#kept-repos), for the repo store's reconcile: the rulings on the repos it holds, the unfinished erasures, and reporting a purge done. It can't request an erasure |
 | `system:kept-repos:erase` | [Requesting a kept repo's erasure](#erase-a-kept-repo), and reading its state |
 | `system:license` | Reading the deployment's license, for its renewal |
+| `system:join-domains` | [The email domains a tenant lets people join from](../../people-and-keys/#let-people-at-your-domain-join): listing, allowing, changing and stopping them, and the sign-up lookup (runtime 0.8.0 or later) |
+| `system:join-domains:read` | For one verified email, of the tenants that let people at its domain join, the ones it may join and the ones it's in already, for a sign-up page that offers them before it makes a new tenant: ids, names and join roles only, never a list of every tenant the email is in (`POST /v1/system/join-domains/lookup`, runtime 0.8.0 or later) |
 | `kindgi:system` | All of them: a full key |
 
 ```sh
@@ -158,6 +160,10 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
   once. Store it, because nothing shows it again. Only the full capability
   creates a tenant that way.
+- **`KINDGI_ADMIN_EMAILS` is for a runtime that serves one tenant.** With
+  several, the runtime refuses it at start: `firstAdmin` names each tenant's
+  first admin instead
+  ([Tenant admins by email](../../people-and-keys/#tenant-admins-by-email)).
 - **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
   `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
   new person by email, with what a first admin holds: every capability but
@@ -493,6 +499,27 @@ from its own token, for that tenant alone.
   (`system:tenants:limits`). `PUT` replaces them all: a limit left out isn't
   set, and isn't enforced. Read them, change one, and put them all back. The
   tenant reads its own on `GET /v1/tenant`.
+- **Flows and agents in production:** the `flowsInProduction` and
+  `agentsInProduction` limits hold the tenant to a plan's numbers, each flow
+  and agent counted once however many of its projects in production run it.
+  Past the most, the number and a margin, a write that adds new ones is
+  refused with `403 plan-limit-reached`
+  ([A workspace's own limits](../plan-limits/#a-workspaces-own-limits)).
+  From a runtime that counts them, `GET …/limits` answers what the tenant
+  runs as `inUse`.
+- **The plan's id:** `PUT /v1/system/tenants/{tenantId}/plan` with
+  `{"plan": "starter"}` (`system:tenants:limits`) records which plan the
+  tenant is on, and `{"plan": null}` clears it. An id is a lowercase letter,
+  then up to 31 lowercase letters, digits and hyphens. It's only shown: the
+  limits are what's enforced, so set them too. `GET …/limits` answers it as
+  `plan`, and `PUT …/limits` leaves it as it is. It answers:
+  - `200` with `{ tenantId, plan }`;
+  - `400 bad-input` for any other body;
+  - `403 system-scope-missing` for a key without `system:tenants:limits`;
+  - `404 tenant-not-found` for an unknown or purged tenant, and
+    `409 tenant-closing` for a closing one;
+  - `501 tenant-plan-unsupported` from a runtime that doesn't keep a plan
+    ([tenant-plan-unsupported](../../../reference/errors/#tenant-plan-unsupported)).
 - **Production:** `PUT /v1/system/tenants/{tenantId}/production-allowed` with
   `{"allowed": true}` (`system:tenants:production`). Until then, putting a
   project in production is refused with `403 production-not-allowed`, and

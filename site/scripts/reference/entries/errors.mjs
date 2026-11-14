@@ -2272,7 +2272,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger, or to an agent, flow, tool, block, guardrail, test set, corrector group or MCP endpoint that is in or runs in another project, and any act on another project's run, test run, approval, correction, conversation, artifact, deployment, suggested change, Improve run or connection choice, or on a record whose agent or test set is in another project.",
     details: [
       {
         key: 'keyProjectId',
@@ -2281,7 +2281,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'projectId',
         meaning:
-          'the project the request names, when it names one, or the project of the trigger it changes',
+          'the project the request names, when it names one, or the project of the trigger, item or record it changes',
       },
       {
         key: 'action',
@@ -2547,6 +2547,12 @@ export const ERROR_ENTRIES = {
       "You requested a kept repo's erasure on a runtime that isn't keeping repos for projects without a GitHub repo now (`KINDGI_KEPT_REPOS` is off), so nothing was requested. Turning it off erases nothing: repos kept while it was on stay until they're purged with it on. Turn it on, on the runtime and on the repo store's gateway, then request the erasure again.",
     details: [],
   },
+  'tenant-plan-unsupported': {
+    description:
+      "This runtime doesn't keep a tenant's plan id, so `PUT /v1/system/tenants/{tenantId}/plan` sets nothing. Its `GET …/limits` leaves `plan` out. The tenant's limits are still set and enforced through `PUT …/limits`.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
   'tenant-slug-taken': {
     description:
       'Another workspace has that slug, creating a workspace or renaming one. A purged workspace keeps its slug. Choose another.',
@@ -2660,12 +2666,19 @@ export const ERROR_ENTRIES = {
       "The person is the seed user, whom the runtime makes tenant admin at every start, so the admin grant can't be removed while that setting stands. Unset the seed user and restart first.",
     details: [],
   },
+  'listed-admin': {
+    description:
+      "The server's `KINDGI_ADMIN_EMAILS` names the person, and every start makes them tenant admin, so the admin grant can't be removed while it does. Take their address off the list and restart the runtime first.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
   'identity-user-unregister-refused': {
-    description: "You can't unregister yourself or the seed user. Ask another tenant admin.",
+    description:
+      "You can't unregister yourself, the seed user, or someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back. Ask another tenant admin, or take the address off the list and restart the runtime first.",
     details: [
       {
         key: 'reason',
-        meaning: "why it was refused: 'yourself' or 'seed-user'",
+        meaning: "why it was refused: 'yourself', 'seed-user' or 'listed-admin'",
       },
       {
         key: 'userId',
@@ -3030,10 +3043,67 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
   },
+  'domain-join-needs-authorization': {
+    description:
+      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so people can't join by domain: without one, roles aren't checked, and a joiner would work in every project. On an identity provider, setting `join: domain` or `joinRole` is refused; a provider already stored with them keeps them, and a change that leaves them alone goes through. Allowing an email domain (`/v1/auth/join-domains`), or allowing it again, is refused too; changing what joiners get, or stopping allowing it, still works. Add people one by one, or run with authorization.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed (only on an identity provider)',
+      },
+    ],
+    seeAlso: ['deploy/people-and-keys', 'guides/sso/index'],
+  },
+  'join-domain-not-yours': {
+    description:
+      "Letting people at an email domain join a workspace, or giving its joiners more, takes a person who's a tenant admin, signed in with an email at exactly that domain (no subdomain, no parent) by a way that proves the mailbox: a Google Workspace account at it, a Microsoft work account, or the emailed link. GitHub never counts, and the workspace's own identity provider counts only for a domain the deployment routes to the workspace. An API key or a service account can't, and neither can a person whose sign-in recorded no email. The deployment's operator always can. Ask a tenant admin at that domain, or the operator. Lowering joiners' role or stopping allowing the domain takes any tenant admin. The refusal is recorded.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domains-operator-managed': {
+    description:
+      "The deployment's operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), so letting people at an email domain join, or giving joiners more, takes the operator's credential: the deployment's own token or a key holding `kindgi:system`, or `system:join-domains` on the system routes. A tenant admin can still see the list, lower joiners' role and stop allowing a domain. The refusal is recorded.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys', 'deploy/self-hosted/sign-in'],
+  },
+  'join-domain-public': {
+    description:
+      "That's a public mailbox domain (gmail.com, outlook.com and the like), where anyone can have an address, so people there can never join by domain. Add them one by one.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-verified-elsewhere': {
+    description:
+      "The deployment's operator verified that domain for another workspace (`KINDGI_AUTH_VERIFIED_DOMAINS`), or for a tenant this runtime doesn't serve, so only that workspace may let its people join.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-exists': {
+    description:
+      'The workspace lets people at that domain join already. To change what joiners get, change its role (`PATCH` the domain).',
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-not-found': {
+    description: "The workspace doesn't let people at that domain join, or stopped allowing it.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
   'license-operator-only': {
     description:
-      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license`, `PUT /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
+  },
+  'license-key-refused': {
+    description:
+      '`PUT /v1/license`: the running server checked the key handed to it, as it does at a start, and refused it. It runs on with the key it has, and `kindgi license renew --runtime` writes nothing.',
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          '`malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`',
+      },
+    ],
   },
   'invalid-provider-config': {
     description:
@@ -3257,7 +3327,7 @@ export const ERROR_ENTRIES = {
   },
   'deployment-not-found': {
     description:
-      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way.",
+      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way, and so is one whose project is deleted.",
     details: [
       {
         key: 'deploymentId',
@@ -3488,7 +3558,7 @@ export const ERROR_ENTRIES = {
   },
   'project-not-found': {
     description:
-      "The project doesn't exist in the workspace, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project.",
+      "The project doesn't exist in the workspace, it was deleted, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project. A workspace admin finds a deleted project at `GET /v1/projects/deleted` and restores it.",
     details: [
       {
         key: 'projectId',
@@ -3513,11 +3583,11 @@ export const ERROR_ENTRIES = {
   },
   'production-limit-reached': {
     description:
-      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again. Restoring a deleted project that's in production counts it again, so at the limit the restore is refused the same way, and the project stays deleted until there's room.",
     details: [
       {
         key: 'projectId',
-        meaning: "the project that wasn't put in production",
+        meaning: "the project that wasn't put in production, or wasn't restored",
       },
       {
         key: 'limit',
@@ -3539,10 +3609,68 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'plan-limit-reached': {
+    description:
+      "A write would add flows or agents to production past the most this runtime's license key runs, or past the most the workspace's own limits allow (`flowsInProduction` and `agentsInProduction` in its limits): publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. Against the workspace's own limits, only its own flows and agents count. The most is the plan's number and a margin, a fifth more and at least one more. None of the flows and agents the write adds is added, and what runs keeps running: changes to the flows and agents that run go through. A suggested change keeps its edit's block version, as a failed check does, and one just made is kept too: check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check` once there's room. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan (for the workspace's own limits, ask whoever runs the server for a larger limit), where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
+    details: [
+      {
+        key: 'projectId',
+        meaning:
+          'the project the write adds to, or the one put in production; on a reinstate, the project its version was made in, absent when the server records none',
+      },
+      {
+        key: 'limit',
+        meaning:
+          "the first count over, `flows` or `agents`; it and `adding`, `scope`, `plan`, `most` and `inUse` are `over`'s first entry",
+      },
+      { key: 'adding', meaning: 'how many of that count the write adds to production' },
+      {
+        key: 'scope',
+        meaning:
+          "whose numbers that count passed: `installation` for the license key's plan, `tenant` for the workspace's own limits; absent from a runtime that doesn't say, and then it's the key's",
+      },
+      {
+        key: 'plan',
+        meaning:
+          "the license key's plan for that count, or the workspace's own limit; the key's is absent, with `most` and `inUse`, when the runtime serves other tenants too, whose flows and agents the key's numbers count. The workspace's own are always given",
+      },
+      { key: 'most', meaning: 'the most that run: the plan and its margin' },
+      { key: 'inUse', meaning: 'how many run in production before this write' },
+      {
+        key: 'over',
+        meaning:
+          'each count over, flows first: its `limit` and `adding`, its `scope` when the runtime says, and its `plan`, `most` and `inUse` when they are given',
+      },
+      { key: 'newIds', meaning: 'the ids the write adds to production: `flows` and `agents`' },
+      {
+        key: 'next',
+        meaning:
+          'where to get a larger plan, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+      {
+        key: 'suggestedChangeId',
+        meaning:
+          'when a suggested change was made but its check refused: the change, which is kept',
+      },
+    ],
+    seeAlso: ['#plan-count-busy', 'deploy/self-hosted/plan-limits'],
+  },
+  'plan-count-busy': {
+    description:
+      "A write that can add flows or agents to production waited too long for its turn to count them, so it never ran: none of them is added. A suggested change keeps its edit's block version, as a failed check does. The same request is safe to send again after the `Retry-After` header.",
+    details: [],
+    seeAlso: ['#plan-limit-reached', 'deploy/self-hosted/plan-limits'],
+  },
   'production-unsupported': {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'project-restore-unsupported': {
+    description:
+      "This server can't restore a deleted project or list the deleted ones: its project store keeps no deleted projects for that.",
+    details: [],
+    seeAlso: ['POST /v1/projects/{projectId}/restore', 'GET /v1/projects/deleted'],
   },
   'repo-connection-not-company-github': {
     description:
@@ -3642,9 +3770,19 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'project-is-default': {
+    description: "The workspace's default project can't be deleted.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the default project',
+      },
+    ],
+    seeAlso: ['DELETE /v1/projects/{projectId}'],
+  },
   'provider-key-refused': {
     description:
-      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name.",
+      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name; an identity provider names a secret of its own instead.",
     details: [
       {
         key: 'secret',
@@ -3656,9 +3794,58 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'connection-key-refused': {
+    description:
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration, an identity provider or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is a registration's account key",
+      },
+      {
+        key: 'appId',
+        meaning: 'id of the connection app registration that owns that key',
+      },
+    ],
+    seeAlso: ['#connection-key-in-use', 'POST /v1/connection-apps'],
+  },
+  'identity-provider-key-refused': {
+    description:
+      "The request names an identity provider's secret (its OIDC client secret, or its SAML signing or decryption key) as a secret for something that isn't sign-in, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, a connection app registration or a pack's `env`. The secret signs the tenant's people in, so only sign-in names it. If one app registration serves both sign-in and a connection, give it a second client secret, store that under its own name and use that name. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is an identity provider's",
+      },
+      {
+        key: 'identityProviderId',
+        meaning: 'id of the identity provider that references that secret',
+      },
+    ],
+    seeAlso: ['#identity-provider-key-in-use', 'POST /v1/auth/providers'],
+  },
+  'identity-provider-key-in-use': {
+    description:
+      "A secret the identity provider being registered or changed references (its OIDC client secret, or its SAML signing or decryption key) is already used by a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration. An identity provider's secret is sign-in's only, so each of them would be refused it from then on. Store the identity provider's own secret under its own name and reference that. If one app registration serves both sign-in and a connection, give it a second client secret. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: [
+      '#identity-provider-key-refused',
+      'POST /v1/auth/providers',
+      'PATCH /v1/auth/providers/{providerId}',
+    ],
+  },
   'provider-key-in-use': {
     description:
-      'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint or webhook trigger. Give each a key of its own.',
+      'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or destination. Give each a key of its own.',
     details: [
       {
         key: 'secret',
@@ -3672,7 +3859,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org, until that project is deleted.",
+      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org. A deleted project's slugs stay its own too.",
     details: [
       {
         key: 'resource',
@@ -3686,6 +3873,11 @@ export const ERROR_ENTRIES = {
         key: 'heldAs',
         meaning:
           '`slug` when another has it now; `old-slug` when another project had it before it was renamed. Absent from a runtime that keeps no old slugs',
+      },
+      {
+        key: 'deletedProject',
+        meaning:
+          '`true` when the project holding the slug is deleted; absent otherwise. A workspace admin can restore it (`POST /v1/projects/{projectId}/restore`)',
       },
     ],
     seeAlso: ['POST /v1/orgs', 'POST /v1/projects', 'PATCH /v1/projects/{projectId}'],
@@ -3832,7 +4024,7 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a connection app or an identity provider.",
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a connection app or an identity provider.",
     details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
@@ -3993,6 +4185,20 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/webhooks/start-runs-from-webhooks'],
   },
+  'trigger-connection-taken': {
+    description:
+      "Another live text trigger, active or paused, already answers that connection's number: one live text trigger answers a number. Unregister that trigger first, or pick another connection. The trigger it names can be in another project of the workspace.",
+    details: [
+      {
+        key: 'heldBy',
+        meaning: 'the text trigger that answers the connection',
+      },
+      {
+        key: 'connectionId',
+        meaning: 'the connection asked for',
+      },
+    ],
+  },
   'trigger-already-in-state': {
     description:
       'The trigger is already in the state you asked for, such as pausing a paused trigger or resuming one that is running.',
@@ -4119,6 +4325,56 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'destination-not-found': {
+    description: 'No destination with that id exists in your workspace, or it was removed.',
+    details: [
+      {
+        key: 'destinationId',
+        meaning: 'the destination id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/destinations'],
+  },
+  'destination-delivery-not-found': {
+    description: 'The destination has no delivery with that id.',
+    details: [
+      {
+        key: 'deliveryId',
+        meaning: 'the delivery id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/destinations/{destinationId}/deliveries'],
+  },
+  'destination-url-refused': {
+    description:
+      "The destination's URL is refused: it isn't on the kind's own host (a `slack` URL is on `hooks.slack.com`), or the deployment refuses where it points. The message says why.",
+    details: [
+      {
+        key: 'reason',
+        meaning: 'why the URL was refused',
+      },
+    ],
+  },
+  'destination-secret-not-found': {
+    description:
+      "A secret the destination names in `urlRef` or `secretRef` doesn't exist. Store the secret first, then save the destination.",
+    details: [
+      {
+        key: 'secretRef',
+        meaning: 'the secret reference that was not found (name and environment)',
+      },
+    ],
+  },
+  'destination-secret-too-weak': {
+    description:
+      "A `webhook` destination's signing secret is too weak: it must be `whsec_` followed by base64 of at least 24 random bytes. `POST /v1/webhook-endpoints/generate-secret` makes a valid one.",
+    details: [
+      {
+        key: 'secretRef',
+        meaning: 'the secret reference that was too weak (name and environment)',
+      },
+    ],
+  },
   'connection-app-not-found': {
     description:
       'No app registration with that id in the workspace, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
@@ -4230,7 +4486,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-account-mismatch': {
     description:
-      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account.",
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account. A reconnect of a number (`texts`) that names another number is refused the same way, and the message names the connection's number.",
     details: [],
   },
   'connection-label-taken': {
@@ -4274,12 +4530,74 @@ export const ERROR_ENTRIES = {
   },
   'connection-removing': {
     description:
-      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end, such as a number whose old inbound couldn't be put back. Disconnect it again to finish, then connect.",
     details: [],
+  },
+  'inbound-in-use': {
+    description:
+      "A connect of a number (`texts`) whose texts go somewhere else today: a webhook, or another messaging profile of the business. Connecting moves the number onto Kindgi's messaging profile, so its texts come to Kindgi, and that profile's outbound settings then apply. To go ahead, send it again with `replaceInbound: true`; disconnecting puts the old inbound back. Nothing is stored.",
+    details: [
+      {
+        key: 'host',
+        meaning: "the host of the webhook the number's texts go to, when there is one",
+      },
+      {
+        key: 'profile',
+        meaning:
+          'the name of the messaging profile the number is on, when there is no webhook; exactly one of `host` and `profile` is set',
+      },
+    ],
+    seeAlso: ['POST /v1/connections'],
+  },
+  'number-in-use': {
+    description:
+      "A connect of a number (`texts`) that's already live in another environment of the registration, or under another texts registration of the workspace (two on one provider account). A number is connected in one place at a time: disconnect it there first. Nothing is stored.",
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration the number is live under',
+      },
+      {
+        key: 'envName',
+        meaning: 'the environment the number is live in',
+      },
+    ],
+    seeAlso: ['POST /v1/connections', 'DELETE /v1/connections/{connectionId}'],
+  },
+  'inbound-restore-failed': {
+    description:
+      "A disconnect of a number (`texts`), or a registration's removal with its connections, couldn't put the number's old inbound back at the provider. The connection stays `removing`, and the registration stays. Disconnect again to retry; if you've pointed the number elsewhere yourself, disconnect with `skipInboundRestore=true`, which drops what was kept without putting it back.",
+    details: [
+      {
+        key: 'host',
+        meaning: 'the host of the webhook it was putting back, when there was one',
+      },
+      {
+        key: 'profile',
+        meaning:
+          'the name of the messaging profile it was putting the number back on, when there was no webhook; neither is set when Kindgi kept nothing to put back',
+      },
+    ],
+    seeAlso: ['DELETE /v1/connections/{connectionId}', 'DELETE /v1/connection-apps/{appId}'],
+  },
+  'connection-key-in-use': {
+    description:
+      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger, destination or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: ['POST /v1/connection-apps', 'PATCH /v1/connection-apps/{appId}'],
   },
   'connection-app-refused': {
     description:
-      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. For a number (`texts`), the texting provider refused the registration's API key or the number's lookup: the message gives the provider's code. Start the connect again.",
     details: [],
   },
   'connection-store-failed': {
@@ -4294,6 +4612,16 @@ export const ERROR_ENTRIES = {
   },
   'connection-notice-unavailable': {
     description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
+  },
+  'texts-inbound-refused': {
+    description:
+      "A texting provider's request to `/v1/texts-inbound/{tenantId}/{appId}` didn't prove its sender: a delivery, or a handshake. It's one answer for every reason, such as an unknown workspace or registration, a signature that doesn't check out, or a body over the cap, so the sender learns nothing from it.",
+    details: [],
+  },
+  'texts-inbound-unavailable': {
+    description:
+      "The server couldn't check or take a texting provider's texts just now. The provider sends them again.",
     details: [],
   },
   'token-mint-failed': {
