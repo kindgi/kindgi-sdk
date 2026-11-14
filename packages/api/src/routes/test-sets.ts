@@ -9,6 +9,7 @@ import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import {
+  type HeldProjects,
   type ItemRights,
   type ItemServing,
   heldProjects,
@@ -36,6 +37,29 @@ import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+
+/**
+ * Where the hold without a store reads a test set's projects
+ * (`HeldProjects`): the host's binding, else the project its newest
+ * version records. No registry: none recorded.
+ */
+export function heldTestSetProjects(
+  binding: Pick<TestSetRegistryBinding, 'listVersions'> | undefined,
+  serving: ItemServing | undefined,
+): HeldProjects {
+  return heldProjects(serving, 'test_set', async (c, id) =>
+    binding === undefined
+      ? []
+      : recordedProjects(
+          binding.listVersions({
+            tenantId: c.get('tenantId') as TenantId,
+            testSetId: id,
+            limit: 1,
+            includeTombstoned: true,
+          }),
+        ),
+  );
+}
 
 /**
  * Evaluation-test set resource routes — part of the admin control plane.
@@ -123,16 +147,7 @@ export function testSetsRouter(
         id: (c) => c.req.param('testSetId') ?? '',
         today: (c) => (startsRun(c) ? undefined : 'admin'),
         check: itemPathCheck,
-        held: heldProjects(itemServing, 'test_set', (c, id) =>
-          recordedProjects(
-            binding.listVersions({
-              tenantId: c.get('tenantId') as TenantId,
-              testSetId: id,
-              limit: 1,
-              includeTombstoned: true,
-            }),
-          ),
-        ),
+        held: heldTestSetProjects(binding, itemServing),
       }),
     );
   }

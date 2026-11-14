@@ -36,7 +36,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { personWideRefusal } from '../middleware/key-project.js';
+import { limitedCallerRefusal, personWideRefusal } from '../middleware/key-project.js';
 import {
   type ConnectionKeys,
   type IdentityProviderKeys,
@@ -886,23 +886,29 @@ export function connectionChoicesRouter(
 
   /**
    * Nothing, when the caller may remove the choice: a person's is theirs
-   * alone, the company's a project admin's. Else the answer.
+   * alone, the company's a project admin's; and without a store, a
+   * project-limited key's or session's is held where a store refuses it,
+   * in another project. Else the answer.
    */
   const notAllowedToRemove = async (
     c: Context<AppEnv>,
     choice: ConnectionChoiceRecord,
     choiceId: string,
   ): Promise<Response | undefined> => {
+    const projectId = choice.projectId as unknown as string;
+    const held = () =>
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'read', ref('project', projectId), 'the connection choice')
+        : undefined;
     if (choice.person !== undefined) {
       // A person's choice is theirs alone: to anyone else it isn't there.
       const caller = callerPrincipal(c);
       if (caller?.kind !== 'user' || caller.userId !== choice.person.userId) {
         return choiceNotFound(c, choiceId);
       }
-      return undefined;
+      return held();
     }
-    const projectId = choice.projectId as unknown as string;
-    return notAdmin(c, projectId, 'Removing a connection choice');
+    return (await notAdmin(c, projectId, 'Removing a connection choice')) ?? held();
   };
 
   r.get('/', async (c) => {

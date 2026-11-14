@@ -27,6 +27,7 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import {
+  type HeldProjects,
   type ItemCheck,
   type ItemRights,
   type ItemServing,
@@ -1206,6 +1207,22 @@ export async function agentOwnProject(
   });
   const projectId = page.data[0]?.projectId;
   return projectId !== undefined ? [projectId] : [];
+}
+
+/**
+ * Where the hold without a store reads an agent's projects, for a route
+ * of another router (`HeldProjects`): the host's binding, else its own
+ * project (`agentOwnProject`). No registry: none recorded.
+ */
+export function heldAgentProjects(
+  binding: Pick<AgentRegistryBinding, 'headExists' | 'listVersions'> | undefined,
+  serving: ItemServing | undefined,
+): HeldProjects {
+  return heldProjects(serving, 'agent', async (c, id) =>
+    binding === undefined
+      ? []
+      : agentOwnProject(binding, c.get('tenantId') as TenantId, id as AgentId),
+  );
 }
 
 /**

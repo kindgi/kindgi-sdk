@@ -106,7 +106,7 @@ import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { holdLimitedCaller } from '../middleware/key-project.js';
+import { holdLimitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
@@ -1764,7 +1764,11 @@ export function deploymentsRouter(
     }
     const deployment = located.deployment;
     const scope = deploymentSecretScope(deployment.tenantId, deployment.projectId);
-    const refused = await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
+    // Without a store, a project-limited key's is held where a store refuses it.
+    const refused =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'admin', scopeResourceRef(scope, tenantId), 'the deployment')
+        : await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
     if (refused !== undefined) return refused;
 
     let body: unknown;
