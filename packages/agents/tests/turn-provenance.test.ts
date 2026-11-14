@@ -14,18 +14,28 @@ import { describe, expect, test } from 'vitest';
 
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
+import { WaitpointCancelledError } from '@kindgi/handler';
 import type { NodeContext } from '@kindgi/handler';
 import { type Provenance, type ProvenanceBuilder, newBuilder } from '@kindgi/provenance';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
-import type { ProvenanceId, RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
+import type {
+  NodeId,
+  ProvenanceId,
+  RunId,
+  Semver,
+  TenantId,
+  Timestamp,
+  ToolId,
+} from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
+import { buildSetupHandler } from '../src/handlers/setup.js';
 import { addRetrievalNodes } from '../src/handlers/turn-provenance.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type {
@@ -262,15 +272,21 @@ describe('a turn resumed after a tool-call approval', () => {
     expect(dag.nodes.find((n) => n.id === 'model-call:2')).toMatchObject({
       kind: 'model-call',
       timestamp: AT,
+      actor: 'agent:pack.agent@1.0.0',
       modelVersion: 'p/p-model',
       attributes: { step: 2, callId: 'call-2', providerId: 'p', model: 'p-model' },
     });
-    expect(dag.nodes.find((n) => n.id === 'tool-call:c1')?.attributes).toEqual({
-      toolId: 'pack.lookup',
-      invocationId: 'c1',
-      toolVersion: '1.0.0',
-      toolVersionRange: '^1.0.0',
+    expect(dag.nodes.find((n) => n.id === 'tool-call:c1')).toMatchObject({
+      actor: 'agent:pack.agent@1.0.0',
+      attributes: {
+        toolId: 'pack.lookup',
+        invocationId: 'c1',
+        toolVersion: '1.0.0',
+        toolVersionRange: '^1.0.0',
+      },
     });
+    // The tool's result is the tool's, not the agent's.
+    expect(dag.nodes.find((n) => n.id === 'tool-result:c1')?.actor).toBeUndefined();
     expect(dag.edges).toEqual([
       edge('retrieval:fact-1', 'influenced-by', 'input:3'),
       edge('model-call:1', 'caused-by', 'input:3'),
@@ -290,6 +306,12 @@ describe('a turn resumed after a tool-call approval', () => {
     const dag = ctx.provenance?.snapshot() as Provenance;
     for (const id of ['tool-call:c2', 'tool-result:c2', 'tool-call:c3', 'tool-result:c3']) {
       expect(dag.nodes.map((n) => n.id)).toContain(id);
+    }
+    for (const id of ['c2', 'c3']) {
+      expect(dag.nodes.find((n) => n.id === `tool-call:${id}`)?.actor).toBe(
+        'agent:pack.agent@1.0.0',
+      );
+      expect(dag.nodes.find((n) => n.id === `tool-result:${id}`)?.actor).toBeUndefined();
     }
     expect(dag.edges).toEqual(
       expect.arrayContaining([
@@ -347,6 +369,7 @@ describe("a model call's provenance", () => {
       testNodeContext({ runId }),
     );
     const dag = provenance.snapshot();
+    expect(dag.nodes.find((n) => n.id === 'model-call:3')?.actor).toBe('agent:pack.agent@1.0.0');
     expect(dag.edges.filter((e) => e.from === 'model-call:3')).toEqual([
       edge('model-call:3', 'caused-by', 'input:3'),
       edge('model-call:3', 'influenced-by', 'tool-result:c1'),
@@ -440,7 +463,7 @@ describe("a tool call's approval in provenance", () => {
       id: 'tool-hitl-gate-wait:c2',
       kind: 'wait',
       timestamp: '2026-10-01T00:00:03Z',
-      actor: 'agent:pack.agent',
+      actor: 'agent:pack.agent@1.0.0',
       attributes: { gate: 'tool-call', invocationId: 'c2', waitTokenId: 'wait-c2' },
     });
     expect(dag.nodes.find((n) => n.id === 'tool-hitl-gate-resume:c2')).toEqual({
@@ -490,6 +513,66 @@ describe("a tool call's approval in provenance", () => {
     await rerunParkedStep(ctx, { decided: 'approve' });
     const dag = ctx.provenance?.snapshot() as Provenance;
     expect(dag.nodes.filter((n) => n.kind === 'wait' || n.kind === 'resume')).toEqual([]);
+  });
+});
+
+/** The turn's setup at a conversation past its `afterTurns`, its wait ending as `wait` does. */
+async function sessionGateDag(wait: () => Promise<unknown>): Promise<Provenance> {
+  const a = { ...agent(), conversationPolicy: { hitl: { afterTurns: 2 } } } as Agent;
+  const provenance = builder();
+  const ctx = {
+    input: { tenantId, projectId: 'p-1', conversationId: 'conv-1', agent: a },
+    bindings: {
+      runSnapshotBinding: { write: async () => ({ kind: 'ok', value: undefined }) },
+      conversationBinding: {
+        getConversation: async () => ({
+          kind: 'ok',
+          value: { id: 'conv-1', agentId: a.id, agentVersion: a.version, turnCount: 3 },
+        }),
+      },
+      hitl: { enqueue: async () => undefined },
+      provenance: { newBuilder: () => provenance },
+    },
+  } as unknown as TurnContext;
+  // A rejection or a cancel ends the turn at the gate, its wait and resume nodes added.
+  await buildSetupHandler(ctx)(
+    {},
+    testNodeContext({ runId, waitForToken: wait as NodeContext['waitForToken'] }),
+  ).catch(() => undefined);
+  return provenance.snapshot();
+}
+
+describe("a session gate's approval in provenance", () => {
+  test('its wait names the agent and its version; its resume, whoever decided', async () => {
+    const dag = await sessionGateDag(async () => ({ decided: 'reject', decidedBy: 'user:u-1' }));
+    expect(dag.nodes.find((n) => n.id === 'session-hitl-gate-wait:3')).toMatchObject({
+      kind: 'wait',
+      actor: 'agent:pack.agent@1.0.0',
+    });
+    expect(dag.nodes.find((n) => n.id === 'session-hitl-gate-resume:3')).toMatchObject({
+      kind: 'resume',
+      actor: 'user:u-1',
+      attributes: { gate: 'session-hitl', decision: 'reject' },
+    });
+  });
+
+  test('a decision recorded before it named the decider: its resume names no one, as a tool gate’s', async () => {
+    const dag = await sessionGateDag(async () => ({ decided: 'reject' }));
+    const resume = dag.nodes.find((n) => n.id === 'session-hitl-gate-resume:3');
+    expect(resume).toMatchObject({ kind: 'resume', attributes: { decision: 'reject' } });
+    expect(resume).not.toHaveProperty('actor');
+  });
+
+  test('a cancelled wait: its resume names no one', async () => {
+    const dag = await sessionGateDag(async () => {
+      throw new WaitpointCancelledError('tok-1', 'n' as NodeId, 'run-cancelled');
+    });
+    const resume = dag.nodes.find((n) => n.id === 'session-hitl-gate-resume:3');
+    expect(resume).toMatchObject({
+      kind: 'resume',
+      attributes: { gate: 'session-hitl', decision: 'cancelled', reason: 'run-cancelled' },
+    });
+    expect(resume).not.toHaveProperty('actor');
   });
 });
 
