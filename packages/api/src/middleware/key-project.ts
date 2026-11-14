@@ -21,7 +21,9 @@ const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
  * one there, and the route holds a limited caller itself
  * (`literalProjectRefusal`). Any other request, `/v1/projects/default/…` or
  * a write to `/v1/projects/default`, names the project `default`, as it
- * would any id. A test holds this list to the routes the app mounts.
+ * would any id. A test holds this list, with the literal routes a limited
+ * caller is refused on (`GET /v1/projects/deleted`, a workspace admin's), to
+ * the routes the app mounts.
  */
 export const PROJECT_LITERAL_READS: readonly string[] = ['/v1/projects/default'];
 
