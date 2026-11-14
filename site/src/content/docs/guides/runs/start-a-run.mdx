@@ -307,8 +307,10 @@ completed {status=held, orderId=A-200}
 </Tabs>
 
 `start` returns when the run completes, fails or waits for something (a
-person's approval, for example: `status` is then `suspended`). Use it when the
-run is short and the caller needs the answer.
+person's approval, for example: `status` is then `suspended`). When a read
+fails part-way, it returns with the run still `running` and no `output`: the
+run goes on at a later resume, so [follow it](../follow-a-run/). Use it when
+the run is short and the caller needs the answer.
 
 Each client waits for an answer up to its timeout: 30 seconds in TypeScript
 (`timeoutMs`, on `createClient` or on one call to `start`), 60 seconds in

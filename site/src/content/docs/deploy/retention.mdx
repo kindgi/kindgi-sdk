@@ -536,7 +536,7 @@ then every hour, in the tenants it serves:
 | Audit events | Kept for |
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
-| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
+| Run outcomes (`run-outcome`), test runs' ends (`test-run`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
 | Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access, connections and the choices of them, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
@@ -545,9 +545,10 @@ later):
 
 - **A run's end** (`run-outcome`): one record for each run, however it
   ends. It's written with the end itself, so no run ends without one;
-  runs that ended before the upgrade have none. Child runs, replays, test
-  runs and dry runs each have theirs, and the record says which. It says
-  how the run ended, and its only text is the run's failure message.
+  runs that ended before the upgrade have none. Child runs, replays, the
+  runs of a test run and dry runs each have theirs, and the record says
+  which. It says how the run ended, and its only text is the run's
+  failure message.
 - **A guardrail violation** (`guardrail-violation`): one record for each
   guardrail that blocked a step's answer, or let it through with a
   violation, for each run and step. It holds the check's ids and what it
@@ -564,6 +565,29 @@ describes:
   and SHA-256, never the answer or the link.
 - **A held answer dropped** (`wait-token-discarded`): one record for each
   answer held for a wait the run never reached, with the answer's SHA-256.
+
+A test run's end is recorded (runtime 0.7.0 or later):
+
+- **A test run's end** (`test-run`): one record for each
+  [test run](../../guides/improve/compare-an-agent-version/), however it
+  ends: completed, failed (one the runtime interrupted, too) or cancelled.
+  It's written with the end itself, so no test run ends without one; test
+  runs that ended before the upgrade have none. It says how the test run
+  ended and whether it was a dry run, names the test set and its version
+  and the agent or flow it tried, and holds the result's summary numbers,
+  such as how many cases passed. It never holds a case, an answer or an
+  error message.
+
+A delete of an env value that failed is recorded (runtime 0.7.0 or later):
+
+- **A failed delete** (`env-deleted`, outcome `failed`): one record when
+  `DELETE /v1/env/{name}`, or the system route
+  `DELETE /v1/system/tenants/{tenantId}/env/{name}`, couldn't remove the
+  value because the runtime's storage failed. Its `errorCode` is
+  `internal-server-error`, the 500 the caller got. Like
+  every write's record, it names the caller, the request and the names, and
+  the system route's is marked `cloudSecret`. It never holds the error
+  message. A delete that finds nothing to remove isn't recorded.
 
 ### On legal hold
 

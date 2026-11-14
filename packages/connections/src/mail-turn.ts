@@ -199,14 +199,18 @@ function recipients(mail: MailMessage): string {
 
 /**
  * A mail's own text, its lines that would read as this message's own
- * `---` lines set in by a space (invisible format characters before the
- * `---` count for nothing), then its attachments, numbered from 1 as the
- * attachment tools take them.
+ * lines set in by a space (`OWN_LINE`, `OWN_FIELD`), then its
+ * attachments, numbered from 1 as the attachment tools take them.
  */
 function mailText(m: MailMessage): string[] {
   const empty = m.body.trim() === '';
-  const body = empty ? (m.bodyCut ? [] : ['(no text)']) : m.body.split(LINE_BREAK);
-  const lines = body.map((line) => (FORGED_LINE.test(line) ? ` ${line}` : line));
+  const lines = empty
+    ? m.bodyCut
+      ? []
+      : ['(no text)']
+    : m.body
+        .split(LINE_BREAK)
+        .map((line) => (OWN_LINE.test(line) || OWN_FIELD.test(line) ? ` ${line}` : line));
   if (m.bodyCut) lines.push('[the rest of this mail is cut]');
   const more = Math.max(m.attachments.length - LIST_MAX, 0) + (m.attachmentsLeftOut ?? 0);
   if (m.attachments.length > 0 || more > 0) {
@@ -263,12 +267,22 @@ const LINE_BREAK = /\r\n|[\n\v\f\r\u0085\u2028\u2029]/;
 const LINE_BREAKS = /(?:\r\n|[\n\v\f\r\u0085\u2028\u2029])+/g;
 
 /**
- * A line that would read as one of this message's own: `---` after
- * nothing but characters that show as nothing (Unicode's format
- * characters, Cf: U+200B, U+FEFF, U+00AD, …; and its default ignorables,
- * which add fillers such as U+3164 and U+115F, and the variation selectors).
+ * A line that would read as one of this message's own: a mail's first
+ * line (`---`), or the line that says its text is cut or that it has
+ * none, after nothing but characters that show as nothing (Unicode's
+ * format characters, Cf: U+200B, U+FEFF, U+00AD, …; and its default
+ * ignorables, which add fillers such as U+3164 and U+115F, and the
+ * variation selectors).
  */
-const FORGED_LINE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]*---/u;
+const OWN_LINE =
+  /^[\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:---|\[the rest of this mail is cut\]|\(no text\))/u;
+
+/**
+ * A line that would read as the new mail's To, Cc or Reply-To, or as a
+ * mail's attachments, after the same: in any case, with or without a
+ * space after the colon, as a reader would take it.
+ */
+const OWN_FIELD = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:to|cc|reply-to|attachments):/iu;
 
 /** A header's value on one line, cut at `max` characters: a value can hold line breaks. */
 function headerText(text: string, max: number): string {

@@ -37,7 +37,7 @@ export type {
   LicenseStatusBinding,
   LicenseUsage,
 } from './routes/license.js';
-export type { RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
+export type { RuntimeConnections, RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';
@@ -103,6 +103,20 @@ export {
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
+export {
+  KEPT_REPO_ERASURES_PAGE_MAX,
+  KEPT_REPO_PURGE_REASONS,
+  KEPT_REPO_RULINGS_MAX,
+  KEPT_REPO_STATES,
+  type KeptRepoErasureOutcome,
+  type KeptRepoId,
+  type KeptRepoOpenErasure,
+  type KeptRepoPurgeReason,
+  type KeptRepoRuling,
+  type KeptRepoState,
+  type KeptRepoStateName,
+  type SystemKeptReposBinding,
+} from './routes/system-kept-repos.js';
 export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
@@ -155,6 +169,11 @@ export type {
   TenantRateLimitName,
 } from './middleware/tenant-limits.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
+export type {
+  RunUploadCheck,
+  RunUploadCheckInput,
+  RunUploadLimiter,
+} from './run-upload-limiter.js';
 export {
   imagePrefixesOverlap,
   imageRefWithin,
@@ -682,6 +701,8 @@ export {
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_READ_ONLY_TOOLS_MAX,
+  MCP_READ_ONLY_TOOL_NAME_MAX,
   MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
   mcpAuthSecretRefs,
@@ -1412,6 +1433,7 @@ export {
   guardProviderKeys,
   providerKeyRefusal,
   providerKeysOf,
+  refuseSecretNames,
   usersOfSecret,
 } from './provider-keys.js';
 export type {

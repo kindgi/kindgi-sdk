@@ -74,6 +74,10 @@ import {
   makeSystemDeploymentsClient,
 } from './resources/system-deployments.js';
 import { type SystemEnvClient, makeSystemEnvClient } from './resources/system-env.js';
+import {
+  type SystemKeptReposClient,
+  makeSystemKeptReposClient,
+} from './resources/system-kept-repos.js';
 import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -162,7 +166,11 @@ export interface KindgiClient {
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
   readonly license: LicenseClient;
-  /** Which runtime answers: its version, how many tenants it serves, and whether it runs in development mode. */
+  /**
+   * Which runtime answers: its version, how many tenants it serves, whether
+   * it runs in development mode, and whether it serves connections to other
+   * apps.
+   */
   readonly runtime: RuntimeClient;
   /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
   readonly systemKeys: SystemKeysClient;
@@ -177,6 +185,12 @@ export interface KindgiClient {
    * reads from its cloud. System keys with `system:env-refs` only.
    */
   readonly systemEnv: SystemEnvClient;
+  /**
+   * Kept repos (the repos a store keeps for projects without a GitHub
+   * repo): the store's reconcile, and a repo's erasure. System keys with
+   * `system:kept-repos` or `system:kept-repos:erase` only.
+   */
+  readonly systemKeptRepos: SystemKeptReposClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
   /** Usage across tenants, aggregated. System keys only. */
@@ -187,6 +201,7 @@ export interface KindgiClient {
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
+  /** @deprecated Use `client.files`. A later minor release removes it, announced in advance. */
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
   readonly connectionEntries: ConnectionEntriesClient;
@@ -266,6 +281,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
     systemEnv: makeSystemEnvClient(transport),
+    systemKeptRepos: makeSystemKeptReposClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
     systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),

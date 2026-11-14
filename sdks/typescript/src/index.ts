@@ -500,6 +500,17 @@ export type {
   SystemEnvClient,
 } from './resources/system-env.js';
 export type {
+  KeptRepoErasurePage,
+  KeptRepoId,
+  KeptRepoOpenErasure,
+  KeptRepoPurgeReason,
+  KeptRepoRef,
+  KeptRepoRuling,
+  KeptRepoRulings,
+  KeptRepoState,
+  SystemKeptReposClient,
+} from './resources/system-kept-repos.js';
+export type {
   CreatedSystemTenant,
   SystemTenant,
   SystemTenantSpec,

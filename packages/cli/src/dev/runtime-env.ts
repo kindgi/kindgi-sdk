@@ -12,6 +12,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { TENANT_EGRESS_NO_PROXY_VAR, TENANT_EGRESS_PROXY_VAR } from '@kindgi/env-schema';
 import { LOCAL_ENV_NAME, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { writePrivateFile } from '../private-file.js';
@@ -71,6 +72,11 @@ export interface RuntimeEnvInput {
    */
   readonly log?: Readonly<Record<string, string>>;
   /**
+   * `KINDGI_TENANT_EGRESS_PROXY` and `KINDGI_TENANT_EGRESS_NO_PROXY`, as
+   * `kindgi dev` has them (`tenantEgressOf`).
+   */
+  readonly tenantEgress?: Readonly<Record<string, string>>;
+  /**
    * Values from the shell for `${VAR}` references the pack's env files
    * make and don't define. On the machine the server reads them from the
    * shell; in the container this is its shell.
@@ -117,6 +123,7 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
     ...(input.googleCredentialsPath !== undefined && {
       GOOGLE_APPLICATION_CREDENTIALS: input.googleCredentialsPath,
     }),
+    ...input.tenantEgress,
   };
   for (const [name, value] of Object.entries(input.shellReferences)) {
     // The runtime's own settings come from kindgi dev, never from a
@@ -147,6 +154,31 @@ export async function shellReferencesOf(input: {
     if (d.kind !== 'unresolved') continue;
     const value = input.shellEnv[d.ref];
     if (value !== undefined) out[d.ref] = value;
+  }
+  return out;
+}
+
+/** The tenant egress proxy settings `kindgi dev` hands on from its own environment. */
+const TENANT_EGRESS_NAMES: readonly string[] = [
+  TENANT_EGRESS_PROXY_VAR,
+  TENANT_EGRESS_NO_PROXY_VAR,
+];
+
+/**
+ * The runtime's tenant egress proxy, for a machine whose network lets
+ * traffic out only through one: `KINDGI_TENANT_EGRESS_PROXY` and
+ * `KINDGI_TENANT_EGRESS_NO_PROXY` from `kindgi dev`'s own environment,
+ * each only when set and not empty, as they are. The runtime checks them
+ * when it starts, and refuses a proxy URL that carries credentials. They
+ * go only into `runtime.env`, never into what `kindgi dev` prints or logs.
+ */
+export function tenantEgressOf(
+  hostEnv: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of TENANT_EGRESS_NAMES) {
+    const value = hostEnv[name];
+    if (value !== undefined && value !== '') out[name] = value;
   }
   return out;
 }

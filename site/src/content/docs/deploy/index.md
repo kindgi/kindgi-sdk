@@ -17,13 +17,17 @@ Either way, you build and test the pack on your machine with `kindgi dev`.
 
 ## Kindgi Cloud
 
-We run it for you. In private preview.
+We run it for you.
 
+- **[Start on Kindgi Cloud](../hosted/start-on-kindgi-cloud/):** the steps
+  from signing up to your first agent live, in order.
 - **[Deploy your agent to Kindgi Cloud](../hosted/deploy-your-agent/):**
   sign the CLI in, sign the pack, give it your model key, deploy it, try it
   and go live. Then change an agent once it's live.
 - **[Limits](../hosted/limits/):** the limits every Kindgi Cloud account
   has, what a call or a run sees past each one, and how to ask for more.
+- **[Your plan and billing](../hosted/plans-and-billing/):** who sees
+  them, your card and invoices, the billing contact, and how to stop paying.
 
 ## Self-hosted
 

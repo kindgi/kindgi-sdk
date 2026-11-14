@@ -87,6 +87,12 @@ import {
   PACK_ENV_PROBLEM_CODES,
 } from '../pack-env.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
+import {
+  KEPT_REPO_ERASURES_PAGE_MAX,
+  KEPT_REPO_PURGE_REASONS,
+  KEPT_REPO_RULINGS_MAX,
+  KEPT_REPO_STATES,
+} from '../routes/system-kept-repos.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
@@ -1353,7 +1359,7 @@ export const StartRunOptionsSchema: JsonSchema = {
     wait: {
       type: 'boolean',
       description:
-        'When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends.',
+        'When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`).',
     },
   },
 };
@@ -1994,7 +2000,8 @@ export const SystemTenantPurgeSchema: JsonSchema = {
     },
     leftBecause: {
       type: 'string',
-      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
+      description:
+        "Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase.",
     },
   },
 };
@@ -3261,6 +3268,22 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const RuntimeConnectionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['on'],
+  description:
+    'Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.',
+  properties: {
+    on: { type: 'boolean', description: 'The runtime serves connections.' },
+    reason: {
+      type: 'string',
+      description:
+        "Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says.",
+    },
+  },
+};
+
 export const RuntimeInfoSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3280,6 +3303,11 @@ export const RuntimeInfoSchema: JsonSchema = {
     development: {
       type: 'boolean',
       description: 'The runtime runs in development mode, which allows development-only settings.',
+    },
+    connections: {
+      $ref: '#/components/schemas/RuntimeConnections',
+      description:
+        "Whether the runtime serves connections to other apps. Absent when the runtime doesn't say.",
     },
   },
 };
@@ -8820,6 +8848,15 @@ export const MCPEndpointSchema: JsonSchema = {
       description:
         "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
+    readOnlyTools: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 256,
+      uniqueItems: true,
+      items: { type: 'string', minLength: 1, maxLength: 128 },
+      description:
+        "The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing.",
+    },
     secretScopes: SecretScopesProperty,
   },
 };
@@ -11223,6 +11260,12 @@ export const SignInOptionsSchema: JsonSchema = {
         privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
     },
+    signUpUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'The deployment\'s own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.',
+    },
     links: {
       type: 'array',
       maxItems: 8,
@@ -11255,15 +11298,18 @@ export const SignInEventSchema: JsonSchema = {
         'second-factor-set-up',
         'second-factor-removed',
         'recovery-codes-replaced',
+        'chat-app-connected',
+        'chat-app-refresh-refused',
+        'chat-app-disconnected',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`; `chat-app-connected`, `chat-app-refresh-refused` (with `reason`) and `chat-app-disconnected` (a chat app this person connected, whose renewal was refused, or that they disconnected; `clientId` is the chat app). Never a key or a code.',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
       type: 'string',
       description:
-        'The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.',
+        'The person the event is about: who signed in or out, whose sessions ended, whom a link was for, or whose chat app it was. Absent on a refusal that names no one.',
     },
     method: {
       type: 'string',
@@ -11274,11 +11320,18 @@ export const SignInEventSchema: JsonSchema = {
       type: 'string',
       description: "The client's address, as the runtime trusts it.",
     },
-    reason: { type: 'string', description: 'Why a sign-in was refused, or which limit held.' },
+    reason: {
+      type: 'string',
+      description: "Why a sign-in or a chat app's renewal was refused, or which limit held.",
+    },
     sessionId: { type: 'string' },
     byUserId: {
       type: 'string',
       description: "Who acted, when it isn't `userId`: the admin who ended this person's sessions.",
+    },
+    clientId: {
+      type: 'string',
+      description: 'The chat app, on a `chat-app-*` kind: its client id.',
     },
   },
 };
@@ -11708,7 +11761,7 @@ export const AuthSettingsPatchSchema: JsonSchema = {
 
 export const UnregisterUserResultSchema: JsonSchema = {
   description:
-    'A removed person, and what removing them took away (each 0 when they were already removed).',
+    'A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).',
   type: 'object',
   additionalProperties: false,
   required: ['user', 'keysRevoked', 'sessionsRevoked', 'grantsRemoved'],
@@ -14488,6 +14541,140 @@ export const TenantProductionAllowedSchema: JsonSchema = {
   },
 };
 
+const KEPT_REPO_PURGE_REASON: JsonSchema = {
+  type: 'string',
+  enum: [...KEPT_REPO_PURGE_REASONS],
+  description:
+    'Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).',
+};
+
+export const KeptRepoIdSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A project's kept repo, by its tenant and project ids.",
+  required: ['tenantId', 'projectId'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+  },
+};
+
+export const KeptRepoRulingsBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ids'],
+  properties: {
+    ids: {
+      type: 'array',
+      maxItems: KEPT_REPO_RULINGS_MAX,
+      items: ref('KeptRepoId'),
+      description: `The kept repos to rule on, up to ${KEPT_REPO_RULINGS_MAX}. They may span tenants, and repeat.`,
+    },
+  },
+};
+
+export const KeptRepoRulingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.',
+  required: ['tenantId', 'projectId', 'ruling'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    ruling: { type: 'string', enum: ['keep', 'purge'] },
+    mark: {
+      type: 'string',
+      enum: ['none', 'deleted', 'moved', 'held'],
+      description:
+        "With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time).",
+    },
+    reason: KEPT_REPO_PURGE_REASON,
+    recorded: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        "With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`.",
+    },
+  },
+};
+
+export const KeptRepoRulingsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['rulings'],
+  properties: {
+    rulings: {
+      type: 'array',
+      items: ref('KeptRepoRuling'),
+      description: 'One ruling for each id, in the order given.',
+    },
+  },
+};
+
+export const KeptRepoOpenErasureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "An unfinished erasure of a project's kept repo.",
+  required: ['tenantId', 'projectId', 'since'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    since: { type: 'string', format: 'date-time', description: 'When it was requested.' },
+  },
+};
+
+export const KeptRepoErasurePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      maxItems: KEPT_REPO_ERASURES_PAGE_MAX,
+      items: ref('KeptRepoOpenErasure'),
+      description: 'By tenant id, then project id.',
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'Present when there are more: pass it as `cursor` for the next page.',
+    },
+  },
+};
+
+export const KeptRepoPurgedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reason'],
+  properties: { reason: KEPT_REPO_PURGE_REASON },
+};
+
+export const KeptRepoStateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A kept repo's state, as the runtime records it.",
+  required: ['state', 'since'],
+  properties: {
+    state: {
+      type: 'string',
+      enum: [...KEPT_REPO_STATES],
+      description:
+        "`live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it came to be in that state.',
+    },
+  },
+};
+
 export const TenantLimitsResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -15607,7 +15794,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.",
+        "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project.",
     },
     runAsServiceAccountId: {
       type: 'string',
@@ -16111,7 +16298,8 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project; absent: the workspace's default project.",
+      description:
+        "The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project.",
     },
     config: {
       type: 'object',
@@ -16401,7 +16589,8 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project. Absent → the workspace's default project.",
+      description:
+        "The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project.",
     },
     runAsServiceAccountId: {
       type: 'string',
@@ -17185,7 +17374,16 @@ export const ConnectionSchema: JsonSchema = {
     removedBy: { type: 'string' },
     removedReason: {
       type: 'string',
-      enum: ['disconnected', 'revoked-at-app', 'uninstalled', 'registration-removed', 'replaced'],
+      enum: [
+        'disconnected',
+        'revoked-at-app',
+        'uninstalled',
+        'registration-removed',
+        'replaced',
+        'owner-removed',
+      ],
+      description:
+        "Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).",
     },
     withdrawn: {
       type: 'string',
@@ -18278,6 +18476,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['RuntimeConnections', RuntimeConnectionsSchema],
   ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
@@ -18765,6 +18964,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
   ['TenantLimitsInUse', TenantLimitsInUseSchema],
+  ['KeptRepoId', KeptRepoIdSchema],
+  ['KeptRepoRulingsBody', KeptRepoRulingsBodySchema],
+  ['KeptRepoRuling', KeptRepoRulingSchema],
+  ['KeptRepoRulings', KeptRepoRulingsSchema],
+  ['KeptRepoOpenErasure', KeptRepoOpenErasureSchema],
+  ['KeptRepoErasurePage', KeptRepoErasurePageSchema],
+  ['KeptRepoPurgedBody', KeptRepoPurgedBodySchema],
+  ['KeptRepoState', KeptRepoStateSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

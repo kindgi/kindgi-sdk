@@ -26,9 +26,15 @@ import {
   googleCalendarEventsList,
   googleCalendarFreeBusy,
   googleCalendarSharedEventsList,
+  googleDriveFileCreate,
+  googleDriveFileGet,
+  googleDriveFilesList,
 } from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
+  oneDriveFileCreate,
+  oneDriveFilesList,
+  oneDriveSharedFilesList,
   outlookAttachmentGet,
   outlookCalendarCalendarsList,
   outlookCalendarEventCreate,
@@ -40,6 +46,7 @@ import {
   outlookMessagesList,
   outlookReply,
   outlookSend,
+  sharePointLibrariesList,
 } from '../src/microsoft-tools.js';
 
 /** Each tool as a pack includes it, and each mail tool for the company's mailbox too: `as` changes what it declares. */
@@ -104,6 +111,22 @@ const TOOLS = {
   outlookCalendarSharedEventsList: (id: string) => outlookCalendarSharedEventsList({ id }),
   'outlookCalendarSharedEventsList as company': (id: string) =>
     outlookCalendarSharedEventsList({ id, as: 'company' }),
+  googleDriveFilesList: (id: string) => googleDriveFilesList({ id }),
+  'googleDriveFilesList as company': (id: string) => googleDriveFilesList({ id, as: 'company' }),
+  googleDriveFileGet: (id: string) => googleDriveFileGet({ id }),
+  'googleDriveFileGet as company': (id: string) => googleDriveFileGet({ id, as: 'company' }),
+  googleDriveFileCreate: (id: string) => googleDriveFileCreate({ id }),
+  'googleDriveFileCreate as company': (id: string) => googleDriveFileCreate({ id, as: 'company' }),
+  oneDriveFilesList: (id: string) => oneDriveFilesList({ id }),
+  'oneDriveFilesList as company': (id: string) => oneDriveFilesList({ id, as: 'company' }),
+  oneDriveSharedFilesList: (id: string) => oneDriveSharedFilesList({ id }),
+  'oneDriveSharedFilesList as company': (id: string) =>
+    oneDriveSharedFilesList({ id, as: 'company' }),
+  oneDriveFileCreate: (id: string) => oneDriveFileCreate({ id }),
+  'oneDriveFileCreate as company': (id: string) => oneDriveFileCreate({ id, as: 'company' }),
+  sharePointLibrariesList: (id: string) => sharePointLibrariesList({ id }),
+  'sharePointLibrariesList as company': (id: string) =>
+    sharePointLibrariesList({ id, as: 'company' }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**

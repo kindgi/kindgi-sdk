@@ -81,6 +81,11 @@ Chat answers link to runs and waits in the console at your public address
 with `/console` after it, when the runtime serves the console itself. When
 your console runs elsewhere, chat answers carry no console links.
 
+A person's sign-in history (their page under **People**, and
+`GET /v1/audit/sign-ins?userId=`) also lists each chat app they connected,
+each refused renewal of one, and each disconnect (runtime 0.7.0 or later).
+In the API, `reason` says why a renewal was refused.
+
 ## Behind a proxy or load balancer
 
 Set `KINDGI_TRUSTED_PROXIES`, as
@@ -94,7 +99,10 @@ one count for each limit the runtime keeps per address:
 - **Signing in**, from people's browsers.
 - **Claude's token requests:** 100 every 10 seconds per address.
 - **Registering an app:** 10 an hour per address. claude.ai doesn't register
-  itself; other chat apps can.
+  itself; other chat apps can. A desktop app can register without saying what
+  kind of app it is when it sends people back to its own scheme, or over
+  `http` to `localhost`, `127.0.0.1` or `[::1]` (this needs runtime 0.7.0 or
+  later).
 
 ## How many people one Claude address serves
 
@@ -118,9 +126,10 @@ listed on
 - `/auth/oauth2/token` and `/auth/oauth2/register`
 - `/auth/jwks`
 
-Open only these to those addresses. People's browsers reach the rest of
-`/auth/` (signing in and the consent page) and the console from wherever they
-work, as they do without chat.
+Open only these to those addresses. That admits Claude only: a desktop chat
+app calls the same paths from people's own machines. People's browsers reach
+the rest of `/auth/` (signing in and the consent page) and the console from
+wherever they work, as they do without chat.
 
 The examples below use `160.79.104.0/21`. Anthropic can change its
 addresses, so take the current ones from that page.
@@ -194,3 +203,15 @@ server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
 It needs `network_mode = "direct"`, and `public_url` set to the load
 balancer's address.
+
+## Take a chat app away from someone
+
+A person disconnects their own chat apps on **My access** > **Chat apps**
+([Use Kindgi from Claude](../../../guides/chat/#disconnect)).
+With the runtime 0.7.0 or later, a tenant admin can disconnect one for
+them, from the person's page under
+[**People**](../../people-and-keys/#people). It stops acting for
+them at once, and they're emailed where the runtime sends mail. It isn't a
+block: they can connect it again. To keep someone out,
+[remove them from the workspace](../../people-and-keys/#remove-a-person),
+which stops every chat app of theirs.

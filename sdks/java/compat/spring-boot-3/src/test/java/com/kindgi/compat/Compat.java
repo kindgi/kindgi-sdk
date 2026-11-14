@@ -7,14 +7,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.kindgi.client.Kindgi;
 import com.kindgi.client.KindgiJson;
+import com.kindgi.client.models.Agent;
 import com.kindgi.client.models.TestRunBaseline;
 import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.PatchScheduleBody;
+import com.kindgi.client.models.PromptRef;
 import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartTestRunBody;
 import com.sun.net.httpserver.HttpServer;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 
 /** What the client must do in any app, whatever Jackson versions the app's build resolves. */
@@ -36,6 +40,38 @@ final class Compat {
     assertThat(KindgiJson.read("\"recorded\"", TestRunBaseline.class)).isEqualTo(TestRunBaseline.RECORDED);
     assertThat(KindgiJson.read("{\"pinned\":{}}", TestRunBaseline.class)).isInstanceOf(TestRunBaseline.WithPinned.class);
     assertThat(KindgiJson.write(PatchScheduleBody.builder().label(null).build())).isEqualTo("{\"label\":null}");
+  }
+
+  static final String PROMPT_REF = "{\"prompt\":\"acme.tone\",\"version\":\"^1.0.0\"}";
+  static final String AGENT_ID = "{\"agentId\":\"acme.bookkeeper\",\"version\":\"1.0.0\"}";
+  static final String AGENT =
+      "{\"id\":\"acme.bookkeeper\",\"version\":\"1.0.0\",\"name\":\"Bookkeeper\",\"instructions\":%s,"
+          + "\"capabilities\":[],\"tools\":[],\"retrieval\":[],\"guardrails\":[]}";
+  static final String TEST_RUN = "{\"projectId\":\"6f1c2e1a-1111-4222-8333-944455556668\",\"baseline\":%s}";
+
+  /** How the app's own mapper reads JSON to a type. */
+  interface AppRead {
+    Object read(String json, Class<?> type) throws Exception;
+  }
+
+  /**
+   * The app's own mapper reads an agent, its instructions a text or a prompt ref, and a test
+   * run's body with a baseline, a text or a version: unions told apart by text or by a required
+   * property. The client's shaded codec, which doesn't see the models' annotations, reads each
+   * to the same value.
+   */
+  static void appReadsLikeTheClient(AppRead app) throws Exception {
+    for (String instructions : List.of("\"You help.\"", PROMPT_REF)) {
+      String agent = AGENT.formatted(instructions);
+      assertThat(app.read(agent, Agent.class)).as(agent).isEqualTo(KindgiJson.read(agent, Agent.class));
+    }
+    assertThat(((Agent) app.read(AGENT.formatted(PROMPT_REF), Agent.class)).instructions()).isInstanceOf(PromptRef.class);
+    for (String baseline : List.of("\"recorded\"", AGENT_ID)) {
+      String body = TEST_RUN.formatted(baseline);
+      assertThat(app.read(body, StartTestRunBody.class)).as(body).isEqualTo(KindgiJson.read(body, StartTestRunBody.class));
+    }
+    assertThat(((StartTestRunBody) app.read(TEST_RUN.formatted(AGENT_ID), StartTestRunBody.class)).baseline())
+        .isInstanceOf(TestRunBaseline.WithAgentId.class);
   }
 
   static void clientCallsAServer() throws Exception {

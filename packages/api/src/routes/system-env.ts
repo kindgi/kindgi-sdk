@@ -12,6 +12,7 @@ import type {
   EnvCloudSecretBinding,
   EnvCloudSecretRecord,
   EnvCloudSecretSetOutcome,
+  EnvDeleteOutcome,
 } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -95,8 +96,22 @@ export function systemEnvRouter(options: {
       const at = whereFrom(c, tenant.id);
       if (at instanceof Response) return at;
       const key = { ...at, name: c.req.param('name') };
-      const outcome = await cloudSecrets.delete(key);
-      // Only a delete that removed something is recorded.
+      let outcome: EnvDeleteOutcome;
+      try {
+        outcome = await cloudSecrets.delete(key);
+      } catch (err) {
+        // As the env route's delete: recorded as failed, with the 500 the
+        // error handler answers, and rethrown to it.
+        await auditWrite(c, auditEvents, {
+          kind: 'env-deleted',
+          ...key,
+          outcome: 'failed',
+          errorCode: 'internal-server-error',
+          cloudSecret: true,
+        });
+        throw err;
+      }
+      // Of the deletes that answer, only one that removed something is recorded.
       if (outcome.deleted) {
         await auditWrite(c, auditEvents, {
           kind: 'env-deleted',

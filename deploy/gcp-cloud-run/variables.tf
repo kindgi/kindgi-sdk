@@ -565,3 +565,55 @@ variable "server_secret_env" {
     error_message = "server_secret_env: a name is upper-case letters, digits and underscores."
   }
 }
+
+# ---- renewing the license key (optional) ----------------------------------------
+
+variable "license_renewal_schedule" {
+  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job, scheduler or alerts; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output). README, step 8."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewal_schedule == "" || can(regex("^[0-9*,/-]+ [0-9*,/-]+ [0-9*,/?LW-]+ [0-9A-Za-z*,/-]+ [0-9A-Za-z*,/?L#-]+$", var.license_renewal_schedule))
+    error_message = "license_renewal_schedule: empty, or five cron fields (minute hour day month weekday), in UTC."
+  }
+}
+
+variable "license_renewer_secret" {
+  description = "The Secret Manager secret that holds this deployment's renewer key: the module creates it empty, `kindgi license enroll` adds it once (the license_enroll_command output), and renewing reads it. The server never reads it. Empty (the default): <name_prefix>-license-renewer."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewer_secret == "" || can(regex("^[A-Za-z0-9_-]{1,255}$", var.license_renewer_secret))
+    error_message = "license_renewer_secret: a secret id (letters, digits, - and _, up to 255)."
+  }
+}
+
+variable "license_usage_key_secret" {
+  description = "The Secret Manager secret, in this project, that holds a system key holding system:license alone, which you mint with the deployment's own token and keep there yourself, before the apply that names it (README, step 8). Terraform never holds the key. With it, the renewal job (license_renewal_schedule) reads it and renews with --runtime (the server) and --runtime-token (this secret), as the license_renew_command output does: renewing then carries counts of the deployment's use, and offers a renewed key to the running server, which runtime 0.7.0 can't take while it runs. Needs a server that takes calls without Cloud Run IAM (server_public or server_invoker_iam_disabled). Empty (the default): no counts, and the server takes a renewed key at its next start."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_usage_key_secret == "" || can(regex("^[A-Za-z0-9_-]{1,255}$", var.license_usage_key_secret))
+    error_message = "license_usage_key_secret: a secret id (letters, digits, - and _, up to 255)."
+  }
+}
+
+variable "license_renewal_scheduler_region" {
+  description = "Where Cloud Scheduler starts the renewal job, if `region` has no Cloud Scheduler (its locations: https://docs.cloud.google.com/scheduler/docs/locations). Empty (the default): `region`. The job itself runs in `region`."
+  type        = string
+  default     = ""
+}
+
+variable "alert_notification_channels" {
+  description = "Cloud Monitoring notification channels (projects/<project>/notificationChannels/<id>) the license renewal's alerts go to: a failed renewal, a key inside its warning window, and, with license_usage_key_secret, a renewal that sent no counts. Empty: they open incidents in the console and notify no one. Only with license_renewal_schedule set."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.alert_notification_channels : can(regex("^projects/[^/]+/notificationChannels/[^/]+$", c))])
+    error_message = "alert_notification_channels: each is projects/<project>/notificationChannels/<id>."
+  }
+}

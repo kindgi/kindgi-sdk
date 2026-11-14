@@ -166,6 +166,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // invitation emails the workspace, or the deployment, may send in 24
   // hours. With `Retry-After`.
   'invite-capped': 429,
+  // An upload of a person's own for a run they start, passing on `run`
+  // alone (no `write`), past what the deployment lets one person upload
+  // that way in a window. With `Retry-After`.
+  'upload-limit-reached': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
   // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
   // `Retry-After`: there's no honest time to give.
@@ -359,12 +363,17 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tenant-export-window-open': 409,
   /** A purge on a runtime with nowhere set to keep purge records, so a restore couldn't purge it again. */
   'purge-record-unset': 409,
-  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
+  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store, its secrets in a secret manager). */
   'purge-setting-missing': 409,
   /** A purge's delete of the tenant's authorization store failed; the message says what that left. */
   'authz-store-delete-failed': 502,
   /** A runtime whose tenants binding doesn't purge. */
   'tenant-purge-unsupported': 501,
+  /**
+   * An erasure of a kept repo, on a runtime that isn't keeping repos for
+   * projects without a GitHub repo now (`KINDGI_KEPT_REPOS` off).
+   */
+  'kept-repos-off': 501,
   /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,

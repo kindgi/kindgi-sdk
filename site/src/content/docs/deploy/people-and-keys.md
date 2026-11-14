@@ -477,7 +477,9 @@ console signed in through SSO, a social sign-in or an emailed link.
   only for a tenant admin. For anyone else, it's refused with
   `403 role-exceeds-principal`.
 - **`--project=<project-id>`** limits the key to one project. A request that
-  names another project is refused with `403 key-project-mismatch`. A
+  names another project is refused with `403 key-project-mismatch`. The key
+  reads the default project (`GET /v1/projects/default`) only when it's that
+  project; otherwise it's refused the same way, naming `default`. A
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
@@ -494,6 +496,8 @@ console signed in through SSO, a social sign-in or an emailed link.
   with `permission-denied`, as before. Without a store, a write to an
   existing item by its id is judged as before, except a memory fact's,
   which goes by the fact's scope, as writing one does.
+  A key limited to a project can't carry `kindgi:system`: that mint is
+  refused, `403 capability-not-mintable`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -760,9 +764,11 @@ minted with theirs, whoever they act for.` Their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
 test set they made, and `admin` on an org they made (runtime 0.1.9 or
-later). What they made stays. The workspace's admins still manage all of it,
-and an org's admins what's in their org; no one becomes its owner. The next
-request with Sam's key:
+later). Every connection they own to another app is removed too, with the
+reason `owner-removed`, and withdrawn at the app where the app allows
+(runtime 0.7.0 or later). What else they made stays. The workspace's admins
+still manage all of it, and an org's admins what's in their org; no one
+becomes its owner. The next request with Sam's key:
 
 ```text
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-ea8f3a9a-f1df-4365-9f7c-7bab23beea86"}}
@@ -794,8 +800,9 @@ check of what they may do.
 
 For a person removed on an earlier runtime, their creates' `owner` and
 `admin` entries stayed, and their schedules and webhook triggers could go on
-running as them. To finish it: take over their schedules and webhook
-triggers, upgrade the runtime, then remove them again.
+running as them. The connections they owned stayed too, unless the removal
+ran on runtime 0.7.0 or later. To finish it: take over their schedules and
+webhook triggers, upgrade the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`
 on someone already removed takes what's left.
 
@@ -888,6 +895,12 @@ what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
 the workspace**.
 
+A removed person's page says what their removal took away, and keeps what
+they had, for the record. When their removal left roles or connections to
+other apps behind, because it stopped part-way or ran on a runtime older
+than 0.7.0, a tenant admin's page shows **Finish removing**: it removes them again,
+which takes what's left and changes nothing else.
+
 Until they first sign in, their page has an **Invitation** section: when
 it's open until and when it was emailed, or when it expired ("they can't
 sign in until it's sent again"). **Send it again** opens it for 7 days from
@@ -900,6 +913,27 @@ Adding their email again invites them anew."
 ![Ann Lee's page before they signed in: no keys; What they may do: "They read the workspace's settings, nothing more"; no second factor; Invitation: "They haven't signed in yet. Their invitation is open until 10 Nov 2026, 12:01 PM EST; emailed 3 Nov 2026, 12:01 PM EST.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
 
 ![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with a Revoke icon), Sign-ins, and Remove from the workspace.](../../../assets/people/person.png)
+
+With the runtime 0.7.0 or later, a tenant admin also sees a person's
+**Chat apps** on their page, where the runtime lets
+[chat apps sign in](../self-hosted/chat-apps/). It lists the chat apps they
+connected, such as Claude: each by the address it sends people back to, with
+"It calls itself …" when the app gave a name, what it can do, and when it
+was connected. A link to it is their page's address with `#chat-apps`.
+
+- **Disconnect**, then **Disconnect it**, stops one acting for them at once:
+  its next request to Kindgi is refused, and it can't sign in again on its
+  own. It isn't a block: they can connect it again from the chat app.
+- **They're emailed** where the runtime sends mail and they have an
+  address, with the subject "A chat app was disconnected from your access
+  to Default workspace" (the workspace's name): which app, who disconnected
+  it (your email address, or "A workspace admin" without one) and when. The
+  disconnect stands even when the email doesn't go out.
+- **Your own page** lists your own chat apps, as **My access** >
+  **Chat apps** does, and disconnecting one there sends no email.
+
+A removed person's page has no **Chat apps**: their removal already stopped
+every chat app of theirs.
 
 ### What needs you
 
@@ -933,6 +967,13 @@ Each change is kept as evidence: `person-added`, `person-granted`,
 secret is never in one. A project's own account is made with one
 `service-account-created`, which has its `projectId` and
 `projectAccount: true`, and no separate `service-account-granted`.
+
+Disconnecting a chat app is kept as `chat-app-disconnected`, with its
+`clientId` and how many of its refresh tokens were revoked
+(`revokedCount`). On **My access** > **Chat apps**, the person is its actor
+and it has no `userId`. From a person's page in **People**
+(runtime 0.7.0 or later), the tenant admin is its actor and the person is
+its `userId`, so an admin's own page records their own id as both.
 
 ## Next
 

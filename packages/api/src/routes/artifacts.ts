@@ -10,10 +10,11 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { actsForOf } from '../caller.js';
-import { statusFor, toWireError } from '../errors.js';
+import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { takeBody } from '../middleware/request-body.js';
+import type { RunUploadCheck, RunUploadLimiter } from '../run-upload-limiter.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
@@ -37,6 +38,11 @@ export interface ArtifactsRouterDeps {
    * their own for a run's input (`artifactsRouter`).
    */
   readonly authorizer?: Authorizer;
+  /**
+   * The deployment's limit on uploads that pass on `run` alone. Without
+   * it, those uploads are limited only by each one's size.
+   */
+  readonly runUploadLimiter?: RunUploadLimiter;
 }
 
 /**
@@ -61,6 +67,41 @@ export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv>
       );
     },
   });
+}
+
+/** `429 upload-limit-reached`: the limit, what's used, and when this upload fits. */
+function uploadLimitReached(
+  c: Context<AppEnv>,
+  over: Extract<RunUploadCheck, { kind: 'over' }>,
+): Response {
+  const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const files = (n: number) => count(n, 'file');
+  const limits = [
+    ...(over.maxBytes !== undefined ? [`${over.maxBytes} bytes`] : []),
+    ...(over.maxFiles !== undefined ? [files(over.maxFiles)] : []),
+  ].join(' and ');
+  const window =
+    over.windowMs % 3_600_000 === 0
+      ? count(over.windowMs / 3_600_000, 'hour')
+      : count(Math.ceil(over.windowMs / 1000), 'second');
+  const retryAt = new Date(Date.now() + over.retryAfterMs).toISOString();
+  c.header('Retry-After', String(retryAfterSeconds(over.retryAfterMs)));
+  c.status(statusFor('upload-limit-reached') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'upload-limit-reached',
+        message: `Uploads for your own runs, without \`write\` on the project, are limited to ${limits} per person in ${window} in this workspace; you've uploaded ${over.usedBytes} bytes in ${files(over.usedFiles)}, and this one fits from ${retryAt}`,
+        ...(over.maxBytes !== undefined && { maxBytes: over.maxBytes }),
+        ...(over.maxFiles !== undefined && { maxFiles: over.maxFiles }),
+        usedBytes: over.usedBytes,
+        usedFiles: over.usedFiles,
+        windowSeconds: Math.ceil(over.windowMs / 1000),
+        retryAt,
+      },
+      c.get('requestId'),
+    ),
+  );
 }
 
 /**
@@ -94,7 +135,10 @@ export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv>
  * files (`runner-reach.ts`): downloading one they uploaded or one a run of
  * their own stored, listing an own run's files (`?ownerRunId=`), and
  * uploading a file of their own that names no run, to start a run with.
- * An upload's size limit is `artifactUploadLimit`'s.
+ * An upload's size limit is `artifactUploadLimit`'s. An upload that
+ * passes on `run` alone is also counted against the deployment's
+ * `runUploadLimiter`, when it sets one: past it, the upload is
+ * `429 upload-limit-reached` and nothing is stored.
  */
 export function artifactsRouter(
   binding: BlobStorageBinding,
@@ -251,7 +295,7 @@ export function artifactsRouter(
     const createdBy = userId !== undefined ? `user:${userId}` : undefined;
     // `write`, or `run` for a file of the caller's own that names no run:
     // an input for a run they start. One that names a run stays `write`.
-    if (
+    const onRunAlone =
       authorizer !== undefined &&
       !(await authorizer.can(
         c,
@@ -259,7 +303,9 @@ export function artifactsRouter(
         project.projectId !== undefined
           ? ref('project', project.projectId as unknown as string)
           : ref('tenant', tenantId as unknown as string),
-      )) &&
+      ));
+    if (
+      onRunAlone &&
       !(
         project.projectId !== undefined &&
         validated.value.ownerRunId === undefined &&
@@ -275,6 +321,14 @@ export function artifactsRouter(
           requestId,
         ),
       );
+    }
+    if (onRunAlone && deps.runUploadLimiter !== undefined && createdBy !== undefined) {
+      const room = await deps.runUploadLimiter.check({
+        tenantId,
+        createdBy,
+        size: validated.value.size ?? 0,
+      });
+      if (room.kind === 'over') return uploadLimitReached(c, room);
     }
     const input: BlobPutInput = {
       ...validated.value,

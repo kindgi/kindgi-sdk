@@ -498,7 +498,7 @@ class StartRunOptions(BaseModel):
     """
     wait: bool | None = None
     """
-    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends.
+    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`).
     """
 
 
@@ -513,7 +513,7 @@ class Options(BaseModel):
     """
     wait: bool | None = None
     """
-    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends.
+    When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`).
     """
 
 
@@ -777,6 +777,8 @@ class SystemKey(BaseModel):
             "system:env-refs",
             "system:usage:read",
             "system:license",
+            "system:kept-repos",
+            "system:kept-repos:erase",
             "kindgi:system",
         ]
     ]
@@ -810,6 +812,8 @@ class MintSystemKeyBody(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
         ],
@@ -858,6 +862,8 @@ class MintSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
             | str,
@@ -910,6 +916,8 @@ class Datum2(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
             | str,
@@ -966,6 +974,8 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
             | str,
@@ -1517,7 +1527,7 @@ class SystemTenantPurge(BaseModel):
     """
     left_because: Annotated[str | None, Field(alias="leftBecause")] = None
     """
-    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase.
     """
 
 
@@ -1946,6 +1956,25 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class RuntimeConnections(BaseModel):
+    """
+    Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    on: bool
+    """
+    The runtime serves connections.
+    """
+    reason: str | None = None
+    """
+    Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says.
+    """
+
+
 class RuntimeInfo(BaseModel):
     """
     Which runtime answers: what a client says about the runtime it's connected to.
@@ -1966,6 +1995,10 @@ class RuntimeInfo(BaseModel):
     development: bool
     """
     The runtime runs in development mode, which allows development-only settings.
+    """
+    connections: RuntimeConnections | None = None
+    """
+    Whether the runtime serves connections to other apps. Absent when the runtime doesn't say.
     """
 
 
@@ -6240,6 +6273,10 @@ class ProviderCheckResult(BaseModel):
     """
 
 
+class ReadOnlyTool(RootModel[str]):
+    root: Annotated[str, Field(max_length=128, min_length=1)]
+
+
 class MCPEndpointSecretRef(BaseModel):
     """
     The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value; in `secretEnv`, a variable's value for a stdio server. The endpoint keeps only this reference.
@@ -8221,6 +8258,10 @@ class SignInOptions(BaseModel):
     """
     The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
+    sign_up_url: Annotated[AnyUrl | None, Field(alias="signUpUrl")] = None
+    """
+    The deployment's own sign-up page, for a sign-in page to link ("No account yet? Sign up"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up.
+    """
     links: Annotated[list[ConsoleLink] | None, Field(max_length=8)] = None
     """
     The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.
@@ -8265,12 +8306,15 @@ class SignInEvent(BaseModel):
             "second-factor-set-up",
             "second-factor-removed",
             "recovery-codes-replaced",
+            "chat-app-connected",
+            "chat-app-refresh-refused",
+            "chat-app-disconnected",
         ]
         | str,
         _open.OPEN,
     ]
     """
-    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.
+    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`; `chat-app-connected`, `chat-app-refresh-refused` (with `reason`) and `chat-app-disconnected` (a chat app this person connected, whose renewal was refused, or that they disconnected; `clientId` is the chat app). Never a key or a code.
     """
     outcome: str
     """
@@ -8278,7 +8322,7 @@ class SignInEvent(BaseModel):
     """
     user_id: Annotated[str | None, Field(alias="userId")] = None
     """
-    The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.
+    The person the event is about: who signed in or out, whose sessions ended, whom a link was for, or whose chat app it was. Absent on a refusal that names no one.
     """
     method: str | None = None
     """
@@ -8290,12 +8334,16 @@ class SignInEvent(BaseModel):
     """
     reason: str | None = None
     """
-    Why a sign-in was refused, or which limit held.
+    Why a sign-in or a chat app's renewal was refused, or which limit held.
     """
     session_id: Annotated[str | None, Field(alias="sessionId")] = None
     by_user_id: Annotated[str | None, Field(alias="byUserId")] = None
     """
     Who acted, when it isn't `userId`: the admin who ended this person's sessions.
+    """
+    client_id: Annotated[str | None, Field(alias="clientId")] = None
+    """
+    The chat app, on a `chat-app-*` kind: its client id.
     """
 
 
@@ -11099,6 +11147,138 @@ class TenantLimitsInUse(BaseModel):
     """
 
 
+class KeptRepoId(BaseModel):
+    """
+    A project's kept repo, by its tenant and project ids.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class KeptRepoRulingsBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    ids: Annotated[list[KeptRepoId], Field(max_length=500)]
+    """
+    The kept repos to rule on, up to 500. They may span tenants, and repeat.
+    """
+
+
+class KeptRepoRuling(BaseModel):
+    """
+    What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    ruling: Annotated[Literal["keep", "purge"] | str, _open.OPEN]
+    mark: Annotated[Literal["none", "deleted", "moved", "held"] | str, _open.OPEN] | None = None
+    """
+    With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it).
+    """
+    since: AwareDatetime | None = None
+    """
+    With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time).
+    """
+    reason: (
+        Annotated[Literal["erasure", "retention", "tenant-purged", "no-record"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).
+    """
+    recorded: Literal[True] | None = None
+    """
+    With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`.
+    """
+
+
+class KeptRepoRulings(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rulings: list[KeptRepoRuling]
+    """
+    One ruling for each id, in the order given.
+    """
+
+
+class KeptRepoOpenErasure(BaseModel):
+    """
+    An unfinished erasure of a project's kept repo.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    since: AwareDatetime
+    """
+    When it was requested.
+    """
+
+
+class KeptRepoErasurePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: Annotated[list[KeptRepoOpenErasure], Field(max_length=500)]
+    """
+    By tenant id, then project id.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Present when there are more: pass it as `cursor` for the next page.
+    """
+
+
+class KeptRepoPurgedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Literal["erasure", "retention", "tenant-purged", "no-record"]
+    """
+    Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).
+    """
+
+
+class KeptRepoState(BaseModel):
+    """
+    A kept repo's state, as the runtime records it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[
+        Literal["live", "deleted", "moved", "held", "erasure-requested", "purged"] | str, _open.OPEN
+    ]
+    """
+    `live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded).
+    """
+    since: AwareDatetime
+    """
+    When it came to be in that state.
+    """
+
+
 class TenantConfigEntry(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -11747,7 +11927,7 @@ class RegisterMailTriggerBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project. Absent → the workspace's default project.
+    The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -12344,7 +12524,12 @@ class Connection(BaseModel):
     removed_reason: Annotated[
         Annotated[
             Literal[
-                "disconnected", "revoked-at-app", "uninstalled", "registration-removed", "replaced"
+                "disconnected",
+                "revoked-at-app",
+                "uninstalled",
+                "registration-removed",
+                "replaced",
+                "owner-removed",
             ]
             | str,
             _open.OPEN,
@@ -12352,6 +12537,9 @@ class Connection(BaseModel):
         | None,
         Field(alias="removedReason"),
     ] = None
+    """
+    Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).
+    """
     withdrawn: (
         Annotated[
             Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
@@ -18115,7 +18303,7 @@ class RegisterScheduleBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.
+    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -18328,7 +18516,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project; absent: the workspace's default project.
+    The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project.
     """
     config: RegisterWebhookTriggerBodyConfig | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
@@ -19821,6 +20009,12 @@ class RegisterMCPEndpointBody(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
+    read_only_tools: Annotated[
+        list[ReadOnlyTool] | None, Field(alias="readOnlyTools", max_length=256, min_length=1)
+    ] = None
+    """
+    The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing.
+    """
     scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
     """
     Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
@@ -20046,6 +20240,12 @@ class MCPEndpoint(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
+    read_only_tools: Annotated[
+        list[ReadOnlyTool] | None, Field(alias="readOnlyTools", max_length=256, min_length=1)
+    ] = None
+    """
+    The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing.
+    """
     secret_scopes: Annotated[
         dict[
             str,
@@ -20125,7 +20325,7 @@ class InviteRenewed(BaseModel):
 
 class UnregisterUserResult(BaseModel):
     """
-    A removed person, and what removing them took away (each 0 when they were already removed).
+    A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).
     """
 
     model_config = ConfigDict(

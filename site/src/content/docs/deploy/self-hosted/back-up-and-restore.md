@@ -8,6 +8,10 @@ sidebar:
 This guide backs up a self-hosted runtime's database and restores it into a
 fresh one, with every erasure still in force.
 
+An export (`kindgi exports create`) isn't a backup: it's the workspace's own
+copy of its records, and no runtime loads one. To bring a runtime back,
+restore its database, as below.
+
 ## Before you start
 
 - **A runtime running as [Self-host Kindgi](../self-host/) sets it up:** the
@@ -432,9 +436,27 @@ version, use the image your server already runs.
   it only restored to the ledger (nothing of theirs was there). Then how many
   of the replayed ones it cleared. Ids and counts only, never whom an
   erasure names.
+- **Kept repos' erasures** ([kept repos](../serve-many-tenants/#kept-repos)):
+  `--records <where>` is where their records are, `KINDGI_TENANT_PURGE_RECORD`
+  when left out, whatever `KINDGI_KEPT_REPOS` is now. Replay reads those and
+  the copy's list of erased repos, a
+  repo both name once, and records each erasure again, so the repo store
+  purges the repo at its next pass. Where the project is in the database,
+  its creation time must be the record's: if it isn't, that erasure is
+  refused, and named. A tenant the database doesn't have, or a purged one,
+  is skipped.
+- **`--dry-run`** reads the copy and the records, says what it read, and
+  lists each kept repo's erasure with what a run would do. Nothing changes,
+  and no server starts.
 - **Exit `1`:** an erasure was hashed under a ledger key this runtime doesn't
   hold (set the key it was made with, and replay again), or one isn't done by
-  `--timeout` (seconds, default 600). Exit `2` when it can't run.
+  `--timeout` (seconds, default 600). Exit `2` when it can't run, or a kept
+  repo's erasure was refused.
+
+**If the runtime has kept repos (`KINDGI_KEPT_REPOS` on, now or before the
+backup), keep the repo store's gateway stopped** until replay and
+`tenants repurge` (below) have run. A pass on a database not yet replayed
+would keep a repo the restore brought back.
 
 **Then purge the purged tenants again** (runtime 0.1.10 or later). A backup
 from before a tenant's purge brings the tenant back with its data, and replay
@@ -458,14 +480,14 @@ The server logs each copy it writes the same way, as
 ### Look at a restored copy before it serves: `KINDGI_PASSIVE`
 
 `KINDGI_PASSIVE=on` starts a runtime that does nothing on its own:
-- none of its background work starts: schedules and event triggers, runs
-  resumed or swept, webhook deliveries, sending permission changes to
-  OpenFGA, the sweeps, erasures, the ledger's copies;
+- none of its background work starts: schedules, mail triggers looking
+  for new mail, runs resumed or swept, webhook deliveries, sending
+  permission changes to OpenFGA, the sweeps, erasures, the ledger's copies;
 - it connects no MCP endpoint at startup;
 - it sends no email.
 
 So a restored database can be inspected without a schedule firing, a
-webhook going out, or a run calling your tools.
+mailbox being read, a webhook going out, or a run calling your tools.
 - **Requests are still served,** and a run started through the API still
   runs, so keep a passive runtime where only you can reach it.
 - **It still writes to OpenFGA as it starts,** as

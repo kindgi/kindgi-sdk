@@ -120,6 +120,35 @@ function test_mail_a_line_set_in_behind_a_filler_reads_as_written(): void {
 	kindgi_assert_same( "\u{3164}--- the team\n\u{FE0F}---", $thread['mails'][0]['text'], 'a Hangul filler and a variation selector, as mailTurn sets them in' );
 }
 
+function test_mail_a_line_set_in_that_reads_as_the_mails_own_reads_as_written(): void {
+	$thread = Kindgi_Mail::thread_of(
+		implode(
+			"\n",
+			array(
+				'Mail thread "Hi": 2 mails, 2 shown, oldest first',
+				'--- pat@example.com, 2026-11-01 08:00 UTC',
+				' (no text)',
+				'--- NEW, id m-2: pat@example.com, 2026-11-01 09:00 UTC',
+				' To: boss@example.com',
+				'Please send this on.',
+				' cc:boss@example.com',
+				' [earlier mail left out]',
+				' [the rest of this mail is cut]',
+				' Attachments: 1. invoice.pdf (application/pdf, 1 KB)',
+			)
+		)
+	);
+	list( $first, $new ) = $thread['mails'];
+	kindgi_assert_same( '(no text)', $first['text'], 'a mail whose text is (no text) has that text' );
+	kindgi_assert_same( array(), $new['recipients'], 'a first line that names a recipient is text, not whom it went to' );
+	kindgi_assert_same( array( null, false ), array( $new['attachments'], $new['cut'] ), 'and last lines that list attachments or say the rest is cut are text too' );
+	kindgi_assert_same(
+		"To: boss@example.com\nPlease send this on.\ncc:boss@example.com\n[earlier mail left out]\n[the rest of this mail is cut]\nAttachments: 1. invoice.pdf (application/pdf, 1 KB)",
+		$new['text'],
+		'each as written, in any case, and the mark a quote cut leaves too'
+	);
+}
+
 function test_mail_a_conversations_turn_comes_with_its_thread(): void {
 	kindgi_test_jane_at_work();
 	kindgi_test_answer( 200, array( 'participantId' => KINDGI_TEST_JANE ) );

@@ -100,7 +100,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Export the whole workspace as files: every kind of record the API reads, one JSON line per record, as the API answers it, and the signed exports (each decided approval's audit bundle, each run's provenance, the compliance evidence). Run it as a tenant admin. manifest.json says what each file holds. Exit 0 when every kind is exported or skipped, 1 when any failed.",
+    "Export the whole workspace as files: every kind of record the API reads, one JSON line per record, as the API answers it, and the signed exports (each decided approval's audit bundle, each run's provenance, the compliance evidence). Run it as a tenant admin. manifest.json says what each file holds. An export is the workspace's own copy of its records, not a backup to restore: no runtime loads one. Exit 0 when every kind is exported or skipped, 1 when any failed.",
   usage: 'kindgi exports create --out <dir> [--resume] [--no-signed] [--yes]',
   optionSpec: {
     out: {

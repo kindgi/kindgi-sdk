@@ -64,7 +64,7 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-scala-authoring-guardrails': { bytes: 12_213 },
   'kindgi-scala-authoring-tools': { bytes: 25_245 },
   'kindgi-scala-getting-started': { bytes: 19_245 },
-  'kindgi-using': { bytes: 15_851 },
+  'kindgi-using': { bytes: 16_058 },
 };
 
 const TOPIC_FILE = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;

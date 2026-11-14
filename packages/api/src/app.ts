@@ -194,6 +194,7 @@ import {
   type SignInOptionsRateLimit,
   checkConsoleLinks,
   checkSignInLegal,
+  checkSignUpUrl,
   signInOptionsRouter,
 } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
@@ -205,6 +206,7 @@ import {
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
 import { systemEnvRouter } from './routes/system-env.js';
+import { type SystemKeptReposBinding, systemKeptReposRouter } from './routes/system-kept-repos.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -230,6 +232,7 @@ import { usageRouter } from './routes/usage.js';
 import { waitTokensRouter } from './routes/wait-tokens.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import type { RunUploadLimiter } from './run-upload-limiter.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecondFactorBinding } from './second-factor-binding.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
@@ -641,10 +644,12 @@ export interface CreateAppInput {
    */
   readonly license?: LicenseStatusBinding;
   /**
-   * Optional. Which runtime this is: its release and whether it runs in
-   * development mode, as `GET /v1/runtime` answers any caller of a tenant,
-   * with `tenancy` (`single` when unset). Without it the route isn't
-   * mounted (404), as on a runtime that doesn't report it.
+   * Optional. Which runtime this is: its release, whether it runs in
+   * development mode and whether it serves connections (`connections`, whose
+   * `reason` reaches the wire only in development mode), as `GET /v1/runtime`
+   * answers any caller of a tenant, with `tenancy` (`single` when unset).
+   * Without it the route isn't mounted (404), as on a runtime that doesn't
+   * report it.
    */
   readonly runtime?: RuntimeInfoInput;
   /**
@@ -695,6 +700,15 @@ export interface CreateAppInput {
    * Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenantSettings?: SystemTenantSettingsBinding;
+  /**
+   * Optional. The runtime's record of kept repos (the repos a store keeps
+   * for projects without a GitHub repo), under `/v1/system`: the store's
+   * reconcile (`system:kept-repos`: the rulings, the unfinished erasures,
+   * and a purge's report) and a repo's erasure and state
+   * (`system:kept-repos:erase`). Mounted only with `systemTenantDirectory`
+   * too.
+   */
+  readonly systemKeptRepos?: SystemKeptReposBinding;
   /**
    * Optional. The runtime's tenants, for the operator: `/v1/system/tenants`
    * (create, list, read, close, suspend, the image prefix, the admins'
@@ -782,6 +796,15 @@ export interface CreateAppInput {
    * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
    */
   readonly artifactMaxBytes?: number;
+  /**
+   * The deployment's limit on what one person uploads to
+   * `POST /v1/artifacts` on `run` alone: a file of their own, for a run
+   * they start, in a project they may run but not write. Past it, the
+   * upload is `429 upload-limit-reached`. Without it, only each upload's
+   * size is limited. An upload that passes on `write` is never checked,
+   * though the deployment may count it toward the person's limit.
+   */
+  readonly runUploadLimiter?: RunUploadLimiter;
   /**
    * Optional. When present, mounts the read-only capabilities catalog
    * surface (`/v1/capabilities` list, `/v1/capabilities/:capabilityId`
@@ -1203,6 +1226,14 @@ export interface CreateAppInput {
    * answer has no `legal`.
    */
   readonly signInLegal?: SignInLegalLinks;
+  /**
+   * The deployment's own sign-up page, which a sign-in page links ("No
+   * account yet? Sign up"; sign-in options' `signUpUrl`): an absolute https
+   * URL with no username or password; anything else, and createApp throws.
+   * The answer carries it as a browser reads it. Absent: the answer has no
+   * `signUpUrl`, so a sign-in page links no sign-up.
+   */
+  readonly signUpUrl?: string;
   /**
    * The deployment's own links (its help desk, status page, data
    * processing terms), which the console shows on every page, the sign-in
@@ -1634,10 +1665,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
 
+  const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
+  // Each tenant's own limits, when the runtime sets them: its API requests
+  // a minute count on `/v1`, `/s3` and `/mcp`.
+  const tenantLimiter =
+    input.tenantLimits !== undefined
+      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
+      : undefined;
+
   // Kindgi as an MCP server: its own token check (a 401 that says where to
   // sign in), then each tool a `/v1` request in this process as the person.
+  // Each JSON-RPC message counts once, and its tools' `/v1` calls on that.
   if (input.mcpServer !== undefined) {
-    mountMcpServer(app, input.mcpServer, MCP_TOOL_SETS);
+    mountMcpServer(app, input.mcpServer, MCP_TOOL_SETS, tenantLimiter);
   }
 
   // ---------- authenticated `/v1/*` routes ----------
@@ -1729,12 +1769,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
-  const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
-  // Each tenant's own limits, when the runtime sets them.
-  const tenantLimiter =
-    input.tenantLimits !== undefined
-      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
-      : undefined;
   if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
@@ -1917,7 +1951,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   // A model provider's key is used by its provider only: the routes that
-  // write a tool, an endpoint or a provider check names against it.
+  // write a tool, an endpoint, an identity provider or a model provider
+  // check names against it.
   const providerKeys = providerKeysOf(input.providerRegistry);
   const receiveUrl =
     input.publicUrl === undefined
@@ -2128,6 +2163,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  if (input.systemKeptRepos !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system',
+      systemKeptReposRouter({
+        keptRepos: input.systemKeptRepos,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
   if (input.systemTenantDirectory !== undefined) {
     // The operator's cloud secrets. Mounted with no store too, so a runtime
     // that keeps none (hosted, for one) answers `501`, not `404`.
@@ -2195,6 +2240,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         runBinding,
         ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.runUploadLimiter !== undefined && { runUploadLimiter: input.runUploadLimiter }),
       }),
     );
   }
@@ -2808,6 +2854,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.identityProviderChanges !== undefined && {
           providerChanges: input.identityProviderChanges,
         }),
+        providerKeys,
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
@@ -2827,6 +2874,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   checkSignInLegal(input.signInLegal);
+  checkSignUpUrl(input.signUpUrl);
   checkConsoleLinks(input.consoleLinks);
   app.route(
     '/v1/auth/sign-in-options',
@@ -2839,6 +2887,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
       ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
       ...(input.signInLegal !== undefined && { legal: input.signInLegal }),
+      ...(input.signUpUrl !== undefined && { signUpUrl: input.signUpUrl }),
       ...(input.consoleLinks !== undefined && { links: input.consoleLinks }),
     }),
   );

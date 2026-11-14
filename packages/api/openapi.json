@@ -48,6 +48,10 @@
       "description": "Your workspace's usage, aggregated: runs, approvals, model calls and projects put in production, counted and summed by project, agent, kind, class, state or day, over the projects you may read. Model-call cost is on `cost`."
     },
     {
+      "name": "system-kept-repos",
+      "description": "The repos a store keeps for the runtime's projects without a GitHub repo, on a runtime serving many tenants: the store's reconcile asks the runtime what to keep and what to purge, and reports each purge done (`system:kept-repos`); the operator requests a repo's erasure and reads its state (`system:kept-repos:erase`). System keys only."
+    },
+    {
       "name": "system-deployments",
       "description": "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL."
     },
@@ -330,6 +334,7 @@
           "rate-limit-exceeded": 429,
           "approvals-pending-limit": 429,
           "invite-capped": 429,
+          "upload-limit-reached": 429,
           "turn-memory-limit-reached": 429,
           "internal-server-error": 500,
           "journal-error": 500,
@@ -446,6 +451,7 @@
           "purge-setting-missing": 409,
           "authz-store-delete-failed": 502,
           "tenant-purge-unsupported": 501,
+          "kept-repos-off": 501,
           "project-suspended": 409,
           "pack-suspended": 409,
           "endpoint-url-invalid": 400,
@@ -2582,7 +2588,7 @@
           },
           "wait": {
             "type": "boolean",
-            "description": "When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends."
+            "description": "When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`)."
           }
         }
       },
@@ -2631,7 +2637,7 @@
                   },
                   "wait": {
                     "type": "boolean",
-                    "description": "When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends."
+                    "description": "When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`)."
                   }
                 }
               }
@@ -2679,7 +2685,7 @@
                   },
                   "wait": {
                     "type": "boolean",
-                    "description": "When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends."
+                    "description": "When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`)."
                   }
                 }
               }
@@ -3289,6 +3295,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3339,6 +3347,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3395,6 +3405,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3468,6 +3480,8 @@
                       "system:env-refs",
                       "system:usage:read",
                       "system:license",
+                      "system:kept-repos",
+                      "system:kept-repos:erase",
                       "kindgi:system"
                     ],
                     "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3532,6 +3546,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -4521,7 +4537,7 @@
           },
           "leftBecause": {
             "type": "string",
-            "description": "Why what's left wasn't deleted, when it's a setting the runtime lacks."
+            "description": "Why what's left wasn't deleted, when it's a setting the runtime lacks or a secret its secret manager didn't erase."
           }
         }
       },
@@ -5900,6 +5916,24 @@
           }
         }
       },
+      "RuntimeConnections": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "on"
+        ],
+        "description": "Whether the runtime serves connections to other apps: the `/v1/connection-*` routes, and the tools that need a connection.",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "The runtime serves connections."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says."
+          }
+        }
+      },
       "RuntimeInfo": {
         "type": "object",
         "additionalProperties": false,
@@ -5925,6 +5959,10 @@
           "development": {
             "type": "boolean",
             "description": "The runtime runs in development mode, which allows development-only settings."
+          },
+          "connections": {
+            "$ref": "#/components/schemas/RuntimeConnections",
+            "description": "Whether the runtime serves connections to other apps. Absent when the runtime doesn't say."
           }
         }
       },
@@ -14552,6 +14590,18 @@
             "type": "boolean",
             "description": "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none."
           },
+          "readOnlyTools": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing."
+          },
           "secretScopes": {
             "type": "object",
             "additionalProperties": {
@@ -14956,6 +15006,18 @@
           "sendTraceparent": {
             "type": "boolean",
             "description": "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none."
+          },
+          "readOnlyTools": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "The server's tools that only read, by the names its `tools/list` gives them (`acme-order-lookup`, not the catalog id). Each is published with `mutating: false`, and a tool's newest version decides for every version of it, pinned ones included. So a listed tool runs without a yes in a site person's Ask, defaults to `never_ask`, runs in a dry run, and a replay uses its recorded result or refuses it. The registrant's claim, as a tool's own `mutating: false` is: list only tools that never change anything. The server's own `readOnlyHint` isn't read. A name the server doesn't serve changes nothing. 1 to 256 names, each 1 to 128 characters, no repeats; otherwise `invalid-mcp-endpoint`, reason `invalid-read-only-tools`. Any transport. An older runtime refuses the field as unknown and registers nothing."
           },
           "scopeKind": {
             "$ref": "#/components/schemas/ScopeKind"
@@ -18769,6 +18831,11 @@
               }
             }
           },
+          "signUpUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The deployment's own sign-up page, for a sign-in page to link (\"No account yet? Sign up\"): an absolute https URL with no username or password. Absent when its operator set none, and from older servers: link no sign-up."
+          },
           "links": {
             "type": "array",
             "maxItems": 8,
@@ -18829,9 +18896,12 @@
               "sessions-ended",
               "second-factor-set-up",
               "second-factor-removed",
-              "recovery-codes-replaced"
+              "recovery-codes-replaced",
+              "chat-app-connected",
+              "chat-app-refresh-refused",
+              "chat-app-disconnected"
             ],
-            "description": "`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` (\"sign out everywhere\", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code."
+            "description": "`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` (\"sign out everywhere\", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`; `chat-app-connected`, `chat-app-refresh-refused` (with `reason`) and `chat-app-disconnected` (a chat app this person connected, whose renewal was refused, or that they disconnected; `clientId` is the chat app). Never a key or a code."
           },
           "outcome": {
             "type": "string",
@@ -18839,7 +18909,7 @@
           },
           "userId": {
             "type": "string",
-            "description": "The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one."
+            "description": "The person the event is about: who signed in or out, whose sessions ended, whom a link was for, or whose chat app it was. Absent on a refusal that names no one."
           },
           "method": {
             "type": "string",
@@ -18851,7 +18921,7 @@
           },
           "reason": {
             "type": "string",
-            "description": "Why a sign-in was refused, or which limit held."
+            "description": "Why a sign-in or a chat app's renewal was refused, or which limit held."
           },
           "sessionId": {
             "type": "string"
@@ -18859,6 +18929,10 @@
           "byUserId": {
             "type": "string",
             "description": "Who acted, when it isn't `userId`: the admin who ended this person's sessions."
+          },
+          "clientId": {
+            "type": "string",
+            "description": "The chat app, on a `chat-app-*` kind: its client id."
           }
         }
       },
@@ -19654,7 +19728,7 @@
         }
       },
       "UnregisterUserResult": {
-        "description": "A removed person, and what removing them took away (each 0 when they were already removed).",
+        "description": "A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -24403,6 +24477,210 @@
           }
         }
       },
+      "KeptRepoId": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A project's kept repo, by its tenant and project ids.",
+        "required": [
+          "tenantId",
+          "projectId"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "KeptRepoRulingsBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/KeptRepoId"
+            },
+            "description": "The kept repos to rule on, up to 500. They may span tenants, and repeat."
+          }
+        }
+      },
+      "KeptRepoRuling": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.",
+        "required": [
+          "tenantId",
+          "projectId",
+          "ruling"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ruling": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "purge"
+            ]
+          },
+          "mark": {
+            "type": "string",
+            "enum": [
+              "none",
+              "deleted",
+              "moved",
+              "held"
+            ],
+            "description": "With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time)."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "erasure",
+              "retention",
+              "tenant-purged",
+              "no-record"
+            ],
+            "description": "Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it)."
+          },
+          "recorded": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`."
+          }
+        }
+      },
+      "KeptRepoRulings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rulings"
+        ],
+        "properties": {
+          "rulings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KeptRepoRuling"
+            },
+            "description": "One ruling for each id, in the order given."
+          }
+        }
+      },
+      "KeptRepoOpenErasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An unfinished erasure of a project's kept repo.",
+        "required": [
+          "tenantId",
+          "projectId",
+          "since"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was requested."
+          }
+        }
+      },
+      "KeptRepoErasurePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/KeptRepoOpenErasure"
+            },
+            "description": "By tenant id, then project id."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Present when there are more: pass it as `cursor` for the next page."
+          }
+        }
+      },
+      "KeptRepoPurgedBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "erasure",
+              "retention",
+              "tenant-purged",
+              "no-record"
+            ],
+            "description": "Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it)."
+          }
+        }
+      },
+      "KeptRepoState": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A kept repo's state, as the runtime records it.",
+        "required": [
+          "state",
+          "since"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "live",
+              "deleted",
+              "moved",
+              "held",
+              "erasure-requested",
+              "purged"
+            ],
+            "description": "`live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it came to be in that state."
+          }
+        }
+      },
       "TenantConfigKind": {
         "type": "string",
         "enum": [
@@ -26072,7 +26350,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project."
+            "description": "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project."
           },
           "runAsServiceAccountId": {
             "type": "string",
@@ -26688,7 +26966,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The trigger's project; absent: the workspace's default project."
+            "description": "The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project."
           },
           "config": {
             "type": "object",
@@ -27104,7 +27382,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The trigger's project. Absent → the workspace's default project."
+            "description": "The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project."
           },
           "runAsServiceAccountId": {
             "type": "string",
@@ -28486,8 +28764,10 @@
               "revoked-at-app",
               "uninstalled",
               "registration-removed",
-              "replaced"
-            ]
+              "replaced",
+              "owner-removed"
+            ],
+            "description": "Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace)."
           },
           "withdrawn": {
             "type": "string",
@@ -30380,7 +30660,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Run finished, failed or suspended.",
+            "description": "Run finished, failed or suspended; or still running when a read failed part-way (it goes on at a later resume: poll `GET /v1/runs/{runId}`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32086,7 +32366,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); an operator's capability, which is a system key's: a system scope (`system:*`) anywhere, and `kindgi:system` on a runtime serving many tenants or on a key limited to a project (`capability-not-mintable`, its `details.capabilities` the ones refused).",
             "content": {
               "application/json": {
                 "schema": {
@@ -35167,6 +35447,584 @@
             },
             "required": false,
             "description": "Only this project. One you can't read gives an empty answer."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/kept-repos/rulings": {
+      "post": {
+        "operationId": "systemKeptRepos.rulings",
+        "summary": "Rule on the kept repos a store holds",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "One ruling for each id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoRulings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body names no ids in form, or more than 500 (`bad-input`). Nothing was ruled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, 90 days ago or more (its kept window) is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeptRepoRulingsBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/kept-repos/erasures": {
+      "get": {
+        "operationId": "systemKeptRepos.erasures",
+        "summary": "List the unfinished erasures of kept repos",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoErasurePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A `limit` that isn't a whole number from 1 to 500, or a `cursor` this runtime didn't give (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every unfinished erasure of a project's kept repo, across tenants, by tenant id then project id: what the store purges, whether or not it holds the repo, and reports. Ids and the time of the request only. Takes `system:kept-repos`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "required": false,
+            "description": "How many, from 1 to 500. 500 when not given."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "The last page's `nextCursor`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged": {
+      "post": {
+        "operationId": "systemKeptRepos.reportPurged",
+        "summary": "Report a kept repo's purge done",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "204": {
+            "description": "Recorded."
+          },
+          "400": {
+            "description": "An id that isn't a UUID, or a body other than `{ \"reason\": ... }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The store's purge of a kept repo is done, for the ruling's `reason`. For `erasure` or `retention` the runtime records it, which completes an unfinished erasure of the repo; a second report changes nothing. It answers `204` whatever the tenant's state: a purged tenant's report, or one for a tenant the runtime doesn't know (a restore older than the tenant), is kept in the operator's access record alone. Takes `system:kept-repos`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeptRepoPurgedBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo": {
+      "get": {
+        "operationId": "systemKeptRepos.state",
+        "summary": "Read a kept repo's state",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Its state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos:erase` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`); or a project the runtime has no record of (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A project's kept repo, as the runtime records it: `live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and since when. Takes `system:kept-repos:erase`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure": {
+      "post": {
+        "operationId": "systemKeptRepos.requestErasure",
+        "summary": "Request a kept repo's erasure",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "The repo's erasure is done already: nothing more was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoState"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The erasure is requested, now or by an unfinished earlier request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos:erase` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`); or a project the runtime has no record of (`project-not-found`). Nothing was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Something holds the repo (`legal-hold`, with `details.projectId`); or an Idempotency-Key reused with another body. Nothing was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime isn't keeping repos for projects without a GitHub repo now (`kept-repos-off`): `KINDGI_KEPT_REPOS` is off. Nothing was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requests the erasure of a project's kept repo: the store purges it at its next pass, and reports it, which completes the erasure. A second request while one is unfinished answers that one, and one for a repo whose erasure is done already answers `200` with no new request. A repo purged when its kept window ended is requested still, so its erasure is recorded too. Turning `KINDGI_KEPT_REPOS` off erases nothing and holds an unfinished erasure, which completes once it's on again. Takes `system:kept-repos:erase`, which no other scope includes, or `kindgi:system`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
           }
         ],
         "security": [
@@ -48467,7 +49325,7 @@
             }
           }
         },
-        "description": "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.",
+        "description": "Its version, how many tenants it serves, whether it runs in development mode, and whether it serves connections to other apps: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []
@@ -48914,6 +49772,16 @@
               }
             }
           },
+          "429": {
+            "description": "An upload passing on `run` alone, past what one person may upload that way in the window (`upload-limit-reached`). `details` carries the limit (`maxBytes`, `maxFiles`), what's used (`usedBytes`, `usedFiles`), `windowSeconds` and `retryAt`; `Retry-After` says when this upload fits. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -48935,7 +49803,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -57058,7 +57926,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -57138,7 +58006,7 @@
             }
           }
         },
-        "description": "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
+        "description": "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`) or a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -57405,7 +58273,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -57495,7 +58363,7 @@
             }
           }
         },
-        "description": "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+        "description": "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused` or `reserved-name-prefix`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
         "parameters": [
           {
             "name": "providerId",
@@ -58581,7 +59449,7 @@
             }
           }
         },
-        "description": "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+        "description": "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
         "parameters": [
           {
             "name": "userId",
@@ -61659,7 +62527,13 @@
                 "sign-in-link-sent",
                 "sign-in-link-capped",
                 "sessions-revoked",
-                "sessions-ended"
+                "sessions-ended",
+                "second-factor-set-up",
+                "second-factor-removed",
+                "recovery-codes-replaced",
+                "chat-app-connected",
+                "chat-app-refresh-refused",
+                "chat-app-disconnected"
               ]
             },
             "required": false,
@@ -63412,7 +64286,7 @@
             }
           },
           "403": {
-            "description": "The caller can't read the default project.",
+            "description": "The caller can't read the default project. An API key or session limited to a project gets `key-project-mismatch` when the default project isn't that one, or the workspace has none.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63442,7 +64316,7 @@
             }
           }
         },
-        "description": "Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.",
+        "description": "Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none. An API key or session limited to a project gets the default project only when it's that project; otherwise, and when the workspace has none, it gets 403 `key-project-mismatch`, naming `default`.",
         "security": [
           {
             "bearerAuth": []
@@ -70035,7 +70909,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70174,7 +71048,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70293,7 +71167,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70412,7 +71286,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70799,7 +71673,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70928,7 +71802,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+            "description": "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71127,7 +72001,7 @@
             }
           }
         },
-        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -71349,7 +72223,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71488,7 +72362,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71607,7 +72481,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71726,7 +72600,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72113,7 +72987,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+            "description": "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72322,7 +73196,7 @@
             }
           }
         },
-        "description": "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -72543,6 +73417,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
             "content": {
@@ -72672,6 +73556,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id.",
             "content": {
@@ -72781,6 +73675,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No mail trigger with that id.",
             "content": {
@@ -72882,6 +73786,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -73269,6 +74183,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {

@@ -249,7 +249,7 @@ For the runs resource specifically (the largest surface):
 
 | Verb + path                          | Kernel op                                  | Notes |
 |---                                   |---                                         |---    |
-| `POST /v1/runs`                      | `runGraph(...)`                            | Body: `{ agent \| flow, input, options?: { dryRun?: boolean, wait?: boolean } }`. Returns the run row with its `output`: `201` once the run completes, fails or suspends; `202` right away with `wait: false`. |
+| `POST /v1/runs`                      | `runGraph(...)`                            | Body: `{ agent \| flow, input, options?: { dryRun?: boolean, wait?: boolean } }`. Returns the run row with its `output`: `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way; `202` right away with `wait: false`. |
 | `GET /v1/runs/:runId`                | Load row from `kernel_runs`                | Returns the run row, with `output` once completed and `parentRunId` / `parentNodeId` on a child run. |
 | `GET /v1/runs`                       | List with pagination                       | Filters: `parentRunId` (a run's children), `topLevel=true`. `include=output` adds each run's output. |
 | `POST /v1/runs/:runId/cancel`        | `cancelRun(...)`                           | Empty body. Returns updated `RunResult`. |

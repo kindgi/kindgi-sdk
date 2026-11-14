@@ -96,6 +96,7 @@ import {
   buildRuntimeEnv,
   runtimeEnvPath,
   shellReferencesOf,
+  tenantEgressOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
 import { probeReal } from './sandbox/detect.js';
@@ -572,6 +573,7 @@ export async function startApiServerContainerReal(
     ...(googleCredentials !== undefined && { googleCredentialsPath: RUNTIME_GOOGLE_CREDENTIALS }),
     // kindgi dev reads the container's output as records and shows them.
     log: { ...opts.logLevels, KINDGI_LOG_FORMAT: 'json' },
+    tenantEgress: tenantEgressOf(opts.hostEnv),
     shellReferences: await shellReferencesOf({
       packDir: opts.packDir,
       ...(opts.localEnvFiles !== undefined && { localEnvFiles: opts.localEnvFiles }),
@@ -665,6 +667,7 @@ export async function attachToRuntimeReal(
       ...(googleCredentials !== undefined && { googleCredentialsPath: googleCredentials }),
       // Its output goes to the developer's terminal, which picks the format.
       ...(opts.logLevels !== undefined && { log: opts.logLevels }),
+      tenantEgress: tenantEgressOf(opts.hostEnv),
       shellReferences: await shellReferencesOf({
         packDir: opts.packDir,
         ...(opts.localEnvFiles !== undefined && { localEnvFiles: opts.localEnvFiles }),

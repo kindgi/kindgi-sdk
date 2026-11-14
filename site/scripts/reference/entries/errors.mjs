@@ -395,7 +395,7 @@ export const ERROR_ENTRIES = {
   },
   'legal-hold': {
     description:
-      "The fact is under legal hold, so it can't be deleted or superseded; or a memory erasure would reach facts under hold, and nothing is erased. Lift the hold first.",
+      "The fact is under legal hold, so it can't be deleted or superseded; or a memory erasure would reach facts under hold, and nothing is erased; or something holds a project's kept repo, so its erasure isn't requested. Lift the hold first.",
     details: [
       {
         key: 'factId',
@@ -404,6 +404,10 @@ export const ERROR_ENTRIES = {
       {
         key: 'factIds',
         meaning: 'the facts under hold (starting an erasure)',
+      },
+      {
+        key: 'projectId',
+        meaning: "the project whose kept repo is held (requesting a kept repo's erasure)",
       },
     ],
   },
@@ -1147,7 +1151,7 @@ export const ERROR_ENTRIES = {
   },
   'flow-unbound': {
     description:
-      "The flow can't start or resume because a node has nothing to run it: a step names a tool the workspace doesn't have, an agent step can't bind, or a node kind isn't runnable.",
+      "The flow can't start or resume because a node can't be bound: a step names a tool the workspace doesn't have, an agent step can't bind, a fanout branch's tool has another step's id, or a node kind isn't runnable.",
     details: [
       {
         key: 'nodeIds',
@@ -1277,6 +1281,34 @@ export const ERROR_ENTRIES = {
         key: 'userId',
         meaning: 'the person whose invitation was to be sent again',
       },
+    ],
+  },
+  'upload-limit-reached': {
+    description:
+      "An upload for a run of your own, made with `run` on the project and no `write`, is past what one person may upload that way in the workspace in 24 hours: by default 1 GiB and 1,000 files (`KINDGI_RUN_UPLOAD_DAILY_BYTES`, `KINDGI_RUN_UPLOAD_DAILY_FILES`). Your uploads to projects where you have `write` count toward it too, though they're never refused. Nothing is stored. Files you uploaded earlier still start runs. Try again after the `Retry-After` header, when the oldest uploads have left the window, or ask someone with `write` on the project to upload it.",
+    details: [
+      {
+        key: 'maxBytes',
+        meaning:
+          'the most bytes your uploads that name no run may add up to in the window before one on `run` alone is refused; absent when bytes are not limited',
+      },
+      {
+        key: 'maxFiles',
+        meaning:
+          'the most files your uploads that name no run may add up to in the window before one on `run` alone is refused; absent when files are not limited',
+      },
+      {
+        key: 'usedBytes',
+        meaning:
+          'the bytes of your uploads in the workspace in the window that name no run and are still stored, with `write` or without',
+      },
+      {
+        key: 'usedFiles',
+        meaning:
+          'the files of your uploads in the workspace in the window that name no run and are still stored, with `write` or without',
+      },
+      { key: 'windowSeconds', meaning: 'the window, in seconds: 86400' },
+      { key: 'retryAt', meaning: 'when this upload fits, as an ISO 8601 time' },
     ],
   },
   'turn-memory-limit-reached': {
@@ -2240,7 +2272,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project: to the workspace, an org or a team.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project (to the workspace, an org or a team) and any change to another project's schedule, webhook trigger or mail trigger.",
     details: [
       {
         key: 'keyProjectId',
@@ -2248,7 +2280,8 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'projectId',
-        meaning: 'the project the request names, when it names one',
+        meaning:
+          'the project the request names, when it names one, or the project of the trigger it changes',
       },
       {
         key: 'action',
@@ -2288,7 +2321,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-not-mintable': {
     description:
-      "A workspace's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
+      "A workspace's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`. On a runtime serving one tenant, a key limited to a project can't carry `kindgi:system` either: mint it without the project, or without `kindgi:system`.",
     details: [
       {
         key: 'capabilities',
@@ -2487,7 +2520,7 @@ export const ERROR_ENTRIES = {
   },
   'purge-setting-missing': {
     description:
-      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), or an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`). The message says which. Nothing was changed.",
+      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`), or secrets a secret manager may still hold, on a runtime that doesn't keep its secrets in one (`KINDGI_SECRETS_MANAGER`; the message says to purge it with `kindgi-runtime tenants purge`). The message says which. Nothing was changed.",
     details: [
       {
         key: 'tenantId',
@@ -2507,6 +2540,11 @@ export const ERROR_ENTRIES = {
   },
   'tenant-purge-unsupported': {
     description: "This runtime doesn't purge tenants through the API.",
+    details: [],
+  },
+  'kept-repos-off': {
+    description:
+      "You requested a kept repo's erasure on a runtime that isn't keeping repos for projects without a GitHub repo now (`KINDGI_KEPT_REPOS` is off), so nothing was requested. Turning it off erases nothing: repos kept while it was on stay until they're purged with it on. Turn it on, on the runtime and on the repo store's gateway, then request the erasure again.",
     details: [],
   },
   'tenant-slug-taken': {
@@ -3606,7 +3644,7 @@ export const ERROR_ENTRIES = {
   },
   'provider-key-refused': {
     description:
-      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
+      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name.",
     details: [
       {
         key: 'secret',
@@ -3794,7 +3832,7 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app.",
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a connection app or an identity provider.",
     details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },

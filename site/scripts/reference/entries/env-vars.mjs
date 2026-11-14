@@ -37,6 +37,9 @@ export const ENV_DEFAULTS = {
   KINDGI_DEV: '`false`',
   KINDGI_TENANT_HOST_ACCESS: '`local` when `KINDGI_DEV` is on, else `deployed`',
   KINDGI_WEBHOOK_PRIVATE_NETWORKS: '`deny`',
+  KINDGI_TENANT_EGRESS_PROXY: 'none: tenant-chosen hosts and webhooks connect directly',
+  KINDGI_TENANT_EGRESS_NO_PROXY:
+    'none: with `KINDGI_TENANT_EGRESS_PROXY` set, every host goes through it',
   KINDGI_PRODUCTION_GATE: '`off`: no gate, and any tenant admin can put a project in production',
   KINDGI_PRODUCTION_NEXT_URL:
     'none: `production-not-allowed` says to ask whoever runs the server, and `production-limit-reached` to take a project out of production or ask whoever runs the server to raise the limit',
@@ -45,6 +48,8 @@ export const ENV_DEFAULTS = {
     'none: outside development mode the server refuses to start; development mode needs none',
   KINDGI_LICENSE_KEY_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
+  KINDGI_ACCOUNT_KEY:
+    'none: the connections that sign in through Kindgi\'s own Meta app show "Needs a Kindgi account"',
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
   KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
@@ -90,6 +95,7 @@ export const ENV_DEFAULTS = {
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
   KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
   KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
+  KINDGI_AUTH_SIGN_UP_URL: 'none: the sign-in page links no sign-up',
   KINDGI_CONSOLE_LINKS: "none: the console shows no links of the deployment's own",
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",
@@ -128,6 +134,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
   KINDGI_TENANT_PURGE_RECORD:
     'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
+  KINDGI_KEPT_REPOS:
+    '`off`: no kept repos, and `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses (`kept-repos-off`)',
   KINDGI_PASSIVE: '`off`',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
@@ -145,6 +153,9 @@ export const ENV_DEFAULTS = {
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
+  KINDGI_RUN_UPLOAD_DAILY_BYTES:
+    '`1073741824` (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when larger; `off` for none',
+  KINDGI_RUN_UPLOAD_DAILY_FILES: '`1000`; `off` for none',
   KINDGI_S3_REGION:
     'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
   KINDGI_S3_ENDPOINT: 'none: AWS S3',
@@ -224,6 +235,9 @@ export const ENV_EXAMPLES = {
   },
   KINDGI_LICENSE_KEY: {
     value: 'kgi_lk_<payload>.<signature>',
+  },
+  KINDGI_ACCOUNT_KEY: {
+    value: '<the account key Kindgi issued for this runtime>',
   },
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY: {
     value: '<base64 of an Ed25519 private key in PKCS#8 PEM>',

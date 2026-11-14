@@ -2113,8 +2113,8 @@ export interface InviteRenewed {
 }
 
 /**
- * A removed person and what removing them took away (each 0 when they
- * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ * A removed person and what removing them took away (each 0 when nothing
+ * of theirs was left to take). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
  */
 export interface UnregisterUserResult {
   readonly user: User;
@@ -2671,6 +2671,8 @@ export interface McpEndpoint {
   readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
   readonly sendTraceparent?: boolean;
+  /** The server's tools that only read, by its own names (see `RegisterMcpEndpointInput`). */
+  readonly readOnlyTools?: readonly string[];
 }
 
 /**
@@ -2711,6 +2713,15 @@ export interface RegisterMcpEndpointInput {
    * transports only: `true` on `stdio` is refused.
    */
   readonly sendTraceparent?: boolean;
+  /**
+   * The server's tools that only read, by the names its `tools/list` gives
+   * them (`acme-order-lookup`, not the catalog id). Each is published with
+   * `mutating: false`, and a tool's newest version decides for every version
+   * of it. List only tools that never change anything. 1 to 256 names, each
+   * 1 to 128 characters, no repeats (`invalid-read-only-tools`). Any
+   * transport.
+   */
+  readonly readOnlyTools?: readonly string[];
   /** The scope the endpoint is registered in; authorization checks it. */
   readonly scope: import('./scope-wire.js').ScopeRef;
 }

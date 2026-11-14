@@ -17,8 +17,7 @@ providers on `prod`, before and after you go live. So everything here uses
 ## Before you start
 
 - **A Kindgi Cloud workspace,** where you're an admin. Whoever
-  [signs up](https://platform.kindgi.com/cloud/signup) is the workspace's
-  first admin.
+  [signs up](../sign-up/) is the workspace's first admin.
 - **A pack with an agent,** with its tests passing, and the Kindgi skills
   that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
   with the agent `acme-desk.reply-drafter`.

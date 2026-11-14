@@ -36,6 +36,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **`SystemTenantPurge.left_because`'s docstring says it also names
+  a secret the secret manager didn't erase.** It named only a setting the
+  runtime lacks. What you pass or read doesn't change.
 - `kindgi`: **a key carries the key it was minted with, and a revoke names
   the keys that went with it.** `ApiToken.minted_with` is the key a key was
   minted with, which revoking stops it with. `tokens.list(minted_with=...)`
@@ -62,6 +65,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `ask_on_first_use` asks before every call, as `always_ask` does. The client's
   models and the vendored `tool.schema.json` say the same. How a call is gated
   doesn't change.
+- `kindgi`: **sign-in options can link the deployment's own sign-up page.**
+  `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
+  "No account yet? Sign up". It's `None` when the operator set none, and from
+  older servers.
 
 ## 0.6.0
 

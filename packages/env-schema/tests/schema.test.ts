@@ -22,6 +22,8 @@ import {
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
   LICENSE_KEY_VAR,
+  TENANT_EGRESS_NO_PROXY_VAR,
+  TENANT_EGRESS_PROXY_VAR,
   envVarsForTarget,
   renderEnvExample,
   validateEnvForTarget,
@@ -217,6 +219,19 @@ describe('envVarsForTarget', () => {
         (v) => v.name === 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
       ),
     ).toBe(false);
+  });
+
+  test("the tenant egress proxy and its direct hosts: the server's, optional, from runtime 0.7.0", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of [TENANT_EGRESS_PROXY_VAR, TENANT_EGRESS_NO_PROXY_VAR]) {
+      expect(server.get(name)).toMatchObject({ group: 'core', required: false });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.7\.0; /);
+      expect(packService).not.toContain(name);
+    }
+    expect(server.get(TENANT_EGRESS_PROXY_VAR)?.description).toContain(
+      'it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses',
+    );
   });
 
   test("the server's bind host, its public URL and its development settings: optional, server only", () => {
@@ -577,6 +592,21 @@ describe('validateEnvForTarget', () => {
     expect(key?.required).toBe(false);
     expect(key?.appliesTo({})).toBe(true);
     expect(key?.example).toBe('');
+  });
+
+  test("the Kindgi account key is the server's, optional, in core, with no example; the pack service and the orchestrator don't get it", () => {
+    const key = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_ACCOUNT_KEY',
+    );
+    expect(key?.required).toBe(false);
+    expect(key?.example).toBe('');
+    expect(key?.group).toBe('core');
+    for (const component of ['pack-service', 'pack-orchestrator'] as const) {
+      expect(
+        envVarsForTarget({ component }).map((v) => v.name),
+        component,
+      ).not.toContain('KINDGI_ACCOUNT_KEY');
+    }
   });
 
   test('the server and registry auth modes', () => {

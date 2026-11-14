@@ -134,6 +134,8 @@ Put the two keys' versions in `secrets_aad_key_version` and `erasure_ledger_key_
 - every secret stored in Postgres is bound to the AAD key, so a new version would make them all unreadable;
 - erasures replay after a backup restore only with the same ledger key.
 
+After a restore, if the runtime has kept repos (`KINDGI_KEPT_REPOS` on, now or before the backup), `erasures replay --records` puts their erasures back too, and the repo store's gateway stays at 0 replicas until the replay and `tenants repurge` have run.
+
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one in the same vault with `put`. The pack service gets read access to exactly those.
 
 ## 4. The pack's env
@@ -279,7 +281,7 @@ server_secret_env = {
 
 ## Renewing the license key
 
-The license key expires, and the server warns from 30 days before (the startup banner, the console and `kindgi doctor`, each with the exact command). The server never calls Kindgi; renewing is something you run, here or from your own scheduler.
+The license key expires, and the server warns before it does: from 30 days before, or fewer if the key sets its own warning (the startup banner, the console and `kindgi doctor`, each with the exact command). Renewing is something you run, here or from your own scheduler.
 
 **Once, to enroll the deployment:** where you're signed in to Azure with access to the vault (`key_vault_admins`):
 
@@ -294,8 +296,10 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
-  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
-- **Counts of the deployment's use,** for a non-production key (the docs' Renew the license key page says what they are, under "What renewing sends"): mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+  - **Two alerts come with it:** a failed run, and a key inside its warning window (the run's own line, `⚠ It expires in N days`). That alert follows the key's own warning, so it fires from 30 days before the key expires, or fewer if the key sets them. With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+- **The server, and counts of the deployment's use:** mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+  - For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
+  - The job also offers a renewed key to the running server. Runtime 0.7.0 can't take one while it runs, so the run's log says `⚠ The runtime didn't take the new key (…)`, and the job writes the key as it does without the usage key. When the server uses it is under "When a new key is used", below.
 
   ```sh
   # Off in this shell: az's log file, if it's on, records each request's body.

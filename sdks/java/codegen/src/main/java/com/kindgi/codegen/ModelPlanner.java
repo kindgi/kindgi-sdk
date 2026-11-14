@@ -88,6 +88,8 @@ final class ModelPlanner {
   private final Map<String, ClassName> unionsBySignature = new HashMap<>();
   /** A record that's a variant of a top-level union implements it. */
   private final Map<ClassName, Set<ClassName>> implementsMap = new HashMap<>();
+  /** A text-or-object union's hidden `<Union>Object` interface → the union. */
+  final Map<ClassName, Ir.UnionDecl> objectInterfaces = new LinkedHashMap<>();
   /** Component → the property that tags it in a tagged union. */
   private final Map<String, String> tagFields = new HashMap<>();
   private final Scope top = new TopScope();
@@ -144,7 +146,60 @@ final class ModelPlanner {
         throw new GenerationException(e.getKey() + " is a union variant but not an object type");
       }
       ((Ir.RecordDecl) d).interfaces.addAll(e.getValue());
+      typeInfoOnce(e.getKey(), e.getValue());
     }
+  }
+
+  /**
+   * An app's own Jackson reads a variant by the type info its unions carry, so a variant of two
+   * unions needs them to tell variants apart the same way. A text-or-object union's object
+   * carries none of its own ({@code @JsonTypeInfo(use = NONE)}), so it's in no other typed union.
+   */
+  private void typeInfoOnce(ClassName variant, Set<ClassName> unions) {
+    List<ClassName> typed = new ArrayList<>();
+    for (ClassName union : unions) {
+      if (typeRule(union) != null) {
+        typed.add(union);
+      }
+    }
+    for (ClassName union : typed) {
+      if (objectInterfaces.containsKey(union) && typed.size() > 1) {
+        ClassName other = typed.get(typed.get(0).equals(union) ? 1 : 0);
+        throw new GenerationException(
+            variant + " is an object of the text-or-object union " + unionOf(union) + " and a variant of "
+                + unionOf(other) + ", whose type info an app's own Jackson would read it by");
+      }
+    }
+    for (ClassName union : typed) {
+      if (!typeRule(union).equals(typeRule(typed.get(0)))) {
+        throw new GenerationException(
+            variant + " is a variant of " + typed.get(0) + " and " + union + ", which tell their variants"
+                + " apart differently (" + typeRule(typed.get(0)) + "; " + typeRule(union) + ")");
+      }
+    }
+  }
+
+  /** The union an interface is: itself, or the union a hidden {@code <Union>Object} interface is of. */
+  private ClassName unionOf(ClassName i) {
+    Ir.UnionDecl u = objectInterfaces.get(i);
+    return u != null ? u.name : i;
+  }
+
+  /** How the type info an app's own Jackson reads on {@code union} tells its variants apart; null for none. */
+  private String typeRule(ClassName union) {
+    if (objectInterfaces.containsKey(union)) {
+      return "by their properties";
+    }
+    Ir.Decl d = index.get(union);
+    if (!(d instanceof Ir.UnionDecl)) {
+      return null;
+    }
+    Ir.UnionDecl u = (Ir.UnionDecl) d;
+    Ir.UnionKind rule = u.kind == Ir.UnionKind.BY_STATUS ? u.objectKind : u.kind;
+    if (rule == Ir.UnionKind.TAGGED) {
+      return "by " + u.tagWire;
+    }
+    return rule == Ir.UnionKind.DEDUCED ? "by their properties" : null;
   }
 
   Schema component(String name) {
@@ -636,6 +691,18 @@ final class ModelPlanner {
       u.tagWire = plan.tag;
       u.tagJava = Names.camel(plan.tag);
     }
+    if (plan.kind == Ir.UnionKind.TEXT_OR_OBJECT && plan.objects.size() >= 2) {
+      // An app's own Jackson reads the objects through a hidden interface that carries their type
+      // info; on the union, a text would be read as a type id too. Only objects told apart by
+      // their properties are proven to read that way.
+      if (plan.objectKind == Ir.UnionKind.TAGGED) {
+        throw new GenerationException(
+            cn + ": a text-or-object union whose objects carry a tag (" + plan.tag + "), which an app's own"
+                + " Jackson can't read yet");
+      }
+      u.objectInterface = reserveTop(String.join("", cn.simpleNames()) + "Object");
+      objectInterfaces.put(u.objectInterface, u);
+    }
     Scope scope = new DeclScope(cn, u.nested);
     for (Schema o : plan.objects) {
       List<String> tags = plan.tags.get(o);
@@ -648,6 +715,9 @@ final class ModelPlanner {
         }
         vt = (ClassName) t;
         implementsMap.computeIfAbsent(vt, k -> new LinkedHashSet<>()).add(cn);
+        if (u.objectInterface != null) {
+          implementsMap.get(vt).add(u.objectInterface);
+        }
       } else {
         String name;
         if (tags != null) {
@@ -665,6 +735,9 @@ final class ModelPlanner {
         vt = scope.nested(name);
         Ir.RecordDecl rd = planRecord(vt, o, plan.objectKind == Ir.UnionKind.TAGGED ? plan.tag : null);
         rd.interfaces.add(cn);
+        if (u.objectInterface != null) {
+          rd.interfaces.add(u.objectInterface);
+        }
         scope.add(rd);
       }
       u.variants.add(new Ir.Variant(vt, tags, unique, false, null));
@@ -680,15 +753,37 @@ final class ModelPlanner {
     return u;
   }
 
-  /** A top-level sealed interface over the shapes of one response, chosen by HTTP status. */
-  ClassName statusUnion(String name, String description, List<ClassName> variants) {
+  /**
+   * A top-level sealed interface over the shapes of one response, chosen by HTTP status. The
+   * client reads the shape for the status; an app's own Jackson tells them apart as {@link
+   * #analyze} tells objects apart, by a tag or else by a required property unique to each.
+   */
+  ClassName statusUnion(String name, String description, Map<ClassName, Schema> variants) {
     ClassName cn = reserveTop(name);
     Ir.UnionDecl u = new Ir.UnionDecl(cn, description, Ir.UnionKind.BY_STATUS);
-    for (ClassName v : variants) {
-      if (u.variants.stream().noneMatch(x -> x.type().equals(v))) {
-        u.variants.add(new Ir.Variant(v, null, null, false, null));
-        implementsMap.computeIfAbsent(v, k -> new LinkedHashSet<>()).add(cn);
+    UnionPlan plan = new UnionPlan();
+    for (Map.Entry<ClassName, Schema> v : variants.entrySet()) {
+      if (shapeOf(v.getValue()) != Shape.OBJECT) {
+        throw new GenerationException(v.getKey() + " is a union variant but not an object type");
       }
+      plan.objects.add(v.getValue());
+    }
+    String tag = findTag(plan, null);
+    if (tag != null) {
+      u.objectKind = Ir.UnionKind.TAGGED;
+      u.tagWire = tag;
+      u.tagJava = Names.camel(tag);
+    } else if (deduce(plan)) {
+      u.objectKind = Ir.UnionKind.DEDUCED;
+    } else {
+      throw new GenerationException(
+          cn + ": can't tell this answer's shapes apart: no property with a fixed value per shape, and"
+              + " no required property unique to each");
+    }
+    for (Map.Entry<ClassName, Schema> v : variants.entrySet()) {
+      Schema s = v.getValue();
+      u.variants.add(new Ir.Variant(v.getKey(), plan.tags.get(s), plan.unique.get(s), false, null));
+      implementsMap.computeIfAbsent(v.getKey(), k -> new LinkedHashSet<>()).add(cn);
     }
     register(u, true);
     return cn;

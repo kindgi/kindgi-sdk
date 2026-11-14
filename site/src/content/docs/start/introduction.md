@@ -48,7 +48,8 @@ events as they happen, and receives signed webhooks when they finish.
   `http://127.0.0.1:4000/console/`; `kindgi console` opens it). Each run has one page: what
   the agent was asked, the tools it called and their results, its answer, the
   model and the cost; its journal, one sentence per step; and where the answer
-  came from. It also has approvals to approve or reject, conversations, and
+  came from. A project's **Results** shows what each of its runs gave back,
+  newest first. It also has approvals to approve or reject, conversations, and
   the agents and tools your pack defines. A project's pages show that
   project's records, with a switch to see all of them.
 
@@ -69,8 +70,8 @@ try what it wrote, and the run's journal when something fails.
   sign in with GitHub or your email address.)
 - **In your own cloud:** you deploy the same runtime image into your
   project; your data and prompts stay there.
-- **Kindgi Cloud:** we operate the runtime for you. It's in private
-  preview.
+- **Kindgi Cloud:** we operate the runtime for you
+  ([Start on Kindgi Cloud](../../hosted/start-on-kindgi-cloud/)).
 
 ## Status
 

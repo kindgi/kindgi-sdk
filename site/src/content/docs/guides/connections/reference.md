@@ -229,8 +229,11 @@ there.
   ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
 - **An app that gives no refresh token** ends a connection when its access
   token ends: LinkedIn gives them only to partners it approves, and its
-  access lasts 60 days. Kindgi knows when, and just before then the
-  connection needs reconnecting, with no call to the app
+  access lasts 60 days. Kindgi knows when. From seven days before, the
+  connection says when it ends, and where the deployment sends mail,
+  whoever can reconnect it gets one email (runtime 0.7.0 or later). Just
+  before its access ends, the connection needs reconnecting, with no call
+  to the app
   ([LinkedIn](../linkedin/#when-linkedin-ends-access)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.

@@ -300,8 +300,9 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   it's set. The URL isn't a secret: the signature is what each request is
   checked by.
 - **`--project=<id>`** puts the trigger and its runs in a project (by default,
-  the workspace's default project). Registering needs `write` on the project and
-  `execute` on the flow.
+  the project your API key or session is limited to, else the workspace's
+  default project). Registering needs `write` on the project and `execute` on
+  the flow.
 - **`--run-as=project`** makes the trigger shared: its runs act as the
   project's own service account, made when a trigger is first set to run
   as the project, with the `editor` role on the project, rather than as
@@ -534,8 +535,6 @@ A delivery is data from outside. Its run says a webhook started it,
   [When no person started the run](../../approvals/ask-before-a-tool-runs/#when-no-person-started-the-run)
   shows, unless the trigger lists it in its
   [tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended).
-
-A run an event trigger starts reads the same, with `startedBy: "event"`.
 
 ## Pause, change and remove
 

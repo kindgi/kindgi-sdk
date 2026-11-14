@@ -72,6 +72,12 @@ export type KindOutcome =
 export interface Manifest {
   readonly cliVersion: string;
   readonly server: string;
+  /**
+   * The runtime's version, as `GET /v1/runtime` answers it: the release
+   * whose API shapes the records follow. Left out when the runtime doesn't
+   * say it, or when the export's reads found more than one.
+   */
+  readonly runtime?: { readonly version: string };
   /** The tenant, and its state as the export last read it, when the server says it. */
   readonly tenant: { readonly id: string; readonly state?: string };
   readonly startedAt: string;
@@ -119,10 +125,13 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
   const started = now().toISOString();
   // The tenant's state as each read found it: at the start, and at the end.
   const states = [await tenantState(input.reader)];
+  // The runtime's version as each read found it, at the same times.
+  const versions = [await runtimeVersion(input.reader)];
   const kinds: Record<string, KindOutcome> = { ...(earlier?.kinds ?? {}) };
   const manifest = (finishedAt?: string): Manifest => ({
     cliVersion: input.cliVersion,
     server: input.server,
+    ...runtimeOf(versions, earlier),
     tenant: { id: input.tenantId, ...lastState(states) },
     startedAt: earlier?.startedAt ?? started,
     ...(finishedAt !== undefined && { finishedAt }),
@@ -177,8 +186,12 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
     await save();
   }
   const finished = stopped() ? undefined : now().toISOString();
-  // A tenant closing or suspended at the start may be active again now.
-  if (finished !== undefined) states.push(await tenantState(input.reader));
+  // A tenant closing or suspended at the start may be active again now, and
+  // the runtime may have been upgraded.
+  if (finished !== undefined) {
+    states.push(await tenantState(input.reader));
+    versions.push(await runtimeVersion(input.reader));
+  }
   await save(finished);
   return manifest(finished);
 }
@@ -252,6 +265,35 @@ async function tenantState(reader: Reader): Promise<string | undefined> {
     // The tenant kind says what went wrong.
     return undefined;
   }
+}
+
+/** The runtime's version, as `GET /v1/runtime` answers it. */
+async function runtimeVersion(reader: Reader): Promise<string | undefined> {
+  try {
+    const runtime = (await reader.one('/v1/runtime')) as { version?: unknown };
+    return typeof runtime.version === 'string' && runtime.version !== ''
+      ? runtime.version
+      : undefined;
+  } catch {
+    // A runtime that doesn't serve it (`404`), or a read that failed: the
+    // manifest leaves it out, rather than guess.
+    return undefined;
+  }
+}
+
+/**
+ * The runtime's version, for the manifest: only when every read found the
+ * same one, an earlier run's too. A runtime upgraded while the export ran
+ * gave records in two releases' shapes, so then no one version is right.
+ */
+function runtimeOf(
+  versions: readonly (string | undefined)[],
+  earlier: Manifest | undefined,
+): { runtime?: { version: string } } {
+  const [version] = versions;
+  if (version === undefined || versions.some((v) => v !== version)) return {};
+  if (earlier !== undefined && earlier.runtime?.version !== version) return {};
+  return { runtime: { version } };
 }
 
 /** The state the last read found, for the manifest. */

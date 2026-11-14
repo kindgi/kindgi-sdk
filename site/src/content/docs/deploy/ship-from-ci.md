@@ -493,6 +493,20 @@ from the same commit for each runtime, and deploy each build to its
 runtime's first environment. Set up each runtime once: its trusted signing
 key, providers, release gates, test cases and triggers.
 
+Give each self-hosted runtime its own tenant id, so each build, export and
+audit record names that runtime's workspace: run `uuidgen | tr 'A-Z' 'a-z'`
+for each one, for an id in lower case, as
+[Self-host Kindgi](../self-hosted/self-host/#3-build-sign-and-push-your-pack)
+does, and never reuse one runtime's id for another.
+
+An export (`kindgi exports create`) doesn't copy one runtime into another.
+It's the workspace's own copy of its records, not a backup to restore: no
+runtime loads one. A runtime makes its own ids, never answers a secret's
+value or a connection's token, and checks each build's signature against its
+own workspace. So set up each runtime as above, from the same commit. To
+bring a self-hosted runtime back, restore its database
+([Back up and restore](../self-hosted/back-up-and-restore/)).
+
 ## Python, Java and Scala packs
 
 The jobs are the same. What changes is how each job sets up the pack and

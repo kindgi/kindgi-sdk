@@ -39,6 +39,7 @@ final class OperationPlanner {
           "requestBody",
           "responses",
           "security",
+          "deprecated",
           "x-kindgi-sender-only");
   private static final Set<String> PARAMETER_KEYS =
       Set.of("name", "in", "schema", "required", "description", "x-kindgi-segment-path");
@@ -69,6 +70,11 @@ final class OperationPlanner {
     String path;
     String summary;
     String description;
+    /**
+     * A deprecated operation's note: its description's first paragraph, which says what to use
+     * instead ({@code null} when it isn't deprecated).
+     */
+    String deprecated;
     final List<PathParam> pathParams = new ArrayList<>();
     final List<OtherParam> otherParams = new ArrayList<>();
     ClassName paramsType;
@@ -279,6 +285,7 @@ final class OperationPlanner {
     copy.path = op.path;
     copy.summary = op.summary;
     copy.description = op.description;
+    copy.deprecated = op.deprecated;
     copy.pathParams.addAll(op.pathParams);
     copy.otherParams.addAll(op.otherParams);
     copy.paramsType = op.paramsType;
@@ -309,6 +316,15 @@ final class OperationPlanner {
     op.path = path;
     op.summary = (String) raw.getOrDefault("summary", "");
     op.description = (String) raw.getOrDefault("description", "");
+    if (Boolean.TRUE.equals(raw.get("deprecated"))) {
+      // Its description opens with what to use instead, which the Python client's warning says too.
+      String note = Docs.firstParagraph(op.description).strip();
+      if (note.isEmpty()) {
+        throw new GenerationException(
+            id + " is deprecated, and its description doesn't open with what to use instead");
+      }
+      op.deprecated = String.join(" ", note.split("\\s+"));
+    }
     op.operationConstant = Names.constant(id);
     String hint = Names.pascal(id);
 
@@ -412,6 +428,8 @@ final class OperationPlanner {
 
     Map<String, Object> responses = map(raw.get("responses"), id);
     Map<Integer, TypeName> success = new TreeMap<>();
+    // Each JSON shape's schema, for a union by status to tell its shapes apart by.
+    Map<TypeName, Schema> shapes = new LinkedHashMap<>();
     ResponseKind kind = null;
     for (Map.Entry<String, Object> r : responses.entrySet()) {
       if (!r.getKey().startsWith("2")) {
@@ -433,7 +451,9 @@ final class OperationPlanner {
         switch (media) {
           case "application/json":
             k = ResponseKind.JSON;
-            t = models.typeOf(Schema.of(rawSchema, id + " response"), models.top(), hint + "Response");
+            Schema shape = Schema.of(rawSchema, id + " response");
+            t = models.typeOf(shape, models.top(), hint + "Response");
+            shapes.putIfAbsent(t, shape);
             break;
           case "text/event-stream":
             k = ResponseKind.SSE;
@@ -463,12 +483,12 @@ final class OperationPlanner {
       if (op.responseKind != ResponseKind.JSON) {
         throw new GenerationException(id + ": different 2xx shapes that aren't JSON");
       }
-      List<ClassName> variants = new ArrayList<>();
+      Map<ClassName, Schema> variants = new LinkedHashMap<>();
       for (TypeName t : distinct) {
         if (!(t instanceof ClassName)) {
           throw new GenerationException(id + ": a 2xx shape that isn't a named type");
         }
-        variants.add((ClassName) t);
+        variants.put((ClassName) t, shapes.get(t));
       }
       op.response = models.statusUnion(hint + "Response", "The answer of {@code " + id + "}, by HTTP status.", variants);
       op.byStatus = success;

@@ -188,12 +188,43 @@ token and no `KINDGI_SEED_USER_ID` says so when it starts:
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
-**When OpenFGA is unreachable,** requests that need a check answer `500
-internal-server-error` with `Unhandled server error` and the request id
-(runtime 0.1.9 or later; earlier ones answer with the cause itself). The
-runtime's `unhandled error` log line for that request id has the cause,
-`FGA Error: connect ECONNREFUSED …` ([Logs](../self-hosted/logs/)). They work again
-once it's back.
+**When OpenFGA can't be reached,** a request that needs a check answers
+`503 authz-backend-unavailable` with `Retry-After: 5` (runtime X.Y.Z or
+later; earlier ones answer `500 internal-server-error`): the request wasn't
+run, so sending it again after that wait is safe. OpenFGA can't be reached
+when it gives no answer, or answers `429` or a `5xx` other than `501`, after
+the runtime's one retry. With `KINDGI_OPENFGA_AUTH=google-id-token`, it also
+can't be reached when the runtime gets no ID token to call it with
+([OpenFGA behind Cloud Run IAM](../self-hosted/cloud-run/#openfga-behind-cloud-run-iam)).
+Any other failure of a check answers `500 internal-server-error`, as any
+error does. `GET /v1/identity/me/permissions`, which the console reads for
+what the signed-in person may do, answers its own `503
+authz-backend-unavailable` for any failure to read their access, with the
+same `Retry-After` from runtime X.Y.Z, and logs it at `warn` as
+`me/permissions: the authorization store couldn't be read: …`.
+
+- **A check before the request's work** answers the `503` on any method.
+- **A check a `GET` or `HEAD` makes as it reads** answers the `503` too.
+- **A check a write makes as it works** answers `500
+  internal-server-error` instead: the write may have done part of its work
+  before that check, and sending it again could do that part twice.
+
+Every operation that needs a signed-in caller can answer the `503`. The API
+reference names it in each one's `503`
+([`authz-backend-unavailable`](../../reference/errors/#authz-backend-unavailable)).
+The TypeScript client's server error carries `serverCode`
+`authz-backend-unavailable` and `retryAfterSeconds` from the `Retry-After`;
+it doesn't retry on its own. The Python client sends a `GET`, or a call with
+an `Idempotency-Key`, again after the wait, as it does any `503`, up to
+`max_retries` times (2 by default). A call it doesn't send again, or whose
+retries run out, raises a `ServerError` whose `server_code` is
+`authz-backend-unavailable`.
+
+The answer never carries OpenFGA's error. The runtime logs it at `error`, as
+`authorization store unreachable` for that request id, with OpenFGA's error
+as its cause, such as `FGA Error: connect ECONNREFUSED …`
+([Logs](../self-hosted/logs/)). A write's `500` logs it as `unhandled error`.
+Requests work again once OpenFGA is back.
 
 **When the database fails one tenant's permission changes:** the runtime
 sends permission changes to OpenFGA from a queue in Postgres, about twice a
@@ -322,6 +353,12 @@ checks every call.
 - **A project admin** may also "pin versions, register agents and tools,
   rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
+- **Where the console opens:** on the workspace's default project, or the
+  first project you can see. An editor or an admin starts on its
+  **Dashboard**. A viewer, or someone who runs it only because
+  [everyone can run it](#everyone-can-run-a-project), starts on its
+  **Results**, what each run gave back
+  ([Results](../../guides/runs/list-runs/#results)).
 - **The workspace's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
     the like, to tenant admins;

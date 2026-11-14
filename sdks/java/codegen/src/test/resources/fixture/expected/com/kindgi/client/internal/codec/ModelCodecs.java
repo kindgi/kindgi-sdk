@@ -40,11 +40,14 @@ public final class ModelCodecs {
         UploadBodyJson.register(module);
         RotateDoneJson.register(module);
         RotateQueuedJson.register(module);
+        RefreshDoneJson.register(module);
+        RefreshQueuedJson.register(module);
         FlowJson.register(module);
         MeterJson.register(module);
         NodeJson.register(module);
         ScopeSegmentJson.register(module);
         WidgetsRotateResponseJson.register(module);
+        WidgetsRefreshResponseJson.register(module);
         SettingsPutDomainJson.register(module);
         SettingsPutBodyJson.register(module);
         SettingsPutResponseJson.register(module);
