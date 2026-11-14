@@ -405,7 +405,10 @@ final class ResourceWriter {
     return m.build();
   }
 
-  /** The parts of a multipart body: binary members as files, the rest as text. */
+  /**
+   * The parts of a multipart body: binary members as files, the rest as text (an enum member as its
+   * value as the API spells it).
+   */
   private CodeBlock multipart(OperationPlanner.Op op) {
     Ir.Decl d = op.body instanceof ClassName ? models.index.get(op.body) : null;
     if (!(d instanceof Ir.RecordDecl)) {
@@ -417,6 +420,8 @@ final class ResourceWriter {
         b.add(".file($S, body.$N())", f.wire, f.java);
       } else if (f.type.equals(ModelPlanner.STRING) || f.type.isBoxedPrimitive() || f.type.toString().equals("java.util.UUID")) {
         b.add(".text($S, body.$N())", f.wire, f.java);
+      } else if (models.index.get(f.type) instanceof Ir.EnumDecl) {
+        b.add(".text($S, body.$N() == null ? null : body.$N().asString())", f.wire, f.java, f.java);
       } else {
         throw new GenerationException(op.id + ": multipart member " + f.wire + " of type " + f.type);
       }

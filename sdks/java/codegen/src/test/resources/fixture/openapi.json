@@ -1022,6 +1022,10 @@
           "ownerId": {
             "type": "string",
             "format": "uuid"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
           }
         }
       },
