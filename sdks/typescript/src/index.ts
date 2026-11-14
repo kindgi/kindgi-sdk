@@ -729,6 +729,7 @@ export type {
 } from './resources/identity.js';
 export type {
   AuthClient,
+  AuthJoinDomainsClient,
   AuthProvidersClient,
   AuthSettings,
   AuthSettingsClient,
