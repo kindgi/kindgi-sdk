@@ -208,6 +208,8 @@ export const CLI_DEFAULTS = {
     domains: 'required',
     'idp-metadata': 'none',
     issuer: 'none',
+    join: '`invite`',
+    'join-role': '`viewer`',
     kind: 'required',
     name: 'none',
     'sp-decryption-certificate': 'none',
@@ -222,6 +224,8 @@ export const CLI_DEFAULTS = {
     domains: 'none',
     'idp-metadata': 'none',
     issuer: 'none',
+    join: 'none: the provider keeps its own',
+    'join-role': 'none: the provider keeps its own',
     kind: 'none',
     name: 'none',
     remove: 'none',
@@ -1209,6 +1213,9 @@ export const CLI_DEFAULTS = {
   'sign-in settings': {
     'require-second-factor': 'unchanged: the settings are read',
   },
+  'sign-in join-domains allow': {
+    role: '`viewer`',
+  },
   'people list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -1507,6 +1514,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Add a second sign-in domain and drop the display name.',
       line: 'kindgi sso providers update acme-okta --domains=acme.com,acme-ops.com --remove=displayName',
+    },
+    {
+      purpose:
+        'Let colleagues at its domains join by signing in, as viewers of the default project.',
+      line: 'kindgi sso providers update acme-okta --join=domain --join-role=viewer',
     },
   ],
   'sso providers get': [
@@ -2792,6 +2804,24 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Require a second factor at sign-in (set up your own first).',
       line: 'kindgi sign-in settings --require-second-factor=on',
+    },
+  ],
+  'sign-in join-domains list': [
+    {
+      purpose: 'See which email domains people may join from, and what a joiner gets.',
+      line: 'kindgi sign-in join-domains list --table',
+    },
+  ],
+  'sign-in join-domains allow': [
+    {
+      purpose: "Let people at acme.com join as runner, signed in with the operator's key.",
+      line: 'kindgi sign-in join-domains allow acme.com --role=runner',
+    },
+  ],
+  'sign-in join-domains remove': [
+    {
+      purpose: 'Stop new joins from acme.com; the people who joined stay.',
+      line: 'kindgi sign-in join-domains remove acme.com',
     },
   ],
   'people list': [

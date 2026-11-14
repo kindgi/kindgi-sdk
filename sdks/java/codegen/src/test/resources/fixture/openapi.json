@@ -78,6 +78,21 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "description": "Extras, one or more, comma-separated.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["owner", "history"]
+              }
+            },
+            "style": "form",
+            "explode": false
           }
         ],
         "responses": {

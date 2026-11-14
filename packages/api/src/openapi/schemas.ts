@@ -1191,7 +1191,7 @@ export const RunWaitingForSchema: JsonSchema = {
   additionalProperties: false,
   required: ['approvals', 'other'],
   description:
-    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+    "Set on a suspended run by `GET /v1/runs/{runId}`, and by the list with `?include=waitingFor`: what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
   properties: {
     approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
     connections: {
@@ -2116,7 +2116,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.",
+        "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted.",
     },
   },
 };
@@ -2611,7 +2611,7 @@ export const ServiceAccountSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.",
+        "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project.",
     },
   },
 };
@@ -3366,6 +3366,48 @@ export const LicenseStatusSchema: JsonSchema = {
         "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.",
     },
     preview: { $ref: '#/components/schemas/LicensePreview' },
+    limits: { $ref: '#/components/schemas/LicenseLimits' },
+  },
+};
+
+export const LicenseLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.",
+  properties: {
+    flows: { $ref: '#/components/schemas/LicenseLimit' },
+    agents: { $ref: '#/components/schemas/LicenseLimit' },
+  },
+};
+
+export const LicenseLimitSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['plan', 'most', 'inUse'],
+  description: 'One count the key limits.',
+  properties: {
+    plan: { type: 'integer', minimum: 1, description: 'The number the key carries.' },
+    most: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The most this runtime runs: past it, it refuses new ones.',
+    },
+    inUse: { type: 'integer', minimum: 0, description: 'How many it counts now.' },
+  },
+};
+
+export const LicenseKeyBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key'],
+  properties: {
+    key: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4096,
+      description: 'The whole license key, `kgi_lk_…`.',
+    },
   },
 };
 
@@ -3943,6 +3985,50 @@ export const PublishAgentBodySchema: JsonSchema = {
   },
 };
 
+/**
+ * One count of the plan limits: the plan's number (the key's, or the
+ * workspace's own limit), the most it runs, and how many run in production.
+ */
+export const PlanCountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['plan', 'most', 'inUse'],
+  properties: {
+    plan: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The plan's number: the license key's, or the workspace's own limit (`TenantLimits`).",
+    },
+    most: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The most it runs: its plan and a margin. A write past this is refused.',
+    },
+    inUse: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many run in production, with this write.',
+    },
+  },
+};
+
+/**
+ * `planWarning` on a write's answer: each count at its plan or past it,
+ * with this write. Absent below the plan, and never empty.
+ */
+export const PlanWarningSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description:
+    "The plan limits' counts that are at their plan or past it, with this write: flows and agents in production, against the license key's plan or the workspace's own limit. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.",
+  properties: {
+    flows: { $ref: '#/components/schemas/PlanCount' },
+    agents: { $ref: '#/components/schemas/PlanCount' },
+  },
+};
+
 export const PublishAgentResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3961,6 +4047,7 @@ export const PublishAgentResultSchema: JsonSchema = {
         properties: { code: { type: 'string' }, message: { type: 'string' } },
       },
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -4021,6 +4108,7 @@ export const ReinstateAgentVersionResultSchema: JsonSchema = {
       description:
         '`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -4178,6 +4266,7 @@ export const PublishFlowResultSchema: JsonSchema = {
   properties: {
     flowId: { type: 'string' },
     version: { type: 'string' },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -4204,6 +4293,7 @@ export const ReinstateFlowVersionResultSchema: JsonSchema = {
       description:
         '`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -10878,7 +10968,7 @@ export const TestRunSchema: JsonSchema = {
     cancelReason: {
       type: 'string',
       description:
-        "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
+        "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
     },
     correlationId: {
       type: 'string',
@@ -10994,7 +11084,13 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
     type: 'string',
     enum: ['invite', 'domain'],
     description:
-      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.",
+      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.",
+  },
+  joinRole: {
+    type: 'string',
+    enum: ['viewer', 'runner', 'none'],
+    description:
+      "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.",
   },
   signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
   metadata: { type: 'object', additionalProperties: true },
@@ -11406,6 +11502,9 @@ export const UpdateIdentityProviderBodySchema: JsonSchema = {
     displayName: NULLABLE_STRING,
     domains: NULLABLE_STRINGS,
     join: { oneOf: [{ type: 'string', enum: ['invite', 'domain'] }, { type: 'null' }] },
+    joinRole: {
+      oneOf: [{ type: 'string', enum: ['viewer', 'runner', 'none'] }, { type: 'null' }],
+    },
     metadata: { oneOf: [{ type: 'object', additionalProperties: true }, { type: 'null' }] },
     issuer: { type: 'string', format: 'uri' },
     clientId: { type: 'string', minLength: 1 },
@@ -11576,6 +11675,12 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
     format: 'date-time',
     description:
       'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
+  },
+  createdBy: {
+    type: 'string',
+    minLength: 1,
+    description:
+      "Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.",
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -11772,6 +11877,147 @@ export const AuthSettingsPatchSchema: JsonSchema = {
   },
 };
 
+const JOIN_DOMAIN_ROLE = {
+  type: 'string',
+  enum: ['viewer', 'runner', 'none'],
+  description:
+    "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.",
+} as const;
+
+export const JoinDomainSchema: JsonSchema = {
+  description: 'An email domain the workspace lets people join from.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain', 'role', 'createdAt', 'createdBy'],
+  properties: {
+    domain: {
+      type: 'string',
+      minLength: 1,
+      description: 'Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`.',
+    },
+    role: JOIN_DOMAIN_ROLE,
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token).",
+    },
+    updatedAt: { type: 'string', format: 'date-time' },
+    updatedBy: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one.",
+    },
+  },
+};
+
+export const JoinDomainListSchema: JsonSchema = {
+  description: "The workspace's allowed domains, the first allowed first.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JoinDomain' } },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const AllowJoinDomainBodySchema: JsonSchema = {
+  description: 'A domain to let people join from.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain'],
+  properties: {
+    domain: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent.',
+    },
+    role: {
+      type: 'string',
+      enum: ['viewer', 'runner', 'none'],
+      description: `${JOIN_DOMAIN_ROLE.description} Default \`viewer\`.`,
+    },
+  },
+};
+
+export const ChangeJoinDomainBodySchema: JsonSchema = {
+  description:
+    'What someone joining by the domain gets from now on. People who joined already keep what they have.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  properties: { role: JOIN_DOMAIN_ROLE },
+};
+
+export const UnregisterJoinDomainResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain', 'unregistered'],
+  properties: {
+    domain: { type: 'string', minLength: 1 },
+    unregistered: { type: 'boolean', const: true },
+  },
+};
+
+export const JoinDomainLookupBodySchema: JsonSchema = {
+  description: 'One email a sign-up page verified.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['email'],
+  properties: {
+    email: {
+      type: 'string',
+      minLength: 3,
+      description:
+        "An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it.",
+    },
+  },
+};
+
+export const JoinLookupWorkspaceSchema: JsonSchema = {
+  description:
+    "A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'tenantId', 'name', 'role'],
+      properties: {
+        kind: { type: 'string', const: 'join' },
+        tenantId: { type: 'string', format: 'uuid' },
+        name: { type: 'string' },
+        role: JOIN_DOMAIN_ROLE,
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'tenantId', 'name'],
+      properties: {
+        kind: { type: 'string', const: 'member' },
+        tenantId: { type: 'string', format: 'uuid' },
+        name: { type: 'string' },
+      },
+    },
+  ],
+};
+
+export const JoinDomainLookupResultSchema: JsonSchema = {
+  description:
+    'For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JoinLookupWorkspace' } },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 export const UnregisterUserResultSchema: JsonSchema = {
   description:
     'A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).',
@@ -11819,6 +12065,11 @@ export const PersonGrantsSchema: JsonSchema = {
       type: 'boolean',
       description:
         'Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.',
+    },
+    tenantAdminFromSetting: {
+      type: 'boolean',
+      description:
+        "Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it.",
     },
     tenantMember: {
       type: 'boolean',
@@ -12867,6 +13118,7 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         "The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.",
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -12918,6 +13170,17 @@ export const DeployCheckAgentIdSchema: JsonSchema = {
   description: "An agent's id, as the image index names it.",
 };
 
+/**
+ * One of the pack's flows in a deploy check, by id. A component of its
+ * own, as `DeployCheckAgentId` is: named after its property, it would take
+ * a name the Python client keeps for another model.
+ */
+export const DeployCheckFlowIdSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  description: "A flow's id, as the image index names it.",
+};
+
 /** `POST /v1/deployments/check`'s body. */
 export const DeployCheckBodySchema: JsonSchema = {
   type: 'object',
@@ -12935,6 +13198,13 @@ export const DeployCheckBodySchema: JsonSchema = {
       maxItems: 500,
       items: { $ref: '#/components/schemas/DeployCheckAgentId' },
       description: "The pack's agents, by id: the image index's.",
+    },
+    flows: {
+      type: 'array',
+      maxItems: 500,
+      items: { $ref: '#/components/schemas/DeployCheckFlowId' },
+      description:
+        "The pack's flows, by id: the image index's. With `agents`, what the plan limits count; absent: no flows.",
     },
     blocks: {
       type: 'array',
@@ -12981,6 +13251,7 @@ export const DeployCheckResultSchema: JsonSchema = {
       items: { type: 'string' },
       description: 'The blocks `replace` names that nothing newer runs for: nothing to replace.',
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -13262,6 +13533,7 @@ export const DeploymentPromotionSchema: JsonSchema = {
         "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.",
     },
     blockCheck: { $ref: '#/components/schemas/PromotionBlockCheck' },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -13340,6 +13612,7 @@ export const DeploymentPromotionCheckSchema: JsonSchema = {
       description:
         "Edits of the build's agents and flows that would stay behind; absent when none.",
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -13385,7 +13658,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
     retired: {
       type: 'string',
       description:
-        "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.",
+        "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored, and `project-deleted` until the project is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.",
     },
     packEnvProblem: {
       type: 'object',
@@ -14035,7 +14308,7 @@ export const ProjectSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.",
+        "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them.",
     },
     sortEndUserCorrections: {
       type: 'boolean',
@@ -14080,6 +14353,7 @@ export const ProjectProductionSchema: JsonSchema = {
       format: 'date-time',
       description: "When the project went into production; `null` while it isn't in production.",
     },
+    planWarning: { $ref: '#/components/schemas/PlanWarning' },
   },
 };
 
@@ -14158,6 +14432,46 @@ export const ProjectCollectionPageSchema: JsonSchema = {
   required: ['data', 'hasMore'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/Project' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const DeletedProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).',
+  required: ['id', 'tenantId', 'name', 'slug', 'formerSlugs', 'deletedAt'],
+  properties: {
+    id: { type: 'string', description: 'ProjectId — opaque branded string.' },
+    tenantId: { type: 'string' },
+    orgId: { type: 'string', description: 'Its org; absent when it has none.' },
+    name: { type: 'string' },
+    slug: {
+      type: 'string',
+      description: 'Its slug, still its own: no other project can take it where this one is.',
+    },
+    formerSlugs: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The slugs it had before it was renamed, newest first; still its own, in any org of the workspace.',
+    },
+    deletedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was deleted. Deleting it again keeps this time.',
+    },
+  },
+};
+
+export const DeletedProjectCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/DeletedProject' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
@@ -14514,6 +14828,18 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
     },
+    flowsInProduction: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Flows in production, each counted once however many of the workspace's projects in production run it. There's a margin: a write that would take the count past the most, the larger of 1.2 times this (rounded down) and one more than it, is refused with 403 `plan-limit-reached` (`scope: tenant`), and a write's answer warns from this number on (`planWarning`). Lowering it takes nothing out of production.",
+    },
+    agentsInProduction: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Agents in production, counted as `flowsInProduction` is, with the same margin and the same refusal.',
+    },
   },
 };
 
@@ -14528,6 +14854,18 @@ export const TenantLimitsInUseSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description: "The tenant's projects in production.",
+    },
+    flowsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The tenant's flows in production, each counted once. Absent from a runtime that doesn't count it.",
+    },
+    agentsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The tenant's agents in production, each counted once. Absent from a runtime that doesn't count it.",
     },
   },
 };
@@ -14696,6 +15034,40 @@ export const TenantLimitsResultSchema: JsonSchema = {
     tenantId: { type: 'string', format: 'uuid' },
     limits: ref('TenantLimits'),
     inUse: ref('TenantLimitsInUse'),
+    plan: {
+      type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
+      description:
+        "The tenant's plan id, as `PUT …/plan` set it: on `GET …/limits` only. null while none is set; absent from a runtime that doesn't keep it. It's only shown: the limits are what's enforced.",
+    },
+  },
+};
+
+export const TenantPlanBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['plan'],
+  properties: {
+    plan: {
+      type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
+      description:
+        "The plan's id: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. null clears it.",
+    },
+  },
+};
+
+export const TenantPlanSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'plan'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    plan: {
+      type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
+      description: "The tenant's plan id now; null when none is set.",
+    },
   },
 };
 
@@ -15790,7 +16162,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended or deleted (`project-suspended`, `project-deleted`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension, a delete or a close (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     version: {
@@ -16232,7 +16604,7 @@ export const WebhookFireSchema: JsonSchema = {
       type: 'string',
       enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
       description:
-        "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
+        "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended or deleted after the delivery was taken, before its run started (`project-suspended`, `project-deleted`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     version: {
@@ -16244,7 +16616,7 @@ export const WebhookFireSchema: JsonSchema = {
     detail: {
       type: 'string',
       description:
-        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.",
+        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it.",
     },
     countsTowardPause: COUNTS_TOWARD_PAUSE,
     duplicates: {
@@ -16333,9 +16705,9 @@ export const WebhookReceiptSchema: JsonSchema = {
     },
     skipped: {
       type: 'string',
-      enum: ['paused', 'tenant-suspended', 'project-suspended'],
+      enum: ['paused', 'tenant-suspended', 'project-suspended', 'project-deleted'],
       description:
-        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.",
+        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded.",
     },
     received: {
       type: 'string',
@@ -19156,6 +19528,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
   ['RuntimeConnections', RuntimeConnectionsSchema],
+  ['LicenseLimits', LicenseLimitsSchema],
+  ['LicenseLimit', LicenseLimitSchema],
+  ['LicenseKeyBody', LicenseKeyBodySchema],
   ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
@@ -19227,6 +19602,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FlowPins', FlowPinsSchema],
   ['FlowVersionOverrides', FlowVersionOverridesSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
+  ['PlanCount', PlanCountSchema],
+  ['PlanWarning', PlanWarningSchema],
   ['PublishAgentResult', PublishAgentResultSchema],
   ['AgentOwner', AgentOwnerSchema],
   ['SetAgentOwnerBody', SetAgentOwnerBodySchema],
@@ -19497,6 +19874,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SecondFactorRemoved', SecondFactorRemovedSchema],
   ['AuthSettings', AuthSettingsSchema],
   ['AuthSettingsPatch', AuthSettingsPatchSchema],
+  ['JoinDomain', JoinDomainSchema],
+  ['JoinDomainList', JoinDomainListSchema],
+  ['AllowJoinDomainBody', AllowJoinDomainBodySchema],
+  ['ChangeJoinDomainBody', ChangeJoinDomainBodySchema],
+  ['UnregisterJoinDomainResult', UnregisterJoinDomainResultSchema],
+  ['JoinDomainLookupBody', JoinDomainLookupBodySchema],
+  ['JoinLookupWorkspace', JoinLookupWorkspaceSchema],
+  ['JoinDomainLookupResult', JoinDomainLookupResultSchema],
   ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
   ['PersonGrants', PersonGrantsSchema],
@@ -19557,6 +19942,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentReplacedBlock', DeploymentReplacedBlockSchema],
   ['DeployReplaceBlock', DeployReplaceBlockSchema],
   ['DeployCheckAgentId', DeployCheckAgentIdSchema],
+  ['DeployCheckFlowId', DeployCheckFlowIdSchema],
   ['DeployCheckBody', DeployCheckBodySchema],
   ['DeployCheckResult', DeployCheckResultSchema],
   ['DeployCheckStop', DeployCheckStopSchema],
@@ -19630,6 +20016,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],
+  ['DeletedProject', DeletedProjectSchema],
+  ['DeletedProjectCollectionPage', DeletedProjectCollectionPageSchema],
   ['ProjectMembership', ProjectMembershipSchema],
   ['ProjectMembershipCollectionPage', ProjectMembershipCollectionPageSchema],
   ['AddProjectMembershipBody', AddProjectMembershipBodySchema],
@@ -19651,6 +20039,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['KeptRepoErasurePage', KeptRepoErasurePageSchema],
   ['KeptRepoPurgedBody', KeptRepoPurgedBodySchema],
   ['KeptRepoState', KeptRepoStateSchema],
+  ['TenantPlanBody', TenantPlanBodySchema],
+  ['TenantPlan', TenantPlanSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

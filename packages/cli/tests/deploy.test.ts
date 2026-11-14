@@ -3443,8 +3443,12 @@ describe("kindgi deploy — the pack's blocks against what runs", () => {
     return { fetchImpl, checks };
   }
 
-  async function deployWith(fetchImpl: typeof fetch, argv: readonly string[] = []) {
-    const index = { ...(makeEnvelope().index as Record<string, unknown>), blocks: BLOCKS };
+  async function deployWith(
+    fetchImpl: typeof fetch,
+    argv: readonly string[] = [],
+    more: Record<string, unknown> = {},
+  ) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>), blocks: BLOCKS, ...more };
     await writeAutoEnvelope({ index });
     const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
     const out = await runCli({
@@ -3601,6 +3605,41 @@ describe("kindgi deploy — the pack's blocks against what runs", () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stderr).toContain(FORBIDDEN_LINE);
     expect(out.stderr).toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test("a deploy the plan limits refuse (403 plan-limit-reached) stops at the check, in the runtime's words: nothing deployed, exit 1", async () => {
+    const message =
+      "This adds 1 flow to production, and this runtime's license key runs at most 2: its plan's 1, and a margin. 2 run in production now.";
+    const { fetchImpl, checks } = runtime({
+      status: 403,
+      body: {
+        error: {
+          code: 'plan-limit-reached',
+          message,
+          details: { projectId: PROJECT, limit: 'flows', adding: 1, newIds: ['my-pack.returns'] },
+          requestId: 'r',
+        },
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl, [], {
+      flows: [{ id: 'my-pack.returns' }],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(checks).toEqual([
+      {
+        agents: ['my-pack.agent'],
+        flows: ['my-pack.returns'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+      },
+    ]);
+    expect(out.stderr).toContain(
+      `✗ Refused (403 plan-limit-reached): ${message}\n  Nothing was deployed.\n`,
+    );
+    expect(out.stderr).not.toContain(FORBIDDEN_LINE);
     expect(fixtures.state.postCalls).toBe(0);
   });
 

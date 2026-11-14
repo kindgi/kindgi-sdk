@@ -10,6 +10,9 @@
  * Same tenant-first convention as every other binding in
  * `@kindgi/platform`. The in-memory reference implementation is part
  * of `makeInMemoryProjectBinding` (its `grants` binding).
+ *
+ * A deleted project's grants are kept, and out of the three lists, until
+ * the project is restored.
  */
 
 import type { Filter, Page, ProjectId, TeamId, TenantId, Timestamp } from '@kindgi/types';

@@ -13,6 +13,19 @@ candidates, and theirs are just below it.
 - `kindgi-models`, `kindgi-client`: **your app's own Jackson now reads every model, including a test run's baseline, an agent's instructions and a secret rotation's answer.** Before, Jackson 2 and 3 couldn't read `TestRunBaseline`, `AgentInstructions` or `SecretsRotateResponse`, or a model that holds one, such as `StartTestRunBody` or `Agent`. A union of a text or an object now reads a text as its text, and an object as the client does, by the properties it has; a `TestRunBaseline` object it doesn't know reads as its `Unrecognized`. `SecretsRotateResponse` reads by its `kind`, which never gains a value, so a `kind` it doesn't know fails the read. The client's own codec reads them as before.
 - `kindgi-pack`, `kindgi-pack-scala`: **the indexer refuses an agent, flow or tool version that breaks its kind's rule.** An agent's or a flow's own version is an exact semver with no build metadata (`1.2.3`, `1.2.3-rc.1`), and a tool's is `MAJOR.MINOR.PATCH` (`1.2.3`). Another is now an error of its file (`manifest-validation-failed`), and the rest of the pack still indexes: `0.1` or `v1.0.0` on an agent or a tool, `01.0.0` on any, `1.0.0+build.5` on an agent, or `2.1.0-rc.1` on a tool. Before, they went into the index as they were, and a deploy then refused every one but a leading zero. A flow's was already refused unless it had a leading zero. A tool with no version of its own still takes `pack.version`.
 - `kindgi-models`, `kindgi-client`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations()` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules().listDeliveries(triggerId, ...)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `sendResultsTo` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). The runs list takes `completedAfter`, `afterRunId`, `completedBefore` and `startedBy`. A runtime before Kindgi 0.7.0 serves none of them.
+- `kindgi-client`: **the runs list's `include` takes `waitingFor`, which says
+  what each suspended run waits for**, as reading one run does. A page with it
+  holds at most 25 runs. A runtime before Kindgi 0.7.0 refuses it with
+  `400 bad-input`.
+- `kindgi-client`: **an `include` takes one or more values:
+  `.include(Include.OUTPUT, Include.WAITING_FOR)`.** The runs list, an
+  agent's test cases, the cost records and the people list send them as one
+  comma-separated parameter. The builder's `include(...)` takes its values as
+  varargs, so a call with one value, or with a `null` one, compiles and sends
+  what it did. Three things change: `params.include()` returns a `List`; the
+  params record's constructor takes a `List` in that place; and a literal
+  `.include(null)` now gets javac's varargs warning, which fails a `-Werror`
+  build (write `(Include[]) null`, or leave the call out).
 
 ## 0.6.0
 

@@ -324,6 +324,12 @@ export interface ListRunsFilter {
   readonly actsFor?: 'me';
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
+  /**
+   * Include what each suspended run waits for (`waitingFor`, as `get` gives
+   * it). A page then holds at most 25 runs. An older runtime refuses it
+   * (`400 bad-input`).
+   */
+  readonly includeWaitingFor?: boolean;
 }
 
 export interface RunPage {
@@ -511,10 +517,10 @@ export interface Run {
    */
   readonly contentErasedAt?: string;
   /**
-   * Set on a suspended run by `get` (not `list`): what it waits for. Its
-   * approvals still to be decided, its waits for another system's answer
-   * (`tokens`, answered with `resume`) and the rest. Absent from an older
-   * runtime, or when the run's journal can't be read.
+   * Set on a suspended run by `get`, and by `list` with `includeWaitingFor`:
+   * what it waits for. Its approvals still to be decided, its waits for
+   * another system's answer (`tokens`, answered with `resume`) and the rest.
+   * Absent from an older runtime, or when the run's journal can't be read.
    */
   readonly waitingFor?: RunWaitingFor;
   /**
@@ -556,6 +562,18 @@ function waitedStartTimeout(e: unknown): unknown {
     cause: e.error.cause,
     timeoutMs,
   });
+}
+
+/**
+ * The list's `include`: the extras asked for, joined with commas, or none.
+ * The query takes any string, so the joined one needs no cast.
+ */
+function includeOf(filter: ListRunsFilter | undefined): string | undefined {
+  const include = [
+    ...(filter?.includeOutput === true ? ['output'] : []),
+    ...(filter?.includeWaitingFor === true ? ['waitingFor'] : []),
+  ];
+  return include.length > 0 ? include.join(',') : undefined;
 }
 
 export function makeRunsClient(transport: Transport): RunsClient {
@@ -680,6 +698,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
     },
 
     async list(filter) {
+      const include = includeOf(filter);
       return transport.request<RunPage>({
         method: 'GET',
         path: '/v1/runs',
@@ -709,7 +728,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.flowId !== undefined && { flowId: filter.flowId as string }),
           ...(filter?.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
           ...(filter?.actsFor !== undefined && { actsFor: filter.actsFor }),
-          ...(filter?.includeOutput === true && { include: 'output' }),
+          ...(include !== undefined && { include }),
         },
       });
     },

@@ -11,20 +11,25 @@
  *   - Admin: `providers.list/get/signIn/register/update/unregister` — tenant admins
  *     manage the identity-provider catalog (Okta / Entra ID / Google /
  *     bespoke OIDC or SAML). People sign in through the deployment, which
- *     reads it; `signInOptions` says how.
+ *     reads it; `signInOptions` says how. `joinDomains.list/allow/update/unregister`:
+ *     the email domains people may join the workspace from.
  *   - Sessions: `refresh/tokenSignIn/logout`. `whoami` lives on
  *     `client.identity.whoami`.
  */
 
 import type {
+  AllowJoinDomainBody,
   AuthSettings,
   AuthSettingsPatch,
+  ChangeJoinDomainBody,
   EnrollSiteBody,
   EnrollSiteResult,
   IdentityProviderCollectionPage,
   IdentityProviderConfig,
   IdentityProviderKind,
   IdentityProviderSignInUrls,
+  JoinDomain,
+  JoinDomainList,
   LogoutResult,
   RefreshResult,
   RegisterIdentityProviderResult,
@@ -32,6 +37,7 @@ import type {
   SiteSignInResult,
   TokenSignInResult,
   UnregisterIdentityProviderResult,
+  UnregisterJoinDomainResult,
   UpdateIdentityProviderBody,
   UpdateIdentityProviderResult,
 } from '../generated/api.js';
@@ -52,11 +58,20 @@ export type LogoutResultShape = LogoutResult;
 export type SignInOptionsResult = SignInOptions;
 export type TokenSignInResultShape = TokenSignInResult;
 export type { AuthSettings, AuthSettingsPatch };
+export type {
+  AllowJoinDomainBody,
+  ChangeJoinDomainBody,
+  JoinDomain,
+  JoinDomainList,
+  UnregisterJoinDomainResult,
+};
 
 export interface AuthClient {
   readonly providers: AuthProvidersClient;
   /** The workspace's sign-in settings: tenant admins. */
   readonly settings: AuthSettingsClient;
+  /** The email domains people may join the workspace from. */
+  readonly joinDomains: AuthJoinDomainsClient;
   /**
    * How a person can sign in, before anyone is signed in (no credential
    * needed): the identity providers for the email's domain, each with a
@@ -137,6 +152,60 @@ export interface AuthSettingsClient {
   ): Promise<AuthSettings>;
 }
 
+/**
+ * The email domains people may join the workspace from: someone with a
+ * verified email at one, signing in by a way that counts for it (a Google
+ * Workspace account there, a Microsoft work account, or the emailed link),
+ * whom the workspace doesn't have yet, joins with a press. Mounted where
+ * the deployment keeps join domains.
+ */
+export interface AuthJoinDomainsClient {
+  /**
+   * The allowed domains, the first allowed first. Members read it.
+   *
+   * @wire GET /v1/auth/join-domains
+   */
+  list(): Promise<JoinDomainList>;
+  /**
+   * Let people at a domain join (`role` default `viewer`). A person who's a
+   * tenant admin, for the domain of the email their sign-in proved, or the
+   * deployment's operator: an API key is refused (`join-domain-not-yours`).
+   * Never a public mailbox domain (`join-domain-public`), nor one verified
+   * for another workspace (`join-domain-verified-elsewhere`); it needs the
+   * authorization store (`domain-join-needs-authorization`). When the
+   * operator manages sign-in, only the operator
+   * (`join-domains-operator-managed`).
+   *
+   * @wire POST /v1/auth/join-domains
+   */
+  allow(
+    input: AllowJoinDomainBody,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<JoinDomain>;
+  /**
+   * Change what a joiner gets. A raise takes `allow`'s rules; a lower role
+   * takes any tenant admin; the same role writes nothing. People who joined
+   * already keep what they have.
+   *
+   * @wire PATCH /v1/auth/join-domains/:domain
+   */
+  update(
+    domain: string,
+    changes: ChangeJoinDomainBody,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<JoinDomain>;
+  /**
+   * Stop letting people at a domain join: new joins stop, joiners stay.
+   * Any tenant admin.
+   *
+   * @wire POST /v1/auth/join-domains/:domain/unregister
+   */
+  unregister(
+    domain: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterJoinDomainResult>;
+}
+
 export interface AuthProvidersClient {
   /** @wire GET /v1/auth/providers */
   list(): Promise<IdentityProviderPage>;
@@ -177,7 +246,37 @@ export interface AuthProvidersClient {
 
 export function makeAuthClient(transport: Transport): AuthClient {
   const seg = (s: string): string => encodeURIComponent(s);
+  const idem = (options?: { readonly idempotencyKey?: string }) =>
+    options?.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {};
   return {
+    joinDomains: {
+      async list() {
+        return transport.request<JoinDomainList>({ method: 'GET', path: '/v1/auth/join-domains' });
+      },
+      async allow(input, options) {
+        return transport.request<JoinDomain>({
+          method: 'POST',
+          path: '/v1/auth/join-domains',
+          body: input,
+          ...idem(options),
+        });
+      },
+      async update(domain, changes, options) {
+        return transport.request<JoinDomain>({
+          method: 'PATCH',
+          path: `/v1/auth/join-domains/${seg(domain)}`,
+          body: changes,
+          ...idem(options),
+        });
+      },
+      async unregister(domain, options) {
+        return transport.request<UnregisterJoinDomainResult>({
+          method: 'POST',
+          path: `/v1/auth/join-domains/${seg(domain)}/unregister`,
+          ...idem(options),
+        });
+      },
+    },
     settings: {
       async get() {
         return transport.request<AuthSettings>({ method: 'GET', path: '/v1/auth/settings' });

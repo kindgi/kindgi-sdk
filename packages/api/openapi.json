@@ -37,7 +37,7 @@
     },
     {
       "name": "system-tenants",
-      "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope."
+      "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix, the email domains its people may join from), plus the admins' contacts for service notices and, for a sign-up page, the workspaces one verified email may join. System keys only, each route under its own scope."
     },
     {
       "name": "system-usage",
@@ -164,7 +164,7 @@
     },
     {
       "name": "auth",
-      "description": "OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
+      "description": "OIDC and SAML identity providers, the email domains people may join the workspace from, + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
     },
     {
       "name": "identity",
@@ -460,6 +460,7 @@
           "authz-store-delete-failed": 502,
           "tenant-purge-unsupported": 501,
           "kept-repos-off": 501,
+          "tenant-plan-unsupported": 501,
           "project-suspended": 409,
           "pack-suspended": 409,
           "endpoint-url-invalid": 400,
@@ -480,6 +481,7 @@
           "image-prefix-unset": 409,
           "image-prefix-taken": 409,
           "tenant-state-unavailable": 503,
+          "plan-count-busy": 503,
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
@@ -488,6 +490,7 @@
           "identity-user-email-taken": 409,
           "last-tenant-admin": 409,
           "seed-user-admin": 409,
+          "listed-admin": 409,
           "identity-user-unregister-refused": 409,
           "identity-user-unregistered": 409,
           "identity-user-not-invited": 409,
@@ -528,7 +531,15 @@
           "identity-provider-invalid": 422,
           "identity-providers-operator-managed": 403,
           "identity-providers-need-secrets-store": 409,
+          "domain-join-needs-authorization": 409,
+          "join-domain-not-yours": 403,
+          "join-domains-operator-managed": 403,
+          "join-domain-public": 400,
+          "join-domain-verified-elsewhere": 409,
+          "join-domain-exists": 409,
+          "join-domain-not-found": 404,
           "license-operator-only": 403,
+          "license-key-refused": 409,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
           "second-factor-required": 403,
@@ -570,6 +581,7 @@
           "project-not-found": 404,
           "production-not-allowed": 403,
           "production-limit-reached": 403,
+          "plan-limit-reached": 403,
           "production-unsupported": 501,
           "repo-connection-not-company-github": 400,
           "repo-connection-unsupported": 501,
@@ -591,6 +603,8 @@
           "environment-takes-promotions": 409,
           "promote-only-build": 409,
           "project-in-environment-order": 409,
+          "project-is-default": 409,
+          "project-restore-unsupported": 501,
           "org-has-environment-order": 409,
           "promotion-not-next-environment": 409,
           "promotion-values-not-ready": 409,
@@ -786,7 +800,7 @@
           "approvals",
           "other"
         ],
-        "description": "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+        "description": "Set on a suspended run by `GET /v1/runs/{runId}`, and by the list with `?include=waitingFor`: what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
         "properties": {
           "approvals": {
             "type": "array",
@@ -3323,6 +3337,8 @@
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3375,6 +3391,8 @@
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3433,6 +3451,8 @@
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3508,6 +3528,8 @@
                       "system:license",
                       "system:kept-repos",
                       "system:kept-repos:erase",
+                      "system:join-domains:read",
+                      "system:join-domains",
                       "kindgi:system"
                     ],
                     "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3574,6 +3596,8 @@
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3664,9 +3688,10 @@
               "tenant-closing",
               "tenant-suspended",
               "project-suspended",
-              "pack-suspended"
+              "pack-suspended",
+              "project-deleted"
             ],
-            "description": "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+            "description": "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted."
           }
         }
       },
@@ -4994,7 +5019,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it."
+            "description": "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project."
           }
         }
       },
@@ -5939,6 +5964,9 @@
           },
           "preview": {
             "$ref": "#/components/schemas/LicensePreview"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LicenseLimits"
           }
         }
       },
@@ -5957,6 +5985,61 @@
           "reason": {
             "type": "string",
             "description": "Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says."
+          }
+        }
+      },
+      "LicenseLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.",
+        "properties": {
+          "flows": {
+            "$ref": "#/components/schemas/LicenseLimit"
+          },
+          "agents": {
+            "$ref": "#/components/schemas/LicenseLimit"
+          }
+        }
+      },
+      "LicenseLimit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan",
+          "most",
+          "inUse"
+        ],
+        "description": "One count the key limits.",
+        "properties": {
+          "plan": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The number the key carries."
+          },
+          "most": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The most this runtime runs: past it, it refuses new ones."
+          },
+          "inUse": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many it counts now."
+          }
+        }
+      },
+      "LicenseKeyBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "The whole license key, `kgi_lk_…`."
           }
         }
       },
@@ -8869,6 +8952,46 @@
           }
         }
       },
+      "PlanCount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan",
+          "most",
+          "inUse"
+        ],
+        "properties": {
+          "plan": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The plan's number: the license key's, or the workspace's own limit (`TenantLimits`)."
+          },
+          "most": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The most it runs: its plan and a margin. A write past this is refused."
+          },
+          "inUse": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many run in production, with this write."
+          }
+        }
+      },
+      "PlanWarning": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "The plan limits' counts that are at their plan or past it, with this write: flows and agents in production, against the license key's plan or the workspace's own limit. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.",
+        "properties": {
+          "flows": {
+            "$ref": "#/components/schemas/PlanCount"
+          },
+          "agents": {
+            "$ref": "#/components/schemas/PlanCount"
+          }
+        }
+      },
       "PublishAgentResult": {
         "type": "object",
         "additionalProperties": false,
@@ -8902,6 +9025,9 @@
                 }
               }
             }
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -8992,6 +9118,9 @@
           "wasTombstoned": {
             "type": "boolean",
             "description": "`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op)."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -9218,6 +9347,9 @@
           },
           "version": {
             "type": "string"
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -9260,6 +9392,9 @@
           "wasTombstoned": {
             "type": "boolean",
             "description": "`true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op)."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -18226,7 +18361,7 @@
           },
           "cancelReason": {
             "type": "string",
-            "description": "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client."
+            "description": "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client."
           },
           "correlationId": {
             "type": "string",
@@ -18482,7 +18617,16 @@
               "invite",
               "domain"
             ],
-            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`."
+            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`."
+          },
+          "joinRole": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
           },
           "signIn": {
             "$ref": "#/components/schemas/IdentityProviderSignIn"
@@ -18568,7 +18712,16 @@
               "invite",
               "domain"
             ],
-            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`."
+            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`."
+          },
+          "joinRole": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
           },
           "signIn": {
             "$ref": "#/components/schemas/IdentityProviderSignIn"
@@ -19046,6 +19199,21 @@
               }
             ]
           },
+          "joinRole": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "runner",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "metadata": {
             "oneOf": [
               {
@@ -19451,6 +19619,11 @@
             "format": "date-time",
             "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9)."
           },
+          "createdBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it."
+          },
           "metadata": {
             "type": "object",
             "additionalProperties": true
@@ -19555,6 +19728,11 @@
             "type": "string",
             "format": "date-time",
             "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9)."
+          },
+          "createdBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it."
           },
           "metadata": {
             "type": "object",
@@ -19753,6 +19931,226 @@
           }
         }
       },
+      "JoinDomain": {
+        "description": "An email domain the workspace lets people join from.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "role",
+          "createdAt",
+          "createdBy"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token)."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one."
+          }
+        }
+      },
+      "JoinDomainList": {
+        "description": "The workspace's allowed domains, the first allowed first.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinDomain"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AllowJoinDomainBody": {
+        "description": "A domain to let people join from.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Default `viewer`."
+          }
+        }
+      },
+      "ChangeJoinDomainBody": {
+        "description": "What someone joining by the domain gets from now on. People who joined already keep what they have.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin."
+          }
+        }
+      },
+      "UnregisterJoinDomainResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "unregistered"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unregistered": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "JoinDomainLookupBody": {
+        "description": "One email a sign-up page verified.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "description": "An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it."
+          }
+        }
+      },
+      "JoinLookupWorkspace": {
+        "description": "A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "tenantId",
+              "name",
+              "role"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "join"
+              },
+              "tenantId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "runner",
+                  "none"
+                ],
+                "description": "What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "tenantId",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "member"
+              },
+              "tenantId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "JoinDomainLookupResult": {
+        "description": "For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinLookupWorkspace"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
       "UnregisterUserResult": {
         "description": "A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).",
         "type": "object",
@@ -19824,6 +20222,10 @@
           "tenantAdmin": {
             "type": "boolean",
             "description": "Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then."
+          },
+          "tenantAdminFromSetting": {
+            "type": "boolean",
+            "description": "Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it."
           },
           "tenantMember": {
             "type": "boolean",
@@ -21579,7 +21981,7 @@
           },
           "retired": {
             "type": "string",
-            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
+            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored, and `project-deleted` until the project is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
           },
           "packEnvProblem": {
             "type": "object",
@@ -21757,6 +22159,9 @@
               "$ref": "#/components/schemas/DeploymentReplacedBlock"
             },
             "description": "The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -21816,6 +22221,11 @@
         "minLength": 1,
         "description": "An agent's id, as the image index names it."
       },
+      "DeployCheckFlowId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A flow's id, as the image index names it."
+      },
       "DeployCheckBody": {
         "type": "object",
         "additionalProperties": false,
@@ -21836,6 +22246,14 @@
               "$ref": "#/components/schemas/DeployCheckAgentId"
             },
             "description": "The pack's agents, by id: the image index's."
+          },
+          "flows": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/DeployCheckFlowId"
+            },
+            "description": "The pack's flows, by id: the image index's. With `agents`, what the plan limits count; absent: no flows."
           },
           "blocks": {
             "type": "array",
@@ -21908,6 +22326,9 @@
               "type": "string"
             },
             "description": "The blocks `replace` names that nothing newer runs for: nothing to replace."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -22360,6 +22781,9 @@
           },
           "blockCheck": {
             "$ref": "#/components/schemas/PromotionBlockCheck"
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -22462,6 +22886,9 @@
               "$ref": "#/components/schemas/LeftBehindVersion"
             },
             "description": "Edits of the build's agents and flows that would stay behind; absent when none."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -22774,7 +23201,9 @@
           "suggested-change-created",
           "suggested-change-pinned",
           "suggested-change-added-as-latest",
-          "suggested-change-withdrawn"
+          "suggested-change-withdrawn",
+          "project-deleted",
+          "project-restored"
         ]
       },
       "EvidenceActor": {
@@ -22957,7 +23386,9 @@
               "suggested-change-created",
               "suggested-change-pinned",
               "suggested-change-added-as-latest",
-              "suggested-change-withdrawn"
+              "suggested-change-withdrawn",
+              "project-deleted",
+              "project-restored"
             ]
           },
           "timestamp": {
@@ -23163,7 +23594,9 @@
               "suggested-change-created",
               "suggested-change-pinned",
               "suggested-change-added-as-latest",
-              "suggested-change-withdrawn"
+              "suggested-change-withdrawn",
+              "project-deleted",
+              "project-restored"
             ]
           },
           "from": {
@@ -23267,7 +23700,9 @@
                   "suggested-change-created",
                   "suggested-change-pinned",
                   "suggested-change-added-as-latest",
-                  "suggested-change-withdrawn"
+                  "suggested-change-withdrawn",
+                  "project-deleted",
+                  "project-restored"
                 ]
               },
               "from": {
@@ -24022,7 +24457,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them."
+            "description": "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them."
           },
           "sortEndUserCorrections": {
             "type": "boolean",
@@ -24075,6 +24510,9 @@
             ],
             "format": "date-time",
             "description": "When the project went into production; `null` while it isn't in production."
+          },
+          "planWarning": {
+            "$ref": "#/components/schemas/PlanWarning"
           }
         }
       },
@@ -24187,6 +24625,73 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Project"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletedProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).",
+        "required": [
+          "id",
+          "tenantId",
+          "name",
+          "slug",
+          "formerSlugs",
+          "deletedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ProjectId — opaque branded string."
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string",
+            "description": "Its org; absent when it has none."
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Its slug, still its own: no other project can take it where this one is."
+          },
+          "formerSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The slugs it had before it was renamed, newest first; still its own, in any org of the workspace."
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was deleted. Deleting it again keeps this time."
+          }
+        }
+      },
+      "DeletedProjectCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeletedProject"
             }
           },
           "hasMore": {
@@ -24408,6 +24913,16 @@
             "type": "integer",
             "minimum": 1,
             "description": "Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production."
+          },
+          "flowsInProduction": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Flows in production, each counted once however many of the workspace's projects in production run it. There's a margin: a write that would take the count past the most, the larger of 1.2 times this (rounded down) and one more than it, is refused with 403 `plan-limit-reached` (`scope: tenant`), and a write's answer warns from this number on (`planWarning`). Lowering it takes nothing out of production."
+          },
+          "agentsInProduction": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Agents in production, counted as `flowsInProduction` is, with the same margin and the same refusal."
           }
         }
       },
@@ -24485,6 +25000,14 @@
           },
           "inUse": {
             "$ref": "#/components/schemas/TenantLimitsInUse"
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "The tenant's plan id, as `PUT …/plan` set it: on `GET …/limits` only. null while none is set; absent from a runtime that doesn't keep it. It's only shown: the limits are what's enforced."
           }
         }
       },
@@ -24500,6 +25023,16 @@
             "type": "integer",
             "minimum": 0,
             "description": "The tenant's projects in production."
+          },
+          "flowsInProduction": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The tenant's flows in production, each counted once. Absent from a runtime that doesn't count it."
+          },
+          "agentsInProduction": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The tenant's agents in production, each counted once. Absent from a runtime that doesn't count it."
           }
         }
       },
@@ -24704,6 +25237,45 @@
             "type": "string",
             "format": "date-time",
             "description": "When it came to be in that state."
+          }
+        }
+      },
+      "TenantPlanBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan"
+        ],
+        "properties": {
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "The plan's id: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. null clears it."
+          }
+        }
+      },
+      "TenantPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "plan"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "The tenant's plan id now; null when none is set."
           }
         }
       },
@@ -26326,7 +26898,7 @@
               "refused",
               "failed"
             ],
-            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended or deleted (`project-suspended`, `project-deleted`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension, a delete or a close (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
           },
           "runId": {
             "type": "string",
@@ -26873,7 +27445,7 @@
               "refused",
               "failed"
             ],
-            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start."
+            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended or deleted after the delivery was taken, before its run started (`project-suspended`, `project-deleted`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start."
           },
           "runId": {
             "type": "string",
@@ -26887,7 +27459,7 @@
           },
           "detail": {
             "type": "string",
-            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it."
+            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it."
           },
           "countsTowardPause": {
             "type": "boolean",
@@ -27016,9 +27588,10 @@
             "enum": [
               "paused",
               "tenant-suspended",
-              "project-suspended"
+              "project-suspended",
+              "project-deleted"
             ],
-            "description": "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded."
+            "description": "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded."
           },
           "received": {
             "type": "string",
@@ -31997,7 +32570,7 @@
               "default": 25
             },
             "required": false,
-            "description": "1..100. Default 25."
+            "description": "1..100; with `include=waitingFor`, 1..25 (a larger value gives 25). Default 25."
           },
           {
             "name": "cursor",
@@ -32095,13 +32668,19 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "output"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "output",
+                  "waitingFor"
+                ]
+              }
             },
             "required": false,
-            "description": "Comma-separated extras per run. `output` adds each run's output."
+            "description": "Extras per run, one or more, comma-separated: `include=output,waitingFor`. `output` adds each run's output. `waitingFor` adds what each suspended run waits for, as `GET /v1/runs/{runId}` gives it; with it, a page holds at most 25 runs.",
+            "style": "form",
+            "explode": false
           },
           {
             "name": "status",
@@ -34046,7 +34625,7 @@
             }
           }
         },
-        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
+        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, and hands the running server a renewed key (`PUT /v1/license`), for the license renewal, and every other route refuses it.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -35291,6 +35870,587 @@
         ]
       }
     },
+    "/v1/system/tenants/{tenantId}/join-domains": {
+      "get": {
+        "operationId": "systemTenants.joinDomains",
+        "summary": "The email domains a tenant lets people join from",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The allowed domains.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomainList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "systemTenants.allowJoinDomain",
+        "summary": "Let people at an email domain join a tenant",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "201": {
+            "description": "Allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`); the domain is verified for another tenant (`join-domain-verified-elsewhere`); no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/join-domains/{domain}": {
+      "patch": {
+        "operationId": "systemTenants.updateJoinDomain",
+        "summary": "Change what someone joining a tenant by a domain gets",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The domain now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ role }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`); a raise for a domain since verified for another tenant (`join-domain-verified-elsewhere`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/join-domains/{domain}/unregister": {
+      "post": {
+        "operationId": "systemTenants.unregisterJoinDomain",
+        "summary": "Stop letting people at a domain join a tenant",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterJoinDomainResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`), or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/join-domains/lookup": {
+      "post": {
+        "operationId": "systemTenants.lookupJoinDomains",
+        "summary": "The workspaces one verified email may join by its domain",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspaces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomainLookupResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ email }`, or an email that isn't one (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key with neither `system:join-domains:read` nor `system:join-domains` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinDomainLookupBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/system/tenants/{tenantId}/purge": {
       "post": {
         "operationId": "systemTenants.purge",
@@ -35705,7 +36865,7 @@
             }
           }
         },
-        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
         "parameters": [
           {
             "name": "tenantId",
@@ -35822,7 +36982,7 @@
             }
           }
         },
-        "description": "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+        "description": "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
         "parameters": [
           {
             "name": "tenantId",
@@ -35851,6 +37011,155 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/TenantLimits"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/plan": {
+      "put": {
+        "operationId": "systemTenants.setPlan",
+        "summary": "Set a tenant's plan id",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's plan id now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body must be `{ \"plan\": \"<id>\" }`, an id of a lowercase letter then up to 31 lowercase letters, digits and hyphens, or `{ \"plan\": null }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This runtime doesn't keep a tenant's plan (`tenant-plan-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPlanBody"
               }
             }
           }
@@ -40511,7 +41820,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -40571,7 +41880,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41262,13 +42571,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "retired"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "retired"
+                ]
+              }
             },
             "required": false,
-            "description": "`retired`: retired cases too. Left out, active ones only."
+            "description": "Extras, one or more, comma-separated: `include=retired`. `retired`: retired cases too. Left out, active ones only.",
+            "style": "form",
+            "explode": false
           },
           {
             "name": "kind",
@@ -41768,7 +43082,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Only a retired version counts again; reinstating an active one adds nothing. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -41808,7 +43122,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42074,7 +43388,7 @@
             }
           },
           "404": {
-            "description": "The version is not registered, or was unregistered; or the test run is not found.",
+            "description": "The version is not registered, or was unregistered; or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42232,7 +43546,7 @@
             }
           },
           "404": {
-            "description": "The version, the agent or the test run is not found.",
+            "description": "The version, the agent or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43603,7 +44917,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43663,7 +44977,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44141,7 +45455,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Only a retired version counts again; reinstating an active one adds nothing. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44181,7 +45495,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49058,7 +50372,7 @@
             }
           },
           "403": {
-            "description": "No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).",
+            "description": "No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`). Or the suggested change is made, but its check didn't start (`details.suggestedChangeId`; check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check`): `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49128,7 +50442,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): the suggested change and its edit's block version are made (`details.suggestedChangeId`), but counting the flows and agents in production for its check took too long; check it again. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49217,7 +50531,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49477,7 +50791,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49653,7 +50967,7 @@
             }
           },
           "403": {
-            "description": "No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).",
+            "description": "No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`). Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49713,7 +51027,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. The suggested change and its edit's block version are kept, as a failed check keeps them. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49802,7 +51116,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this acts in another one, the record's or its agent's or test set's (with a store, that is `permission-denied`, or the record isn't found).",
+            "description": "`permission-denied`: the caller may not make this change. When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this acts in another one, the record's or its agent's or test set's (with a store, that is `permission-denied`, or the record isn't found).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49812,7 +51126,7 @@
             }
           },
           "404": {
-            "description": "No such suggested change.",
+            "description": "No such suggested change; or `project-not-found`: its project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49862,7 +51176,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. The suggested change and its edit's block version are kept, as a failed check keeps them. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49951,7 +51265,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this acts in another one, the record's or its agent's or test set's (with a store, that is `permission-denied`, or the record isn't found).",
+            "description": "`permission-denied`: the caller may not make this change. When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Here it's the agent version a check makes that counts, in the project it's made in. The suggested change and its edit's block version are kept, as a failed check keeps them. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this acts in another one, the record's or its agent's or test set's (with a store, that is `permission-denied`, or the record isn't found).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50001,7 +51315,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. The suggested change and its edit's block version are kept, as a failed check keeps them. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50655,6 +51969,101 @@
           }
         },
         "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "license.replace",
+        "summary": "Hand the running server a renewed license key",
+        "tags": [
+          "system"
+        ],
+        "responses": {
+          "200": {
+            "description": "The license status, with the new key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't `{ \"key\": \"kgi_lk_…\" }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the renewal hands the deployment's running server (`kindgi license renew --runtime`), so it runs the new key without a restart. The server checks the key offline, as it does at a start: signed by a key it trusts, for the same licensee and use as the key it runs, and newer (a later `exp`, or the same `exp` and an `iat` no earlier). The same key again is taken as it is. It answers the license status with the new key. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, hands it a key; anyone else is refused (`license-operator-only`), and the refusal recorded, before the body is read. A deployment that doesn't take a key this way answers 404.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LicenseKeyBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -54996,13 +56405,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "rawUsage"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "rawUsage"
+                ]
+              }
             },
             "required": false,
-            "description": "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it."
+            "description": "Extra fields, one or more, comma-separated: `include=rawUsage`. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+            "style": "form",
+            "explode": false
           }
         ],
         "security": [
@@ -55075,13 +56489,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "rawUsage"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "rawUsage"
+                ]
+              }
             },
             "required": false,
-            "description": "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it."
+            "description": "Extra fields, one or more, comma-separated: `include=rawUsage`. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+            "style": "form",
+            "explode": false
           }
         ],
         "security": [
@@ -58686,7 +60105,7 @@
             }
           },
           "404": {
-            "description": "No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "No test set with that id under this workspace; or `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -59412,7 +60831,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets `join: domain` or `joinRole` where the deployment has no authorization store (`domain-join-needs-authorization`, `KINDGI_OPENFGA_API_URL`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59769,7 +61188,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets `join: domain` or `joinRole` where the deployment has no authorization store (`domain-join-needs-authorization`, `KINDGI_OPENFGA_API_URL`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60236,6 +61655,438 @@
         ]
       }
     },
+    "/v1/auth/join-domains": {
+      "get": {
+        "operationId": "auth.joinDomains.list",
+        "summary": "The email domains people may join the workspace from",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The allowed domains.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomainList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the workspace (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "auth.joinDomains.allow",
+        "summary": "Let people at an email domain join the workspace",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "201": {
+            "description": "Allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Not the caller's to widen (`join-domain-not-yours`): an API key or a service account, a session whose sign-in proved another domain or no email, or one by a way in that doesn't count for it (GitHub; the workspace's own provider for a domain the deployment doesn't route to the workspace). Or this deployment's operator manages sign-in (`join-domains-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only `kindgi:system` lets more people in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The operator verified the domain for another workspace (`join-domain-verified-elsewhere`); the deployment has no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`: change its role instead); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/join-domains/{domain}": {
+      "patch": {
+        "operationId": "auth.joinDomains.update",
+        "summary": "Change what someone joining by a domain gets",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The domain now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that isn't `{ role }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Not the caller's to widen (`join-domain-not-yours`): an API key or a service account, a session whose sign-in proved another domain or no email, or one by a way in that doesn't count for it (GitHub; the workspace's own provider for a domain the deployment doesn't route to the workspace). Or this deployment's operator manages sign-in (`join-domains-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only `kindgi:system` lets more people in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A raise for a domain the operator has since verified for another workspace (`join-domain-verified-elsewhere`), or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJoinDomainBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/join-domains/{domain}/unregister": {
+      "post": {
+        "operationId": "auth.joinDomains.unregister",
+        "summary": "Stop letting people at a domain join",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterJoinDomainResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace doesn't allow that domain (`join-domain-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The domain, as the list gives it (`acme.com`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/auth/refresh": {
       "post": {
         "operationId": "auth.refresh",
@@ -60537,13 +62388,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "grants"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "grants"
+                ]
+              }
             },
             "required": false,
-            "description": "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does."
+            "description": "Extra fields, one or more, comma-separated: `include=grants`. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
+            "style": "form",
+            "explode": false
           }
         ],
         "security": [
@@ -60875,7 +62731,7 @@
             }
           },
           "409": {
-            "description": "Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.",
+            "description": "Yourself, the seed user or a person `KINDGI_ADMIN_EMAILS` names (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60905,7 +62761,7 @@
             }
           }
         },
-        "description": "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+        "description": "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself, the deployment's seed user, and someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back (`identity-user-unregister-refused`, `details.reason` `listed-admin`: take the address off the list and restart first), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
         "parameters": [
           {
             "name": "userId",
@@ -62299,7 +64155,7 @@
             }
           },
           "409": {
-            "description": "The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.",
+            "description": "The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), a person `KINDGI_ADMIN_EMAILS` names (`listed-admin`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62349,7 +64205,7 @@
             }
           }
         },
-        "description": "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.",
+        "description": "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first), and for someone the server's `KINDGI_ADMIN_EMAILS` names, whom every start makes one (`listed-admin`: take the address off the list and restart first). Tenant admins only.",
         "parameters": [
           {
             "name": "userId",
@@ -62444,7 +64300,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Digest replay — same imageDigest already recorded; returns existing record.",
+            "description": "Digest replay — same imageDigest already recorded; returns existing record, with no `planWarning`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62484,7 +64340,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts the pack's agents and flows in the project it deploys into. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62494,7 +64350,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62544,7 +64400,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62727,7 +64583,7 @@
             }
           },
           "400": {
-            "description": "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
+            "description": "`bad-input`: a body that isn't `{ projectId?, agents, flows?, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62747,7 +64603,7 @@
             }
           },
           "403": {
-            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace. Or, as `POST /v1/deployments` answers it, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62797,7 +64653,7 @@
             }
           }
         },
-        "description": "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
+        "description": "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
         "requestBody": {
           "required": true,
           "content": {
@@ -63229,7 +65085,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The target has this build already: its deployment, with the edits made since recorded.",
+            "description": "The target has this build already: its deployment, with the edits made since recorded, and no `planWarning`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63269,7 +65125,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). Or `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts what the build ships and carries in the target, before the move: nothing moved. With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63279,7 +65135,7 @@
             }
           },
           "404": {
-            "description": "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+            "description": "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63339,7 +65195,7 @@
             }
           },
           "503": {
-            "description": "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63418,7 +65274,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted. Or, as the promotion answers it, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63428,7 +65284,7 @@
             }
           },
           "404": {
-            "description": "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+            "description": "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63478,7 +65334,7 @@
             }
           }
         },
-        "description": "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.",
+        "description": "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.",
         "parameters": [
           {
             "name": "deploymentId",
@@ -65780,6 +67636,106 @@
         ]
       }
     },
+    "/v1/projects/deleted": {
+      "get": {
+        "operationId": "projects.listDeleted",
+        "summary": "List the workspace's deleted projects",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of deleted projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedProjectCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the workspace (`permission-denied`). A key or session limited to a project is refused before that, `key-project-mismatch` (`details.keyProjectId`), as on any path under `/v1/projects/` that is not its own project's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`project-restore-unsupported`: this runtime's project binding keeps no deleted projects to list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/projects": {
       "get": {
         "operationId": "projects.list",
@@ -65829,7 +67785,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.",
+        "description": "Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.",
         "parameters": [
           {
             "name": "limit",
@@ -65975,7 +67931,7 @@
             }
           }
         },
-        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
+        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -66034,7 +67990,7 @@
             }
           },
           "404": {
-            "description": "No project with that id under this workspace.",
+            "description": "No project with that id under this workspace, or it was deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66122,7 +68078,7 @@
             }
           },
           "409": {
-            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`), with `details.deletedProject: true` when that project is deleted; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
             "content": {
               "application/json": {
                 "schema": {
@@ -66172,7 +68128,7 @@
             }
           }
         },
-        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
+        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
         "parameters": [
           {
             "name": "projectId",
@@ -66218,7 +68174,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Deleted (or already absent). No body."
+            "description": "Deleted (or already deleted, or absent). No body."
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
@@ -66231,7 +68187,7 @@
             }
           },
           "409": {
-            "description": "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+            "description": "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first. `project-is-default`: it's the workspace's default project, which can't be deleted (`details.projectId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -66251,7 +68207,105 @@
             }
           }
         },
-        "description": "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
+        "description": "The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/restore": {
+      "post": {
+        "operationId": "projects.restore",
+        "summary": "Restore a deleted project",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "The project, live again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the workspace (`permission-denied`); or the project is in production and the workspace's projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`): it stays deleted until one is taken out of production. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`project-not-found`: no project, live or deleted, with that id under this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`project-restore-unsupported`: this runtime's project binding can't restore a deleted project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.",
         "parameters": [
           {
             "name": "projectId",
@@ -68130,7 +70184,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one). Or, putting it in production, `plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one. It counts every flow and agent that runs in the project; taking a project out of production, or one already in it, adds nothing. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -68190,7 +70244,7 @@
             }
           },
           "503": {
-            "description": "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "description": "`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe. Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed. Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
             "content": {
               "application/json": {
                 "schema": {

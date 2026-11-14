@@ -374,6 +374,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * projects without a GitHub repo now (`KINDGI_KEPT_REPOS` off).
    */
   'kept-repos-off': 501,
+  /** A runtime whose tenant settings binding doesn't keep a tenant's plan. */
+  'tenant-plan-unsupported': 501,
   /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
@@ -416,6 +418,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'image-prefix-taken': 409,
   /** The tenant's state can't be read, so a write is refused (`Retry-After`). */
   'tenant-state-unavailable': 503,
+  /**
+   * The count of agents and flows in production couldn't be had in time,
+   * so the write never ran: a retry is safe (`Retry-After`).
+   */
+  'plan-count-busy': 503,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,
@@ -435,7 +442,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'last-tenant-admin': 409,
   /** Removing tenant admin from the seed user, whom the runtime re-grants it at every boot. */
   'seed-user-admin': 409,
-  /** Unregistering yourself, or the deployment's seed user (`details.reason`). */
+  /** Removing tenant admin from someone `KINDGI_ADMIN_EMAILS` names, whom every start makes one again. */
+  'listed-admin': 409,
+  /**
+   * Unregistering yourself, the deployment's seed user, the only tenant
+   * admin, or someone `KINDGI_ADMIN_EMAILS` names (`details.reason`).
+   */
   'identity-user-unregister-refused': 409,
   /** A grant or a key for a person who was unregistered. */
   'identity-user-unregistered': 409,
@@ -510,10 +522,35 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // provider's client secret and keys are references into: adding or
   // changing a provider waits until it has one.
   'identity-providers-need-secrets-store': 409,
-  // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
-  // deployment's own token or a system key holding `system:license`, save a
-  // sole tenant's admins reading the license's countdown.
+  // Setting `join: domain` or `joinRole` on a deployment with no
+  // authorization store: a joiner's role couldn't be checked there, so
+  // they'd work in every project.
+  'domain-join-needs-authorization': 409,
+  // Letting people at an email domain join a workspace
+  // (`/v1/auth/join-domains`), or giving joiners more: only a person who's a
+  // tenant admin, for the domain of the email their sign-in proved, from a
+  // way in that counts for it, or the deployment's operator.
+  'join-domain-not-yours': 403,
+  // The deployment's operator manages sign-in: letting more people join,
+  // or giving joiners more, takes the operator's credential.
+  'join-domains-operator-managed': 403,
+  // A public mailbox domain (gmail.com, outlook.com...): anyone can have an
+  // address there, so it can never be allowed.
+  'join-domain-public': 400,
+  // The operator verified the domain for another workspace
+  // (KINDGI_AUTH_VERIFIED_DOMAINS), or for a tenant this runtime doesn't
+  // serve: it's not this workspace's to allow.
+  'join-domain-verified-elsewhere': 409,
+  'join-domain-exists': 409,
+  'join-domain-not-found': 404,
+  // `GET /v1/license`, `PUT /v1/license` or `GET /v1/license/usage` by
+  // anyone but the deployment's own token or a system key holding
+  // `system:license`, save a sole tenant's admins reading the license's
+  // countdown.
   'license-operator-only': 403,
+  // `PUT /v1/license`: the running server checked the key handed to it and
+  // runs on with the one it has (`details.reason`).
+  'license-key-refused': 409,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
   // A second factor (`/v1/identity/me/second-factor*`, token sign-in):
@@ -589,6 +626,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'production-not-allowed': 403,
   /** Putting a project in production while the tenant's projects in production are at its limit (`details.limit`, `projectsInProduction`, `inProduction`). */
   'production-limit-reached': 403,
+  /**
+   * A write that would add agents or flows to production past the most the
+   * plan allows (`details.limit`, `over`, `newIds`; `plan`, `most`, `inUse`
+   * when this tenant may see them). None of them was added; a suggested
+   * change keeps its edit's block version.
+   */
+  'plan-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
   /** A repo connection that isn't a company-wide GitHub connection (`details.connectionId`, `app`, `owner`). */
@@ -631,6 +675,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'promote-only-build': 409,
   // Deleting or moving (to another parent) a project that is a member of an environment order.
   'project-in-environment-order': 409,
+  // Deleting the workspace's default project.
+  'project-is-default': 409,
+  // The restore and deleted-list routes on a runtime whose project binding can't restore.
+  'project-restore-unsupported': 501,
   // Deleting an org that is the parent of an environment order; a tenant admin clears the order first.
   'org-has-environment-order': 409,
   // A promotion to a project that isn't the next environment of the

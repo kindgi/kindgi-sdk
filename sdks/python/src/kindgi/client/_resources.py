@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 from uuid import UUID
 
 from . import _models
-from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
+from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _csv, _segments
 from ._thumbs import AsyncThumbs, Thumbs
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
@@ -86,6 +86,37 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.admins": Operation(
         "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
     ),
+    "systemTenants.joinDomains": Operation(
+        "systemTenants.joinDomains",
+        "GET",
+        "/v1/system/tenants/{tenantId}/join-domains",
+        "json",
+        False,
+    ),
+    "systemTenants.allowJoinDomain": Operation(
+        "systemTenants.allowJoinDomain",
+        "POST",
+        "/v1/system/tenants/{tenantId}/join-domains",
+        "json",
+        True,
+    ),
+    "systemTenants.updateJoinDomain": Operation(
+        "systemTenants.updateJoinDomain",
+        "PATCH",
+        "/v1/system/tenants/{tenantId}/join-domains/{domain}",
+        "json",
+        True,
+    ),
+    "systemTenants.unregisterJoinDomain": Operation(
+        "systemTenants.unregisterJoinDomain",
+        "POST",
+        "/v1/system/tenants/{tenantId}/join-domains/{domain}/unregister",
+        "json",
+        True,
+    ),
+    "systemTenants.lookupJoinDomains": Operation(
+        "systemTenants.lookupJoinDomains", "POST", "/v1/system/join-domains/lookup", "json", False
+    ),
     "systemTenants.purge": Operation(
         "systemTenants.purge", "POST", "/v1/system/tenants/{tenantId}/purge", "json", True
     ),
@@ -102,6 +133,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
+    ),
+    "systemTenants.setPlan": Operation(
+        "systemTenants.setPlan", "PUT", "/v1/system/tenants/{tenantId}/plan", "json", True
     ),
     "systemEnv.setCloudSecret": Operation(
         "systemEnv.setCloudSecret", "PUT", "/v1/system/tenants/{tenantId}/env/{name}", "json", True
@@ -554,6 +588,7 @@ OPERATIONS: dict[str, Operation] = {
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
     "license.get": Operation("license.get", "GET", "/v1/license", "json", False),
+    "license.replace": Operation("license.replace", "PUT", "/v1/license", "json", False),
     "runtime.get": Operation("runtime.get", "GET", "/v1/runtime", "json", False),
     "license.usage": Operation("license.usage", "GET", "/v1/license/usage", "json", False),
     "exportSigningKeys.list": Operation(
@@ -812,6 +847,22 @@ OPERATIONS: dict[str, Operation] = {
     "auth.settings.update": Operation(
         "auth.settings.update", "PATCH", "/v1/auth/settings", "json", True
     ),
+    "auth.joinDomains.list": Operation(
+        "auth.joinDomains.list", "GET", "/v1/auth/join-domains", "json", False
+    ),
+    "auth.joinDomains.allow": Operation(
+        "auth.joinDomains.allow", "POST", "/v1/auth/join-domains", "json", True
+    ),
+    "auth.joinDomains.update": Operation(
+        "auth.joinDomains.update", "PATCH", "/v1/auth/join-domains/{domain}", "json", True
+    ),
+    "auth.joinDomains.unregister": Operation(
+        "auth.joinDomains.unregister",
+        "POST",
+        "/v1/auth/join-domains/{domain}/unregister",
+        "json",
+        True,
+    ),
     "auth.refresh": Operation("auth.refresh", "POST", "/v1/auth/refresh", "json", True),
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
     "identity.users.list": Operation(
@@ -968,6 +1019,9 @@ OPERATIONS: dict[str, Operation] = {
     "projects.getDefault": Operation(
         "projects.getDefault", "GET", "/v1/projects/default", "json", False
     ),
+    "projects.listDeleted": Operation(
+        "projects.listDeleted", "GET", "/v1/projects/deleted", "json", False
+    ),
     "projects.list": Operation("projects.list", "GET", "/v1/projects", "json", False),
     "projects.create": Operation("projects.create", "POST", "/v1/projects", "json", True),
     "projects.get": Operation("projects.get", "GET", "/v1/projects/{projectId}", "json", False),
@@ -976,6 +1030,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.delete": Operation(
         "projects.delete", "DELETE", "/v1/projects/{projectId}", "empty", True
+    ),
+    "projects.restore": Operation(
+        "projects.restore", "POST", "/v1/projects/{projectId}/restore", "json", True
     ),
     "projects.queueRules.list": Operation(
         "projects.queueRules.list", "GET", "/v1/projects/{projectId}/queue-rules", "json", False
@@ -1570,7 +1627,9 @@ class RunsResource:
         replays: Literal["exclude", "include", "only"] | None = None,
         test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
-        include: Literal["output"] | None = None,
+        include: Literal["output", "waitingFor"]
+        | list[Literal["output", "waitingFor"]]
+        | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
         | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
@@ -1605,7 +1664,7 @@ class RunsResource:
                 "replays": replays,
                 "testRunId": test_run_id,
                 "triggerId": trigger_id,
-                "include": include,
+                "include": _csv(include),
                 "status": status,
                 "createdAfter": created_after,
                 "createdBefore": created_before,
@@ -2105,7 +2164,7 @@ class SystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, and hands the running server a renewed key (`PUT /v1/license`), for the license renewal, and every other route refuses it.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -2352,6 +2411,115 @@ class SystemTenantsResource:
             timeout=timeout,
         )
 
+    def join_domains(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JoinDomainList:
+        """The email domains a tenant lets people join from. `GET /v1/system/tenants/{tenantId}/join-domains`
+
+        As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.joinDomains"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    def allow_join_domain(
+        self,
+        tenant_id: str | UUID,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains`
+
+        The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.allowJoinDomain"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def update_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining a tenant by a domain gets. `PATCH /v1/system/tenants/{tenantId}/join-domains/{domain}`
+
+        As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.updateJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def unregister_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.unregisterJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+    def lookup_join_domains(
+        self,
+        body: _models.JoinDomainLookupBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomainLookupResult:
+        """The workspaces one verified email may join by its domain. `POST /v1/system/join-domains/lookup`
+
+        For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.lookupJoinDomains"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.JoinDomainLookupBody, body, fields),
+            response=_models.JoinDomainLookupResult,
+            timeout=timeout,
+        )
+
     def purge(
         self,
         tenant_id: str | UUID,
@@ -2405,7 +2573,7 @@ class SystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
 
-        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.limits"],
@@ -2428,7 +2596,7 @@ class SystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
 
-        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setLimits"],
@@ -2437,6 +2605,30 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+    def set_plan(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPlanBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantPlan:
+        """Set a tenant's plan id. `PUT /v1/system/tenants/{tenantId}/plan`
+
+        Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setPlan"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPlanBody, body, fields),
+            response=_models.TenantPlan,
             timeout=timeout,
         )
 
@@ -3363,7 +3555,7 @@ class AgentsTestSetResource:
         /,
         *,
         project_id: str | UUID,
-        include: Literal["retired"] | None = None,
+        include: Literal["retired"] | list[Literal["retired"]] | None = None,
         kind: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -3378,7 +3570,7 @@ class AgentsTestSetResource:
             path={"agentId": agent_id},
             query={
                 "projectId": project_id,
-                "include": include,
+                "include": _csv(include),
                 "kind": kind,
                 "limit": limit,
                 "cursor": cursor,
@@ -5516,6 +5708,28 @@ class LicenseResource:
             timeout=timeout,
         )
 
+    def replace(
+        self,
+        body: _models.LicenseKeyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.LicenseStatus:
+        """Hand the running server a renewed license key. `PUT /v1/license`
+
+        What the renewal hands the deployment's running server (`kindgi license renew --runtime`), so it runs the new key without a restart. The server checks the key offline, as it does at a start: signed by a key it trusts, for the same licensee and use as the key it runs, and newer (a later `exp`, or the same `exp` and an `iat` no earlier). The same key again is taken as it is. It answers the license status with the new key. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, hands it a key; anyone else is refused (`license-operator-only`), and the refusal recorded, before the body is read. A deployment that doesn't take a key this way answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["license.replace"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.LicenseKeyBody, body, fields),
+            response=_models.LicenseStatus,
+            timeout=timeout,
+        )
+
     def usage(self, /, *, since: str, timeout: float | None = None) -> _models.LicenseUsage:
         """How much the deployment was used since a time. `GET /v1/license/usage`
 
@@ -6457,7 +6671,7 @@ class CostRecordsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
@@ -6485,7 +6699,7 @@ class CostRecordsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.CostRecordCollectionPage,
@@ -6497,14 +6711,14 @@ class CostRecordsResource:
         record_id: str | UUID,
         /,
         *,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecord:
         """Fetch a cost record. `GET /v1/cost/records/{recordId}`"""
         return self._client._request(
             _OPERATIONS["cost.records.get"],
             path={"recordId": record_id},
-            query={"include": include},
+            query={"include": _csv(include)},
             headers={},
             response=_models.CostRecord,
             timeout=timeout,
@@ -7683,6 +7897,90 @@ class AuthSettingsResource:
         )
 
 
+class AuthJoinDomainsResource:
+    """`client.auth.join_domains` — the `auth.joinDomains` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.JoinDomainList:
+        """The email domains people may join the workspace from. `GET /v1/auth/join-domains`
+
+        Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    def allow(
+        self,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join the workspace. `POST /v1/auth/join-domains`
+
+        Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.allow"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining by a domain gets. `PATCH /v1/auth/join-domains/{domain}`
+
+        A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.update"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self, domain: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join. `POST /v1/auth/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.unregister"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+
 class AuthSitesResource:
     """`client.auth.sites` — the `auth.sites` operations."""
 
@@ -7719,6 +8017,7 @@ class AuthResource:
         self._client = client
         self.providers = AuthProvidersResource(client)
         self.settings = AuthSettingsResource(client)
+        self.join_domains = AuthJoinDomainsResource(client)
         self.sites = AuthSitesResource(client)
 
     def sign_in_options(
@@ -7821,7 +8120,7 @@ class IdentityUsersResource:
         query: str | None = None,
         include_unregistered: bool | None = None,
         pending: bool | None = None,
-        include: Literal["grants"] | None = None,
+        include: Literal["grants"] | list[Literal["grants"]] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the workspace. `GET /v1/identity/users`
@@ -7837,7 +8136,7 @@ class IdentityUsersResource:
                 "query": query,
                 "includeUnregistered": include_unregistered,
                 "pending": pending,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.UserCollectionPage,
@@ -7907,7 +8206,7 @@ class IdentityUsersResource:
     ) -> _models.UnregisterUserResult:
         """Remove a person. `POST /v1/identity/users/{userId}/unregister`
 
-        Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself, the deployment's seed user, and someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back (`identity-user-unregister-refused`, `details.reason` `listed-admin`: take the address off the list and restart first), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
         """
         return self._client._request(
             _OPERATIONS["identity.users.unregister"],
@@ -8049,7 +8348,7 @@ class IdentityUsersResource:
     ) -> _models.PersonGrants:
         """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
 
-        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first), and for someone the server's `KINDGI_ADMIN_EMAILS` names, whom every start makes one (`listed-admin`: take the address off the list and restart first). Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["identity.users.ungrant"],
@@ -8312,7 +8611,7 @@ class DeploymentsResource:
     ) -> _models.DeployCheckResult:
         """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
 
-        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.
         """
         return self._client._request(
             _OPERATIONS["deployments.check"],
@@ -8411,7 +8710,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentPromotionCheck:
         """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
 
-        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.
         """
         return self._client._request(
             _OPERATIONS["deployments.promoteCheck"],
@@ -9841,6 +10140,27 @@ class ProjectsResource:
             timeout=timeout,
         )
 
+    def list_deleted(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeletedProjectCollectionPage:
+        """List the workspace's deleted projects. `GET /v1/projects/deleted`
+
+        Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.listDeleted"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DeletedProjectCollectionPage,
+            timeout=timeout,
+        )
+
     def list(
         self,
         /,
@@ -9853,7 +10173,7 @@ class ProjectsResource:
     ) -> _models.ProjectCollectionPage:
         """List projects in the caller's workspace. `GET /v1/projects`
 
-        Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
+        Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
         """
         return self._client._request(
             _OPERATIONS["projects.list"],
@@ -9880,7 +10200,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -9915,7 +10235,7 @@ class ProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return self._client._request(
             _OPERATIONS["projects.update"],
@@ -9936,13 +10256,34 @@ class ProjectsResource:
     ) -> None:
         """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
 
-        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.
         """
         return self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+    def restore(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Project:
+        """Restore a deleted project. `POST /v1/projects/{projectId}/restore`
+
+        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.restore"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Project,
             timeout=timeout,
         )
 
@@ -12467,7 +12808,9 @@ class AsyncRunsResource:
         replays: Literal["exclude", "include", "only"] | None = None,
         test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
-        include: Literal["output"] | None = None,
+        include: Literal["output", "waitingFor"]
+        | list[Literal["output", "waitingFor"]]
+        | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
         | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
@@ -12502,7 +12845,7 @@ class AsyncRunsResource:
                 "replays": replays,
                 "testRunId": test_run_id,
                 "triggerId": trigger_id,
-                "include": include,
+                "include": _csv(include),
                 "status": status,
                 "createdAfter": created_after,
                 "createdBefore": created_before,
@@ -13004,7 +13347,7 @@ class AsyncSystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, and hands the running server a renewed key (`PUT /v1/license`), for the license renewal, and every other route refuses it.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -13251,6 +13594,115 @@ class AsyncSystemTenantsResource:
             timeout=timeout,
         )
 
+    async def join_domains(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JoinDomainList:
+        """The email domains a tenant lets people join from. `GET /v1/system/tenants/{tenantId}/join-domains`
+
+        As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.joinDomains"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    async def allow_join_domain(
+        self,
+        tenant_id: str | UUID,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains`
+
+        The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.allowJoinDomain"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def update_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining a tenant by a domain gets. `PATCH /v1/system/tenants/{tenantId}/join-domains/{domain}`
+
+        As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.updateJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def unregister_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.unregisterJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+    async def lookup_join_domains(
+        self,
+        body: _models.JoinDomainLookupBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomainLookupResult:
+        """The workspaces one verified email may join by its domain. `POST /v1/system/join-domains/lookup`
+
+        For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.lookupJoinDomains"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.JoinDomainLookupBody, body, fields),
+            response=_models.JoinDomainLookupResult,
+            timeout=timeout,
+        )
+
     async def purge(
         self,
         tenant_id: str | UUID,
@@ -13304,7 +13756,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
 
-        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.limits"],
@@ -13327,7 +13779,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
 
-        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setLimits"],
@@ -13336,6 +13788,30 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+    async def set_plan(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPlanBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantPlan:
+        """Set a tenant's plan id. `PUT /v1/system/tenants/{tenantId}/plan`
+
+        Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setPlan"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPlanBody, body, fields),
+            response=_models.TenantPlan,
             timeout=timeout,
         )
 
@@ -14266,7 +14742,7 @@ class AsyncAgentsTestSetResource:
         /,
         *,
         project_id: str | UUID,
-        include: Literal["retired"] | None = None,
+        include: Literal["retired"] | list[Literal["retired"]] | None = None,
         kind: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -14281,7 +14757,7 @@ class AsyncAgentsTestSetResource:
             path={"agentId": agent_id},
             query={
                 "projectId": project_id,
-                "include": include,
+                "include": _csv(include),
                 "kind": kind,
                 "limit": limit,
                 "cursor": cursor,
@@ -16421,6 +16897,28 @@ class AsyncLicenseResource:
             timeout=timeout,
         )
 
+    async def replace(
+        self,
+        body: _models.LicenseKeyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.LicenseStatus:
+        """Hand the running server a renewed license key. `PUT /v1/license`
+
+        What the renewal hands the deployment's running server (`kindgi license renew --runtime`), so it runs the new key without a restart. The server checks the key offline, as it does at a start: signed by a key it trusts, for the same licensee and use as the key it runs, and newer (a later `exp`, or the same `exp` and an `iat` no earlier). The same key again is taken as it is. It answers the license status with the new key. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, hands it a key; anyone else is refused (`license-operator-only`), and the refusal recorded, before the body is read. A deployment that doesn't take a key this way answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["license.replace"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.LicenseKeyBody, body, fields),
+            response=_models.LicenseStatus,
+            timeout=timeout,
+        )
+
     async def usage(self, /, *, since: str, timeout: float | None = None) -> _models.LicenseUsage:
         """How much the deployment was used since a time. `GET /v1/license/usage`
 
@@ -17362,7 +17860,7 @@ class AsyncCostRecordsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
@@ -17390,7 +17888,7 @@ class AsyncCostRecordsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.CostRecordCollectionPage,
@@ -17402,14 +17900,14 @@ class AsyncCostRecordsResource:
         record_id: str | UUID,
         /,
         *,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecord:
         """Fetch a cost record. `GET /v1/cost/records/{recordId}`"""
         return await self._client._request(
             _OPERATIONS["cost.records.get"],
             path={"recordId": record_id},
-            query={"include": include},
+            query={"include": _csv(include)},
             headers={},
             response=_models.CostRecord,
             timeout=timeout,
@@ -18596,6 +19094,90 @@ class AsyncAuthSettingsResource:
         )
 
 
+class AsyncAuthJoinDomainsResource:
+    """`client.auth.join_domains` — the `auth.joinDomains` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.JoinDomainList:
+        """The email domains people may join the workspace from. `GET /v1/auth/join-domains`
+
+        Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    async def allow(
+        self,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join the workspace. `POST /v1/auth/join-domains`
+
+        Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.allow"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining by a domain gets. `PATCH /v1/auth/join-domains/{domain}`
+
+        A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.update"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self, domain: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join. `POST /v1/auth/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.unregister"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+
 class AsyncAuthSitesResource:
     """`client.auth.sites` — the `auth.sites` operations."""
 
@@ -18632,6 +19214,7 @@ class AsyncAuthResource:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
         self.settings = AsyncAuthSettingsResource(client)
+        self.join_domains = AsyncAuthJoinDomainsResource(client)
         self.sites = AsyncAuthSitesResource(client)
 
     async def sign_in_options(
@@ -18734,7 +19317,7 @@ class AsyncIdentityUsersResource:
         query: str | None = None,
         include_unregistered: bool | None = None,
         pending: bool | None = None,
-        include: Literal["grants"] | None = None,
+        include: Literal["grants"] | list[Literal["grants"]] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the workspace. `GET /v1/identity/users`
@@ -18750,7 +19333,7 @@ class AsyncIdentityUsersResource:
                 "query": query,
                 "includeUnregistered": include_unregistered,
                 "pending": pending,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.UserCollectionPage,
@@ -18822,7 +19405,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.UnregisterUserResult:
         """Remove a person. `POST /v1/identity/users/{userId}/unregister`
 
-        Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself, the deployment's seed user, and someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back (`identity-user-unregister-refused`, `details.reason` `listed-admin`: take the address off the list and restart first), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.unregister"],
@@ -18964,7 +19547,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.PersonGrants:
         """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
 
-        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first), and for someone the server's `KINDGI_ADMIN_EMAILS` names, whom every start makes one (`listed-admin`: take the address off the list and restart first). Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.ungrant"],
@@ -19227,7 +19810,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeployCheckResult:
         """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
 
-        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["deployments.check"],
@@ -19326,7 +19909,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentPromotionCheck:
         """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
 
-        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.
         """
         return await self._client._request(
             _OPERATIONS["deployments.promoteCheck"],
@@ -20756,6 +21339,27 @@ class AsyncProjectsResource:
             timeout=timeout,
         )
 
+    async def list_deleted(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeletedProjectCollectionPage:
+        """List the workspace's deleted projects. `GET /v1/projects/deleted`
+
+        Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.listDeleted"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DeletedProjectCollectionPage,
+            timeout=timeout,
+        )
+
     async def list(
         self,
         /,
@@ -20768,7 +21372,7 @@ class AsyncProjectsResource:
     ) -> _models.ProjectCollectionPage:
         """List projects in the caller's workspace. `GET /v1/projects`
 
-        Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
+        Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
         """
         return await self._client._request(
             _OPERATIONS["projects.list"],
@@ -20795,7 +21399,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],
@@ -20832,7 +21436,7 @@ class AsyncProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return await self._client._request(
             _OPERATIONS["projects.update"],
@@ -20853,13 +21457,34 @@ class AsyncProjectsResource:
     ) -> None:
         """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
 
-        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.
         """
         return await self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+    async def restore(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Project:
+        """Restore a deleted project. `POST /v1/projects/{projectId}/restore`
+
+        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.restore"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Project,
             timeout=timeout,
         )
 

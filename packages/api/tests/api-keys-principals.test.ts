@@ -1091,11 +1091,27 @@ describe('the people list, with their grants (`include=grants`)', () => {
     const bad = await h.call(ALICE, 'GET', '/v1/identity/users?include=grants,keys');
     expect([bad.status, h.code(bad)]).toEqual([400, 'bad-input']);
     expect((bad.body.error as { message: string }).message).toBe(
-      'Unknown `include` value(s): keys',
+      'Unknown `include` value(s): keys. Expected one or more of: grants',
     );
     const bob = await h.call(BOB, 'GET', '/v1/identity/users?include=grants');
     expect([bob.status, h.code(bob)]).toEqual([403, 'permission-denied']);
     expect(h.batchReads).toEqual([]);
+  });
+
+  test('`include` reads repeated keys like the comma form; `include=` adds nothing', async () => {
+    const h = harness({ readMany: true });
+    const repeated = await h.call(ALICE, 'GET', '/v1/identity/users?include=&include=grants');
+    expect(repeated.status).toBe(200);
+    expect(listed(repeated).map(([id, g]) => [id, g !== undefined])).toEqual([
+      ['alice', true],
+      ['bob', true],
+    ]);
+    const empty = await h.call(ALICE, 'GET', '/v1/identity/users?include=');
+    expect(empty.status).toBe(200);
+    expect(listed(empty)).toEqual([
+      ['alice', undefined],
+      ['bob', undefined],
+    ]);
   });
 });
 

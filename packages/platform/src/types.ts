@@ -174,6 +174,25 @@ export interface Project {
   readonly updatedAt: Timestamp;
 }
 
+/**
+ * A deleted project, as `ProjectBinding.listDeleted` answers it: what a
+ * workspace admin needs to find the one to restore. The project is kept,
+ * with what's in it; it's gone from every read until it's restored.
+ */
+export interface DeletedProject {
+  readonly id: ProjectId;
+  readonly tenantId: TenantId;
+  /** Its org, when it has one. */
+  readonly orgId?: OrgId;
+  readonly name: string;
+  /** Its slug, still its own while it's deleted. */
+  readonly slug: string;
+  /** The slugs it had before it was renamed, newest first; still its own too. */
+  readonly formerSlugs: readonly string[];
+  /** When it was deleted. Deleting it again keeps this time; a restore clears it. */
+  readonly deletedAt: Timestamp;
+}
+
 export interface ProjectSpec {
   readonly name: string;
   readonly slug: string;

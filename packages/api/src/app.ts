@@ -54,6 +54,7 @@ import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { type HeldItems, itemRightsOf, itemServingOf } from './item-rights.js';
+import type { JoinDomainBinding } from './join-domain-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import { type McpServerInput, mountMcpServer } from './mcp-server/endpoint.js';
 import { MCP_TOOL_SETS } from './mcp-server/tool-sets.js';
@@ -106,6 +107,8 @@ import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import { candidatesPinProjects } from './pin-test-runs.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
+import type { PlanLimitsBinding } from './plan-limits-binding.js';
+import { planGateOf } from './plan-limits.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -170,6 +173,11 @@ import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
 import { improveRunsRouter } from './routes/improve-runs.js';
+import {
+  joinDomainsRouter,
+  systemJoinLookupRouter,
+  systemTenantJoinDomainsRouter,
+} from './routes/join-domains.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -653,6 +661,8 @@ export interface CreateAppInput {
    * tenant's admins read the countdown the console warns with, from 30
    * days before the key expires; anyone else is refused. Without it the
    * route isn't mounted (404), as on a deployment that doesn't report it.
+   * With its `replace`, `PUT /v1/license` hands the running server a
+   * renewed key, for the deployment's own token or a `system:license` key.
    */
   readonly license?: LicenseStatusBinding;
   /**
@@ -706,9 +716,11 @@ export interface CreateAppInput {
    */
   readonly systemTenantDirectory?: SystemTenantDirectory;
   /**
-   * Optional. A tenant's "production allowed" switch and its limits, set by
-   * the control plane: `PUT /v1/system/tenants/:tenantId/production-allowed`
-   * (`system:tenants:production`) and `…/limits` (`system:tenants:limits`).
+   * Optional. A tenant's "production allowed" switch, its limits and its plan
+   * id, set by the control plane:
+   * `PUT /v1/system/tenants/:tenantId/production-allowed`
+   * (`system:tenants:production`), and `…/limits` and `…/plan`
+   * (`system:tenants:limits`).
    * Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenantSettings?: SystemTenantSettingsBinding;
@@ -743,6 +755,20 @@ export interface CreateAppInput {
    * delivery to one of its triggers is skipped. Absent: no check.
    */
   readonly projectSuspended?: (
+    tenantId: import('@kindgi/types').TenantId,
+    projectId: import('@kindgi/types').ProjectId,
+  ) => Promise<boolean>;
+  /**
+   * Whether a project is deleted (`DELETE /v1/projects/{projectId}`), and
+   * not restored since. Asked before `projectSuspended`, at every gate that
+   * one reaches: a deploy into it, a test run or an Improve run started in
+   * it, and a pin in its scope (a card's too) are refused `404
+   * project-not-found`, as for an id with no project; a webhook delivery to
+   * one of its triggers is skipped (`skipped: 'project-deleted'`), and
+   * nothing is recorded. A deleted project's unfinished runs are the
+   * `projectBinding`'s to cancel, once its delete commits. Absent: no check.
+   */
+  readonly projectDeleted?: (
     tenantId: import('@kindgi/types').TenantId,
     projectId: import('@kindgi/types').ProjectId,
   ) => Promise<boolean>;
@@ -1193,6 +1219,19 @@ export interface CreateAppInput {
    */
   readonly secondFactor?: SecondFactorBinding;
   /**
+   * Optional. The email domains a workspace lets people join from: mounts
+   * `/v1/auth/join-domains` (a `GET` takes `read` on the tenant, a change
+   * `admin`; the binding keeps the rules: a person's own proved domain,
+   * never a public one; with `identityProviderChanges: 'operator'`,
+   * letting more people in takes `kindgi:system`), `POST
+   * /v1/system/join-domains/lookup` (`system:join-domains:read` or
+   * `system:join-domains`), for one verified email the workspaces a
+   * sign-up page offers, and, with `systemTenantDirectory`, the operator's
+   * `/v1/system/tenants/{tenantId}/join-domains` (`system:join-domains`).
+   * Joining itself is the deployment's sign-in.
+   */
+  readonly joinDomains?: JoinDomainBinding;
+  /**
    * The deployment's public base URL (e.g. `https://kindgi.acme.example`):
    * what a webhook trigger's `receiveUrl` is made from. Never taken from a
    * request's `Host`, which the caller writes. Absent: webhook trigger
@@ -1378,6 +1417,14 @@ export interface CreateAppInput {
    * refusal's `details.next`). Absent: no gate.
    */
   readonly production?: ProductionGateOptions;
+  /**
+   * Optional. The plan limits on agents and flows in production
+   * (`plan-limits-binding.ts`). Deploy, promote, publish, reinstate, a
+   * suggested change's new version and putting a project in production ask
+   * it, and a write past the most the plan allows is refused: none of the
+   * flows and agents it adds is added. Absent: nothing is counted.
+   */
+  readonly planLimits?: PlanLimitsBinding;
   /**
    * Optional. The addresses this deployment's calls to other sites come
    * from (`KINDGI_EGRESS_SERVER_ADDRESSES`,
@@ -1616,6 +1663,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const observedSecrets =
     input.secretsBinding === undefined ? undefined : observeSecretWrites(input.secretsBinding);
   const secretsBinding = observedSecrets?.binding;
+  // The plan limits every writer into production asks, with where a larger plan is.
+  const planGate = planGateOf(input.planLimits, input.production?.next);
   // A cookie session's value is the token the store minted. A store that
   // can't resolve its own tokens would put the session id there instead,
   // and the id is no secret (whoami and the audit trail show it).
@@ -1941,6 +1990,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
           ...(input.pinFiles !== undefined && { pinFiles: input.pinFiles }),
           ...pinTestRunDeps,
         },
@@ -1961,6 +2011,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
+        planGate,
       ),
     );
   }
@@ -1999,6 +2050,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
         itemServing,
         input.pinnedVersions,
+        planGate,
       ),
     );
   }
@@ -2117,6 +2169,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
     };
     const cardDeps = {
@@ -2132,7 +2185,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.projectSuspended !== undefined && {
         projectSuspended: input.projectSuspended,
       }),
+      ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+      ...(planGate !== undefined && { plan: planGate }),
       // A drafter's pin needs a separate approver when the tenant has
       // a second person who could approve it — one who can read the
       // approval's resource, so the count matches who the decide route lets in.
@@ -2382,6 +2437,28 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     };
     v1.route('/identity', secondFactorIdentityRouter(secondFactor));
     v1.route('/auth/settings', authSettingsRouter(secondFactor));
+  }
+  if (input.joinDomains !== undefined) {
+    const joinDomains = {
+      binding: input.joinDomains,
+      ...(authorizer !== undefined && { authorizer }),
+    };
+    v1.route(
+      '/auth/join-domains',
+      joinDomainsRouter({
+        ...joinDomains,
+        ...(input.identityProviderChanges !== undefined && {
+          changes: input.identityProviderChanges,
+        }),
+      }),
+    );
+    v1.route('/system/join-domains', systemJoinLookupRouter(joinDomains));
+    if (input.systemTenantDirectory !== undefined) {
+      v1.route(
+        '/system/tenants',
+        systemTenantJoinDomainsRouter({ ...joinDomains, directory: input.systemTenantDirectory }),
+      );
+    }
   }
   if (input.cost !== undefined) {
     v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
@@ -2700,7 +2777,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
-        input.serviceAccountBinding,
+        input.auditEvents,
       ),
     );
   }
@@ -2716,6 +2793,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           input.signingKeyRegistry !== undefined && {
             deployments: { ledger: input.deploymentRegistry, keys: input.signingKeyRegistry },
           }),
+        ...(planGate !== undefined && { plan: planGate }),
       }),
     );
     v1.route(
@@ -2847,6 +2925,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       deploymentsRouter(
         {
           deploymentRegistry: input.deploymentRegistry,
+          ...(planGate !== undefined && { plan: planGate }),
           // Only where the runtime serves many tenants: one tenant's runtime
           // deploys any image, as before.
           ...(input.tenancy === 'multi' &&
@@ -2869,6 +2948,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             perDeploymentPacks: true,
           }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
           ...(input.guardrailRegistry !== undefined && {
@@ -2888,6 +2968,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.projectSuspended !== undefined && {
                 projectSuspended: input.projectSuspended,
               }),
+              ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
               ...pinTestRunDeps,
             },
           }),
@@ -2972,6 +3053,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.testSetFreeze,
       input.correctionRegistry,
       held,
+      input.projectDeleted,
     );
     v1.route('/test-sets', testRuns.start);
     v1.route('/test-runs', testRuns.readback);
@@ -3073,6 +3155,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.projectSuspended !== undefined && {
           projectSuspended: input.projectSuspended,
         }),
+        ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       }),
     );
   }

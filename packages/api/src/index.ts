@@ -32,7 +32,11 @@ export type {
   SignInOptionsRateLimit,
 } from './routes/sign-in-options.js';
 export type {
+  LicenseKeyRefusal,
+  LicenseLimit,
+  LicenseLimits,
   LicensePreview,
+  LicenseReplaced,
   LicenseStatus,
   LicenseStatusBinding,
   LicenseUsage,
@@ -99,6 +103,7 @@ export type {
 export {
   TENANT_LIMIT_MAX,
   TENANT_LIMIT_NAMES,
+  TENANT_PLAN_PATTERN,
   type SystemTenantSettingsBinding,
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
@@ -199,12 +204,23 @@ export type {
   OidcProviderConfig,
   ProviderConfig,
   ProviderConfigBase,
+  ProviderJoinRole,
   ProviderSignIn,
   SamlAttributeMapping,
   SamlProviderConfig,
   SignInOption,
   SignInOptionsInput,
 } from './identity-provider-binding.js';
+export type {
+  JoinDomain,
+  JoinDomainAllowOutcome,
+  JoinDomainBinding,
+  JoinDomainCaller,
+  JoinDomainChangeOutcome,
+  JoinDomainRefusal,
+  JoinLookupWorkspace,
+} from './join-domain-binding.js';
+export { joinDomainOf, joinEmailOf } from './routes/join-domains.js';
 export type {
   Site,
   SiteBinding,
@@ -976,6 +992,20 @@ export type {
   PinnedVersionErrorCode,
   UnpinVersionInput,
 } from './pinned-version-binding.js';
+export type {
+  PlanAdding,
+  PlanAdmission,
+  PlanCheck,
+  PlanCount,
+  PlanLimit,
+  PlanLimitsBinding,
+  PlanLimitsInput,
+  PlanOver,
+  PlanRefused,
+  PlanReinstating,
+  PlanScope,
+  PlanWarning,
+} from './plan-limits-binding.js';
 export type {
   GateMetricName,
   GateMetricSpec,

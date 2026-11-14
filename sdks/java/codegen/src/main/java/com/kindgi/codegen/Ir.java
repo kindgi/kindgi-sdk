@@ -71,6 +71,8 @@ final class Ir {
     Object defaultValue;
     /** The field's type is a union with a text variant: the builder also takes a string. */
     UnionDecl textUnion;
+    /** A query list sent as one comma-separated key: the builder takes its values as varargs. */
+    boolean commaList;
   }
 
   sealed interface Decl permits RecordDecl, EnumDecl, UnionDecl {

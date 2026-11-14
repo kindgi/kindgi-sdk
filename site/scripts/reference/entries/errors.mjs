@@ -2547,6 +2547,12 @@ export const ERROR_ENTRIES = {
       "You requested a kept repo's erasure on a runtime that isn't keeping repos for projects without a GitHub repo now (`KINDGI_KEPT_REPOS` is off), so nothing was requested. Turning it off erases nothing: repos kept while it was on stay until they're purged with it on. Turn it on, on the runtime and on the repo store's gateway, then request the erasure again.",
     details: [],
   },
+  'tenant-plan-unsupported': {
+    description:
+      "This runtime doesn't keep a tenant's plan id, so `PUT /v1/system/tenants/{tenantId}/plan` sets nothing. Its `GET …/limits` leaves `plan` out. The tenant's limits are still set and enforced through `PUT …/limits`.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
   'tenant-slug-taken': {
     description:
       'Another workspace has that slug, creating a workspace or renaming one. A purged workspace keeps its slug. Choose another.',
@@ -2660,12 +2666,19 @@ export const ERROR_ENTRIES = {
       "The person is the seed user, whom the runtime makes tenant admin at every start, so the admin grant can't be removed while that setting stands. Unset the seed user and restart first.",
     details: [],
   },
+  'listed-admin': {
+    description:
+      "The server's `KINDGI_ADMIN_EMAILS` names the person, and every start makes them tenant admin, so the admin grant can't be removed while it does. Take their address off the list and restart the runtime first.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
   'identity-user-unregister-refused': {
-    description: "You can't unregister yourself or the seed user. Ask another tenant admin.",
+    description:
+      "You can't unregister yourself, the seed user, or someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back. Ask another tenant admin, or take the address off the list and restart the runtime first.",
     details: [
       {
         key: 'reason',
-        meaning: "why it was refused: 'yourself' or 'seed-user'",
+        meaning: "why it was refused: 'yourself', 'seed-user' or 'listed-admin'",
       },
       {
         key: 'userId',
@@ -3030,10 +3043,67 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
   },
+  'domain-join-needs-authorization': {
+    description:
+      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so people can't join by domain: without one, roles aren't checked, and a joiner would work in every project. On an identity provider, setting `join: domain` or `joinRole` is refused; a provider already stored with them keeps them, and a change that leaves them alone goes through. Allowing an email domain (`/v1/auth/join-domains`), or allowing it again, is refused too; changing what joiners get, or stopping allowing it, still works. Add people one by one, or run with authorization.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed (only on an identity provider)',
+      },
+    ],
+    seeAlso: ['deploy/people-and-keys', 'guides/sso/index'],
+  },
+  'join-domain-not-yours': {
+    description:
+      "Letting people at an email domain join a workspace, or giving its joiners more, takes a person who's a tenant admin, signed in with an email at exactly that domain (no subdomain, no parent) by a way that proves the mailbox: a Google Workspace account at it, a Microsoft work account, or the emailed link. GitHub never counts, and the workspace's own identity provider counts only for a domain the deployment routes to the workspace. An API key or a service account can't, and neither can a person whose sign-in recorded no email. The deployment's operator always can. Ask a tenant admin at that domain, or the operator. Lowering joiners' role or stopping allowing the domain takes any tenant admin. The refusal is recorded.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domains-operator-managed': {
+    description:
+      "The deployment's operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), so letting people at an email domain join, or giving joiners more, takes the operator's credential: the deployment's own token or a key holding `kindgi:system`, or `system:join-domains` on the system routes. A tenant admin can still see the list, lower joiners' role and stop allowing a domain. The refusal is recorded.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys', 'deploy/self-hosted/sign-in'],
+  },
+  'join-domain-public': {
+    description:
+      "That's a public mailbox domain (gmail.com, outlook.com and the like), where anyone can have an address, so people there can never join by domain. Add them one by one.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-verified-elsewhere': {
+    description:
+      "The deployment's operator verified that domain for another workspace (`KINDGI_AUTH_VERIFIED_DOMAINS`), or for a tenant this runtime doesn't serve, so only that workspace may let its people join.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-exists': {
+    description:
+      'The workspace lets people at that domain join already. To change what joiners get, change its role (`PATCH` the domain).',
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
+  'join-domain-not-found': {
+    description: "The workspace doesn't let people at that domain join, or stopped allowing it.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
   'license-operator-only': {
     description:
-      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license`, `PUT /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
+  },
+  'license-key-refused': {
+    description:
+      '`PUT /v1/license`: the running server checked the key handed to it, as it does at a start, and refused it. It runs on with the key it has, and `kindgi license renew --runtime` writes nothing.',
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          '`malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`',
+      },
+    ],
   },
   'invalid-provider-config': {
     description:
@@ -3257,7 +3327,7 @@ export const ERROR_ENTRIES = {
   },
   'deployment-not-found': {
     description:
-      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way.",
+      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way, and so is one whose project is deleted.",
     details: [
       {
         key: 'deploymentId',
@@ -3488,7 +3558,7 @@ export const ERROR_ENTRIES = {
   },
   'project-not-found': {
     description:
-      "The project doesn't exist in the workspace, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project.",
+      "The project doesn't exist in the workspace, it was deleted, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project. A workspace admin finds a deleted project at `GET /v1/projects/deleted` and restores it.",
     details: [
       {
         key: 'projectId',
@@ -3513,11 +3583,11 @@ export const ERROR_ENTRIES = {
   },
   'production-limit-reached': {
     description:
-      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again. Restoring a deleted project that's in production counts it again, so at the limit the restore is refused the same way, and the project stays deleted until there's room.",
     details: [
       {
         key: 'projectId',
-        meaning: "the project that wasn't put in production",
+        meaning: "the project that wasn't put in production, or wasn't restored",
       },
       {
         key: 'limit',
@@ -3539,10 +3609,68 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'plan-limit-reached': {
+    description:
+      "A write would add flows or agents to production past the most this runtime's license key runs, or past the most the workspace's own limits allow (`flowsInProduction` and `agentsInProduction` in its limits): publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. Against the workspace's own limits, only its own flows and agents count. The most is the plan's number and a margin, a fifth more and at least one more. None of the flows and agents the write adds is added, and what runs keeps running: changes to the flows and agents that run go through. A suggested change keeps its edit's block version, as a failed check does, and one just made is kept too: check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check` once there's room. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan (for the workspace's own limits, ask whoever runs the server for a larger limit), where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
+    details: [
+      {
+        key: 'projectId',
+        meaning:
+          'the project the write adds to, or the one put in production; on a reinstate, the project its version was made in, absent when the server records none',
+      },
+      {
+        key: 'limit',
+        meaning:
+          "the first count over, `flows` or `agents`; it and `adding`, `scope`, `plan`, `most` and `inUse` are `over`'s first entry",
+      },
+      { key: 'adding', meaning: 'how many of that count the write adds to production' },
+      {
+        key: 'scope',
+        meaning:
+          "whose numbers that count passed: `installation` for the license key's plan, `tenant` for the workspace's own limits; absent from a runtime that doesn't say, and then it's the key's",
+      },
+      {
+        key: 'plan',
+        meaning:
+          "the license key's plan for that count, or the workspace's own limit; the key's is absent, with `most` and `inUse`, when the runtime serves other tenants too, whose flows and agents the key's numbers count. The workspace's own are always given",
+      },
+      { key: 'most', meaning: 'the most that run: the plan and its margin' },
+      { key: 'inUse', meaning: 'how many run in production before this write' },
+      {
+        key: 'over',
+        meaning:
+          'each count over, flows first: its `limit` and `adding`, its `scope` when the runtime says, and its `plan`, `most` and `inUse` when they are given',
+      },
+      { key: 'newIds', meaning: 'the ids the write adds to production: `flows` and `agents`' },
+      {
+        key: 'next',
+        meaning:
+          'where to get a larger plan, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+      {
+        key: 'suggestedChangeId',
+        meaning:
+          'when a suggested change was made but its check refused: the change, which is kept',
+      },
+    ],
+    seeAlso: ['#plan-count-busy', 'deploy/self-hosted/plan-limits'],
+  },
+  'plan-count-busy': {
+    description:
+      "A write that can add flows or agents to production waited too long for its turn to count them, so it never ran: none of them is added. A suggested change keeps its edit's block version, as a failed check does. The same request is safe to send again after the `Retry-After` header.",
+    details: [],
+    seeAlso: ['#plan-limit-reached', 'deploy/self-hosted/plan-limits'],
+  },
   'production-unsupported': {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'project-restore-unsupported': {
+    description:
+      "This server can't restore a deleted project or list the deleted ones: its project store keeps no deleted projects for that.",
+    details: [],
+    seeAlso: ['POST /v1/projects/{projectId}/restore', 'GET /v1/projects/deleted'],
   },
   'repo-connection-not-company-github': {
     description:
@@ -3642,6 +3770,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'project-is-default': {
+    description: "The workspace's default project can't be deleted.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the default project',
+      },
+    ],
+    seeAlso: ['DELETE /v1/projects/{projectId}'],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name; an identity provider names a secret of its own instead.",
@@ -3721,7 +3859,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org, until that project is deleted.",
+      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org. A deleted project's slugs stay its own too.",
     details: [
       {
         key: 'resource',
@@ -3735,6 +3873,11 @@ export const ERROR_ENTRIES = {
         key: 'heldAs',
         meaning:
           '`slug` when another has it now; `old-slug` when another project had it before it was renamed. Absent from a runtime that keeps no old slugs',
+      },
+      {
+        key: 'deletedProject',
+        meaning:
+          '`true` when the project holding the slug is deleted; absent otherwise. A workspace admin can restore it (`POST /v1/projects/{projectId}/restore`)',
       },
     ],
     seeAlso: ['POST /v1/orgs', 'POST /v1/projects', 'PATCH /v1/projects/{projectId}'],

@@ -40,6 +40,7 @@ import type {
 
 import { deployApiAddress, sameAddress } from '../api-address.js';
 import type { CommandContext } from '../context.js';
+import { type PlanWarningRecord, planWarningLines } from '../deploy/plan-warning.js';
 import {
   type ReplaceFlags,
   type StopWords,
@@ -415,7 +416,14 @@ export function resultText(result: DeploymentPromotion, to: string): string {
     flows.length === 0
       ? ''
       : `Flows pinned in ${to}:\n${flows.map((f) => `  ${f.id} ${f.version}`).join('\n')}\n`;
-  return `${head}${pinnedText}${flowsText}${blockCheckText(result, to)}`;
+  return `${head}${pinnedText}${flowsText}${blockCheckText(result, to)}${planWarningText(result.planWarning)}`;
+}
+
+/** A line for each count at the license key's plan or past it, flows first; none below. */
+function planWarningText(warning: PlanWarningRecord | undefined): string {
+  return planWarningLines(warning)
+    .map((l) => `${l}\n`)
+    .join('');
 }
 
 /**
@@ -675,7 +683,7 @@ async function promoteBuild(ctx: CommandContext): Promise<Answer> {
     const exit = ready ? {} : { exitCode: 1 };
     if (json) return { ...renderJson({ deploymentId, check }, ctx.globals.format), ...exit };
     return {
-      stdout: `Deployment ${deploymentId}.\n${movesText(check.moves, check.leftBehind, route)}${valuesText(check.values, target)}`,
+      stdout: `Deployment ${deploymentId}.\n${movesText(check.moves, check.leftBehind, route)}${valuesText(check.values, target)}${planWarningText(check.planWarning)}`,
       stderr: '',
       ...exit,
     };

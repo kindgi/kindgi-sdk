@@ -92,6 +92,8 @@ import { agentPinChangeRefusal, pinChangeRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import type { PlanAdding, PlanWarning } from '../plan-limits-binding.js';
+import { admitPlan, checkPlan, planWarningField } from '../plan-limits.js';
 import type { ReleaseGateRef } from '../release-gate-binding.js';
 import { deploymentSecretScope, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
@@ -323,6 +325,8 @@ export interface PromotionResult {
   readonly pinnedFlows?: readonly DeploymentPinnedFlow[];
   /** The build's blocks against what runs in the target; present only when `pin` was asked of a runtime that checks them. */
   readonly blockCheck?: PromotionBlockCheck;
+  /** The counts at or past their plan once it's promoted (`plan-limits-binding.ts`). */
+  readonly planWarning?: PlanWarning;
 }
 
 /**
@@ -386,6 +390,7 @@ export function promotionAnswer(c: Context<AppEnv>, result: PromotionResult): Re
         notNeeded: result.blockCheck.notNeeded,
       },
     }),
+    ...planWarningField(result.planWarning),
   });
 }
 
@@ -440,6 +445,8 @@ export function mountDeploymentPromotions(
     if (body instanceof Response) return body;
     const plan = await planPromotion(c, bindings, authorizer, body.toProjectId, false);
     if (plan instanceof Response) return plan;
+    const planned = await checkPlan(c, bindings.plan, promotionPlanInput(plan));
+    if (planned.kind === 'answer') return planned.response;
     return c.json({
       moves: promotionMoves(plan.source, plan.carried.carried),
       values: plan.problems,
@@ -449,6 +456,7 @@ export function mountDeploymentPromotions(
       },
       ...(bindings.envName !== undefined && { envName: bindings.envName }),
       ...(plan.carried.leftBehind.length > 0 && { leftBehind: plan.carried.leftBehind }),
+      ...planWarningField(planned.planWarning),
     });
   });
 
@@ -469,14 +477,20 @@ export function mountDeploymentPromotions(
     const promote = bindings.deploymentRegistry.promote;
     if (promote === undefined) return unsupported(c);
     const tenantId = plan.source.tenantId;
-    const outcome = await promote({
-      tenantId,
-      sourceDeploymentId: plan.source.deploymentId,
-      ...(plan.storedProjectId !== undefined && { projectId: plan.storedProjectId }),
-      carried: plan.carried.carried,
-      toolSecretScopes: await targetSecretScopes(c, bindings, authorizer, plan),
-      ...replacedBy(c, blockCheck),
-    });
+    const toolSecretScopes = await targetSecretScopes(c, bindings, authorizer, plan);
+    // Only the ledger's write runs inside the plan limits' count.
+    const admitted = await admitPlan(c, bindings.plan, promotionPlanInput(plan), () =>
+      promote({
+        tenantId,
+        sourceDeploymentId: plan.source.deploymentId,
+        ...(plan.storedProjectId !== undefined && { projectId: plan.storedProjectId }),
+        carried: plan.carried.carried,
+        toolSecretScopes,
+        ...replacedBy(c, blockCheck),
+      }),
+    );
+    if (admitted.kind === 'answer') return admitted.response;
+    const outcome = admitted.value;
     if (outcome.kind === 'error') {
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
@@ -488,6 +502,7 @@ export function mountDeploymentPromotions(
       leftBehind: plan.carried.leftBehind,
       created: outcome.kind === 'ok',
       ...(blockCheck !== undefined && { blockCheck }),
+      ...promotionWarningField(outcome.kind === 'ok', admitted.planWarning),
     };
     return finishPromotion(c, bindings, authorizer, plan, result, outcome.carried, body);
   });
@@ -529,6 +544,43 @@ async function checkPinnedBlocks(
   if (check.kind === 'skipped') return undefined;
   if (check.stops.length > 0) return olderBlocksRefusal(c, check.stops, 'promotion');
   return { checked: true, replaced: check.replaced, notNeeded: check.notNeeded };
+}
+
+/**
+ * What a promotion asks the plan limits: the agents and flows its build
+ * ships and the versions it carries, by id, into the target.
+ */
+function promotionPlanInput(plan: PromotionPlan): {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly adding: PlanAdding;
+} {
+  const ids = (kind: 'agent' | 'flow', shipped: readonly { readonly id: string }[]) => [
+    ...new Set([
+      ...shipped.map((v) => v.id),
+      ...plan.carried.carried.filter((v) => v.kind === kind).map((v) => v.id),
+    ]),
+  ];
+  return {
+    tenantId: plan.source.tenantId,
+    projectId: plan.toProjectId,
+    adding: {
+      agents: ids('agent', plan.source.contents.agents),
+      flows: ids('flow', plan.source.contents.flows),
+    },
+  };
+}
+
+/**
+ * A promotion answer's `{planWarning}`, only when it made the target's
+ * version. A target that had the build already added nothing, so, as a
+ * deploy's digest replay, it carries none.
+ */
+function promotionWarningField(
+  created: boolean,
+  warning: PlanWarning | undefined,
+): { readonly planWarning?: PlanWarning } {
+  return created ? planWarningField(warning) : {};
 }
 
 /**
@@ -1075,6 +1127,7 @@ async function targetSuspended(
  * source, or the copy the target has. Superseded: `409
  * deployment-superseded`, naming the newer deployment there that serves
  * its tool versions. Retired for a suspension: the suspension's own code.
+ * Retired with its deleted project: `404 deployment-not-found`.
  * One with no endpoint status (one pack service for every deployment)
  * serves.
  */
@@ -1089,6 +1142,15 @@ async function unserved(
   if (endpoint?.status !== 'cleared' || endpoint.waiting === true) return undefined;
   const retired = endpoint.retired;
   if (retired === undefined) return undefined;
+  // A deleted project's deployments are gone to every caller, as one in a
+  // project they don't read. It can't be in an order (its delete is refused
+  // there), so this is the source, read before its project was deleted.
+  if (retired === 'project-deleted') {
+    return refusal(c, 'deployment-not-found', {
+      message: "This deployment's project is deleted. Nothing was promoted.",
+      deploymentId: deployment.deploymentId,
+    });
+  }
   if (retired !== 'superseded') return suspendedRefusal(c, retired, environment);
   const newer = await newerServing(bindings, deployment, projectId);
   return refusal(c, 'deployment-superseded', {
@@ -1104,7 +1166,7 @@ async function unserved(
 /** The suspension's own code, for a promotion from or into what it suspends. */
 function suspendedRefusal(
   c: Context<AppEnv>,
-  reason: Exclude<SystemDeploymentRetireReason, 'superseded'>,
+  reason: Exclude<SystemDeploymentRetireReason, 'superseded' | 'project-deleted'>,
   environment: 'source' | 'target',
 ): Response {
   const side = environment === 'source' ? "the deployment's environment" : 'the target environment';

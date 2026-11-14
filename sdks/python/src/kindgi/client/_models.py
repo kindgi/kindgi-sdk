@@ -779,6 +779,8 @@ class SystemKey(BaseModel):
             "system:license",
             "system:kept-repos",
             "system:kept-repos:erase",
+            "system:join-domains:read",
+            "system:join-domains",
             "kindgi:system",
         ]
     ]
@@ -814,6 +816,8 @@ class MintSystemKeyBody(BaseModel):
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
         ],
@@ -864,6 +868,8 @@ class MintSystemKeyResult(BaseModel):
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -918,6 +924,8 @@ class Datum2(BaseModel):
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -976,6 +984,8 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:license",
                 "system:kept-repos",
                 "system:kept-repos:erase",
+                "system:join-domains:read",
+                "system:join-domains",
                 "kindgi:system",
             ]
             | str,
@@ -1972,6 +1982,40 @@ class RuntimeConnections(BaseModel):
     reason: str | None = None
     """
     Only when `on` is false, and only from a runtime in development mode: the runtime's own words for what connections need. A runtime in production never says.
+    """
+
+
+class LicenseLimit(BaseModel):
+    """
+    One count the key limits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[int, Field(ge=1)]
+    """
+    The number the key carries.
+    """
+    most: Annotated[int, Field(ge=1)]
+    """
+    The most this runtime runs: past it, it refuses new ones.
+    """
+    in_use: Annotated[int, Field(alias="inUse", ge=0)]
+    """
+    How many it counts now.
+    """
+
+
+class LicenseKeyBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(max_length=4096, min_length=1)]
+    """
+    The whole license key, `kgi_lk_…`.
     """
 
 
@@ -3384,6 +3428,38 @@ class PublishAgentBody(BaseModel):
     mcp: McpExposure | None = None
 
 
+class PlanCount(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[int, Field(ge=0)]
+    """
+    The plan's number: the license key's, or the workspace's own limit (`TenantLimits`).
+    """
+    most: Annotated[int, Field(ge=0)]
+    """
+    The most it runs: its plan and a margin. A write past this is refused.
+    """
+    in_use: Annotated[int, Field(alias="inUse", ge=0)]
+    """
+    How many run in production, with this write.
+    """
+
+
+class PlanWarning(BaseModel):
+    """
+    The plan limits' counts that are at their plan or past it, with this write: flows and agents in production, against the license key's plan or the workspace's own limit. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flows: PlanCount | None = None
+    agents: PlanCount | None = None
+
+
 class Warning(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3404,6 +3480,7 @@ class PublishAgentResult(BaseModel):
     """
     What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class AgentOwner(BaseModel):
@@ -3463,6 +3540,7 @@ class ReinstateAgentVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowNode(BaseModel):
@@ -3572,6 +3650,7 @@ class PublishFlowResult(BaseModel):
     )
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class UnregisterFlowResult(BaseModel):
@@ -3595,6 +3674,7 @@ class ReinstateFlowVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class FlowCollectionPage(BaseModel):
@@ -7836,7 +7916,7 @@ class TestRun(BaseModel):
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
+    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     """
@@ -8005,7 +8085,14 @@ class OidcIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.
+    """
+    join_role: Annotated[
+        Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN] | None,
+        Field(alias="joinRole"),
+    ] = None
+    """
+    What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8078,7 +8165,14 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
-    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.
+    Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.
+    """
+    join_role: Annotated[
+        Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN] | None,
+        Field(alias="joinRole"),
+    ] = None
+    """
+    What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.
     """
     sign_in: Annotated[
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
@@ -8386,6 +8480,7 @@ class UpdateIdentityProviderBody(BaseModel):
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     domains: list[Domain] | None = None
     join: Literal["invite", "domain"] | None = None
+    join_role: Annotated[Literal["viewer", "runner", "none"] | None, Field(alias="joinRole")] = None
     metadata: dict[str, Any] | None = None
     issuer: AnyUrl | None = None
     client_id: Annotated[str | None, Field(alias="clientId", min_length=1)] = None
@@ -8545,6 +8640,10 @@ class UserCreated(BaseModel):
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
+    """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
 
@@ -8694,6 +8793,106 @@ class AuthSettingsPatch(BaseModel):
         populate_by_name=True,
     )
     second_factor: Annotated[SecondFactor1, Field(alias="secondFactor")]
+
+
+class JoinDomain(BaseModel):
+    """
+    An email domain the workspace lets people join from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    """
+    Lower case, as an A-label (`xn--bcher-kva.de` for bücher.de), e.g. `acme.com`.
+    """
+    role: Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy", min_length=1)]
+    """
+    Who allowed it: `user:<id>`, a tenant admin, or the deployment's own token as its seed user on a runtime serving one tenant; `service_account:<id>`, a key holding `kindgi:system` that acts as one; or `system-key:<id>` on the system routes (`system-key:boot` for the deployment's own token).
+    """
+    updated_at: Annotated[AwareDatetime | None, Field(alias="updatedAt")] = None
+    updated_by: Annotated[str | None, Field(alias="updatedBy", min_length=1)] = None
+    """
+    Who last changed its role, in `createdBy`'s forms: any tenant admin, for a lower one.
+    """
+
+
+class JoinDomainList(BaseModel):
+    """
+    The workspace's allowed domains, the first allowed first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JoinDomain]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class AllowJoinDomainBody(BaseModel):
+    """
+    A domain to let people join from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    """
+    An email domain, e.g. `acme.com`; `@acme.com`, capitals, a trailing dot and a non-ASCII name (stored as its A-label) are taken too. Exactly that domain: not its subdomains, nor its parent.
+    """
+    role: Literal["viewer", "runner", "none"] | None = None
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Default `viewer`.
+    """
+
+
+class ChangeJoinDomainBody(BaseModel):
+    """
+    What someone joining by the domain gets from now on. People who joined already keep what they have.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["viewer", "runner", "none"]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+
+
+class UnregisterJoinDomainResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Annotated[str, Field(min_length=1)]
+    unregistered: Literal[True]
+
+
+class JoinDomainLookupBody(BaseModel):
+    """
+    One email a sign-up page verified.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    email: Annotated[str, Field(min_length=3)]
+    """
+    An email the page proved its visitor reads (its own emailed code or link): the lookup takes the page's word for it.
+    """
 
 
 class CreateUserBody(BaseModel):
@@ -9577,6 +9776,13 @@ class DeployCheckAgentId(RootModel[str]):
     """
 
 
+class DeployCheckFlowId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    A flow's id, as the image index names it.
+    """
+
+
 class ReplacedItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9606,6 +9812,7 @@ class DeployCheckResult(BaseModel):
     """
     The blocks `replace` names that nothing newer runs for: nothing to replace.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class By2(BaseModel):
@@ -10064,6 +10271,8 @@ class EvidenceKind(RootModel[str]):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10249,6 +10458,8 @@ class ComplianceEvidence(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10362,6 +10573,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10452,6 +10665,8 @@ class Filter(BaseModel):
                 "suggested-change-pinned",
                 "suggested-change-added-as-latest",
                 "suggested-change-withdrawn",
+                "project-deleted",
+                "project-restored",
             ],
             min_length=1,
         ),
@@ -10852,7 +11067,7 @@ class Project(BaseModel):
     """
     former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
     """
-    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them.
     """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
@@ -10891,6 +11106,7 @@ class ProjectProduction(BaseModel):
     """
     When the project went into production; `null` while it isn't in production.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class ProjectRepoConnectionBody(BaseModel):
@@ -10960,6 +11176,49 @@ class ProjectCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[Project]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class DeletedProject(BaseModel):
+    """
+    A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    ProjectId — opaque branded string.
+    """
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    org_id: Annotated[str | None, Field(alias="orgId")] = None
+    """
+    Its org; absent when it has none.
+    """
+    name: str
+    slug: str
+    """
+    Its slug, still its own: no other project can take it where this one is.
+    """
+    former_slugs: Annotated[list[str], Field(alias="formerSlugs")]
+    """
+    The slugs it had before it was renamed, newest first; still its own, in any org of the workspace.
+    """
+    deleted_at: Annotated[AwareDatetime, Field(alias="deletedAt")]
+    """
+    When it was deleted. Deleting it again keeps this time.
+    """
+
+
+class DeletedProjectCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DeletedProject]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11091,6 +11350,14 @@ class TenantLimits(BaseModel):
     """
     Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
     """
+    flows_in_production: Annotated[int | None, Field(alias="flowsInProduction", ge=1)] = None
+    """
+    Flows in production, each counted once however many of the workspace's projects in production run it. There's a margin: a write that would take the count past the most, the larger of 1.2 times this (rounded down) and one more than it, is refused with 403 `plan-limit-reached` (`scope: tenant`), and a write's answer warns from this number on (`planWarning`). Lowering it takes nothing out of production.
+    """
+    agents_in_production: Annotated[int | None, Field(alias="agentsInProduction", ge=1)] = None
+    """
+    Agents in production, counted as `flowsInProduction` is, with the same margin and the same refusal.
+    """
 
 
 class EgressAddresses(BaseModel):
@@ -11144,6 +11411,14 @@ class TenantLimitsInUse(BaseModel):
     projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
     """
     The tenant's projects in production.
+    """
+    flows_in_production: Annotated[int | None, Field(alias="flowsInProduction", ge=0)] = None
+    """
+    The tenant's flows in production, each counted once. Absent from a runtime that doesn't count it.
+    """
+    agents_in_production: Annotated[int | None, Field(alias="agentsInProduction", ge=0)] = None
+    """
+    The tenant's agents in production, each counted once. Absent from a runtime that doesn't count it.
     """
 
 
@@ -11276,6 +11551,29 @@ class KeptRepoState(BaseModel):
     since: AwareDatetime
     """
     When it came to be in that state.
+    """
+
+
+class TenantPlanBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
+    """
+    The plan's id: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. null clears it.
+    """
+
+
+class TenantPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
+    """
+    The tenant's plan id now; null when none is set.
     """
 
 
@@ -11563,7 +11861,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended or deleted (`project-suspended`, `project-deleted`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension, a delete or a close (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11646,7 +11944,7 @@ class WebhookFire(BaseModel):
         Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
     ]
     """
-    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
+    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended or deleted after the delivery was taken, before its run started (`project-suspended`, `project-deleted`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11658,7 +11956,7 @@ class WebhookFire(BaseModel):
     """
     detail: str | None = None
     """
-    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.
+    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it.
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
@@ -11759,9 +12057,11 @@ class WebhookReceipt(BaseModel):
     """
     An earlier fire holds this delivery's dedupe key: nothing new started.
     """
-    skipped: Literal["paused", "tenant-suspended", "project-suspended"] | None = None
+    skipped: (
+        Literal["paused", "tenant-suspended", "project-suspended", "project-deleted"] | None
+    ) = None
     """
-    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.
+    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded.
     """
     received: Literal["ping"] | None = None
     """
@@ -14429,6 +14729,38 @@ class CallDifferenceFieldValue(BaseModel):
     """
 
 
+class JoinLookupWorkspaceJoin(BaseModel):
+    """
+    A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["join"]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    name: str
+    role: Annotated[Literal["viewer", "runner", "none"] | str, _open.OPEN]
+    """
+    What someone who joins by the domain gets: `viewer` or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin.
+    """
+
+
+class JoinLookupWorkspaceMember(BaseModel):
+    """
+    A workspace that lets people at the email's domain join, by the emailed link's rules: one the email may join (`join`, with what a joiner gets), or one it's in already (`member`: sign in, don't join). Its id and name only, never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["member"]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    name: str
+
+
 class ScopeTenant(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
@@ -15240,6 +15572,21 @@ class IdentityProviderConfigUnrecognized(BaseModel):
 
 
 class ImproveRunOutcomeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class JoinLookupWorkspaceUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -16150,6 +16497,7 @@ class SystemDeploymentEntry(BaseModel):
                 "tenant-suspended",
                 "project-suspended",
                 "pack-suspended",
+                "project-deleted",
             ]
             | str,
             _open.OPEN,
@@ -16157,7 +16505,7 @@ class SystemDeploymentEntry(BaseModel):
         | None
     ) = None
     """
-    In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted.
     """
 
 
@@ -16461,7 +16809,7 @@ class ServiceAccount(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.
+    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project.
     """
 
 
@@ -16639,46 +16987,17 @@ class CompleteApprovalResult(BaseModel):
     """
 
 
-class LicenseStatus(BaseModel):
+class LicenseLimits(BaseModel):
+    """
+    What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
-    """
-    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
-    """
-    name: str | None = None
-    """
-    Whose key: the name the banner prints.
-    """
-    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
-    """
-    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
-    """
-    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
-    """
-    Whole days until it expires; negative once it has.
-    """
-    standing: (
-        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
-    ) = None
-    """
-    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
-    """
-    renew_by: Annotated[
-        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
-    ] = None
-    """
-    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
-    """
-    renew: str | None = None
-    """
-    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
-    """
-    preview: LicensePreview | None = None
+    flows: LicenseLimit | None = None
+    agents: LicenseLimit | None = None
 
 
 class CorrectorGroup(BaseModel):
@@ -17842,6 +18161,24 @@ class UpdateIdentityProviderResult(BaseModel):
     """
 
 
+class JoinDomainLookupResult(BaseModel):
+    """
+    For one email, the workspaces this runtime serves that let people at its domain join: never a list of every workspace the email is in. Empty for a public mailbox domain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[
+        Annotated[
+            JoinLookupWorkspaceJoin | JoinLookupWorkspaceMember | JoinLookupWorkspaceUnrecognized,
+            _open.OpenUnion("kind", JoinLookupWorkspaceUnrecognized),
+        ]
+    ]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class PersonProjectRole(BaseModel):
     """
     A person's direct role on a project.
@@ -18005,7 +18342,7 @@ class DeploymentEndpoint(BaseModel):
     """
     retired: str | None = None
     """
-    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored, and `project-deleted` until the project is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
     """
     pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
     """
@@ -18090,6 +18427,7 @@ class DeploymentRecord(BaseModel):
     """
     The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeployCheckBody(BaseModel):
@@ -18104,6 +18442,10 @@ class DeployCheckBody(BaseModel):
     agents: Annotated[list[DeployCheckAgentId], Field(max_length=500)]
     """
     The pack's agents, by id: the image index's.
+    """
+    flows: Annotated[list[DeployCheckFlowId] | None, Field(max_length=500)] = None
+    """
+    The pack's flows, by id: the image index's. With `agents`, what the plan limits count; absent: no flows.
     """
     blocks: Annotated[list[DeployCheckBodyBlock], Field(max_length=500)]
     """
@@ -18152,6 +18494,7 @@ class DeploymentPromotion(BaseModel):
     Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
     block_check: Annotated[PromotionBlockCheck | None, Field(alias="blockCheck")] = None
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeploymentPromotionCheck(BaseModel):
@@ -18173,6 +18516,7 @@ class DeploymentPromotionCheck(BaseModel):
     """
     Edits of the build's agents and flows that would stay behind; absent when none.
     """
+    plan_warning: Annotated[PlanWarning | None, Field(alias="planWarning")] = None
 
 
 class DeploymentCollectionPage(BaseModel):
@@ -18296,6 +18640,10 @@ class TenantLimitsResult(BaseModel):
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     limits: TenantLimits
     in_use: Annotated[TenantLimitsInUse | None, Field(alias="inUse")] = None
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")] = None
+    """
+    The tenant's plan id, as `PUT …/plan` set it: on `GET …/limits` only. null while none is set; absent from a runtime that doesn't keep it. It's only shown: the limits are what's enforced.
+    """
 
 
 class EnvRecord(BaseModel):
@@ -19976,7 +20324,7 @@ class RunAgent(BaseModel):
 
 class RunWaitingFor(BaseModel):
     """
-    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
+    Set on a suspended run by `GET /v1/runs/{runId}`, and by the list with `?include=waitingFor`: what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
     """
 
     model_config = ConfigDict(
@@ -20267,6 +20615,49 @@ class RunCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class LicenseStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
+    """
+    `development`: a runtime before 0.7.0 under `KINDGI_DEV`, which ran with no key; the key's fields are absent, and `preview` may be present. From 0.7.0 a development runtime has a key too, and answers `licensed`.
+    """
+    name: str | None = None
+    """
+    Whose key: the name the banner prints.
+    """
+    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    """
+    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    """
+    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    """
+    Whole days until it expires; negative once it has.
+    """
+    standing: (
+        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
+    ) = None
+    """
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
+    """
+    renew_by: Annotated[
+        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
+    ] = None
+    """
+    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
+    """
+    renew: str | None = None
+    """
+    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
+    """
+    preview: LicensePreview | None = None
+    limits: LicenseLimits | None = None
 
 
 class Correction(BaseModel):
@@ -20728,6 +21119,10 @@ class PersonGrants(BaseModel):
     """
     Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
     """
+    tenant_admin_from_setting: Annotated[bool | None, Field(alias="tenantAdminFromSetting")] = None
+    """
+    Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it.
+    """
     tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
     """
     Whether the person is a tenant member: they read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
@@ -21006,6 +21401,10 @@ class UserRecord(BaseModel):
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
     Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy", min_length=1)] = None
+    """
+    Who added them: `user:<id>` (a tenant admin) or `service_account:<id>`; `identity_provider:<providerId>` for someone who joined by domain through that identity provider, or `email_domain:<domain>` through one of the workspace's allowed domains; `site:<siteId>` for a person a site signs in. Ids only, never an email. Absent for the seed user, and from a runtime that doesn't keep it.
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None

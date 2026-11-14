@@ -11,6 +11,7 @@ export {
   validateEnvForTarget,
 } from './schema.js';
 export {
+  ADMIN_EMAILS_VAR,
   AUTH_EMAIL_FROM_VAR,
   AUTH_EMAIL_LINK_DAILY_CAP_VAR,
   AUTH_EMAIL_SMTP_URL_PATH_VAR,

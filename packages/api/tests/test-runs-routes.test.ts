@@ -222,6 +222,7 @@ function makeApp(
     /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
     grants?: readonly string[];
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    projectDeleted?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
     referenceScope?: ReferenceScopeBinding;
   } = {},
 ): AppSetup {
@@ -245,6 +246,7 @@ function makeApp(
     testRunBinding: binding,
     ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
     ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
+    ...(options.projectDeleted !== undefined && { projectDeleted: options.projectDeleted }),
     ...(options.referenceScope !== undefined && { referenceScope: options.referenceScope }),
   });
   return { app, registry, binding };
@@ -902,6 +904,27 @@ describe('API — test-runs and a suspended project', () => {
     expect(calls.n).toBe(0);
     suspended = false;
     expect((await start(app, 'acme.suspended')).status).toBe(201);
+  });
+
+  test('a deleted project takes no run: 404 project-not-found, before the suspended check, and nothing runs', async () => {
+    const asked: string[] = [];
+    const { calls, subject } = refusingSecond({ output: 'unused' });
+    const { app, registry } = makeApp({
+      subject,
+      projectDeleted: async (_tenantId, projectId) => {
+        asked.push(projectId as unknown as string);
+        return true;
+      },
+      projectSuspended: async () => true,
+    });
+    await seedTestSet(registry, { id: 'acme.deleted', kind: 'accuracy', spec: accuracySpec });
+    const refused = await start(app, 'acme.deleted');
+    expect(refused.status).toBe(404);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'project-not-found',
+    );
+    expect(asked).toEqual([TEST_PROJECT_ID]);
+    expect(calls.n).toBe(0);
   });
 
   test('a case it refuses to start stops the run there: cancelled, with the reason, and the cases before it', async () => {

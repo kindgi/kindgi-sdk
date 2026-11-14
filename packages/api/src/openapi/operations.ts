@@ -39,6 +39,14 @@ export interface ParameterSpec {
    * `{key, value}` steps and writes the values itself.
    */
   readonly segmentPath?: boolean;
+  /**
+   * OpenAPI's serialization keys, for a query array that isn't repeated
+   * keys. `style: 'form'` with `explode: false` is one key, the values
+   * comma-separated (`include=output,waitingFor`). Left out, an array is
+   * repeated keys (form, explode true).
+   */
+  readonly style?: 'form';
+  readonly explode?: boolean;
 }
 
 export interface ResponseSpec {
@@ -394,8 +402,11 @@ const TestCaseIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
   required: false,
-  description: '`retired`: retired cases too. Left out, active ones only.',
-  schema: { type: 'string', enum: ['retired'] },
+  description:
+    'Extras, one or more, comma-separated: `include=retired`. `retired`: retired cases too. Left out, active ones only.',
+  schema: { type: 'array', items: { type: 'string', enum: ['retired'] } },
+  style: 'form',
+  explode: false,
 };
 
 const TestCaseKindQueryParam: ParameterSpec = {
@@ -459,8 +470,19 @@ const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
   required: false,
-  description: "Comma-separated extras per run. `output` adds each run's output.",
-  schema: { type: 'string', enum: ['output'] },
+  description:
+    "Extras per run, one or more, comma-separated: `include=output,waitingFor`. `output` adds each run's output. `waitingFor` adds what each suspended run waits for, as `GET /v1/runs/{runId}` gives it; with it, a page holds at most 25 runs.",
+  schema: { type: 'array', items: { type: 'string', enum: ['output', 'waitingFor'] } },
+  style: 'form',
+  explode: false,
+};
+
+const RunListLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description: '1..100; with `include=waitingFor`, 1..25 (a larger value gives 25). Default 25.',
+  schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
 };
 
 const IncludeTombstonedQueryParam: ParameterSpec = {
@@ -1105,8 +1127,21 @@ const CostIncludeQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
-  schema: { type: 'string', enum: ['rawUsage'] },
+    "Extra fields, one or more, comma-separated: `include=rawUsage`. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+  schema: { type: 'array', items: { type: 'string', enum: ['rawUsage'] } },
+  style: 'form',
+  explode: false,
+};
+
+const UserIncludeQueryParam: ParameterSpec = {
+  name: 'include',
+  in: 'query',
+  required: false,
+  description:
+    "Extra fields, one or more, comma-separated: `include=grants`. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
+  schema: { type: 'array', items: { type: 'string', enum: ['grants'] } },
+  style: 'form',
+  explode: false,
 };
 
 const ProviderIdPathParam: ParameterSpec = {
@@ -1760,10 +1795,6 @@ const withLimitedRecord = (text: string): string => `${text} ${LIMITED_RECORD_PR
 const LIMITED_RECORD_403 = ErrorResponse(
   withLimitedRecord('`permission-denied`: the caller may not make this change.'),
 );
-/** A suggested change's pin: held above the caller's project, and beyond the record's. */
-const LIMITED_RECORD_PIN_403 = ErrorResponse(
-  withLimitedRecord(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
-);
 
 /**
  * Without an authorization store, a key or session limited to a project
@@ -1777,12 +1808,64 @@ const LIMITED_RECORD_PIN_403 = ErrorResponse(
 export const LIMITED_START_PROJECT =
   'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).';
 const withLimitedStart = (text: string): string => `${text} ${LIMITED_START_PROJECT}`;
+/** Who may make new versions of an agent: refused as `permission-denied`. */
+const MADE_IN_DENIED =
+  'No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`).';
 /** A change that makes new versions of an agent: held where they are made. */
-const LIMITED_START_MADE_IN_403 = ErrorResponse(
-  withLimitedStart(
-    'No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`).',
+const LIMITED_START_MADE_IN_403 = ErrorResponse(withLimitedStart(MADE_IN_DENIED));
+
+/**
+ * The plan limits (`CreateAppInput.planLimits`): a write that would add
+ * flows or agents to production past the most the runtime's license key
+ * runs is refused, and none of them is added. Each such write's 403
+ * names `plan-limit-reached`, and its 503 `plan-count-busy`.
+ */
+const PLAN_LIMIT_REACHED =
+  "`plan-limit-reached`: this adds flows or agents to production past the most this runtime's license key runs, so none of them is added; what runs keeps running. `details` has `projectId` (on a reinstate, when its version records one); `over`, each count over (flows first) with its `limit` (`flows` or `agents`), the number it adds (`adding`), and the key's `plan`, `most` and `inUse` when they count this workspace alone; the first of them again at the top (`details.limit`, …); `newIds`, the `flows` and `agents` it adds; and `next`, where a larger plan is, when the runtime names one.";
+const PLAN_COUNT_BUSY =
+  '`plan-count-busy` (with `Retry-After`): counting the flows and agents in production took too long, so none of them is added; a retry is safe.';
+/** The `Idempotency-Key` store's 503, which a keyed write that declares its own 503 names too. */
+const IDEMPOTENCY_STORE_UNAVAILABLE_TOO =
+  "Or `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.";
+/**
+ * The authorization check's 503s, which an operation that declares a 401
+ * and its own 503 names too (`answersAuthzUnavailable`).
+ */
+const AUTHZ_UNAVAILABLE_TOO =
+  "Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.";
+/** A keyed write's 503: the plan count, its `Idempotency-Key` store, or the authorization check. */
+const PLAN_COUNT_BUSY_503 = ErrorResponse(
+  `${PLAN_COUNT_BUSY} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+);
+/** A publish's 403: `permission-denied`, the plan limits, or a key limited to a project. */
+const PUBLISH_403 = ErrorResponse(
+  withLimitedAbove(
+    `\`permission-denied\`: the caller may not make this change. Or ${PLAN_LIMIT_REACHED}`,
   ),
 );
+/** What a suggested change's check keeps when the plan stops its agent version. */
+const SUGGESTED_CHANGE_KEEPS =
+  "The suggested change and its edit's block version are kept, as a failed check keeps them.";
+/** Where a suggested change's check counts: the agent version it makes, in the project it's made in. */
+const SUGGESTED_CHANGE_COUNTS = `Here it's the agent version a check makes that counts, in the project it's made in. ${SUGGESTED_CHANGE_KEEPS}`;
+/**
+ * A suggested change's check, pin or add-as-Latest 503: the plan count, its
+ * `Idempotency-Key` store, or the authorization check.
+ */
+const SUGGESTED_CHANGE_BUSY_503 = ErrorResponse(
+  `${PLAN_COUNT_BUSY} ${SUGGESTED_CHANGE_KEEPS} ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+);
+/**
+ * A reinstate's 403: `permission-denied`, the plan limits (only a retired
+ * version counts again), or a key limited to a project.
+ */
+const REINSTATE_403 = ErrorResponse(
+  withLimitedItem(
+    `\`permission-denied\`: the caller may not make this change. Or ${PLAN_LIMIT_REACHED} Only a retired version counts again; reinstating an active one adds nothing.`,
+  ),
+);
+/** What a suggested change's pin or add as Latest can answer from the rebuild's check. */
+const SUGGESTED_CHANGE_REBUILT = `When its project now runs another version, it's rebuilt there first, and that rebuild's check can answer ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`;
 
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
@@ -1903,6 +1986,11 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
+/** A change that lets more people join, or gives joiners more, refused (`routes/join-domains.ts`). */
+const JoinDomainWidenRefused: ResponseSpec = ErrorResponse(
+  `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Not the caller's to widen (\`join-domain-not-yours\`): an API key or a service account, a session whose sign-in proved another domain or no email, or one by a way in that doesn't count for it (GitHub; the workspace's own provider for a domain the deployment doesn't route to the workspace). Or this deployment's operator manages sign-in (\`join-domains-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only \`kindgi:system\` lets more people in.`,
+);
+
 /**
  * Reads that never reach the storage backend, so they can't answer
  * `503 database-busy`: the liveness probe (`GET /health`) and the spec
@@ -1957,11 +2045,12 @@ export function answersAuthzUnavailable(op: OperationSpec): boolean {
 
 /**
  * Adding or changing a provider: the usual conflicts, a secret something
- * else uses, or a deployment without a secrets store.
+ * else uses, a deployment without a secrets store, or domain join where
+ * there's no authorization store.
  */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
-    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets \`join: domain\` or \`joinRole\` where the deployment has no authorization store (\`domain-join-needs-authorization\`, \`KINDGI_OPENFGA_API_URL\`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.`,
   );
 }
 
@@ -2298,7 +2387,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     tags: ['runs'],
     security: 'bearer',
     parameters: [
-      LimitQueryParam,
+      RunListLimitQueryParam,
       CursorQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
@@ -2767,7 +2856,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.mint',
     summary: 'Mint a system key',
     description:
-      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
+      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, and hands the running server a renewed key (`PUT /v1/license`), for the license renewal, and every other route refuses it.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3142,6 +3231,185 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains',
+    operationId: 'systemTenants.joinDomains',
+    summary: 'The email domains a tenant lets people join from',
+    description:
+      "As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The allowed domains.', schema: ref('JoinDomainList') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains',
+    operationId: 'systemTenants.allowJoinDomain',
+    summary: 'Let people at an email domain join a tenant',
+    description:
+      "The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('AllowJoinDomainBody') },
+    responses: {
+      '201': { description: 'Allowed.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        "The tenant is closing (`tenant-closing`); the domain is verified for another tenant (`join-domain-verified-elsewhere`); no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`); or an Idempotency-Key reused with another body.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains/:domain',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains/{domain}',
+    operationId: 'systemTenants.updateJoinDomain',
+    summary: 'Change what someone joining a tenant by a domain gets',
+    description:
+      "As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ChangeJoinDomainBody') },
+    responses: {
+      '200': { description: 'The domain now.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse("A body that isn't `{ role }` (`bad-input`)."),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); a raise for a domain since verified for another tenant (`join-domain-verified-elsewhere`); or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains/:domain/unregister',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains/{domain}/unregister',
+    operationId: 'systemTenants.unregisterJoinDomain',
+    summary: 'Stop letting people at a domain join a tenant',
+    description:
+      'New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Unregistered.', schema: ref('UnregisterJoinDomainResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`), or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/join-domains/lookup',
+    openapiPath: '/v1/system/join-domains/lookup',
+    operationId: 'systemTenants.lookupJoinDomains',
+    summary: 'The workspaces one verified email may join by its domain',
+    description:
+      "For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('JoinDomainLookupBody') },
+    responses: {
+      '200': { description: 'The workspaces.', schema: ref('JoinDomainLookupResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A body that isn't `{ email }`, or an email that isn't one (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key with neither `system:join-domains:read` nor `system:join-domains` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/system/tenants/:tenantId/purge',
     openapiPath: '/v1/system/tenants/{tenantId}/purge',
@@ -3248,7 +3516,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.limits',
     summary: "Read a tenant's limits",
     description:
-      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -3276,7 +3544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setLimits',
     summary: "Set a tenant's limits",
     description:
-      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -3299,6 +3567,45 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/plan',
+    openapiPath: '/v1/system/tenants/{tenantId}/plan',
+    operationId: 'systemTenants.setPlan',
+    summary: "Set a tenant's plan id",
+    description:
+      "Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantPlanBody') },
+    responses: {
+      '200': { description: "The tenant's plan id now.", schema: ref('TenantPlan') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'The body must be `{ "plan": "<id>" }`, an id of a lowercase letter then up to 31 lowercase letters, digits and hyphens, or `{ "plan": null }` (`bad-input`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+      '501': ErrorResponse(
+        "This runtime doesn't keep a tenant's plan (`tenant-plan-unsupported`).",
       ),
     },
   },
@@ -4457,7 +4764,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': PUBLISH_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -4619,7 +4927,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateAgentVersionResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ITEM_403,
+      '403': REINSTATE_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -4693,7 +5002,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
-        'The version is not registered, or was unregistered; or the test run is not found.',
+        "The version is not registered, or was unregistered; or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
       ),
       '409': ErrorResponse(
         "`pin-stops-latest`: the pin would take a project that follows Latest now off it, and the body doesn't have `stopFollowingLatest: true`; `details.projects` lists each one, `{ projectId, version }`, with the version it runs now. Nothing is recorded. `nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a workspace- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole workspace, since the pack's files serve every scope.",
@@ -4727,7 +5036,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('The version, the agent or the test run is not found.'),
+      '404': ErrorResponse(
+        "The version, the agent or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
+      ),
       '409': ErrorResponse(
         '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
       ),
@@ -5044,7 +5355,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': PUBLISH_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -5090,7 +5402,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateFlowVersionResult') },
       ...CommonMutationErrors,
-      '403': LIMITED_ITEM_403,
+      '403': REINSTATE_403,
+      '503': PLAN_COUNT_BUSY_503,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -5915,7 +6228,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '409': ErrorResponse(
         '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why. Or Idempotency-Key was reused with a different body.',
@@ -5942,7 +6255,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '409': ErrorResponse(
         '`registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why.',
@@ -5989,7 +6302,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_START_MADE_IN_403,
+      '403': ErrorResponse(
+        withLimitedStart(
+          `${MADE_IN_DENIED} Or the suggested change is made, but its check didn't start (\`details.suggestedChangeId\`; check it again with \`POST /v1/suggested-changes/{suggestedChangeId}/check\`): ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`,
+        ),
+      ),
+      '503': ErrorResponse(
+        `\`plan-count-busy\` (with \`Retry-After\`): the suggested change and its edit's block version are made (\`details.suggestedChangeId\`), but counting the flows and agents in production for its check took too long; check it again. ${IDEMPOTENCY_STORE_UNAVAILABLE_TOO} ${AUTHZ_UNAVAILABLE_TOO}`,
+      ),
       '400': ErrorResponse(
         "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
       ),
@@ -6019,7 +6339,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
-      '403': LIMITED_START_MADE_IN_403,
+      '403': ErrorResponse(
+        withLimitedStart(`${MADE_IN_DENIED} Or ${PLAN_LIMIT_REACHED} ${SUGGESTED_CHANGE_COUNTS}`),
+      ),
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
@@ -6057,11 +6380,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChangePinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_RECORD_PIN_403,
+      '403': ErrorResponse(
+        withLimitedRecord(
+          withLimitedAbove(
+            `\`permission-denied\`: the caller may not make this change. ${SUGGESTED_CHANGE_REBUILT}`,
+          ),
+        ),
+      ),
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('No such suggested change.'),
+      '404': ErrorResponse(
+        'No such suggested change; or `project-not-found`: its project is deleted.',
+      ),
       '409': ErrorResponse(
         "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `pin-stops-latest`: its project follows Latest, and the body doesn't have `stopFollowingLatest: true`; `details.projects` has `{ projectId, version }` with the version it runs now, and `details.suggestedChangeId`. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
       ),
@@ -6088,7 +6420,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_RECORD_403,
+      '403': ErrorResponse(
+        withLimitedRecord(
+          `\`permission-denied\`: the caller may not make this change. ${SUGGESTED_CHANGE_REBUILT}`,
+        ),
+      ),
+      '503': SUGGESTED_CHANGE_BUSY_503,
       '404': ErrorResponse(
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
@@ -6243,6 +6580,29 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonAuthErrors,
       '403': ErrorResponse(
         "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/license',
+    openapiPath: '/v1/license',
+    operationId: 'license.replace',
+    summary: 'Hand the running server a renewed license key',
+    description:
+      "What the renewal hands the deployment's running server (`kindgi license renew --runtime`), so it runs the new key without a restart. The server checks the key offline, as it does at a start: signed by a key it trusts, for the same licensee and use as the key it runs, and newer (a later `exp`, or the same `exp` and an `iat` no earlier). The same key again is taken as it is. It answers the license status with the new key. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, hands it a key; anyone else is refused (`license-operator-only`), and the refusal recorded, before the body is read. A deployment that doesn't take a key this way answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('LicenseKeyBody') },
+    responses: {
+      '200': { description: 'The license status, with the new key.', schema: ref('LicenseStatus') },
+      '400': ErrorResponse('The body isn\'t `{ "key": "kgi_lk_…" }` (`bad-input`).'),
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
+      ),
+      '409': ErrorResponse(
+        'The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.',
       ),
     },
   },
@@ -7887,7 +8247,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '404': ErrorResponse(
-        'No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).',
+        'No test set with that id under this workspace; or `projectId` names no project of this workspace, or a deleted one (`project-not-found`).',
       ),
       '409': ErrorResponse(
         "`project-suspended`: the project is suspended, so no test run starts in it. Or `suggested-change-nothing-to-check`: an agent's own test set has no cases in the project (`details.projectId`), as a suggested change's check answers. Or Idempotency-Key was reused with a different body.",
@@ -8265,6 +8625,105 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/auth/join-domains',
+    openapiPath: '/v1/auth/join-domains',
+    operationId: 'auth.joinDomains.list',
+    summary: 'The email domains people may join the workspace from',
+    description:
+      "Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.",
+    tags: ['auth'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The allowed domains.', schema: ref('JoinDomainList') },
+      ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/join-domains',
+    openapiPath: '/v1/auth/join-domains',
+    operationId: 'auth.joinDomains.allow',
+    summary: 'Let people at an email domain join the workspace',
+    description:
+      "Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AllowJoinDomainBody') },
+    responses: {
+      '201': { description: 'Allowed.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+      ),
+      '403': JoinDomainWidenRefused,
+      '409': ErrorResponse(
+        "The operator verified the domain for another workspace (`join-domain-verified-elsewhere`); the deployment has no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`: change its role instead); or an Idempotency-Key reused with another body.",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/auth/join-domains/:domain',
+    openapiPath: '/v1/auth/join-domains/{domain}',
+    operationId: 'auth.joinDomains.update',
+    summary: 'Change what someone joining by a domain gets',
+    description:
+      "A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ChangeJoinDomainBody') },
+    responses: {
+      '200': { description: 'The domain now.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse("A body that isn't `{ role }` (`bad-input`)."),
+      '403': JoinDomainWidenRefused,
+      '404': ErrorResponse("The workspace doesn't allow that domain (`join-domain-not-found`)."),
+      '409': ErrorResponse(
+        'A raise for a domain the operator has since verified for another workspace (`join-domain-verified-elsewhere`), or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/join-domains/:domain/unregister',
+    openapiPath: '/v1/auth/join-domains/{domain}/unregister',
+    operationId: 'auth.joinDomains.unregister',
+    summary: 'Stop letting people at a domain join',
+    description:
+      'New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.',
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Unregistered.', schema: ref('UnregisterJoinDomainResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
+      '404': ErrorResponse("The workspace doesn't allow that domain (`join-domain-not-found`)."),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/auth/refresh',
     openapiPath: '/v1/auth/refresh',
@@ -8341,14 +8800,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
           "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.9).",
         schema: { type: 'boolean' },
       },
-      {
-        name: 'include',
-        in: 'query',
-        required: false,
-        description:
-          "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
-        schema: { type: 'string', enum: ['grants'] },
-      },
+      UserIncludeQueryParam,
     ],
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },
@@ -8427,7 +8879,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.unregister',
     summary: 'Remove a person',
     description:
-      "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+      "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself, the deployment's seed user, and someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back (`identity-user-unregister-refused`, `details.reason` `listed-admin`: take the address off the list and restart first), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -8445,7 +8897,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No user with that id under this workspace (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
-        'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
+        'Yourself, the seed user or a person `KINDGI_ADMIN_EMAILS` names (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
       ),
     },
   },
@@ -8755,7 +9207,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.ungrant',
     summary: 'Remove tenant admin from a person',
     description:
-      'A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.',
+      "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first), and for someone the server's `KINDGI_ADMIN_EMAILS` names, whom every start makes one (`listed-admin`: take the address off the list and restart first). Tenant admins only.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -8771,7 +9223,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No user with that id under this workspace (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
-        'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.',
+        'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), a person `KINDGI_ADMIN_EMAILS` names (`listed-admin`), or an idempotency conflict.',
       ),
       '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
     },
@@ -8808,7 +9260,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Deployment registered.', schema: ref('DeploymentRecord') },
       '200': {
-        description: 'Digest replay — same imageDigest already recorded; returns existing record.',
+        description:
+          'Digest replay — same imageDigest already recorded; returns existing record, with no `planWarning`.',
         schema: ref('DeploymentRecord'),
       },
       ...CommonMutationErrors,
@@ -8820,12 +9273,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(
         withLimitedAbove(
-          "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+          `Signer key not on the workspace's trust list. Or, with \`projectId\`, no admin on that project (\`forbidden\`), or a key limited to another project (\`key-project-mismatch\`); without it, no admin on the workspace. Or ${PLAN_LIMIT_REACHED} It counts the pack's agents and flows in the project it deploys into.`,
         ),
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
+      '503': PLAN_COUNT_BUSY_503,
       '429': ErrorResponse(
         `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
       ),
@@ -8838,7 +9292,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.check',
     summary: "Check a deploy's blocks against what runs",
     description:
-      "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
+      "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. Then, on a runtime with plan limits, `agents` and `flows` are counted as the deploy would count them, in `projectId` or else the default project: past the most the license key runs, it's refused as the deploy would be (`plan-limit-reached`); at its plan or past it, the answer has `planWarning`. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
     tags: ['deployments'],
     security: 'bearer',
     requestBody: { required: true, schema: ref('DeployCheckBody') },
@@ -8850,11 +9304,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
+        "`bad-input`: a body that isn't `{ projectId?, agents, flows?, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
       ),
       '403': ErrorResponse(
         withLimitedAbove(
-          'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+          `No admin on \`projectId\` (\`forbidden\`), or a key limited to another project; without it, no admin on the workspace. Or, as \`POST /v1/deployments\` answers it, ${PLAN_LIMIT_REACHED}`,
         ),
       ),
       '409': ErrorResponse(
@@ -9085,7 +9539,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '200': {
         description:
-          'The target has this build already: its deployment, with the edits made since recorded.',
+          'The target has this build already: its deployment, with the edits made since recorded, and no `planWarning`.',
         schema: ref('DeploymentPromotion'),
       },
       ...CommonAuthErrors,
@@ -9093,10 +9547,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+        `No \`admin\` on the target project. Or \`key-project-mismatch\`: the API key or session is limited to a project, and a promotion reads one project and writes another (\`details.keyProjectId\`, \`details.projectId\`). Or \`signer-not-trusted\`: the key that signed the build is no longer on the workspace's trust list (\`details.signerKeyId\`). Or ${PLAN_LIMIT_REACHED} It counts what the build ships and carries in the target, before the move: nothing moved. With \`pin\`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.`,
       ),
       '404': ErrorResponse(
-        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+        "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
       ),
       '409': ErrorResponse(
         "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
@@ -9105,6 +9559,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
+      '503': ErrorResponse(`${PLAN_COUNT_BUSY} ${AUTHZ_UNAVAILABLE_TOO}`),
       '501': ErrorResponse(
         "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
       ),
@@ -9117,7 +9572,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.promoteCheck',
     summary: 'Check a promotion without making it',
     description:
-      "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.",
+      "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check, the plan limits' among them; at its plan or past it, the answer has `planWarning`. Needs `read` on the deployment's project and `admin` on the target.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -9140,10 +9595,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
+        `No \`admin\` on the target project. Or \`key-project-mismatch\`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or \`signer-not-trusted\`: the key that signed the build is no longer trusted. Or, as the promotion answers it, ${PLAN_LIMIT_REACHED}`,
       ),
       '404': ErrorResponse(
-        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+        "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
       ),
       '409': ErrorResponse(
         '`promotion-not-next-environment`, `deployment-superseded`, or a suspension of the source or the target, as on the promotion.',
@@ -9913,12 +10368,38 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/projects/deleted',
+    openapiPath: '/v1/projects/deleted',
+    operationId: 'projects.listDeleted',
+    summary: "List the workspace's deleted projects",
+    description:
+      'Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.',
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of deleted projects.',
+        schema: ref('DeletedProjectCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter.'),
+      '403': ErrorResponse(
+        "No `admin` on the workspace (`permission-denied`). A key or session limited to a project is refused before that, `key-project-mismatch` (`details.keyProjectId`), as on any path under `/v1/projects/` that is not its own project's.",
+      ),
+      '501': ErrorResponse(
+        "`project-restore-unsupported`: this runtime's project binding keeps no deleted projects to list.",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/projects',
     openapiPath: '/v1/projects',
     operationId: 'projects.list',
     summary: "List projects in the caller's workspace",
     description:
-      'Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
+      'Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9952,7 +10433,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9986,7 +10467,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this workspace.'),
+      '404': ErrorResponse('No project with that id under this workspace, or it was deleted.'),
     },
   },
   {
@@ -9996,7 +10477,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
+      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10019,7 +10500,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '409': ErrorResponse(
-        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`), with `details.deletedProject: true` when that project is deleted; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
@@ -10036,7 +10517,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.delete',
     summary: 'Delete a project (idempotent)',
     description:
-      "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
+      "The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10050,10 +10531,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
-      '204': { description: 'Deleted (or already absent). No body.' },
+      '204': { description: 'Deleted (or already deleted, or absent). No body.' },
       ...CommonAuthErrors,
       '409': ErrorResponse(
-        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first. `project-is-default`: it's the workspace's default project, which can't be deleted (`details.projectId`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/restore',
+    openapiPath: '/v1/projects/{projectId}/restore',
+    operationId: 'projects.restore',
+    summary: 'Restore a deleted project',
+    description:
+      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: 'ProjectId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'The project, live again.', schema: ref('Project') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        withLimitedAbove(
+          "No `admin` on the workspace (`permission-denied`); or the project is in production and the workspace's projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`): it stays deleted until one is taken out of production.",
+        ),
+      ),
+      '404': ErrorResponse(
+        '`project-not-found`: no project, live or deleted, with that id under this workspace.',
+      ),
+      '501': ErrorResponse(
+        "`project-restore-unsupported`: this runtime's project binding can't restore a deleted project.",
       ),
     },
   },
@@ -10641,10 +11158,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(
         withLimitedAbove(
-          "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+          `Not a tenant admin (\`permission-denied\`); the workspace isn't allowed to put projects in production (\`production-not-allowed\`, \`details.projectId\`, \`details.next\` when the runtime names one); or its projects in production are at its limit (\`production-limit-reached\`, \`details.limit\` \`projects-in-production\`, \`details.projectsInProduction\` the limit, \`details.inProduction\` the count, \`details.projectId\`, \`details.next\` when the runtime names one). Or, putting it in production, ${PLAN_LIMIT_REACHED} It counts every flow and agent that runs in the project; taking a project out of production, or one already in it, adds nothing.`,
         ),
       ),
       '404': ErrorResponse('No project with that id under this workspace (`project-not-found`).'),
+      '503': PLAN_COUNT_BUSY_503,
       '501': ErrorResponse(
         "The runtime's projects can't be put in production (`production-unsupported`).",
       ),
