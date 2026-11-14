@@ -480,14 +480,14 @@ The server logs each copy it writes the same way, as
 ### Look at a restored copy before it serves: `KINDGI_PASSIVE`
 
 `KINDGI_PASSIVE=on` starts a runtime that does nothing on its own:
-- none of its background work starts: schedules and event triggers, runs
-  resumed or swept, webhook deliveries, sending permission changes to
-  OpenFGA, the sweeps, erasures, the ledger's copies;
+- none of its background work starts: schedules, mail triggers looking
+  for new mail, runs resumed or swept, webhook deliveries, sending
+  permission changes to OpenFGA, the sweeps, erasures, the ledger's copies;
 - it connects no MCP endpoint at startup;
 - it sends no email.
 
 So a restored database can be inspected without a schedule firing, a
-webhook going out, or a run calling your tools.
+mailbox being read, a webhook going out, or a run calling your tools.
 - **Requests are still served,** and a run started through the API still
   runs, so keep a passive runtime where only you can reach it.
 - **It still writes to OpenFGA as it starts,** as
