@@ -1438,7 +1438,7 @@ EOT
      network_mode = "direct".
 EOT
       ;;
-    0.6.1)
+    0.7.1)
       cat <<'EOT'
    - The plan also changes the server in place: its startup probe allows
      10 minutes, 120 tries 5 s apart, so a first start has that long to run
@@ -1699,7 +1699,7 @@ plan_allowed_changes() {
             "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
         fi
         ;;
-      0.6.1)
+      0.7.1)
         printf '%s\n' "google_cloud_run_v2_service.server template.containers.startup_probe.failure_threshold"
         ;;
     esac

@@ -1232,7 +1232,7 @@ EOT
    - 0.6.0 doesn't change the module.
 EOT
       ;;
-    0.6.1)
+    0.7.1)
       cat <<'EOT'
    - The plan also changes the server in place: its startup probe allows
      10 minutes, 120 tries 5 s apart, so a first start has that long to run
@@ -1291,7 +1291,7 @@ plan_allowed_changes() {
           "azurerm_container_app.pack template.container.startup_probe.timeout" \
           "azurerm_container_app.pack template.container.startup_probe.failure_count_threshold"
         ;;
-      0.6.1)
+      0.7.1)
         printf '%s\n' "azurerm_container_app.server template.container.startup_probe.failure_count_threshold"
         ;;
     esac
