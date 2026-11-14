@@ -59,10 +59,12 @@ pack can include instead of writing its own:
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your
   company's GitHub connection.
-- **`linkedinPost`,** from `@kindgi/connections/linkedin/tools`, posts text
-  on LinkedIn as the person the run acts as, to their own feed, seen by
-  anyone or by their connections only. A `#` that starts a word makes a
-  hashtag, and the text mentions no one.
+- **`linkedinPost` and `linkedinDeletePost`,** from
+  `@kindgi/connections/linkedin/tools`, post on LinkedIn as the person the
+  run acts as, to their own feed, seen by anyone or by their connections
+  only, and delete a post they made. A post can carry 1 to 20 of the run's
+  images (JPEG, GIF or PNG), or a link card with the title it's given. A
+  `#` that starts a word makes a hashtag, and the text mentions no one.
 
 Each is a factory, and the pack names the tool's id. The tool's folder
 holds an `index.ts` of one line:
@@ -293,7 +295,8 @@ const res = await appFetch(ctx, {
 
 `entry` is the app's entry, and `connection` is the name the tool declares.
 `toolId` is what the entry's `rateLimits` charge the call as: an operation
-its `costs` don't list takes 1 unit.
+its `costs` don't list takes 1 unit. `body` is text, or bytes, such as a
+file's for an upload.
 
 ## In an HTTP tool
 
