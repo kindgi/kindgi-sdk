@@ -11,7 +11,7 @@ contact@kindgi.com.
 
 | Limit | What it counts | Default |
 | --- | --- | --- |
-| API requests | Requests to the API (`/v1`) | 600 a minute |
+| API requests | Requests to the API (`/v1` and `/s3`) and from chat apps (`/mcp`) | 600 a minute |
 | Webhook receives | Deliveries to your webhook triggers' receive URLs | 3,000 a minute |
 | Runs at once | Top-level runs running at the same time | 20 |
 | Runs pending | Runs waiting for a slot | 2,000 |
@@ -47,9 +47,15 @@ retry-after: 33
 {"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
-A chat app reads a run while it waits for it: about once a second for up to
-25 seconds after it starts the run, then about every 3 seconds, and each read
-counts toward this limit.
+On `/s3`, a request past the limit gets S3's own `503 SlowDown`, with
+`Retry-After`, which S3 clients back off from and retry.
+
+A chat app's request to `/mcp` counts once, so a tool call that starts a run
+and waits for it, or one wait with `kindgi.run_state`, is one request however
+often it reads the run. A batch counts each of its messages, up to the 100 a
+batch may hold; a longer one is refused and counts once. Past the limit,
+a tool call answers that Kindgi is busy and when to try again, and starts
+nothing. Any other request to `/mcp` gets the `429` above.
 
 ### Webhook receives
 

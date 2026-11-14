@@ -12,12 +12,24 @@ import {
   createMcpHandler,
   verifyBearerToken,
 } from '@modelcontextprotocol/server';
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 
+import { retryAfterSeconds } from '../errors.js';
 import type { TokenResolution, TokenResolver } from '../middleware/auth.js';
 import { noStoreMiddleware } from '../middleware/no-store.js';
+import {
+  type TenantLimiter,
+  takeApiRequests,
+  tenantLimitReached,
+} from '../middleware/tenant-limits.js';
 import type { AppEnv } from '../types.js';
-import { type InProcessCaller, type V1Call, type V1Route, inProcessV1Call } from './in-process.js';
+import {
+  type InProcessCaller,
+  type V1Call,
+  type V1Route,
+  inProcessCover,
+  inProcessV1Call,
+} from './in-process.js';
 import { type ConsolePageLink, consolePageLinks } from './links.js';
 import { type McpScope, allowedActionsOf, mcpScopesOf } from './scopes.js';
 
@@ -94,11 +106,27 @@ const INSTRUCTIONS =
 
 /** The context a request's tools get, in `AuthInfo.extra`; never sent anywhere. */
 const CONTEXT_KEY = 'kindgi';
+/** In place of the context: a tool call past the tenant's minute, and what it answers. */
+const BUSY_KEY = 'kindgi-busy';
 
+/**
+ * The most `/v1` calls one JSON-RPC message's tools make on the count it
+ * took at `/mcp`. Past it, each call counts as any `/v1` request does. A
+ * test keeps it at or above the tools' most, worked out from their waits
+ * and list pages.
+ */
+export const MCP_CALLS_PER_MESSAGE = 40;
+
+/**
+ * `limiter`: the tenant's API requests a minute, when the deployment
+ * limits them. Each JSON-RPC message counts once, and its tools' `/v1`
+ * calls count on that.
+ */
 export function mountMcpServer(
   app: Hono<AppEnv>,
   input: McpServerInput,
   toolSets: readonly McpToolSet[],
+  limiter?: TenantLimiter,
 ): void {
   const link = consolePageLinks(input.consoleUrl);
   const handler = createMcpHandler(async ({ authInfo }) => {
@@ -112,6 +140,8 @@ export function mountMcpServer(
         capabilities: { tools: { listChanged: false }, resources: { listChanged: false } },
       },
     );
+    const busy = authInfo?.extra?.[BUSY_KEY];
+    if (typeof busy === 'string') return busyServer(server, busy);
     const context = authInfo?.extra?.[CONTEXT_KEY] as McpToolContext | undefined;
     // Every request is admitted below before it gets here; one without a
     // context (a library-internal probe) gets no tools.
@@ -170,6 +200,14 @@ export function mountMcpServer(
         { ...challenge, requiredScopes: ['kindgi:read'] },
       );
     }
+    const body = await jsonBodyOf(c.req.raw);
+    const asked = askedOf(body);
+    const messages = messagesIn(body);
+    const past = await pastTheLimit(c, limiter, resolution.tenantId, messages, asked);
+    if (past instanceof Response) return past;
+    if (past !== undefined) {
+      return handler.fetch(c.req.raw, { authInfo: { ...authInfo, extra: { [BUSY_KEY]: past } } });
+    }
     // The person, narrowed to what the chat scopes allow, with none of the
     // capabilities a resolution can carry.
     const caller: InProcessCaller = {
@@ -182,6 +220,7 @@ export function mountMcpServer(
         scopes,
       },
       allowedActions: allowedActionsOf(scopes),
+      cover: inProcessCover(MCP_CALLS_PER_MESSAGE * messages),
     };
     const routes = toolSets.filter((set) => served(set, scopes)).flatMap((set) => set.routes);
     const context: McpToolContext = {
@@ -195,7 +234,7 @@ export function mountMcpServer(
         routes,
       ),
       link,
-      asked: await askedOf(c.req.raw),
+      asked,
     };
     return handler.fetch(c.req.raw, {
       authInfo: { ...authInfo, extra: { [CONTEXT_KEY]: context } },
@@ -234,15 +273,77 @@ function chatPerson(
   return { userId };
 }
 
-async function askedOf(request: Request): Promise<McpAsked> {
-  if (request.method !== 'POST') return {};
-  let body: unknown;
+/**
+ * Takes the request's messages from the tenant's API requests a minute.
+ * Past it: for a tool call, what its tool answers (`busyServer`), so the
+ * chat app's model can say it; for anything else, the API's 429.
+ * `undefined`: within it, or no limit.
+ */
+async function pastTheLimit(
+  c: Context<AppEnv>,
+  limiter: TenantLimiter | undefined,
+  tenantId: TenantId,
+  messages: number,
+  asked: McpAsked,
+): Promise<Response | string | undefined> {
+  if (limiter === undefined) return undefined;
+  const taken = await takeApiRequests(c, limiter, tenantId, messages);
+  if (taken.allowed) return undefined;
+  if (asked.method === 'tools/call') return busyText(taken.retryAfterMs);
+  return tenantLimitReached(c, 'api-requests', taken.retryAfterMs);
+}
+
+/**
+ * A tool call past the tenant's minute: every tool answers `text` as its
+ * error, and nothing is read or started.
+ */
+function busyServer(server: McpServer, text: string): McpServer {
+  server.server.registerCapabilities({ tools: {} });
+  server.server.setRequestHandler('tools/call', () => ({
+    content: [{ type: 'text', text }],
+    isError: true,
+  }));
+  return server;
+}
+
+/** When to try again, from the end of the tenant's minute, in words a person reads. */
+function busyText(retryAfterMs: number): string {
+  const seconds = retryAfterSeconds(retryAfterMs);
+  return `Kindgi is busy: this workspace has reached its limit on requests a minute, so nothing was done. Try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`;
+}
+
+/** A POST's body, read as JSON; `undefined` for another method or a body that isn't JSON. */
+async function jsonBodyOf(request: Request): Promise<{ readonly json: unknown } | undefined> {
+  if (request.method !== 'POST') return undefined;
   try {
-    body = await request.clone().json();
+    return { json: await request.clone().json() };
   } catch {
     // The library answers a body that isn't JSON.
-    return {};
+    return undefined;
   }
+}
+
+/**
+ * The most messages the MCP library serves in one batch: its own
+ * `MAX_BATCH_SIZE` (2.4.0), which it doesn't export. It refuses a longer one.
+ */
+const MAX_BATCH = 100;
+
+/**
+ * How many times a request counts toward the tenant's API requests a
+ * minute: once for each message in a batch, else once (one message, a
+ * `GET` or `DELETE`, or a body the library refuses, such as a batch longer
+ * than it serves).
+ */
+function messagesIn(body: { readonly json: unknown } | undefined): number {
+  if (body === undefined || !Array.isArray(body.json)) return 1;
+  const { length } = body.json;
+  return length > MAX_BATCH ? 1 : Math.max(length, 1);
+}
+
+function askedOf(read: { readonly json: unknown } | undefined): McpAsked {
+  if (read === undefined) return {};
+  const body = read.json;
   if (Array.isArray(body)) return { batch: true };
   if (typeof body !== 'object' || body === null) return {};
   const { method, params } = body as { method?: unknown; params?: { name?: unknown } };

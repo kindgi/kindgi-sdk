@@ -26,6 +26,31 @@ export interface InProcessCaller {
     'tenantId' | 'userId' | 'tokenId' | 'tokenRole' | 'expiresAt' | 'scopes'
   >;
   readonly allowedActions: readonly Action[];
+  /** The calls its `/mcp` request was counted for. Absent: each call counts. */
+  readonly cover?: InProcessCover;
+}
+
+/**
+ * The `/v1` calls a `/mcp` request's tools make on the count that request
+ * took at `/mcp` toward the tenant's API requests a minute. Each call uses
+ * one; once they're used up, each call counts as any request does. One is
+ * made for each `/mcp` request, on its caller only, so nothing carries
+ * over to another request, and a request from the network never has one.
+ */
+export interface InProcessCover {
+  /** One call on the cover: `false` once it's used up. */
+  use(): boolean;
+}
+
+export function inProcessCover(calls: number): InProcessCover {
+  let left = calls;
+  return {
+    use() {
+      if (left <= 0) return false;
+      left -= 1;
+      return true;
+    },
+  };
 }
 
 /** The caller an in-process request carries, else `undefined`. */

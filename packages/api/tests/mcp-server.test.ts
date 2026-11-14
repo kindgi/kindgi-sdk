@@ -4,8 +4,10 @@
 /**
  * `/mcp`: its own token check (401s that say where to sign in), the chat
  * scopes, and each tool's `/v1` request in this process as the person,
- * narrowed to the token's scopes and to the routes its tool set declared.
- * Test-only tool sets; a stand-in authorization check that records who asked.
+ * narrowed to the token's scopes and to the routes its tool set declared;
+ * and how a chat app's requests count toward the tenant's API requests a
+ * minute. Test-only tool sets; a stand-in authorization check that records
+ * who asked.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -13,13 +15,20 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
 import type { TenantId, UserId } from '@kindgi/types';
 
-import { createApp } from '../src/index.js';
-import type { CreateAppInput, RunHandlerBinding, TokenResolution } from '../src/index.js';
+import { createApp, createInMemoryRateLimitStore } from '../src/index.js';
+import type {
+  CreateAppInput,
+  RateLimitStore,
+  RunHandlerBinding,
+  TokenResolution,
+} from '../src/index.js';
 import {
+  MCP_CALLS_PER_MESSAGE,
   type McpServerInput,
   type McpToolSet,
   mountMcpServer,
 } from '../src/mcp-server/endpoint.js';
+import { createTenantLimiter } from '../src/middleware/tenant-limits.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { mcpRpc } from './support/mcp-rpc.js';
 
@@ -109,7 +118,22 @@ const runSet: McpToolSet = {
   },
 };
 
-function harness(options: { consoleUrl?: string } = {}) {
+/** Reads the tenant 5 times past what one message's cover holds, and answers each status. */
+const oftenSet: McpToolSet = {
+  scopes: ['kindgi:read'],
+  routes: ['GET /v1/tenant'],
+  register(server, context) {
+    server.registerTool('probe_often', { description: 'Reads past the cover.' }, async () => {
+      const statuses: number[] = [];
+      for (let i = 0; i < MCP_CALLS_PER_MESSAGE + 5; i++) {
+        statuses.push((await context.call('GET', '/v1/tenant')).status);
+      }
+      return { content: [{ type: 'text', text: 'ok' }], structuredContent: { statuses } };
+    });
+  },
+};
+
+function harness(options: { consoleUrl?: string; perMinute?: number } = {}) {
   /** Each check the routes asked: who, and what. */
   const asked: { principal: Principal; action: string }[] = [];
   const refused = (principal: Principal, action: Action, resource: ResourceRef): Decision => ({
@@ -127,12 +151,37 @@ function harness(options: { consoleUrl?: string } = {}) {
       return resources.map((resource) => refused(principal, action, resource));
     },
   };
+  // With a limit: the tenant's API requests a minute, each take recorded.
+  const takes: string[] = [];
+  const memory = createInMemoryRateLimitStore();
+  const store: RateLimitStore = {
+    take(input) {
+      takes.push(input.key);
+      return memory.take(input);
+    },
+  };
+  const stubs = createStubAppBindings();
+  const tenantHierarchyBinding = {
+    ...stubs.tenantHierarchyBinding,
+    getTenant: async (id: TenantId) => ({
+      id,
+      name: 'Acme',
+      slug: 'acme',
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z',
+      ...(options.perMinute !== undefined && {
+        limits: { apiRequestsPerMinute: options.perMinute },
+      }),
+    }),
+  };
+  const limited = options.perMinute !== undefined;
   const app = createApp({
-    ...createStubAppBindings(),
+    ...stubs,
     // The API's own tokens: none of the chat ones.
     resolveToken: async (token) => (token === 'api-key' ? { tenantId } : null),
     runHandler: {} as RunHandlerBinding,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
+    ...(limited && { tenantHierarchyBinding, tenantLimits: { store } }),
   });
   const input: McpServerInput = {
     resolveToken: async (token) => CHAT[token]?.() ?? null,
@@ -140,10 +189,16 @@ function harness(options: { consoleUrl?: string } = {}) {
     version: '0.0.0-test',
     ...(options.consoleUrl !== undefined && { consoleUrl: options.consoleUrl }),
   };
-  mountMcpServer(app, input, [readSet, runSet]);
+  if (limited) {
+    // `/v1`'s count lives in the same store, so both see one minute.
+    const limiter = createTenantLimiter(tenantHierarchyBinding, { store });
+    mountMcpServer(app, input, [readSet, runSet, oftenSet], limiter);
+  } else {
+    mountMcpServer(app, input, [readSet, runSet]);
+  }
 
   const rpc = mcpRpc(app);
-  return { app, asked, rpc };
+  return { app, asked, rpc, takes };
 }
 
 describe('/mcp: signing in', () => {
@@ -315,5 +370,150 @@ describe("/mcp: a tool's /v1 request", () => {
       arguments: {},
     });
     expect(unlinked.body.result.structuredContent.link).toBeNull();
+  });
+});
+
+describe("/mcp: the tenant's API requests a minute", () => {
+  const BUSY =
+    /^Kindgi is busy: this workspace has reached its limit on requests a minute, so nothing was done\. Try again in \d+ seconds?\.$/;
+  const probe = { name: 'probe_tenant', arguments: {} };
+
+  test("each message counts once, and its tools' /v1 requests count on it", async () => {
+    const { rpc, asked, takes } = harness({ perMinute: 600 });
+    await rpc('chat-read', 'ping');
+    await rpc('chat-read', 'tools/list');
+    const { body } = await rpc('chat-read', 'tools/call', probe);
+    // The tool's /v1 request went through the route: the stand-in refused it.
+    expect(body.result.structuredContent.status).toBe(403);
+    expect(asked).toHaveLength(1);
+    expect(takes).toEqual(Array.from({ length: 3 }, () => `tenant-limit:api-requests:${tenantId}`));
+  });
+
+  test("past a message's cover, each of its /v1 requests counts as any request does", async () => {
+    const { rpc } = harness({ perMinute: 4 });
+    const { body } = await rpc('chat-read', 'tools/call', { name: 'probe_often', arguments: {} });
+    const statuses = body.result.structuredContent.statuses as number[];
+    // One for the message, and the minute's other 3 for the calls past the cover.
+    expect(statuses.slice(0, MCP_CALLS_PER_MESSAGE + 3)).not.toContain(429);
+    expect(statuses.slice(MCP_CALLS_PER_MESSAGE + 3)).toEqual([429, 429]);
+  });
+
+  test('a request from the network never rides a cover, whatever it sends, and none carries over from /mcp', async () => {
+    const { app, rpc } = harness({ perMinute: 3 });
+    // One count, and most of its cover left when the request ends.
+    await rpc('chat-read', 'tools/call', probe);
+    const forged = () =>
+      app.request('/v1/tenant', {
+        headers: {
+          authorization: 'Bearer api-key',
+          'x-request-id': 'req-test',
+          'kindgi.in-process-caller': 'alice',
+          'x-kindgi-in-process': '1',
+          'x-kindgi-cover': '40',
+        },
+      });
+    expect((await forged()).status).not.toBe(429);
+    expect((await forged()).status).not.toBe(429);
+    const refused = await forged();
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+  });
+
+  test.each(['2025-11-25', '2026-07-28'] as const)(
+    'past the limit, a tool call answers that Kindgi is busy and when to try again, and reads nothing (%s)',
+    async (version) => {
+      const { rpc, asked } = harness({ perMinute: 1 });
+      await rpc('chat-read', 'ping', {}, version);
+      const { res, body } = await rpc('chat-read', 'tools/call', probe, version);
+      expect(res.status).toBe(200);
+      expect(body.result.isError).toBe(true);
+      expect(body.result.content).toHaveLength(1);
+      const text = body.result.content[0].text as string;
+      expect(text).toMatch(BUSY);
+      const seconds = Number(/in (\d+) second/.exec(text)?.[1]);
+      expect(seconds).toBeGreaterThanOrEqual(1);
+      expect(seconds).toBeLessThanOrEqual(60);
+      expect(asked).toEqual([]);
+    },
+  );
+
+  test("past the limit, any other message gets the API's 429 with Retry-After", async () => {
+    const { rpc } = harness({ perMinute: 1 });
+    await rpc('chat-read', 'ping');
+    for (const method of ['tools/list', 'ping']) {
+      const { res, body } = await rpc('chat-read', method);
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+      expect(body.error).toMatchObject({
+        code: 'rate-limit-exceeded',
+        details: { limit: 'api-requests' },
+      });
+    }
+  });
+
+  /** A batch of `n` pings, as a client on the batching revision sends it. */
+  const pings = (n: number) =>
+    JSON.stringify(
+      Array.from({ length: n }, (_, i) => ({ jsonrpc: '2.0', id: i + 1, method: 'ping' })),
+    );
+  const batchHeaders = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    'mcp-protocol-version': '2025-03-26',
+    authorization: 'Bearer chat-read',
+  };
+
+  test('a batch counts each of its messages', async () => {
+    const { app, takes } = harness({ perMinute: 600 });
+    await app.request('/mcp', { method: 'POST', headers: batchHeaders, body: pings(3) });
+    expect(takes).toHaveLength(3);
+  });
+
+  test('a batch longer than the library serves counts once, as any body it refuses', async () => {
+    const { app, takes } = harness({ perMinute: 600 });
+    const most = await app.request('/mcp', {
+      method: 'POST',
+      headers: batchHeaders,
+      body: pings(100),
+    });
+    expect(most.status).toBe(200);
+    expect(takes).toHaveLength(100);
+    const over = await app.request('/mcp', {
+      method: 'POST',
+      headers: batchHeaders,
+      body: pings(101),
+    });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: { code: number } }).error.code).toBe(-32600);
+    expect(takes).toHaveLength(101);
+  });
+
+  test("createApp's tenantLimits count /mcp too", async () => {
+    const stubs = createStubAppBindings();
+    const app = createApp({
+      ...stubs,
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      tenantHierarchyBinding: {
+        ...stubs.tenantHierarchyBinding,
+        getTenant: async (id: TenantId) => ({
+          id,
+          name: 'Acme',
+          slug: 'acme',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+          limits: { apiRequestsPerMinute: 1 },
+        }),
+      },
+      tenantLimits: {},
+      mcpServer: {
+        resolveToken: async (token) => CHAT[token]?.() ?? null,
+        resourceMetadataUrl: RESOURCE_METADATA,
+        version: '0.0.0-test',
+      },
+    });
+    const rpc = mcpRpc(app);
+    expect((await rpc('chat-read', 'ping')).res.status).toBe(200);
+    expect((await rpc('chat-read', 'tools/list')).res.status).toBe(429);
   });
 });
