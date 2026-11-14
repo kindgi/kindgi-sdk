@@ -1147,7 +1147,7 @@ export const ERROR_ENTRIES = {
   },
   'flow-unbound': {
     description:
-      "The flow can't start or resume because a node has nothing to run it: a step names a tool the workspace doesn't have, an agent step can't bind, or a node kind isn't runnable.",
+      "The flow can't start or resume because a node can't be bound: a step names a tool the workspace doesn't have, an agent step can't bind, a fanout branch's tool has another step's id, or a node kind isn't runnable.",
     details: [
       {
         key: 'nodeIds',
