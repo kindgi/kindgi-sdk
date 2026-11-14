@@ -4,15 +4,15 @@
 /**
  * The lines a deploy or a promotion prints when its answer carries
  * `planWarning`: the runtime counts the flows and agents in production
- * against its license key's plan, and one of the counts is at its plan
- * or past it.
+ * against its license key's plan, or against the workspace's own limits,
+ * and one of the counts is at its plan or past it.
  */
 
 /** One count, at its plan or past it (`PlanCount` in `@kindgi/api`). */
 export interface PlanCountRecord {
   /** The plan's number. */
   readonly plan: number;
-  /** The most the key runs: the plan's number and a margin. */
+  /** The most that may run: the plan's number and a margin. */
   readonly most: number;
   /** How many run in production, with the write. */
   readonly inUse: number;

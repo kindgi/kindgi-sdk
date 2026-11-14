@@ -69,6 +69,13 @@ export interface PlanReinstating {
 export type PlanLimit = 'flows' | 'agents';
 
 /**
+ * Whose numbers a count is held to: the license key's, across the
+ * runtime (`installation`), or the tenant's own limits (`tenant`,
+ * `TenantLimits.flowsInProduction` and `agentsInProduction`).
+ */
+export type PlanScope = 'installation' | 'tenant';
+
+/**
  * A count against its plan: the plan's own number, the most that may run
  * (the plan and a margin), and how many run in production.
  */
@@ -84,8 +91,15 @@ export interface PlanOver {
   /** How many of this count's ids the write adds to production. */
   readonly adding: number;
   /**
+   * Whose numbers it passes. Absent: the license key's (`installation`).
+   * When both would refuse, the binding names one.
+   */
+  readonly scope?: PlanScope;
+  /**
    * The count's numbers, before the write. Absent when this tenant may not
-   * see them: they count other tenants too.
+   * see them: they count other tenants too. A `tenant` entry always has
+   * them, since a tenant's own limits are always its to see; the refusal's
+   * words take them as given.
    */
   readonly numbers?: PlanCount;
 }

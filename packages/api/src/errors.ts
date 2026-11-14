@@ -374,6 +374,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * projects without a GitHub repo now (`KINDGI_KEPT_REPOS` off).
    */
   'kept-repos-off': 501,
+  /** A runtime whose tenant settings binding doesn't keep a tenant's plan. */
+  'tenant-plan-unsupported': 501,
   /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,

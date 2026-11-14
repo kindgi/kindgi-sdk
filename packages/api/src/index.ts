@@ -99,6 +99,7 @@ export type {
 export {
   TENANT_LIMIT_MAX,
   TENANT_LIMIT_NAMES,
+  TENANT_PLAN_PATTERN,
   type SystemTenantSettingsBinding,
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
@@ -987,6 +988,7 @@ export type {
   PlanOver,
   PlanRefused,
   PlanReinstating,
+  PlanScope,
   PlanWarning,
 } from './plan-limits-binding.js';
 export type {

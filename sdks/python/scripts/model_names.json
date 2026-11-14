@@ -1140,6 +1140,8 @@
   "TenantLimitsInUse": ["TenantLimitsInUse"],
   "TenantLimitsResult": ["TenantLimitsResult"],
   "TenantPatch": ["TenantPatch"],
+  "TenantPlan": ["TenantPlan"],
+  "TenantPlanBody": ["TenantPlanBody"],
   "TenantProductionAllowed": ["TenantProductionAllowed"],
   "TenantTableRows": ["TenantTableRows"],
   "TestAdapterBody": ["TestAdapterBody"],

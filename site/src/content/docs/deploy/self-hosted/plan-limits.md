@@ -10,7 +10,9 @@ A production license covers up to a number of flows and agents
 The runtime counts the ones in production against its license key's plan.
 At the plan, a write's answer warns. Past the most the key runs, the plan's
 number and a margin, a write that adds new ones is refused, and adds none of
-them. What runs keeps running.
+them. What runs keeps running. A runtime that serves many workspaces can hold
+each to its own numbers as well
+([A workspace's own limits](#a-workspaces-own-limits)).
 
 ## What counts
 
@@ -90,7 +92,8 @@ room.
 
 A runtime that serves other tenants too counts their flows and agents under
 the same key. So a tenant's refusal leaves the key's numbers out and says to
-ask whoever runs the runtime, and its answers carry no warning.
+ask whoever runs the runtime, and its answers carry no warning for the key's
+plan.
 
 ## What keeps running
 
@@ -110,6 +113,35 @@ ask whoever runs the runtime, and its answers carry no warning.
   nothing holds the older one.
 - **Or renew the key on a larger plan**
   ([Renew the license key](../renew-the-license-key/)).
+
+## A workspace's own limits
+
+On a runtime that serves many workspaces, whoever runs it can hold each one
+to its own numbers: the `flowsInProduction` and `agentsInProduction` limits,
+set on `PUT /v1/system/tenants/{tenantId}/limits`
+([Limits and production](../serve-many-tenants/#limits-and-production)).
+
+- **Only the workspace's own flows and agents count,** each once however
+  many of its projects in production run it.
+- **The same margin, warning and refusal:** a write's answer warns at the
+  number, and past the most a write that adds new ones is refused with
+  `403 plan-limit-reached`, with `details.scope` set to `tenant`. The
+  workspace's own numbers are always given.
+- **With the key's plan too,** a write past either most is refused.
+- **Lowering a limit takes nothing out of production,** as a smaller key
+  doesn't.
+
+The message names the workspace's limit, not a key:
+
+```text
+This adds 2 agents to production, and this workspace runs at most 12: its limit of 10, and a margin. 11 run in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or ask whoever runs this Kindgi for a larger limit.
+```
+
+When the runtime names where a larger plan is, the message ends with
+"move to a larger plan:" and the place. `GET …/limits` answers how many of
+the workspace's flows and agents run in production (`inUse`), and the id of
+the plan it's on, when one is set
+([Limits and production](../serve-many-tenants/#limits-and-production)).
 
 ## A busy count
 

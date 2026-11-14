@@ -3391,7 +3391,7 @@ class PlanCount(BaseModel):
     )
     plan: Annotated[int, Field(ge=0)]
     """
-    The license key's plan: how many it's for.
+    The plan's number: the license key's, or the workspace's own limit (`TenantLimits`).
     """
     most: Annotated[int, Field(ge=0)]
     """
@@ -3405,7 +3405,7 @@ class PlanCount(BaseModel):
 
 class PlanWarning(BaseModel):
     """
-    The plan limits' counts that are at the license key's plan or past it, with this write: flows and agents in production. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.
+    The plan limits' counts that are at their plan or past it, with this write: flows and agents in production, against the license key's plan or the workspace's own limit. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.
     """
 
     model_config = ConfigDict(
@@ -11132,6 +11132,14 @@ class TenantLimits(BaseModel):
     """
     Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
     """
+    flows_in_production: Annotated[int | None, Field(alias="flowsInProduction", ge=1)] = None
+    """
+    Flows in production, each counted once however many of the workspace's projects in production run it. There's a margin: a write that would take the count past the most, the larger of 1.2 times this (rounded down) and one more than it, is refused with 403 `plan-limit-reached` (`scope: tenant`), and a write's answer warns from this number on (`planWarning`). Lowering it takes nothing out of production.
+    """
+    agents_in_production: Annotated[int | None, Field(alias="agentsInProduction", ge=1)] = None
+    """
+    Agents in production, counted as `flowsInProduction` is, with the same margin and the same refusal.
+    """
 
 
 class EgressAddresses(BaseModel):
@@ -11185,6 +11193,14 @@ class TenantLimitsInUse(BaseModel):
     projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
     """
     The tenant's projects in production.
+    """
+    flows_in_production: Annotated[int | None, Field(alias="flowsInProduction", ge=0)] = None
+    """
+    The tenant's flows in production, each counted once. Absent from a runtime that doesn't count it.
+    """
+    agents_in_production: Annotated[int | None, Field(alias="agentsInProduction", ge=0)] = None
+    """
+    The tenant's agents in production, each counted once. Absent from a runtime that doesn't count it.
     """
 
 
@@ -11317,6 +11333,29 @@ class KeptRepoState(BaseModel):
     since: AwareDatetime
     """
     When it came to be in that state.
+    """
+
+
+class TenantPlanBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
+    """
+    The plan's id: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. null clears it.
+    """
+
+
+class TenantPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")]
+    """
+    The tenant's plan id now; null when none is set.
     """
 
 
@@ -18344,6 +18383,10 @@ class TenantLimitsResult(BaseModel):
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     limits: TenantLimits
     in_use: Annotated[TenantLimitsInUse | None, Field(alias="inUse")] = None
+    plan: Annotated[str | None, Field(pattern="^[a-z][a-z0-9-]{0,31}$")] = None
+    """
+    The tenant's plan id, as `PUT …/plan` set it: on `GET …/limits` only. null while none is set; absent from a runtime that doesn't keep it. It's only shown: the limits are what's enforced.
+    """
 
 
 class EnvRecord(BaseModel):

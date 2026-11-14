@@ -11,13 +11,18 @@ import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { SYSTEM_TENANT_ID, createApp } from '../src/index.js';
-import type { RunHandlerBinding, SystemAccessRecord, SystemTenantState } from '../src/index.js';
+import type {
+  RunHandlerBinding,
+  SystemAccessRecord,
+  SystemTenantState,
+  TenantLimitsInUse,
+} from '../src/index.js';
 
 /**
  * The control plane's system routes on a tenant:
- * `PUT /v1/system/tenants/:tenantId/production-allowed`, and `GET` and
- * `PUT …/limits`. Each takes its own system scope; a tenant's key never
- * reaches them.
+ * `PUT /v1/system/tenants/:tenantId/production-allowed`, `GET` and
+ * `PUT …/limits`, and `PUT …/plan`. Each takes its own system scope; a
+ * tenant's key never reaches them.
  */
 
 const active = randomUUID() as TenantId;
@@ -39,10 +44,14 @@ const KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 const TENANT_ADMIN = 'kgi_ak_tenant_admin';
 
-/** The app; with `counts`, its runtime counts each tenant's projects in production. */
-function makeApp(counts?: Map<string, number>) {
+/**
+ * The app; with `counts`, its runtime counts what each tenant uses in
+ * production, and with `keepsPlan`, it keeps each tenant's plan id.
+ */
+function makeApp(counts?: Map<string, TenantLimitsInUse>, keepsPlan = false) {
   const productionAllowed = new Map<string, boolean>();
   const limits = new Map<string, TenantLimits>();
+  const plans = new Map<string, string | null>();
   const audit: SystemAccessRecord[] = [];
   const app = createApp({
     ...createStubAppBindings(),
@@ -100,7 +109,16 @@ function makeApp(counts?: Map<string, number>) {
       },
       ...(counts !== undefined && {
         async inUse(tenantId: string) {
-          return { projectsInProduction: counts.get(tenantId) ?? 0 };
+          return counts.get(tenantId) ?? { projectsInProduction: 0 };
+        },
+      }),
+      ...(keepsPlan && {
+        async plan(tenantId: string) {
+          return plans.get(tenantId) ?? null;
+        },
+        async setPlan(tenantId: string, plan: string | null) {
+          plans.set(tenantId, plan);
+          return plan;
         },
       }),
     },
@@ -125,6 +143,7 @@ function makeApp(counts?: Map<string, number>) {
     code,
     productionAllowed,
     limits,
+    plans,
     audit,
   };
 }
@@ -218,6 +237,10 @@ describe('PUT /v1/system/tenants/:tenantId/limits', () => {
     // No limit says "none": a tenant kept out of production is the switch's to say.
     const zero = await t.call('kgi_sy_limits', 'PUT', path(active), { projectsInProduction: 0 });
     expect([zero.status, t.code(zero)]).toEqual([400, 'bad-input']);
+    for (const body of [{ flowsInProduction: 0 }, { agentsInProduction: 1_000_001 }]) {
+      const r = await t.call('kgi_sy_limits', 'PUT', path(active), body);
+      expect([r.status, t.code(r)], JSON.stringify(body)).toEqual([400, 'bad-input']);
+    }
     expect(t.limits.size).toBe(0);
   });
 
@@ -243,6 +266,8 @@ describe('GET /v1/system/tenants/:tenantId/limits', () => {
     toolCallsInFlight: 50,
     approvalsPending: 500,
     projectsInProduction: 1,
+    flowsInProduction: 3,
+    agentsInProduction: 10,
   };
 
   test('answers the shape PUT takes: read, change one, put back, and the others are kept', async () => {
@@ -263,7 +288,7 @@ describe('GET /v1/system/tenants/:tenantId/limits', () => {
   });
 
   test('from a runtime that counts it, inUse: what the tenant uses now, over a lowered limit too', async () => {
-    const counts = new Map([[active, 4]]);
+    const counts = new Map([[active, { projectsInProduction: 4 }]]);
     const t = makeApp(counts);
     await t.call('kgi_sy_limits', 'PUT', path(active), { projectsInProduction: 3 });
     expect(await t.call('kgi_sy_limits', 'GET', path(active))).toEqual({
@@ -279,6 +304,17 @@ describe('GET /v1/system/tenants/:tenantId/limits', () => {
     expect(put.body).toEqual({ tenantId: active, limits: {} });
     expect((await t.call('kgi_sy_limits', 'GET', path(active))).body.inUse).toEqual({
       projectsInProduction: 4,
+    });
+  });
+
+  test('from a runtime that counts flows and agents, inUse has them too, over a lowered limit as well', async () => {
+    const inUse = { projectsInProduction: 2, flowsInProduction: 4, agentsInProduction: 11 };
+    const t = makeApp(new Map([[active, inUse]]));
+    await t.call('kgi_sy_limits', 'PUT', path(active), { flowsInProduction: 3 });
+    expect((await t.call('kgi_sy_limits', 'GET', path(active))).body).toEqual({
+      tenantId: active,
+      limits: { flowsInProduction: 3 },
+      inUse,
     });
   });
 
@@ -308,6 +344,94 @@ describe('GET /v1/system/tenants/:tenantId/limits', () => {
       keyId: 'kgi_sy_limits',
       scope: 'system:tenants:limits',
       tenantId: active,
+    });
+  });
+});
+
+describe('PUT /v1/system/tenants/:tenantId/plan', () => {
+  const path = (t: string) => `/v1/system/tenants/${t}/plan`;
+  const limitsPath = (t: string) => `/v1/system/tenants/${t}/limits`;
+
+  test('sets the plan id and clears it with null; GET …/limits answers it beside the limits', async () => {
+    const t = makeApp(undefined, true);
+    expect((await t.call('kgi_sy_limits', 'GET', limitsPath(active))).body).toEqual({
+      tenantId: active,
+      limits: {},
+      plan: null,
+    });
+    const numbers = { flowsInProduction: 3, agentsInProduction: 10 };
+    await t.call('kgi_sy_limits', 'PUT', limitsPath(active), numbers);
+    expect(await t.call('kgi_sy_limits', 'PUT', path(active), { plan: 'starter' })).toEqual({
+      status: 200,
+      body: { tenantId: active, plan: 'starter' },
+    });
+    expect((await t.call('kgi_sy_limits', 'GET', limitsPath(active))).body).toEqual({
+      tenantId: active,
+      limits: numbers,
+      plan: 'starter',
+    });
+    expect((await t.call('kgi_sy_limits', 'PUT', path(active), { plan: null })).body).toEqual({
+      tenantId: active,
+      plan: null,
+    });
+    expect((await t.call('kgi_sy_limits', 'GET', limitsPath(active))).body.plan).toBeNull();
+    expect(t.limits.get(active)).toEqual(numbers);
+  });
+
+  test('PUT …/limits leaves the plan id as it was, an empty one too', async () => {
+    const t = makeApp(undefined, true);
+    await t.call('kgi_sy_limits', 'PUT', path(active), { plan: 'business' });
+    const put = await t.call('kgi_sy_limits', 'PUT', limitsPath(active), { runsAtOnce: 5 });
+    expect(put.body).toEqual({ tenantId: active, limits: { runsAtOnce: 5 } });
+    await t.call('kgi_sy_limits', 'PUT', limitsPath(active), {});
+    expect((await t.call('kgi_sy_limits', 'GET', limitsPath(active))).body).toEqual({
+      tenantId: active,
+      limits: {},
+      plan: 'business',
+    });
+  });
+
+  test('an id outside the pattern, another key beside it, or no plan: 400, and nothing is set', async () => {
+    const t = makeApp(undefined, true);
+    for (const plan of ['Starter', '1plan', '-plan', 'pro_plan', 'a'.repeat(33), '', 5, true, {}]) {
+      const r = await t.call('kgi_sy_limits', 'PUT', path(active), { plan });
+      expect([r.status, t.code(r)], JSON.stringify(plan)).toEqual([400, 'bad-input']);
+    }
+    for (const body of [{}, { plan: 'starter', limits: {} }, [], 'not json']) {
+      const r = await t.call('kgi_sy_limits', 'PUT', path(active), body);
+      expect([r.status, t.code(r)], JSON.stringify(body)).toEqual([400, 'bad-input']);
+    }
+    expect(t.plans.size).toBe(0);
+    const longest = 'a'.repeat(32);
+    expect((await t.call('kgi_sy_limits', 'PUT', path(active), { plan: longest })).body).toEqual({
+      tenantId: active,
+      plan: longest,
+    });
+  });
+
+  test('another scope, a tenant key, a closing tenant: refused; an unknown or purged tenant is 404', async () => {
+    const t = makeApp(undefined, true);
+    const body = { plan: 'starter' };
+    const prod = await t.call('kgi_sy_production', 'PUT', path(active), body);
+    expect([prod.status, t.code(prod)]).toEqual([403, 'system-scope-missing']);
+    const tenantKey = await t.call(TENANT_ADMIN, 'PUT', path(active), body);
+    expect([tenantKey.status, t.code(tenantKey)]).toEqual([403, 'system-principal-required']);
+    const r = await t.call('kgi_sy_limits', 'PUT', path(closing), body);
+    expect([r.status, t.code(r)]).toEqual([409, 'tenant-closing']);
+    for (const tenant of [randomUUID(), purged]) {
+      const gone = await t.call('kgi_sy_limits', 'PUT', path(tenant), body);
+      expect([gone.status, t.code(gone)], tenant).toEqual([404, 'tenant-not-found']);
+    }
+    expect(t.plans.size).toBe(0);
+  });
+
+  test("a runtime that doesn't keep a plan: PUT …/plan is 501, and GET …/limits leaves plan out", async () => {
+    const t = makeApp();
+    const r = await t.call('kgi_sy_limits', 'PUT', path(active), { plan: 'starter' });
+    expect([r.status, t.code(r)]).toEqual([501, 'tenant-plan-unsupported']);
+    expect(await t.call('kgi_sy_limits', 'GET', limitsPath(active))).toEqual({
+      status: 200,
+      body: { tenantId: active, limits: {} },
     });
   });
 });

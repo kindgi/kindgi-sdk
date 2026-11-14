@@ -3296,7 +3296,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.limits',
     summary: "Read a tenant's limits",
     description:
-      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -3324,7 +3324,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setLimits',
     summary: "Set a tenant's limits",
     description:
-      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -3347,6 +3347,45 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/plan',
+    openapiPath: '/v1/system/tenants/{tenantId}/plan',
+    operationId: 'systemTenants.setPlan',
+    summary: "Set a tenant's plan id",
+    description:
+      "Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantPlanBody') },
+    responses: {
+      '200': { description: "The tenant's plan id now.", schema: ref('TenantPlan') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'The body must be `{ "plan": "<id>" }`, an id of a lowercase letter then up to 31 lowercase letters, digits and hyphens, or `{ "plan": null }` (`bad-input`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+      '501': ErrorResponse(
+        "This runtime doesn't keep a tenant's plan (`tenant-plan-unsupported`).",
       ),
     },
   },

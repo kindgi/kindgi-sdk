@@ -11,6 +11,7 @@ import type {
   TenantAdminContacts,
   TenantLimitsResult,
   TenantLimits as TenantLimitsWire,
+  TenantPlan,
   TenantProductionAllowed,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -159,8 +160,9 @@ export interface SystemTenantsClient {
   /**
    * The tenant's limits as stored, in the shape `setLimits` takes: to
    * change one, read them, change it and set them all. A limit that isn't
-   * set is absent. Takes `system:tenants:limits`; a closing tenant's can
-   * be read.
+   * set is absent. From a runtime that keeps it, `plan` is the tenant's
+   * plan id (`setPlan`), or null while none is set. Takes
+   * `system:tenants:limits`; a closing tenant's can be read.
    *
    * @wire `GET /v1/system/tenants/{tenantId}/limits`
    */
@@ -176,6 +178,19 @@ export interface SystemTenantsClient {
     limits: TenantLimitsShape,
     options?: { readonly idempotencyKey?: string },
   ): Promise<TenantLimitsResult>;
+  /**
+   * Set the id of the plan the tenant is on, or clear it with null. It's
+   * only shown, beside the limits: the limits are what's enforced, so set
+   * them with `setLimits` too. Takes `system:tenants:limits`; a runtime
+   * that doesn't keep it answers `501 tenant-plan-unsupported`.
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/plan`
+   */
+  setPlan(
+    tenantId: string,
+    plan: string | null,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<TenantPlan>;
 }
 
 export function makeSystemTenantsClient(transport: Transport): SystemTenantsClient {
@@ -281,6 +296,14 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
         method: 'PUT',
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/limits`,
         body: limits,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async setPlan(tenantId, plan, options) {
+      return transport.request<TenantPlan>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/plan`,
+        body: { plan },
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },

@@ -280,6 +280,17 @@ export interface TenantLimits {
    * limit, the next one waits until enough come out.
    */
   readonly projectsInProduction?: number;
+  /**
+   * Flows in production, each counted once however many of the
+   * workspace's projects in production run it. There's a margin: a write
+   * that would take the count past the most, the larger of 1.2 times this
+   * (rounded down) and one more than it, is refused with 403
+   * `plan-limit-reached` (`scope: 'tenant'`), and a write's answer warns
+   * from this number on. Lowering it takes nothing out of production.
+   */
+  readonly flowsInProduction?: number;
+  /** Agents in production, counted as `flowsInProduction` is, with the same margin and refusal. */
+  readonly agentsInProduction?: number;
 }
 
 /** A workspace's new name, slug, or both (`renameTenant`). A field left out stays as it is. */
