@@ -434,6 +434,16 @@ const IncludeTombstonedQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: false },
 };
 
+/** A trigger read's: a removed trigger too (schedules, webhook triggers, mail triggers). */
+const IncludeUnregisteredTriggerQueryParam: ParameterSpec = {
+  name: 'includeUnregistered',
+  in: 'query',
+  required: false,
+  description:
+    'With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there).',
+  schema: { type: 'boolean', default: false },
+};
+
 const JournalSinceQueryParam: ParameterSpec = {
   name: 'since',
   in: 'query',
@@ -11202,13 +11212,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.list',
     summary: 'List cron schedules',
     description:
-      "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
+      "Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       ScheduleProjectIdQueryParam,
     ],
     responses: {
@@ -11226,18 +11237,22 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [
       TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'upcoming',
         in: 'query',
         required: false,
-        description: 'Include the next N occurrences (`upcoming`), 1 to 20.',
+        description:
+          'Include the next N occurrences (`upcoming`), 1 to 20. A removed schedule has none.',
         schema: { type: 'integer', minimum: 1, maximum: 20 },
       },
     ],
     responses: {
       '200': { description: 'Schedule record.', schema: ref('ScheduleRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cron trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -11308,7 +11323,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.unregister',
     summary: 'Soft-delete a cron schedule (tombstone)',
     description:
-      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11328,11 +11343,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.',
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of fires.', schema: ref('ScheduleFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cron trigger with that id.'),
+      '404': ErrorResponse(
+        "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
       ),
@@ -11345,14 +11367,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.listVersions',
     summary: "A schedule's versions",
     description:
-      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of versions, newest first.', schema: ref('ScheduleVersionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cron trigger with that id.'),
+      '404': ErrorResponse(
+        "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -11361,6 +11390,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/schedules/{triggerId}/versions/{version}',
     operationId: 'schedules.getVersion',
     summary: 'Fetch one version of a schedule',
+    description:
+      "A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -11369,7 +11400,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No cron trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -11615,13 +11646,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.list',
     summary: 'List webhook triggers',
     description:
-      "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'projectId',
         in: 'query',
@@ -11646,11 +11678,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [TriggerIdPathParam, IncludeUnregisteredTriggerQueryParam],
     responses: {
       '200': { description: 'Webhook record.', schema: ref('WebhookTriggerRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No webhook trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -11718,7 +11752,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.unregister',
     summary: 'Soft-delete a webhook trigger (tombstone)',
     description:
-      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.",
+      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11738,11 +11772,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or workspace suspended, or its workspace closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of deliveries.', schema: ref('WebhookFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No webhook trigger with that id.'),
+      '404': ErrorResponse(
+        "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no delivery history.',
       ),
@@ -11755,17 +11796,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.listVersions',
     summary: "A webhook trigger's versions",
     description:
-      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of versions, newest first.',
         schema: ref('WebhookTriggerVersionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No webhook trigger with that id.'),
+      '404': ErrorResponse(
+        "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -11774,6 +11822,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/webhooks/{triggerId}/versions/{version}',
     operationId: 'webhooks.getVersion',
     summary: 'Fetch one version of a webhook trigger',
+    description:
+      "A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -11782,7 +11832,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No webhook trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -11856,13 +11906,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.list',
     summary: 'List mail triggers',
     description:
-      "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'projectId',
         in: 'query',
@@ -11884,11 +11935,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a mail trigger',
     tags: ['mail-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [TriggerIdPathParam, IncludeUnregisteredTriggerQueryParam],
     responses: {
       '200': { description: 'Mail trigger record.', schema: ref('MailTriggerRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No mail trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -11957,7 +12010,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/mail-triggers/{triggerId}/unregister',
     operationId: 'mailTriggers.unregister',
     summary: 'Soft-delete a mail trigger (tombstone)',
-    description: 'Who may unregister it is as for a pause.',
+    description:
+      'Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).',
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11977,11 +12031,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.',
     tags: ['mail-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: "Page of the trigger's mail.", schema: ref('MailFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No mail trigger with that id.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
       ),
@@ -11994,17 +12055,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.listVersions',
     summary: "A mail trigger's versions",
     description:
-      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
+      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['mail-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of versions, newest first.',
         schema: ref('MailTriggerVersionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No mail trigger with that id.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -12013,6 +12081,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/mail-triggers/{triggerId}/versions/{version}',
     operationId: 'mailTriggers.getVersion',
     summary: 'Fetch one version of a mail trigger',
+    description:
+      "A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -12021,7 +12091,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No mail trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },

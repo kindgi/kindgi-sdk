@@ -334,6 +334,25 @@ From your app, newest first:
   (`getVersion`, `get_version`). A version the schedule doesn't have is
   `404 trigger-version-not-found`.
 
+A removed schedule keeps its versions and its fires. One version reads as
+above, with `unregisteredAt` saying when the schedule was removed, so a
+run's `trigger.version` resolves whatever became of its schedule. The rest
+reads when you ask with `?includeUnregistered=true`:
+
+- `GET /v1/schedules/{triggerId}?includeUnregistered=true`, the schedule as
+  it was, with `unregisteredAt`;
+- the same on `…/versions` (each version with `unregisteredAt`) and
+  `…/fires`;
+- `GET /v1/schedules?includeUnregistered=true`, which lists removed ones
+  too. `?status=` matches the status a removed one had.
+
+Nothing changes a removed schedule: an `update`, a pause or a `run-now` of
+it is `404 trigger-not-found`. A runtime whose registry doesn't read
+removed triggers answers these reads `404 trigger-not-found` too. The
+schedule and its versions stay until the workspace is purged
+([retention](../../../deploy/retention/#triggers-versions)), and its fires
+for their 30 days.
+
 From the CLI:
 
 ```sh

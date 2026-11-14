@@ -15415,6 +15415,12 @@ export const ScheduleRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the schedule was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.',
+    },
   },
 };
 
@@ -15968,6 +15974,12 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`.',
+    },
   },
 };
 
@@ -16383,6 +16395,12 @@ export const MailTriggerRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the mail trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.',
+    },
   },
 };
 
@@ -16575,6 +16593,12 @@ function triggerVersionSchema(
           'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).',
       },
       cause: { $ref: '#/components/schemas/TriggerVersionCause' },
+      unregisteredAt: {
+        type: 'string',
+        format: 'date-time',
+        description:
+          "When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.",
+      },
       definition: { $ref: `#/components/schemas/${definition}` },
     },
   };

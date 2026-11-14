@@ -211,17 +211,28 @@ export function schedulesRouter(
    * and for an Improve schedule, its project's admin as well. A personal
    * schedule's owner may `write` or `stop` it with `run` on its project
    * ({@link ownerAlsoAllows}), and, where the route says so (`ownerReads`:
-   * the schedule itself, not its fires or versions), `read` it.
+   * the schedule itself, not its fires or versions), `read` it. A removed
+   * one only for a read that asks for it (`includeUnregistered`), under the
+   * same `read` on the project it was in.
    */
   async function scheduleFor(
     c: Context<AppEnv>,
     action: Action | 'stop',
-    ownerReads = false,
+    {
+      includeUnregistered = false,
+      ownerReads = false,
+    }: { readonly includeUnregistered?: boolean; readonly ownerReads?: boolean } = {},
   ): Promise<{ kind: 'ok'; value: CronTriggerRecord } | { kind: 'err'; response: Response }> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
-    const rec = UUID_RE.test(triggerId) ? await binding.get({ tenantId, triggerId }) : null;
+    const rec = UUID_RE.test(triggerId)
+      ? await binding.get({
+          tenantId,
+          triggerId,
+          ...(includeUnregistered && { includeUnregistered }),
+        })
+      : null;
     if (rec === null || rec.kind !== 'cron') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
@@ -566,6 +577,7 @@ export function schedulesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(statusFilter !== undefined && { status: statusFilter }),
       ...(projectId !== undefined && { projectId }),
+      ...(c.req.query('includeUnregistered') === 'true' && { includeUnregistered: true }),
     });
     // The binding narrows to the project; this keeps a page right from one that doesn't.
     const rows = (page.data as CronTriggerRecord[]).filter(
@@ -597,9 +609,15 @@ export function schedulesRouter(
     if (upcoming !== undefined && (!Number.isInteger(upcoming) || upcoming < 1 || upcoming > 20)) {
       return bad(c, requestId, '`upcoming` must be a whole number from 1 to 20');
     }
-    const found = await scheduleFor(c, 'read', true);
+    const found = await scheduleFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+      ownerReads: true,
+    });
     if (found.kind === 'err') return found.response;
-    if (upcoming === undefined) return scheduleJson(c, found.value);
+    // A removed schedule fires no more: it has no occurrences to come.
+    if (upcoming === undefined || found.value.unregisteredAt !== undefined) {
+      return scheduleJson(c, found.value);
+    }
     const rec = await binding.get({
       tenantId: c.get('tenantId') as TenantId,
       triggerId: found.value.triggerId,
@@ -854,13 +872,16 @@ export function schedulesRouter(
   // ---------- GET /:triggerId/fires (history) ----------
   r.get('/:triggerId/fires', async (c) => {
     const requestId = c.get('requestId');
-    const found = await scheduleFor(c, 'read');
+    const found = await scheduleFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
     if (binding.listFires === undefined) return unsupported(c, requestId, 'fire history');
     const cursorRaw = c.req.query('cursor');
     const page = await binding.listFires({
       tenantId: found.value.tenantId,
       triggerId: found.value.triggerId,
+      ...(found.value.unregisteredAt !== undefined && { includeUnregistered: true }),
       limit: clampLimit(c.req.query('limit')),
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
     });
@@ -886,16 +907,21 @@ export function schedulesRouter(
 
   // ---------- GET /:triggerId/versions (newest first) ----------
   r.get('/:triggerId/versions', async (c) => {
-    const found = await scheduleFor(c, 'read');
+    const found = await scheduleFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
-    return versionsPage(c, binding, found.value.triggerId, 'cron', (v) => versionsJson(c, v));
+    return versionsPage(c, binding, found.value, 'cron', (v) => versionsJson(c, v));
   });
 
   // ---------- GET /:triggerId/versions/:version ----------
+  // A removed schedule's too, with no flag: a run keeps the version it
+  // started from (`trigger.version`), and reading it needs no more than
+  // reading the schedule did.
   r.get('/:triggerId/versions/:version', async (c) => {
-    const found = await scheduleFor(c, 'read');
+    const found = await scheduleFor(c, 'read', { includeUnregistered: true });
     if (found.kind === 'err') return found.response;
-    return versionOne(c, binding, found.value.triggerId, 'cron', (v) => versionsJson(c, v));
+    return versionOne(c, binding, found.value, 'cron', (v) => versionsJson(c, v));
   });
 
   // ---------- POST /:triggerId/run-now ----------
@@ -1106,6 +1132,7 @@ function serializeSchedule(
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    ...(r.unregisteredAt !== undefined && { unregisteredAt: r.unregisteredAt }),
   };
 }
 

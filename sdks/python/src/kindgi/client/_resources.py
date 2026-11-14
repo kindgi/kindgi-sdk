@@ -10423,17 +10423,24 @@ class SchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
+        Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -10467,6 +10474,7 @@ class SchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         upcoming: int | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleRecord:
@@ -10474,7 +10482,7 @@ class SchedulesResource:
         return self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={"upcoming": upcoming},
+            query={"includeUnregistered": include_unregistered, "upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -10556,7 +10564,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -10572,6 +10580,7 @@ class SchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -10583,7 +10592,7 @@ class SchedulesResource:
         return self._client._request(
             _OPERATIONS["schedules.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleFirePage,
             timeout=timeout,
@@ -10594,18 +10603,19 @@ class SchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleVersionPage:
         """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
 
-        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["schedules.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleVersionPage,
             timeout=timeout,
@@ -10614,7 +10624,10 @@ class SchedulesResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.ScheduleVersion:
-        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`
+
+        A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.
+        """
         return self._client._request(
             _OPERATIONS["schedules.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -10683,17 +10696,24 @@ class WebhooksResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerCollectionPage:
         """List webhook triggers. `GET /v1/webhooks`
 
-        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return self._client._request(
             _OPERATIONS["webhooks.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.WebhookTriggerCollectionPage,
             timeout=timeout,
@@ -10723,13 +10743,18 @@ class WebhooksResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
         """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["webhooks.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
@@ -10811,7 +10836,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
 
-        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return self._client._request(
             _OPERATIONS["webhooks.unregister"],
@@ -10827,6 +10852,7 @@ class WebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -10838,7 +10864,7 @@ class WebhooksResource:
         return self._client._request(
             _OPERATIONS["webhooks.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookFirePage,
             timeout=timeout,
@@ -10849,18 +10875,19 @@ class WebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerVersionPage:
         """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
 
-        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["webhooks.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookTriggerVersionPage,
             timeout=timeout,
@@ -10869,7 +10896,10 @@ class WebhooksResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.WebhookTriggerVersion:
-        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`
+
+        A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.
+        """
         return self._client._request(
             _OPERATIONS["webhooks.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -10917,17 +10947,24 @@ class MailTriggersResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerCollectionPage:
         """List mail triggers. `GET /v1/mail-triggers`
 
-        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.MailTriggerCollectionPage,
             timeout=timeout,
@@ -10957,13 +10994,18 @@ class MailTriggersResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.MailTriggerRecord:
         """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["mailTriggers.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.MailTriggerRecord,
             timeout=timeout,
@@ -11045,7 +11087,7 @@ class MailTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause.
+        Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.unregister"],
@@ -11061,6 +11103,7 @@ class MailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -11072,7 +11115,7 @@ class MailTriggersResource:
         return self._client._request(
             _OPERATIONS["mailTriggers.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
             timeout=timeout,
@@ -11083,18 +11126,19 @@ class MailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerVersionPage:
         """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
 
-        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailTriggerVersionPage,
             timeout=timeout,
@@ -11103,7 +11147,10 @@ class MailTriggersResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.MailTriggerVersion:
-        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`
+
+        A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.
+        """
         return self._client._request(
             _OPERATIONS["mailTriggers.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -20825,17 +20872,24 @@ class AsyncSchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
+        Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return await self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -20869,6 +20923,7 @@ class AsyncSchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         upcoming: int | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleRecord:
@@ -20876,7 +20931,7 @@ class AsyncSchedulesResource:
         return await self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={"upcoming": upcoming},
+            query={"includeUnregistered": include_unregistered, "upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -20958,7 +21013,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -20974,6 +21029,7 @@ class AsyncSchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -20985,7 +21041,7 @@ class AsyncSchedulesResource:
         return await self._client._request(
             _OPERATIONS["schedules.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleFirePage,
             timeout=timeout,
@@ -20996,18 +21052,19 @@ class AsyncSchedulesResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleVersionPage:
         """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
 
-        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ScheduleVersionPage,
             timeout=timeout,
@@ -21016,7 +21073,10 @@ class AsyncSchedulesResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.ScheduleVersion:
-        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`
+
+        A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.
+        """
         return await self._client._request(
             _OPERATIONS["schedules.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -21085,17 +21145,24 @@ class AsyncWebhooksResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerCollectionPage:
         """List webhook triggers. `GET /v1/webhooks`
 
-        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.WebhookTriggerCollectionPage,
             timeout=timeout,
@@ -21125,13 +21192,18 @@ class AsyncWebhooksResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
         """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["webhooks.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
@@ -21213,7 +21285,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
 
-        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.unregister"],
@@ -21229,6 +21301,7 @@ class AsyncWebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -21240,7 +21313,7 @@ class AsyncWebhooksResource:
         return await self._client._request(
             _OPERATIONS["webhooks.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookFirePage,
             timeout=timeout,
@@ -21251,18 +21324,19 @@ class AsyncWebhooksResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerVersionPage:
         """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
 
-        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookTriggerVersionPage,
             timeout=timeout,
@@ -21271,7 +21345,10 @@ class AsyncWebhooksResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.WebhookTriggerVersion:
-        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`
+
+        A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.
+        """
         return await self._client._request(
             _OPERATIONS["webhooks.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -21319,17 +21396,24 @@ class AsyncMailTriggersResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerCollectionPage:
         """List mail triggers. `GET /v1/mail-triggers`
 
-        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.MailTriggerCollectionPage,
             timeout=timeout,
@@ -21359,13 +21443,18 @@ class AsyncMailTriggersResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.MailTriggerRecord:
         """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["mailTriggers.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.MailTriggerRecord,
             timeout=timeout,
@@ -21447,7 +21536,7 @@ class AsyncMailTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause.
+        Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.unregister"],
@@ -21463,6 +21552,7 @@ class AsyncMailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -21474,7 +21564,7 @@ class AsyncMailTriggersResource:
         return await self._client._request(
             _OPERATIONS["mailTriggers.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
             timeout=timeout,
@@ -21485,18 +21575,19 @@ class AsyncMailTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.MailTriggerVersionPage:
         """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
 
-        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailTriggerVersionPage,
             timeout=timeout,
@@ -21505,7 +21596,10 @@ class AsyncMailTriggersResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.MailTriggerVersion:
-        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`
+
+        A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.
+        """
         return await self._client._request(
             _OPERATIONS["mailTriggers.getVersion"],
             path={"triggerId": trigger_id, "version": version},

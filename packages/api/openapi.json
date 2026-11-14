@@ -25934,6 +25934,11 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the schedule was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then."
           }
         }
       },
@@ -26507,6 +26512,11 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`."
           }
         }
       },
@@ -27063,6 +27073,11 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the mail trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then."
           }
         }
       },
@@ -27470,6 +27485,11 @@
           "cause": {
             "$ref": "#/components/schemas/TriggerVersionCause"
           },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does."
+          },
           "definition": {
             "$ref": "#/components/schemas/ScheduleDefinition"
           }
@@ -27619,6 +27639,11 @@
           "cause": {
             "$ref": "#/components/schemas/TriggerVersionCause"
           },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does."
+          },
           "definition": {
             "$ref": "#/components/schemas/WebhookTriggerDefinition"
           }
@@ -27757,6 +27782,11 @@
           },
           "cause": {
             "$ref": "#/components/schemas/TriggerVersionCause"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does."
           },
           "definition": {
             "$ref": "#/components/schemas/MailTriggerDefinition"
@@ -70216,7 +70246,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
+        "description": "Cursor-paginated. Removed schedules only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
         "parameters": [
           {
             "name": "limit",
@@ -70247,6 +70277,16 @@
             },
             "required": false,
             "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "projectId",
@@ -70295,7 +70335,7 @@
             }
           },
           "404": {
-            "description": "No cron trigger with that id, or the row was tombstoned.",
+            "description": "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70327,6 +70367,16 @@
             "description": "TriggerId — the trigger id (a UUID)."
           },
           {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
+          },
+          {
             "name": "upcoming",
             "in": "query",
             "schema": {
@@ -70335,7 +70385,7 @@
               "maximum": 20
             },
             "required": false,
-            "description": "Include the next N occurrences (`upcoming`), 1 to 20."
+            "description": "Include the next N occurrences (`upcoming`), 1 to 20. A removed schedule has none."
           }
         ],
         "security": [
@@ -70799,7 +70849,7 @@
             }
           }
         },
-        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag). A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -70858,7 +70908,7 @@
             }
           },
           "404": {
-            "description": "No cron trigger with that id.",
+            "description": "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70899,6 +70949,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -70958,7 +71018,7 @@
             }
           },
           "404": {
-            "description": "No cron trigger with that id.",
+            "description": "No cron trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70978,7 +71038,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
+        "description": "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions. A removed schedule's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -70989,6 +71049,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -71058,7 +71128,7 @@
             }
           },
           "404": {
-            "description": "No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
+            "description": "No cron trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71078,6 +71148,7 @@
             }
           }
         },
+        "description": "A removed schedule's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the schedule since. Reading it takes what reading the schedule does.",
         "parameters": [
           {
             "name": "triggerId",
@@ -71541,7 +71612,7 @@
             }
           }
         },
-        "description": "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+        "description": "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed webhook triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
         "parameters": [
           {
             "name": "limit",
@@ -71572,6 +71643,16 @@
             },
             "required": false,
             "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "projectId",
@@ -71620,7 +71701,7 @@
             }
           },
           "404": {
-            "description": "No webhook trigger with that id, or the row was tombstoned.",
+            "description": "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71650,6 +71731,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           }
         ],
         "security": [
@@ -72113,7 +72204,7 @@
             }
           }
         },
-        "description": "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.",
+        "description": "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
         "parameters": [
           {
             "name": "triggerId",
@@ -72172,7 +72263,7 @@
             }
           },
           "404": {
-            "description": "No webhook trigger with that id.",
+            "description": "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72213,6 +72304,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -72272,7 +72373,7 @@
             }
           },
           "404": {
-            "description": "No webhook trigger with that id.",
+            "description": "No webhook trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72292,7 +72393,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
+        "description": "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions. A removed webhook trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -72303,6 +72404,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -72372,7 +72483,7 @@
             }
           },
           "404": {
-            "description": "No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
+            "description": "No webhook trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72392,6 +72503,7 @@
             }
           }
         },
+        "description": "A removed webhook trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the webhook trigger since. Reading it takes what reading the webhook trigger does.",
         "parameters": [
           {
             "name": "triggerId",
@@ -72736,7 +72848,7 @@
             }
           }
         },
-        "description": "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+        "description": "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed mail triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
         "parameters": [
           {
             "name": "limit",
@@ -72767,6 +72879,16 @@
             },
             "required": false,
             "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "projectId",
@@ -72815,7 +72937,7 @@
             }
           },
           "404": {
-            "description": "No mail trigger with that id, or the row was tombstoned.",
+            "description": "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -72845,6 +72967,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           }
         ],
         "security": [
@@ -73278,7 +73410,7 @@
             }
           }
         },
-        "description": "Who may unregister it is as for a pause.",
+        "description": "Who may unregister it is as for a pause. Its record and versions stay until the workspace is purged, and its fires for their 30 days, all readable with `?includeUnregistered=true` (one version with no flag).",
         "parameters": [
           {
             "name": "triggerId",
@@ -73337,7 +73469,7 @@
             }
           },
           "404": {
-            "description": "No mail trigger with that id.",
+            "description": "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -73378,6 +73510,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -73437,7 +73579,7 @@
             }
           },
           "404": {
-            "description": "No mail trigger with that id.",
+            "description": "No mail trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -73457,7 +73599,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
+        "description": "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions. A removed mail trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -73468,6 +73610,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -73537,7 +73689,7 @@
             }
           },
           "404": {
-            "description": "No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
+            "description": "No mail trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -73557,6 +73709,7 @@
             }
           }
         },
+        "description": "A removed mail trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the mail trigger since. Reading it takes what reading the mail trigger does.",
         "parameters": [
           {
             "name": "triggerId",
