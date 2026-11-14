@@ -124,6 +124,7 @@ resource "azurerm_container_app" "pack" {
 
   depends_on = [
     time_sleep.secret_grants,
+    time_sleep.secret_grants_changed,
     azurerm_role_assignment.pack_pulls,
   ]
 }
@@ -131,15 +132,20 @@ resource "azurerm_container_app" "pack" {
 # ---- the server ---------------------------------------------------------------
 
 locals {
-  server_secret_refs = merge({
-    KINDGI_DATABASE_URL             = "database-url"
-    KINDGI_API_TOKEN                = "api-token"
-    KINDGI_SECRETS_AAD_KEY          = "secrets-aad-key"
-    KINDGI_PUBLIC_TOKEN_SIGNING_KEY = "public-token-key"
-    KINDGI_LICENSE_KEY              = "license-key"
-    KINDGI_PACK_SERVICE_TOKEN       = "pack-service-token"
-    KINDGI_ERASURE_LEDGER_KEY       = "erasure-ledger-key"
-  }, var.export_signing == "secret" ? { KINDGI_EXPORT_SIGNING_KEY = "export-signing-key" } : {})
+  server_secret_refs = merge(
+    {
+      KINDGI_DATABASE_URL             = "database-url"
+      KINDGI_API_TOKEN                = "api-token"
+      KINDGI_SECRETS_AAD_KEY          = "secrets-aad-key"
+      KINDGI_PUBLIC_TOKEN_SIGNING_KEY = "public-token-key"
+      KINDGI_LICENSE_KEY              = "license-key"
+      KINDGI_PACK_SERVICE_TOKEN       = "pack-service-token"
+      KINDGI_ERASURE_LEDGER_KEY       = "erasure-ledger-key"
+    },
+    var.export_signing == "secret" ? { KINDGI_EXPORT_SIGNING_KEY = "export-signing-key" } : {},
+    # Unset, the server makes a key at each start, as before.
+    var.pagination_key_version == "" ? {} : { KINDGI_PAGINATION_KEY = local.pagination_key_secret },
+  )
   server_env = merge(
     {
       KINDGI_ENV          = var.kindgi_env
@@ -182,7 +188,8 @@ locals {
   # plus KINDGI_DEV: server_env and server_secret_env can't set these.
   server_module_env = setunion(keys(local.server_env), keys(local.server_secret_refs), [
     "KINDGI_CORS_ORIGINS", "KINDGI_DEV", "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY",
-    "KINDGI_OPENFGA_API_URL", "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PUBLIC_URL", "KINDGI_TRUSTED_PROXIES",
+    "KINDGI_OPENFGA_API_URL", "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PAGINATION_KEY", "KINDGI_PAGINATION_KEY_PATH",
+    "KINDGI_PUBLIC_URL", "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
 }
@@ -319,12 +326,16 @@ resource "azurerm_container_app" "server" {
     }
     # Key Vault compares a secret's name without its case: API-Token is api-token.
     precondition {
-      condition     = !contains([for name in values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)) : lower(name)], lower(local.license_renewer_secret))
+      condition     = !contains([for name in concat(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), [local.pagination_key_secret]) : lower(name)], lower(local.license_renewer_secret))
       error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets (Key Vault ignores case in a name). The renewer key needs a secret of its own (the default, license-renewer)."
     }
     precondition {
-      condition     = !contains([for name in concat(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), [local.license_renewer_secret], [for ref in values(var.pack_secret_env) : ref.secret]) : lower(name)], lower(var.license_usage_key_secret))
+      condition     = !contains([for name in concat(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), [local.pagination_key_secret, local.license_renewer_secret], [for ref in values(var.pack_secret_env) : ref.secret]) : lower(name)], lower(var.license_usage_key_secret))
       error_message = "license_usage_key_secret: ${var.license_usage_key_secret} is a secret the module or the pack uses already (Key Vault ignores case in a name), which the renewal job would then read. The usage key needs a secret of its own, such as license-usage-key."
+    }
+    precondition {
+      condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_PAGINATION_KEY", "KINDGI_PAGINATION_KEY_PATH"]))) == 0
+      error_message = "The module keeps the page-cursor key now, in ${local.pagination_key_secret} at pagination_key_version: copy the key the server reads now into that secret, then set pagination_key_version in place of KINDGI_PAGINATION_KEY, so every cursor out there still opens (README, Upgrading)."
     }
     precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
@@ -333,6 +344,15 @@ resource "azurerm_container_app" "server" {
     precondition {
       condition     = length(setintersection(keys(var.server_env), keys(var.server_secret_env))) == 0
       error_message = "A name is in both server_env and server_secret_env: keep it in one."
+    }
+    # After a rotation (README, Operating it), the key before the current one.
+    precondition {
+      condition     = var.pagination_key_version != "" || length(setintersection(local.server_extra_env, toset(["KINDGI_PAGINATION_PREVIOUS_KEY", "KINDGI_PAGINATION_PREVIOUS_KEY_PATH"]))) == 0
+      error_message = "KINDGI_PAGINATION_PREVIOUS_KEY is the page-cursor key before the current one: set pagination_key_version too. The server won't start without it."
+    }
+    precondition {
+      condition     = try(lower(var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].secret) != local.pagination_key_secret || !contains([var.pagination_key_version, "latest"], var.server_secret_env["KINDGI_PAGINATION_PREVIOUS_KEY"].version), true)
+      error_message = "server_secret_env's KINDGI_PAGINATION_PREVIOUS_KEY is ${local.pagination_key_secret} at the version the server seals with: after a rotation, the previous key is the version before pagination_key_version's, pinned (never \"latest\", which is the newest)."
     }
     precondition {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
@@ -352,6 +372,7 @@ resource "azurerm_container_app" "server" {
 
   depends_on = [
     time_sleep.secret_grants,
+    time_sleep.secret_grants_changed,
     azurerm_role_assignment.server_pulls,
     azurerm_role_assignment.server_wraps,
     azurerm_postgresql_flexible_server_configuration.extensions,

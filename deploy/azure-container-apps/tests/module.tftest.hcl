@@ -515,6 +515,195 @@ run "sign_in_with_providers_needs_public_url" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# The page-cursor key: the module's own, pinned to a version, and set by no
+# other map. Unset, nothing is read or granted: a grant needs the secret,
+# which the operator adds first. The previous key, after a rotation, is the
+# operator's, through server_secret_env.
+run "the_pagination_key_waits_for_its_version" {
+  command = plan
+  assert {
+    condition     = !contains([for s in azurerm_container_app.server.secret : s.name], "pagination-key") && length([for e in azurerm_container_app.server.template[0].container[0].env : e.name if startswith(e.name, "KINDGI_PAGINATION_")]) == 0
+    error_message = "Without pagination_key_version the server reads no page-cursor key, and the module sets none."
+  }
+  assert {
+    condition     = !contains(keys(azurerm_role_assignment.server_reads), "pagination_key") && !strcontains(time_sleep.secret_grants_changed.triggers.server_reads, "pagination_key")
+    error_message = "Without pagination_key_version nothing is granted on the secret, which may not exist yet."
+  }
+  assert {
+    condition     = contains(output.secrets_to_fill, "pagination-key")
+    error_message = "secrets_to_fill names pagination-key, which the operator adds before setting its version."
+  }
+}
+
+run "pagination_key_version_pins_the_key" {
+  command = plan
+  variables {
+    pagination_key_version = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+  }
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : s.key_vault_secret_id if s.name == "pagination-key"]) == toset(["https://kindgi-ab12.vault.azure.net/secrets/pagination-key/0a1b2c3d4e5f60718293a4b5c6d7e8f9"])
+    error_message = "pagination_key_version pins the server's pagination-key secret to that version."
+  }
+  assert {
+    condition     = toset([for e in azurerm_container_app.server.template[0].container[0].env : "${e.name}>${e.secret_name}" if startswith(e.name, "KINDGI_PAGINATION_")]) == toset(["KINDGI_PAGINATION_KEY>pagination-key"])
+    error_message = "KINDGI_PAGINATION_KEY reads the pagination-key secret."
+  }
+  assert {
+    condition     = azurerm_role_assignment.server_reads["pagination_key"].scope == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/pagination-key" && !contains([for a in values(azurerm_role_assignment.pack_reads_token) : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/pagination-key")
+    error_message = "The server reads the key's secret; the pack doesn't."
+  }
+  # The grant comes in the same apply as the revision that reads it: the
+  # grant wait is made again between the two.
+  assert {
+    condition     = strcontains(time_sleep.secret_grants_changed.triggers.server_reads, "pagination_key")
+    error_message = "A new grant makes the grant wait run again."
+  }
+}
+
+run "a_rotation_keeps_the_key_before" {
+  command = plan
+  variables {
+    pagination_key_version = "f9e8d7c6b5a4938271605f4e3d2c1b0a"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "pagination-key", version = "0a1b2c3d4e5f60718293a4b5c6d7e8f9" }
+    }
+  }
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : "${s.name}=${s.key_vault_secret_id}" if strcontains(s.key_vault_secret_id, "/secrets/pagination-key/")]) == toset(["pagination-key=https://kindgi-ab12.vault.azure.net/secrets/pagination-key/f9e8d7c6b5a4938271605f4e3d2c1b0a", "server-env-kindgi-pagination-previous-key=https://kindgi-ab12.vault.azure.net/secrets/pagination-key/0a1b2c3d4e5f60718293a4b5c6d7e8f9"])
+    error_message = "The new version seals, and the version before it is the previous key."
+  }
+  # The module's own grant covers the secret already.
+  assert {
+    condition     = length(azurerm_role_assignment.server_reads_its_secrets) == 0
+    error_message = "The previous key, in the module's own secret, gets no second grant."
+  }
+}
+
+# Key Vault ignores case in a name: Pagination-Key is the pagination-key secret.
+run "a_previous_pagination_key_in_another_case_gets_no_grant_either" {
+  command = plan
+  variables {
+    pagination_key_version = "f9e8d7c6b5a4938271605f4e3d2c1b0a"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "Pagination-Key", version = "0a1b2c3d4e5f60718293a4b5c6d7e8f9" }
+    }
+  }
+  assert {
+    condition     = length(azurerm_role_assignment.server_reads_its_secrets) == 0
+    error_message = "Pagination-Key is the module's own secret: no second grant."
+  }
+}
+
+run "a_previous_pagination_key_of_your_own_is_granted" {
+  command = plan
+  variables {
+    pagination_key_version = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "acme-old-cursor-key", version = "00ff11ee22dd33cc44bb55aa66997788" }
+    }
+  }
+  assert {
+    condition     = toset(keys(azurerm_role_assignment.server_reads_its_secrets)) == toset(["acme-old-cursor-key"])
+    error_message = "A previous key in a secret of the operator's own is granted, as any server_secret_env entry is."
+  }
+}
+
+run "pagination_key_version_refuses_latest" {
+  command = plan
+  variables {
+    pagination_key_version = "latest"
+  }
+  expect_failures = [var.pagination_key_version]
+}
+
+# Secret Manager's version numbers aren't Key Vault's.
+run "pagination_key_version_refuses_a_number" {
+  command = plan
+  variables {
+    pagination_key_version = "1"
+  }
+  expect_failures = [var.pagination_key_version]
+}
+
+run "the_pagination_key_is_the_modules" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PAGINATION_KEY = { secret = "acme-cursor-key", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "the_pagination_key_file_is_the_modules_too" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PAGINATION_KEY_PATH = "/secrets/cursor-key" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "a_previous_pagination_key_needs_the_current_one" {
+  command = plan
+  variables {
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "pagination-key", version = "0a1b2c3d4e5f60718293a4b5c6d7e8f9" }
+    }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "a_previous_pagination_key_file_needs_the_current_one_too" {
+  command = plan
+  variables {
+    server_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY_PATH = "/run/secrets/acme-previous-cursor-key"
+    }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "a_previous_pagination_key_at_the_current_version_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "f9e8d7c6b5a4938271605f4e3d2c1b0a"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "pagination-key", version = "f9e8d7c6b5a4938271605f4e3d2c1b0a" }
+    }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "a_previous_pagination_key_at_the_current_version_in_another_case_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "f9e8d7c6b5a4938271605f4e3d2c1b0a"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "PAGINATION-KEY", version = "f9e8d7c6b5a4938271605f4e3d2c1b0a" }
+    }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+# latest is the newest version: after a rotation, the current key.
+run "a_previous_pagination_key_at_latest_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "f9e8d7c6b5a4938271605f4e3d2c1b0a"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "pagination-key", version = "latest" }
+    }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "a_previous_pagination_key_as_a_plain_value_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+    server_env             = { KINDGI_PAGINATION_PREVIOUS_KEY = "bm90LWluLXRoZS1wbGFu" }
+  }
+  expect_failures = [var.server_env]
+}
+
 # One tenant: "single", or unset, plans; serving many is refused, in either map.
 run "one_tenant_plans" {
   command = plan
@@ -750,6 +939,15 @@ run "refuses_a_renewer_secret_the_module_uses_in_another_case" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# pagination-key is the module's, even before pagination_key_version is set.
+run "refuses_the_pagination_key_secret_as_the_renewer_secret" {
+  command = plan
+  variables {
+    license_renewer_secret = "pagination-key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
 run "refuses_a_usage_key_secret_the_module_uses" {
   command = plan
   variables {
@@ -764,6 +962,14 @@ run "refuses_a_usage_key_secret_the_module_uses_in_another_case" {
   command = plan
   variables {
     license_usage_key_secret = "API-Token"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_the_pagination_key_secret_as_the_usage_key" {
+  command = plan
+  variables {
+    license_usage_key_secret = "Pagination-Key"
   }
   expect_failures = [azurerm_container_app.server]
 }
