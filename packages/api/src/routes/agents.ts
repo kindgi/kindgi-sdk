@@ -1060,6 +1060,8 @@ export interface AgentPublishCapabilities {
   readonly remember?: boolean;
   /** Whether agent turns can recall earlier conversations. Absent: unknown, no warning. */
   readonly conversationRecall?: boolean;
+  /** Whether the runtime has a file store, for an agent's `files`. Absent: unknown, no warning. */
+  readonly files?: boolean;
 }
 
 /**
@@ -1067,7 +1069,9 @@ export interface AgentPublishCapabilities {
  * first turn: an intent that searches by meaning on a runtime without
  * embeddings fails its turns (`semantic`) or searches by keyword only
  * (`both`); an agent that remembers on a runtime that can't store what
- * it remembers gets "not remembered" from every call.
+ * it remembers gets "not remembered" from every call; an agent that
+ * declares `files` on a runtime with no file store is offered neither
+ * file tool.
  */
 function publishWarnings(
   agent: Agent,
@@ -1081,6 +1085,16 @@ function publishWarnings(
             code: 'remember-unavailable',
             message:
               'The agent declares memory.remember, and this runtime cannot store agent memories: each remember call answers that nothing was remembered.',
+          },
+        ]
+      : []),
+    ...(capabilities.files === false &&
+    (agent.files?.update === true || agent.files?.create === true)
+      ? [
+          {
+            code: 'files-unavailable',
+            message:
+              "The agent declares files, and this runtime has no file store: its turns don't offer kindgi_update_file or kindgi_create_file.",
           },
         ]
       : []),
@@ -1211,6 +1225,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     tools: a.tools,
     retrieval: a.retrieval,
     ...(a.memory !== undefined && { memory: a.memory }),
+    ...(a.files !== undefined && { files: a.files }),
     guardrails: a.guardrails,
     ...(a.conversationPolicy !== undefined && {
       conversationPolicy: answeredPolicy(a.conversationPolicy),

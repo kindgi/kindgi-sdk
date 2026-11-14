@@ -61,6 +61,24 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
 - `kindgi`: **files with versions: `client.files`.** `client.files` has `list`, `create`, `get`, `delete` and `pin_history`, and `client.files.versions` has `list`, `add`, `get`, `download`, `restore`, `delete`, `pin` and `unpin`, one for each `files.*` operation, in the async client too. `create` and `add` send a multipart upload, as `client.artifacts.upload` does. A version is named by its number or by `"latest"`. `BlobMeta` gains `file_id` and `version`, for a blob that is a file's version. `client.artifacts`' methods are deprecated: each warns with `DeprecationWarning`, naming the `files` method to use, until 0.8.0 removes them. `file-not-found` and `file-version-not-found` raise `NotFoundError`; `file-version-conflict`, `file-version-pinned`, `file-last-version` and `artifact-in-file` raise `ConflictError`; and `file-too-large` raises `InvalidRequestError`.
+- `kindgi`: **a tool can declare that it updates files, and an agent that its
+  model may change files.** `@tool(updates_files=True)` declares a tool that
+  adds versions to files its run has; only a tool with a handler can.
+  `Agent(files={"update": True, "create": True})` offers the agent's model the
+  built-in `kindgi_update_file` and `kindgi_create_file`. The indexer writes
+  `updatesFiles` and `files` into the pack index, and the vendored
+  `tool.schema.json` (1.5.0) and `pack-index.schema.json` (1.10.0) take them.
+  The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
+  its publish body, and `updates_files` on a tool.
+- `kindgi`: **a tool that updates files gets `ctx.files.update`.** On a call
+  with an idempotency key whose tool files say `updates` (pack protocol
+  2.13.0), a tool that declares `updates_files=True` gets
+  `ctx.files.update(file_id=..., expected_version=..., content_type=...,
+  data=..., name=None)`, and `update_async`. It answers a `FileUpdateAnswer`:
+  `file`, the new version; `same` or `conflict`, Latest; or `not_updated`,
+  why no version was added. An update over 10 MB answers `size`, and nothing
+  is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
+  client's models gain `ToolFileUpdateAnswer`.
 
 ## 0.6.0
 

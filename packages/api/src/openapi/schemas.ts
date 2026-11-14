@@ -3617,6 +3617,23 @@ export const AgentMemoryPolicySchema: JsonSchema = {
   },
 };
 
+export const AgentFilesPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Lets the agent's model change its run's files, text only. `update: true` offers the built-in tool `kindgi_update_file`: a new version of a text file the run has, given the version the model read. `create: true` offers `kindgi_create_file`: a new text file of the run's. Built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`. Each call changes something, so the agent's approval rules apply, and the run needs `write` where the file is. A runtime with no file store offers neither. Absent: neither tool.",
+  properties: {
+    update: {
+      type: 'boolean',
+      description: 'Offers `kindgi_update_file`. Absent means `false`.',
+    },
+    create: {
+      type: 'boolean',
+      description: 'Offers `kindgi_create_file`. Absent means `false`.',
+    },
+  },
+};
+
 export const ConversationPolicySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3751,6 +3768,7 @@ export const AgentSchema: JsonSchema = {
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
     memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
+    files: { $ref: '#/components/schemas/AgentFilesPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -3904,6 +3922,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
     memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
+    files: { $ref: '#/components/schemas/AgentFilesPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -3941,7 +3960,7 @@ export const PublishAgentResultSchema: JsonSchema = {
     warnings: {
       type: 'array',
       description:
-        "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).",
+        "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them), `recall-unavailable` (the deployment cannot recall earlier conversations) or `files-unavailable` (the agent declares `files` and the deployment has no file store).",
       items: {
         type: 'object',
         additionalProperties: false,
@@ -4569,6 +4588,11 @@ export const ToolSchema: JsonSchema = {
       type: 'boolean',
       description:
         "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
+    updatesFiles: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may add versions to files its run has, such as a sheet it fills in: each call sends a file's new bytes with the version it read, and the tool returns the new version in its result's top-level `files`, which an agent is shown. When the file's Latest isn't the version the call read, the call gets Latest back instead. Only a file of the call's run, and only where the run may write. Only a pack tool with a handler can update files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
     },
     resultIsOutsideData: {
       type: 'boolean',
@@ -16538,7 +16562,45 @@ export const ToolFileStoreAnswerSchema: JsonSchema = {
           type: 'string',
           enum: ['type', 'size', 'limit', 'storage'],
           description:
-            "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.",
+            "Why nothing was stored: `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.",
+        },
+      },
+    },
+  ],
+};
+
+export const ToolFileUpdateAnswerSchema: JsonSchema = {
+  description:
+    "What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['file'],
+      properties: { file: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['same'],
+      properties: { same: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['conflict'],
+      properties: { conflict: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['notUpdated'],
+      properties: {
+        notUpdated: {
+          type: 'string',
+          enum: ['rule', 'denied', 'gone', 'type', 'size', 'storage'],
+          description:
+            "Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full).",
         },
       },
     },
@@ -18856,6 +18918,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
+  ['AgentFilesPolicy', AgentFilesPolicySchema],
   ['McpExposure', McpExposureSchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
@@ -19376,6 +19439,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookFirePage', WebhookFirePageSchema],
   ['WaitTokenAccepted', WaitTokenAcceptedSchema],
   ['ToolFileStoreAnswer', ToolFileStoreAnswerSchema],
+  ['ToolFileUpdateAnswer', ToolFileUpdateAnswerSchema],
   ['ToolFileNotRead', ToolFileNotReadSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],

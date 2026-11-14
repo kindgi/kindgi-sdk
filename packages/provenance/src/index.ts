@@ -43,10 +43,20 @@ export type {
   FlowJournalGap,
   FlowProvenanceBuilder,
   FlowProvenanceChild,
+  FlowProvenanceFile,
   FlowProvenanceRun,
   FlowReusedSource,
   FlowStepNodePlace,
 } from './flow-build.js';
+
+// ============ A file version's node ============
+export {
+  MAX_FILE_VERSION_NODES,
+  fileVersionNodeId,
+  fileVersionNodes,
+  fileVersionOf,
+} from './file-version.js';
+export type { FileVersionAttributes, ProvenanceFileVersion } from './file-version.js';
 
 // ============ Sign + verify ============
 export { signProvenance, verifyExported, verifyProvenance } from './sign.js';

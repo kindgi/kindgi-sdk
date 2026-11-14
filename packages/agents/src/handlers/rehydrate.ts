@@ -72,11 +72,14 @@ import {
   addPointCheckNodes,
   addRetrievalNodes,
   addStepToolNodes,
+  noteCallKeys,
 } from './turn-provenance.js';
 import type { FileRead, PointCheckNode, ToolApproval } from './turn-provenance.js';
 
 interface StepRecord {
   readonly nodeId: string;
+  /** The step's scope, as the recorder keys it: its node id, or its `bodyStepKey` in a loop. */
+  readonly scope: string;
   readonly output: unknown;
   readonly inLoop: boolean;
   /** When the step completed. */
@@ -99,6 +102,7 @@ function completedSteps(journal: readonly JournalEntry[]): readonly StepRecord[]
     byStep.delete(key);
     byStep.set(key, {
       nodeId: e.nodeId as unknown as string,
+      scope: key,
       output: payload.output,
       inLoop: payload.loopContext !== undefined,
       at: e.timestamp,
@@ -320,6 +324,12 @@ function rebuildProvenance(
     };
     if (out.step === undefined) continue;
     storedByStep.set(out.step, out.iterationAppended ?? []);
+    noteCallKeys(
+      ctx,
+      ctx.provenance.runId as unknown as string,
+      s.scope,
+      out.iterationAppended ?? [],
+    );
     if (out.guardrailChecks !== undefined) checksByStep.set(out.step, out.guardrailChecks);
   }
   const calls = steps

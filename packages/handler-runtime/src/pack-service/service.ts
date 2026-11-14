@@ -295,6 +295,7 @@ export function createPackService(options: PackServiceOptions): PackService {
         ...(tool.pauses === true && { pauses: true }),
         ...(tool.storesFiles === true && { storesFiles: true }),
         ...(tool.readsFiles === true && { readsFiles: true }),
+        ...(tool.updatesFiles === true && { updatesFiles: true }),
       },
       input: message.input,
       ctx: handlerContext(message.ctx, signal, callLog),

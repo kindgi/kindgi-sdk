@@ -28,6 +28,25 @@ export const FILE_NOT_READ_REASONS = ['rule', 'gone', 'changed', 'size'] as cons
 export type FileNotReadReason = (typeof FILE_NOT_READ_REASONS)[number];
 
 /**
+ * Why an update of a file added no version: `rule` (the file isn't one
+ * of the run's), `denied` (the run may not write where the file is),
+ * `gone` (the file is deleted), `type` (the bytes aren't the type they
+ * claim, or they're a type no model is shown and no tool the run can call
+ * reads files), `size` (over the type's limit, or past what a
+ * call may send), or `storage` (the workspace's storage is full).
+ */
+export const FILE_NOT_UPDATED_REASONS = [
+  'rule',
+  'denied',
+  'gone',
+  'type',
+  'size',
+  'storage',
+] as const;
+
+export type FileNotUpdatedReason = (typeof FILE_NOT_UPDATED_REASONS)[number];
+
+/**
  * A stored file as a value: in a run's input, a tool's result, a
  * conversation message or a flow's values. Plain JSON, so it travels like any
  * value. Its fields say what its maker wrote: only `artifactId` is trusted,
@@ -126,3 +145,24 @@ export interface FileRef {
   /** A version from 1, or `latest` (the default). */
   readonly version?: number | 'latest';
 }
+
+/**
+ * Whether a file's type is text, read and written as lines: any `text/*`,
+ * JSON, XML or YAML (`application/json`, `application/xml`,
+ * `application/yaml`), and any `+json`, `+xml` or `+yaml` type, in any
+ * case, its parameters (`; charset=utf-8`) aside. The model's
+ * `kindgi_update_file` and `kindgi_create_file` change only text files.
+ */
+export function isTextFileType(contentType: string): boolean {
+  const type = (contentType.split(';')[0] ?? '').trim().toLowerCase();
+  if (!MEDIA_TYPE.test(type)) return false;
+  return type.startsWith('text/') || TEXT_APPLICATION_TYPES.has(type) || TEXT_SUFFIX.test(type);
+}
+
+const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/;
+const TEXT_APPLICATION_TYPES: ReadonlySet<string> = new Set([
+  'application/json',
+  'application/xml',
+  'application/yaml',
+]);
+const TEXT_SUFFIX = /\+(?:json|xml|yaml)$/;

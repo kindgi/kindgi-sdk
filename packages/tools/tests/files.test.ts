@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A tool that stores the files it fetches: what it declares, what its
- * handler gets, and what defineTool refuses.
+ * A tool that stores the files it fetches, or adds versions to its run's
+ * files: what it declares, what its handler gets, and what defineTool
+ * refuses.
  */
 
 import { describe, expect, expectTypeOf, test } from 'vitest';
@@ -12,7 +13,13 @@ import * as z from 'zod';
 import type { ToolId } from '@kindgi/types';
 
 import { MAX_STORED_FILES_PER_CALL, changedToolFields, defineTool } from '../src/index.js';
-import type { FileStore, FileStoreAnswer, ToolContext, ToolManifest } from '../src/index.js';
+import type {
+  FileStore,
+  FileStoreAnswer,
+  FileUpdateAnswer,
+  ToolContext,
+  ToolManifest,
+} from '../src/index.js';
 
 const Fetch = z.object({ attachmentId: z.string() });
 const Fetched = z.object({ files: z.array(z.unknown()).optional() });
@@ -90,5 +97,77 @@ describe('defineTool with storesFiles', () => {
 
   test('a context without a store is a valid context', () => {
     expectTypeOf<ToolContext['files']>().toEqualTypeOf<FileStore | undefined>();
+  });
+});
+
+describe('defineTool with updatesFiles', () => {
+  test('the handler may get files.update; the manifest says the tool updates files', () => {
+    const r = defineTool({
+      id: 'acme.sheets.fill' as ToolId,
+      description: 'Fills in a sheet the run has.',
+      version: '1.0.0',
+      input: Fetch,
+      output: Fetched,
+      updatesFiles: true,
+      handler: async (input, c) => {
+        if (c.files?.update === undefined) return {};
+        const answer = await c.files.update({
+          fileId: input.attachmentId,
+          expectedVersion: 2,
+          contentType: 'text/csv',
+          bytes: new TextEncoder().encode('a,b\n'),
+        });
+        expectTypeOf(answer).toEqualTypeOf<FileUpdateAnswer>();
+        if ('file' in answer) return { files: [answer.file] };
+        if ('conflict' in answer) return { files: [answer.conflict] };
+        return {};
+      },
+    });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') expect(r.value.updatesFiles).toBe(true);
+  });
+
+  test.each([
+    ['an MCP transport', { transport: 'mcp' as const, handler: async () => ({}) }],
+    [
+      'a declarative spec',
+      {
+        spec: {
+          kind: 'http' as const,
+          method: 'GET' as const,
+          urlTemplate: 'https://sheets.acme.example/{attachmentId}',
+        },
+      },
+    ],
+  ])("a tool with %s can't update files", (_label, extra) => {
+    const r = defineTool({
+      id: 'acme.sheets.remote' as ToolId,
+      description: 'A tool the pack does not run.',
+      version: '1.0.0',
+      input: Fetch,
+      output: Fetched,
+      updatesFiles: true,
+      ...extra,
+    } as unknown as Parameters<typeof defineTool>[0]);
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.code).toBe('invalid-tool-definition');
+      expect(r.error.message).toBe(
+        "`updatesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't update files.",
+      );
+    }
+  });
+
+  test("updatesFiles is part of the tool's definition: a change takes a new version", () => {
+    const manifest = {
+      id: 'acme.sheets.fill',
+      description: 'Fills in a sheet the run has.',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    } as unknown as ToolManifest;
+    expect(changedToolFields(manifest, { ...manifest, updatesFiles: true })).toEqual([
+      'updatesFiles',
+    ]);
   });
 });

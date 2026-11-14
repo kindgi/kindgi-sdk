@@ -500,6 +500,8 @@ export type {
   ToolFilesBinding,
   ToolFileStoreInput,
   ToolFilesRefusal,
+  ToolFileUpdateAnswer,
+  ToolFileUpdateInput,
 } from './tool-files-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {

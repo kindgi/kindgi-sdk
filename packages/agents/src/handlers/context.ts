@@ -225,6 +225,12 @@ export interface TurnContext {
    */
   toolResultIds?: string[];
   /**
+   * Each call this process ran, its `idempotencyKey` to its invocation id:
+   * how a file version a call made or was given finds the call's node in
+   * the record. Filled by `dispatch-tools`.
+   */
+  callKeys?: Map<string, string>;
+  /**
    * The tool-call approvals this turn's journal shows decided, by
    * invocation id: each call's provenance shows the approval it waited on.
    * Populated by `rehydrateTurnContext` (a decision only reaches a turn

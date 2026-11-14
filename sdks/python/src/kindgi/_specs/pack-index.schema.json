@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/pack-index.schema.json",
-  "$comment": "schema-version: 1.9.0",
+  "$comment": "schema-version: 1.10.0",
   "title": "Pack index",
   "description": "The `index.json` a pack build emits: the pack's tools, guardrails, agents, flows and data blocks as data, plus where each tool handler and guardrail check lives. A runtime registers the pack's primitives from it, and a pack service loads the modules it names and resolves every call by id. Any indexer (the TypeScript `kindgi-index`, the Python `python -m kindgi.pack index`) emits this shape. Determinism: every list is sorted by `id` (code-unit order), keys are sorted at every level, the file is UTF-8 JSON indented by two spaces with a trailing newline, and integral numbers carry no fraction, so the same source indexes to the same bytes. Consumers refuse an envelope `v` they don't recognize.",
   "type": "object",
@@ -183,6 +183,10 @@
           "type": "boolean",
           "description": "Whether the tool may read stored files (`tool.schema.json` `readsFiles`, schema-version 1.8.0+): the runtime then sends each call a `toolFiles`, and the pack service gives its handler `files.read`. Absent means `false`."
         },
+        "updatesFiles": {
+          "type": "boolean",
+          "description": "Whether the tool may add versions to its run's files (`tool.schema.json` `updatesFiles`, schema-version 1.10.0+): the runtime then sends each call a `toolFiles`, and the pack service gives its handler `files.update`. Absent means `false`."
+        },
         "spec": {
           "$ref": "#/$defs/openObject",
           "description": "A declarative tool's spec (`tool.schema.json` `spec`, e.g. `kind: 'http'`). A runtime runs a tool that has one itself, resolving its `secretRef`s, rather than calling the pack service."
@@ -303,6 +307,15 @@
         },
         "retrieval": { "type": "array" },
         "memory": { "$ref": "#/$defs/openObject" },
+        "files": {
+          "type": "object",
+          "description": "Which of its run's files the model may change (`agent.schema.json` `files`, schema-version 1.10.0+).",
+          "additionalProperties": false,
+          "properties": {
+            "update": { "type": "boolean" },
+            "create": { "type": "boolean" }
+          }
+        },
         "guardrails": { "type": "array", "items": { "type": "string" } },
         "budget": { "$ref": "#/$defs/openObject" },
         "parameters": { "type": "array" },

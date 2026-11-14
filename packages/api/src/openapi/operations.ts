@@ -12745,7 +12745,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': {
         description:
-          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
+          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
         schema: ref('ToolFileStoreAnswer'),
       },
       '400': ErrorResponse('`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.'),
@@ -12803,6 +12803,72 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '503': ErrorResponse(
         "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/tool-files/:fileId/versions',
+    openapiPath: '/v1/tool-files/{fileId}/versions',
+    operationId: 'toolFiles.update',
+    senderOnly:
+      "A pack service adds a version to a file for a tool's call with the tool files the call carries (pack protocol 2.13.0); a Kindgi client adds versions with `POST /v1/files/{fileId}/versions`.",
+    summary: "Add a version to a file for a pack tool's call",
+    description:
+      "A pack tool that declares `updatesFiles` gets the call's tool files with each call, and its pack service posts each new version the tool adds here, by its file value's `fileId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call updates a file its run may be shown, where the run may write: the file's project, or the workspace for a file with no project. The body is the new bytes, at most 10 MB read; `Content-Type` is the type, and only the bytes decide it. `Kindgi-Expected-Version` is the version the tool read: when Latest has moved past it, nothing is added and the answer is Latest (`conflict`). The new version keeps Latest's tags, and is listed among the run's files. The same bytes again in the same call, a re-run of it included, answer the first version. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'fileId',
+        in: 'path',
+        required: true,
+        description: "The file value's `fileId`.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'Kindgi-Expected-Version',
+        in: 'header',
+        required: true,
+        description:
+          'The version the tool read, which must still be Latest: a whole number from 1.',
+        schema: { type: 'integer', minimum: 1 },
+      },
+      {
+        name: 'Kindgi-File-Name',
+        in: 'header',
+        required: false,
+        description:
+          "A new name for the version, percent-encoded UTF-8. Absent or empty: Latest's name.",
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description: 'The new bytes, with their type as `Content-Type`.',
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "The new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or no version added, and why (`notUpdated`): `rule`, `denied`, `gone`, `type`, `size` (over its type's limit, or a body past 10 MB, not read to its end) or `storage`.",
+        schema: ref('ToolFileUpdateAnswer'),
+      },
+      '400': ErrorResponse(
+        '`bad-input`: `Kindgi-Expected-Version` is missing or not a whole number from 1, or `Kindgi-File-Name` is not percent-encoded UTF-8.',
+      ),
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't update files alike), or this runtime adds no versions for tools.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was added. Told only for a token that matches.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was added. `Retry-After` says when to send the version again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was added. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was added. `Retry-After` says when to send the version again.",
       ),
     },
   },

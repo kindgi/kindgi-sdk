@@ -13,11 +13,13 @@ import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
 import { type McpExposure, type Result, type Semver, mcpExposureIssues } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
+import { CREATE_FILE_TOOL_ID, UPDATE_FILE_TOOL_ID } from './file-tools.js';
 import { templateProblem } from './liquid.js';
 import { AUTO_INJECTED_VARS } from './prompt.js';
 import { MAX_REMEMBER_DAYS, REMEMBER_TOOL_ID } from './remember.js';
 import type {
   Agent,
+  AgentFilesPolicy,
   AgentId,
   AgentMemoryPolicy,
   AgentOutputSpec,
@@ -61,6 +63,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateArrays(spec),
     ...validateRetrieval(spec),
     ...validateMemoryPolicy(spec),
+    ...validateFilesPolicy(spec),
     ...validatePromptParameters(spec.parameters),
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
@@ -186,6 +189,12 @@ export interface DefineAgentSpec {
    * Absent: every retrieved fact is data.
    */
   readonly memory?: AgentMemoryPolicy;
+  /**
+   * Which of its run's files the model may change, text only:
+   * `update: true` offers `kindgi_update_file`, and `create: true`
+   * offers `kindgi_create_file`. Absent: neither.
+   */
+  readonly files?: AgentFilesPolicy;
   /**
    * Guardrail IDs that guard this agent's turns. Each id must
    * resolve among the guardrails bound for the run, or the turn fails
@@ -408,7 +417,7 @@ function validateToolRef(ref: unknown, i: number): Issue[] {
   } else if (obj.id.startsWith(BUILT_IN_TOOL_PREFIX)) {
     out.push({
       path: `/tools/${i}/id`,
-      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}), not from tools`,
+      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}, files.update for ${UPDATE_FILE_TOOL_ID}, files.create for ${CREATE_FILE_TOOL_ID}), not from tools`,
     });
   }
   if (typeof obj.version !== 'string' || obj.version.trim().length === 0) {
@@ -555,6 +564,24 @@ function validateRemember(remember: RememberPolicy): Issue[] {
       path: '/memory/remember/keepDays',
       message: `remember.keepDays must be a whole number of days from 1 to ${MAX_REMEMBER_DAYS}`,
     });
+  }
+  return out;
+}
+
+/** `files` is `{ update?, create? }`, each `true` or `false`. */
+function validateFilesPolicy(spec: DefineAgentSpec): Issue[] {
+  const files: unknown = spec.files;
+  if (files === undefined) return [];
+  if (files === null || typeof files !== 'object' || Array.isArray(files)) {
+    return [{ path: '/files', message: 'files must be an object' }];
+  }
+  const out: Issue[] = [];
+  for (const [key, value] of Object.entries(files)) {
+    if (key !== 'update' && key !== 'create') {
+      out.push({ path: `/files/${key}`, message: 'files takes only update and create' });
+    } else if (typeof value !== 'boolean') {
+      out.push({ path: `/files/${key}`, message: `files.${key} must be true or false` });
+    }
   }
   return out;
 }
@@ -913,6 +940,7 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
         }),
       },
     }),
+    ...(spec.files !== undefined && { files: { ...spec.files } }),
     guardrails: [...spec.guardrails],
     ...(spec.parameters !== undefined && {
       parameters: spec.parameters.map((p) => ({ ...p })),

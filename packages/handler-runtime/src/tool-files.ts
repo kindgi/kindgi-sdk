@@ -2,13 +2,15 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A pack tool's files (pack protocol 2.10.0). The runtime sends a call of a
- * tool that declares `storesFiles` or `readsFiles` its tool files
- * (`ctx.toolFiles`: a link and a token). The runner keeps them from the
- * handler and gives the handler `files` instead: each store posts the
- * file's bytes to the link, each read gets a file's bytes from the link and
- * the file's id, with the token in `Authorization`, and each answers what
- * the runtime answered. The handler never sees the link or the token.
+ * A pack tool's files (pack protocol 2.10.0, and 2.13.0 for updates). The
+ * runtime sends a call of a tool that declares `storesFiles`, `readsFiles`
+ * or `updatesFiles` its tool files (`ctx.toolFiles`: a link and a token).
+ * The runner keeps them from the handler and gives the handler `files`
+ * instead: each store posts the file's bytes to the link, each read gets a
+ * file's bytes from the link and the file's id, and each update posts the
+ * new bytes to `<link>/<fileId>/versions`, with the token in
+ * `Authorization`, and each answers what the runtime answered. The handler
+ * never sees the link or the token.
  */
 
 import {
@@ -17,11 +19,15 @@ import {
   type FileStore,
   type FileStoreAnswer,
   type FileToStore,
+  type FileToUpdate,
+  type FileUpdateAnswer,
   MAX_STORED_FILE_BYTES,
 } from '@kindgi/tools';
 import {
   FILE_NOT_READ_REASONS,
+  FILE_NOT_UPDATED_REASONS,
   type FileNotReadReason,
+  type FileNotUpdatedReason,
   bearerValueProblem,
   headerValueProblem,
   isFileValue,
@@ -38,6 +44,10 @@ const NOT_STORED_REASONS: ReadonlySet<unknown> = new Set<FileNotStoredReason>([
 
 const NOT_READ_REASONS: ReadonlySet<unknown> = new Set<FileNotReadReason>(FILE_NOT_READ_REASONS);
 
+const NOT_UPDATED_REASONS: ReadonlySet<unknown> = new Set<FileNotUpdatedReason>(
+  FILE_NOT_UPDATED_REASONS,
+);
+
 /**
  * The call's tool files, when the runtime sent usable ones: an http(s)
  * link and a token fetch can send. Anything else is none, and the handler
@@ -45,12 +55,16 @@ const NOT_READ_REASONS: ReadonlySet<unknown> = new Set<FileNotReadReason>(FILE_N
  */
 export function toolFilesOf(value: unknown): ToolFilesRef | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { url, token } = value as { readonly url?: unknown; readonly token?: unknown };
+  const { url, token, updates } = value as {
+    readonly url?: unknown;
+    readonly token?: unknown;
+    readonly updates?: unknown;
+  };
   if (typeof url !== 'string' || !isHttpUrl(url)) return undefined;
   if (typeof token !== 'string' || token.length === 0 || bearerValueProblem(token) !== undefined) {
     return undefined;
   }
-  return { url, token };
+  return { url, token, ...(updates === true && { updates: true }) };
 }
 
 function isHttpUrl(url: string): boolean {
@@ -59,12 +73,12 @@ function isHttpUrl(url: string): boolean {
 }
 
 /**
- * The files a handler gets from a call's `link`: `store` and
- * `read` as `may` says, from what the tool declares.
+ * The files a handler gets from a call's `link`: `store`, `read` and
+ * `update` as `may` says, from what the tool declares.
  */
 export function fileStoreOf(
   link: ToolFilesRef,
-  may: { readonly store: boolean; readonly read: boolean },
+  may: { readonly store: boolean; readonly read: boolean; readonly update?: boolean },
   signal?: AbortSignal,
 ): FileStore {
   return Object.freeze({
@@ -101,6 +115,31 @@ export function fileStoreOf(
         return readAnswerOf(response);
       },
     }),
+    ...(may.update === true && {
+      update: async (file: FileToUpdate): Promise<FileUpdateAnswer> => {
+        checkUpdate(file);
+        // Over every type's limit: the runtime would answer `size`, so nothing is sent, as for a store.
+        if (file.bytes.byteLength > MAX_STORED_FILE_BYTES) return { notUpdated: 'size' };
+        const name = file.name === undefined || file.name === '' ? undefined : file.name;
+        const response = await fetch(
+          `${link.url.replace(/\/+$/, '')}/${encodeURIComponent(wellFormed(file.fileId))}/versions`,
+          {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${link.token}`,
+              'content-type': sendableType(file.contentType),
+              'kindgi-expected-version': String(file.expectedVersion),
+              ...(name !== undefined && {
+                'kindgi-file-name': encodeURIComponent(wellFormed(name)),
+              }),
+            },
+            body: file.bytes,
+            ...(signal !== undefined && { signal }),
+          },
+        );
+        return updateAnswerOf(response);
+      },
+    }),
   });
 }
 
@@ -127,6 +166,23 @@ function checkFile(file: FileToStore): void {
   }
 }
 
+/** A JavaScript handler's new version, checked: TypeScript can't hold it to `FileToUpdate`. */
+function checkUpdate(file: FileToUpdate): void {
+  if (
+    typeof file?.fileId !== 'string' ||
+    file.fileId === '' ||
+    !Number.isSafeInteger(file.expectedVersion) ||
+    file.expectedVersion < 1 ||
+    (file.name !== undefined && typeof file.name !== 'string') ||
+    typeof file.contentType !== 'string' ||
+    !(file.bytes instanceof Uint8Array)
+  ) {
+    throw new TypeError(
+      'files.update takes { fileId: string, expectedVersion: a whole number from 1, name?: string, contentType: string, bytes: Uint8Array }',
+    );
+  }
+}
+
 /**
  * The declared type as a header can carry it. The runtime decides by the
  * bytes, so a type fetch would refuse to send (a line break, a character
@@ -148,6 +204,27 @@ async function storeAnswerOf(response: Response): Promise<FileStoreAnswer> {
     return { notStored: answer?.notStored as FileNotStoredReason };
   }
   throw new Error("files.store: the runtime's answer isn't a stored file or a reason");
+}
+
+/** The runtime's answer to an update, or a throw naming its status and error code. */
+async function updateAnswerOf(response: Response): Promise<FileUpdateAnswer> {
+  const body: unknown = await response.json().catch(() => undefined);
+  if (response.status !== 200) throw refused('files.update', response.status, body);
+  const answer = body as
+    | {
+        readonly file?: unknown;
+        readonly same?: unknown;
+        readonly conflict?: unknown;
+        readonly notUpdated?: unknown;
+      }
+    | undefined;
+  if (isFileValue(answer?.file)) return { file: answer.file };
+  if (isFileValue(answer?.same)) return { same: answer.same };
+  if (isFileValue(answer?.conflict)) return { conflict: answer.conflict };
+  if (NOT_UPDATED_REASONS.has(answer?.notUpdated)) {
+    return { notUpdated: answer?.notUpdated as FileNotUpdatedReason };
+  }
+  throw new Error("files.update: the runtime's answer isn't a version, Latest or a reason");
 }
 
 /**

@@ -56,6 +56,7 @@ export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.j
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
+export { FILE_NOT_CREATED_REASONS } from './handlers/files.js';
 export { connectionSetRefusal, isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
 export { computeConnectWaitToken } from './handlers/tool-hitl.js';
@@ -99,7 +100,9 @@ export type {
   ConnectionCallCode,
   FileBinding,
   FileBindings,
+  FileCreateAnswer,
   FileHold,
+  FileNotCreatedReason,
   UnresolvedToolError,
 } from './invoke.js';
 export {
@@ -167,6 +170,11 @@ export {
   looksLikeInstruction,
 } from './remember.js';
 export type { RememberToolOutput } from './handlers/remember-tool.js';
+export { CREATE_FILE_TOOL_ID, FILE_TOOLS_VERSION, UPDATE_FILE_TOOL_ID } from './file-tools.js';
+export type {
+  CreateFileToolOutput,
+  UpdateFileToolOutput,
+} from './handlers/model-file-tools.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
@@ -200,6 +208,7 @@ export type {
 export type {
   Agent,
   AgentBindings,
+  AgentFilesPolicy,
   AgentId,
   AgentMemoryPolicy,
   AgentOutputSpec,
