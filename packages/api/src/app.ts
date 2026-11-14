@@ -108,7 +108,12 @@ import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
-import { connectionKeysOf, providerKeysOf, usersOfSecret } from './provider-keys.js';
+import {
+  connectionKeysOf,
+  guardSecretKeys,
+  providerKeysOf,
+  usersOfSecret,
+} from './provider-keys.js';
 import {
   type PublicRunTokenConfig,
   mintPublicRunToken,
@@ -2118,7 +2123,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             deployments: input.deploymentRegistry,
             stores: {
               env: input.envBinding,
-              ...(secretsBinding !== undefined && { secrets: secretsBinding }),
+              // A texts registration's account key never reaches a pack's
+              // env; a model provider's key reaches it as before.
+              ...(secretsBinding !== undefined && {
+                secrets: guardSecretKeys(secretsBinding, { connectionKeys }, "a pack's env"),
+              }),
               ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
             },
@@ -2945,6 +2954,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         secretWrites: observedSecrets.writes,
         envName: input.webhookReceiver.envName,
         providerKeys,
+        connectionKeys,
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(input.webhookReceiver.clientAddress !== undefined && {
           clientAddress: input.webhookReceiver.clientAddress,

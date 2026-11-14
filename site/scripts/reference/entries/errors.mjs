@@ -3658,7 +3658,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-key-refused': {
     description:
-      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider or another connection app registration. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
     details: [
       {
         key: 'secret',
