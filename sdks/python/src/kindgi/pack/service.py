@@ -31,7 +31,6 @@ import json
 import os
 import sys
 import time
-import traceback
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -54,6 +53,7 @@ from .context import (
     wait_token_from_wire,
 )
 from .define import Guardrail, Tool, check_result_to_wire
+from .error_text import said, serialize_cause, without_values
 from .loader import import_pack_module, mount_pack, primitives_of
 from .protocol import (
     PACK_HEADERS,
@@ -536,11 +536,15 @@ class PackService:
                     toolId=tool_id,
                     connection=rejected.connection,
                 )
+            # The call's own values go before the message is made: its masking, its one-line
+            # causes and their cut could otherwise leave part of one where a match on the whole
+            # value no longer finds it.
+            without = without_values(ctx)
             return pack_error(
                 "handler-throw",
-                f'Handler for tool "{tool_id}" threw: {_describe_named(cause)}',
+                f'Handler for tool "{tool_id}" threw: {said(cause, without)}',
                 toolId=tool_id,
-                cause=_serialize_cause(cause),
+                cause=serialize_cause(cause, without),
             )
         if isinstance(result, PauseAnswer):
             if not pauses or wait_token_from_wire(message.ctx) is None:
@@ -634,9 +638,9 @@ class PackService:
                 raise
             return pack_error(
                 "handler-throw",
-                f'Check "{check_id}" evaluate() threw: {_describe_named(cause)}',
+                f'Check "{check_id}" evaluate() threw: {said(cause)}',
                 checkId=check_id,
-                cause=_serialize_cause(cause),
+                cause=serialize_cause(cause),
             )
         wire = check_result_to_wire(result)
         if wire is None:
@@ -684,8 +688,8 @@ class PackService:
                 raise
             return pack_error(
                 "handler-import-failed",
-                f"Failed to import {what} module '{module_path}': {_describe_named(cause)}",
-                cause=_serialize_cause(cause),
+                f"Failed to import {what} module '{module_path}': {said(cause)}",
+                cause=serialize_cause(cause),
             )
         for primitive in primitives_of(module):
             if isinstance(primitive, kind):
@@ -847,18 +851,6 @@ def _rejection_of(error: BaseException) -> ConnectionRejected | None:
             return at
         at = at.__cause__
     return None
-
-
-def _describe_named(cause: BaseException) -> str:
-    return f"{type(cause).__name__}: {cause}"
-
-
-def _serialize_cause(cause: BaseException) -> Message:
-    return {
-        "name": type(cause).__name__,
-        "message": str(cause),
-        "stack": "".join(traceback.format_exception(cause)),
-    }
 
 
 def _call_ids(ctx: Mapping[str, Any] | None) -> dict[str, str]:

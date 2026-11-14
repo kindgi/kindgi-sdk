@@ -74,7 +74,7 @@ class PackServiceTest {
     index.put("artifactVersion", "20261001.7");
     List<Object> tools = new ArrayList<>();
     for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed", "acme.later", "acme.laterFails",
-        "acme.laterNull", "acme.laterNever", "acme.logs", "acme.mail", "acme.mailLater")) {
+        "acme.laterNull", "acme.laterNever", "acme.logs", "acme.mail", "acme.mailLater", "acme.failsWithCause")) {
       tools.add(tool(id));
     }
     index.put("tools", tools);
@@ -267,6 +267,21 @@ class PackServiceTest {
     assertThat(answer).containsEntry("code", "handler-throw");
     assertThat((String) answer.get("message")).isEqualTo(
         "Handler for tool \"acme.laterFails\" threw: java.lang.IllegalStateException: card declined");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aHandlersFailureSaysItsCausesWithTheCallsSecretTakenOut() throws Exception {
+    String secret = "shop-key-0123456789";
+    Map<String, Object> answer = invoke("acme.failsWithCause", Map.of(), null,
+        Map.of("tenantId", "t1", "runId", "r1", "secrets", Map.of("SHOP_KEY", secret)), "");
+    assertThat(answer).containsEntry("code", "handler-throw");
+    assertThat((String) answer.get("message")).isEqualTo("Handler for tool \"acme.failsWithCause\" threw: "
+        + "java.lang.IllegalStateException: lookup failed; caused by IOException: login refused for [redacted]");
+    Map<String, Object> cause = (Map<String, Object>) answer.get("cause");
+    assertThat(cause).containsEntry("name", "java.lang.IllegalStateException").containsEntry("message", "lookup failed");
+    assertThat((String) cause.get("stack")).contains("Caused by: java.io.IOException: login refused for [redacted]");
+    assertThat(Json.compactString(answer)).doesNotContain(secret);
   }
 
   @Test
