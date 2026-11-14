@@ -109,6 +109,7 @@ import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import {
+  type IdentityProviderKeys,
   connectionKeysOf,
   guardSecretKeys,
   identityProviderKeysOf,
@@ -1147,6 +1148,16 @@ export interface CreateAppInput {
    */
   readonly identityProvider?: IdentityProviderBinding;
   /**
+   * Optional. The secrets the tenant's identity providers reference, as
+   * every guard and every name check here reads them: such a secret is
+   * sign-in's only. Without it, they're listed from `identityProvider` on
+   * each read, so an app without `identityProvider` guards none of them. A
+   * deployment that keeps its identity providers while it mounts no
+   * sign-in passes its own, so their secrets stay sign-in's only whether or
+   * not it mounts sign-in.
+   */
+  readonly identityProviderKeys?: IdentityProviderKeys;
+  /**
    * Who may add, change and remove the tenant's identity providers:
    * `tenant` (default) its admins; `operator` only the deployment's own
    * token (`kindgi:system`), for a deployment whose operator manages
@@ -1961,7 +1972,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const connectionKeys = connectionKeysOf(input.connections);
   // An identity provider's secret is used by sign-in only: every route
   // that writes a name but the identity providers' own checks against it.
-  const identityProviderKeys = identityProviderKeysOf(input.identityProvider);
+  // The deployment's own source when it gives one, whatever `identityProvider` is.
+  const identityProviderKeys =
+    input.identityProviderKeys ?? identityProviderKeysOf(input.identityProvider);
   const receiveUrl =
     input.publicUrl === undefined
       ? undefined

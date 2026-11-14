@@ -72,6 +72,11 @@ function setup(
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
     /** Texts registrations' account keys, by name, with the registrations holding each. */
     textsKeys?: Map<string, string[]>;
+    /**
+     * Identity providers' secrets, by name, with the provider referencing
+     * each: the app's own `identityProviderKeys`, with no `identityProvider`.
+     */
+    identityProviderKeys?: Map<string, string>;
   } = {},
 ) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT as never });
@@ -179,6 +184,9 @@ function setup(
     secretsBinding: secrets,
     providerRegistry,
     ...(connections !== undefined && { connections }),
+    ...(options.identityProviderKeys !== undefined && {
+      identityProviderKeys: { of: async () => options.identityProviderKeys as Map<string, string> },
+    }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: {
@@ -533,6 +541,30 @@ describe('a request that does not prove its sender', () => {
     expect(keyHolderReads.slice(before)).toEqual([WOO_SECRET]);
     expect((await fires(t.triggerId)).map((f) => [f.outcome, f.detail])).toEqual(
       Array.from({ length: 5 }, () => ['refused', 'secret-unavailable']),
+    );
+  });
+
+  test("an identity provider's secret, from the app's own keys with no sign-in binding: refused at register, and unread at receive", async () => {
+    const identityProviderKeys = new Map<string, string>([['acme-oidc-secret', 'acme-oidc']]);
+    const { admin, register, deliver, fires, resolved } = setup({ identityProviderKeys });
+    const res = await admin('POST', '', {
+      flowId: 'acme.refund-review',
+      flowVersion: '1.0.0',
+      hmacSecretName: 'acme-oidc-secret',
+    });
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: { code: 'identity-provider-key-refused' } },
+    });
+    // A trigger written before its secret was an identity provider's.
+    const t = await register(WOO);
+    identityProviderKeys.set(WOO_SECRET, 'acme-oidc');
+    for (let i = 0; i < 3; i++) {
+      expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, `p${i}`))).status).toBe(401);
+    }
+    expect(resolved.filter((n) => n === WOO_SECRET)).toEqual([]);
+    expect((await fires(t.triggerId)).map((f) => [f.outcome, f.detail])).toEqual(
+      Array.from({ length: 3 }, () => ['refused', 'secret-unavailable']),
     );
   });
 
