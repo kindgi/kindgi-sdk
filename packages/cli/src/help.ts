@@ -73,11 +73,13 @@ export function unknownSubcommandText(
 
 /**
  * Top-level words that name a real command spelled another way: `eval` is the
- * `test-runs` and `test-sets` commands. Unlike a mistyped subcommand, these are nowhere near their real
- * names, so they are listed, not guessed by edit distance.
+ * `test-runs` and `test-sets` commands, and `file` is `files`. Unlike a
+ * mistyped subcommand, a top-level word isn't guessed by edit distance, so
+ * these are listed.
  */
 const NEAR_MISS_COMMAND: Readonly<Record<string, readonly string[]>> = {
   eval: ['test-runs', 'test-sets'],
+  file: ['files'],
 };
 
 /** `"kindgi a"`, or `"kindgi a" or "kindgi b"`, or `"kindgi a", "kindgi b" or "kindgi c"`. */

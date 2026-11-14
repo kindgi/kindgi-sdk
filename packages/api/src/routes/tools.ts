@@ -859,6 +859,7 @@ const OPTIONAL_TOOL_FIELDS = [
   'pauses',
   'storesFiles',
   'readsFiles',
+  'updatesFiles',
   'resultIsOutsideData',
   'sandbox',
   'limits',

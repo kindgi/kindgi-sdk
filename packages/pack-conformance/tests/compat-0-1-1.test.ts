@@ -104,6 +104,7 @@ if (!(await available('uv'))) {
     'tools/pause.py',
     'tools/read.py',
     'tools/store.py',
+    'tools/update.py',
     'guardrails/judged.py',
   ]);
   describeCallContextCompatibility({

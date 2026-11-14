@@ -4,19 +4,27 @@
 /**
  * A pack tool's files: the binding `/v1/tool-files` calls.
  *
- * A pack tool that declares `storesFiles` or `readsFiles` gets the call's
- * tool files with each call: a link and a token (`kgi_tf_…`) that names
- * that one call and what it may do. The pack service's runner posts each
- * file the handler stores to the link, and gets each file it reads from
- * the link and the file's id, with the token in `Authorization: Bearer`.
- * The runtime checks a stored file's bytes and stores them as a file the
- * call's run owns, and answers a read under the run's rule.
+ * A pack tool that declares `storesFiles`, `readsFiles` or `updatesFiles`
+ * gets the call's tool files with each call: a link and a token
+ * (`kgi_tf_…`) that names that one call and what it may do. The pack
+ * service's runner posts each file the handler stores to the link, gets
+ * each file it reads from the link and the file's id, and posts each new
+ * version it adds to `<link>/<fileId>/versions`, with the token in
+ * `Authorization: Bearer`. The runtime checks a stored file's bytes and
+ * stores them as a file the call's run owns, answers a read under the
+ * run's rule, and adds a version under the same rule.
  *
  * The runtime implements the binding; `@kindgi/api` holds no reference to
  * how tokens or files are stored.
  */
 
-import type { FileNotReadReason, FileNotShownReason, FileValue, Result } from '@kindgi/types';
+import type {
+  FileNotReadReason,
+  FileNotShownReason,
+  FileNotUpdatedReason,
+  FileValue,
+  Result,
+} from '@kindgi/types';
 
 /** A file a pack tool's call stores, as the route has it. */
 export interface ToolFileStoreInput {
@@ -64,7 +72,45 @@ export type ToolFileReadAnswer =
   | { readonly bytes: Uint8Array; readonly release?: () => void }
   | { readonly notRead: FileNotReadReason };
 
-/** Why a store or a read isn't taken. */
+/** A new version a pack tool's call adds to a file, as the route has it. */
+export interface ToolFileUpdateInput {
+  /** The token from `Authorization: Bearer`, as it came. */
+  readonly token: string;
+  /** The file's id, from the path, as it came. */
+  readonly fileId: string;
+  /**
+   * `Kindgi-Expected-Version`: the version the tool read, which must
+   * still be Latest. A whole number from 1.
+   */
+  readonly expectedVersion: number;
+  /**
+   * The name from `Kindgi-File-Name`, decoded. Absent when there's none,
+   * or it's empty: the new version keeps Latest's name.
+   */
+  readonly name?: string;
+  /** The declared type, from `Content-Type`; empty when there's none. Only the bytes decide. */
+  readonly contentType: string;
+  /** The body's length, from `Content-Length`; absent when it isn't sent. */
+  readonly declaredBytes?: number;
+  /** Reads the body, as {@link ToolFileStoreInput.body} does. */
+  readonly body: (maxBytes: number) => Promise<Uint8Array | 'too-large'>;
+}
+
+/**
+ * What an update answers once the token matches: the new version
+ * (`file`); Latest, when the bytes are Latest's already (`same`); Latest,
+ * when it isn't the expected version any more (`conflict`); or why no
+ * version was added (`notUpdated`). The same bytes again in the same call,
+ * a re-run of it included, answer the first version, even after Latest
+ * has moved on.
+ */
+export type ToolFileUpdateAnswer =
+  | { readonly file: FileValue }
+  | { readonly same: FileValue }
+  | { readonly conflict: FileValue }
+  | { readonly notUpdated: FileNotUpdatedReason };
+
+/** Why a store, a read or an update isn't taken. */
 export type ToolFilesRefusal =
   /**
    * No such token, the secret doesn't match, or the token's call may not
@@ -116,4 +162,33 @@ export interface ToolFilesBinding {
    * refused for a frozen tenant or a suspended project: it writes nothing.
    */
   read(input: ToolFileReadInput): Promise<Result<ToolFileReadAnswer, ToolFilesRefusal>>;
+  /**
+   * Add a version to one file for the call the token names, under its
+   * run's rule. A token whose call doesn't update files is
+   * `tool-file-token-not-found`. Absent: every update is
+   * `tool-file-token-not-found` (a runtime from before pack protocol
+   * 2.13.0).
+   *
+   * Once the token matches, it refuses as `store` does: `tenant-frozen`,
+   * `project-suspended`, then `tool-file-token-closed`. Then it answers in
+   * this order:
+   *   1. `rule`: the run may not be shown a file of that id, or the id
+   *      isn't one;
+   *   2. `denied`: the run's principal has no `write` where the file is
+   *      (its project, or the tenant for a file with no project), as
+   *      `POST /v1/files/{fileId}/versions` asks;
+   *   3. `gone`: the file is deleted;
+   *   4. `size`, unread, for a declared length past `TOOL_FILE_MAX_BYTES`;
+   *      then room for the bytes (`tool-files-busy`), and the body read
+   *      (`too-large` answers `size`);
+   *   5. the call's first version, for the same bytes again in the same
+   *      call;
+   *   6. `conflict` (Latest), when Latest isn't `expectedVersion`;
+   *   7. `same` (Latest), when the bytes are Latest's;
+   *   8. `type`, then `size` for its type, then `storage`, as a store
+   *      checks them.
+   * The new version keeps Latest's tags, records the call's run, call and
+   * tool, and is listed among the run's files.
+   */
+  update?(input: ToolFileUpdateInput): Promise<Result<ToolFileUpdateAnswer, ToolFilesRefusal>>;
 }

@@ -12,6 +12,7 @@ import { cliPinWarning, readCliPin } from './cli-pin.js';
 import type { ApprovalWaitSeam } from './commands/approval-wait.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { ConnectionsSeam } from './commands/connections.js';
+import { deprecationNotice } from './commands/deprecated.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import { ROOT_COMMANDS, findCommand } from './commands/index.js';
@@ -349,7 +350,9 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ? undefined
     : await pinWarningFor(ctx.cwd, parsed.options.path);
   if (pinWarning !== undefined && topLevel === 'dev') process.stderr.write(pinWarning);
-  const before = topLevel === 'dev' ? '' : (pinWarning ?? '');
+  // A deprecated command says, on every run, which one to use instead.
+  const deprecated = deprecationNotice(argv.slice(0, consumed));
+  const before = `${topLevel === 'dev' ? '' : (pinWarning ?? '')}${deprecated}`;
   try {
     const result = await command.run(ctx);
     if (result.kind === 'ok') {
@@ -368,7 +371,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
     return {
       stdout: '',
-      stderr: `${stream.unsaid('')}${formatted.stderr}`,
+      stderr: `${stream.unsaid(deprecated)}${formatted.stderr}`,
       exitCode: formatted.exitCode,
     };
   }

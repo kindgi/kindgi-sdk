@@ -10,6 +10,7 @@ import {
   type OAuthTokenVerifier,
   bearerAuthChallengeResponse,
   createMcpHandler,
+  isLegacyRequest,
   verifyBearerToken,
 } from '@modelcontextprotocol/server';
 import type { Context, Hono } from 'hono';
@@ -118,6 +119,13 @@ const BUSY_KEY = 'kindgi-busy';
 export const MCP_CALLS_PER_MESSAGE = 40;
 
 /**
+ * Both eras: 2026-07-28 per request, and the 2025 revisions' `initialize`,
+ * which the chat apps still open with, served statelessly. Serving 2025 is
+ * a choice: `'reject'` would cut every app that hasn't moved.
+ */
+const ERAS = { legacy: 'stateless' } as const;
+
+/**
  * `limiter`: the tenant's API requests a minute, when the deployment
  * limits them. Each JSON-RPC message counts once, and its tools' `/v1`
  * calls count on that.
@@ -150,7 +158,7 @@ export function mountMcpServer(
       if (served(set, context.scopes)) await set.register(server, context);
     }
     return server;
-  });
+  }, ERAS);
 
   const verifier: OAuthTokenVerifier = {
     async verifyAccessToken(token) {
@@ -176,6 +184,15 @@ export function mountMcpServer(
   // Every method: the library answers what MCP's HTTP transport doesn't
   // serve. `/mcp` speaks JSON-RPC, so it isn't an OpenAPI operation.
   app.all('/mcp', async (c) => {
+    // The revision a client says it speaks, on the request's log line, from
+    // the header alone: the unsigned first request, the one that starts
+    // sign-in, carries it too, and no body is read before sign-in.
+    c.set(
+      'log',
+      c
+        .get('log')
+        .child({ mcpProtocolVersion: protocolVersionOf(c.req.header('mcp-protocol-version')) }),
+    );
     let authInfo: AuthInfo;
     try {
       authInfo = await verifyBearerToken(c.req.header('authorization'), {
@@ -205,6 +222,7 @@ export function mountMcpServer(
     const messages = messagesIn(body);
     const past = await pastTheLimit(c, limiter, resolution.tenantId, messages, asked);
     if (past instanceof Response) return past;
+    c.set('log', c.get('log').child({ mcpEra: await eraOf(c.req.raw, body) }));
     if (past !== undefined) {
       return handler.fetch(c.req.raw, { authInfo: { ...authInfo, extra: { [BUSY_KEY]: past } } });
     }
@@ -339,6 +357,25 @@ function messagesIn(body: { readonly json: unknown } | undefined): number {
   if (body === undefined || !Array.isArray(body.json)) return 1;
   const { length } = body.json;
   return length > MAX_BATCH ? 1 : Math.max(length, 1);
+}
+
+/**
+ * How the library serves the request, by its own classification, so the
+ * log says what was served: `legacy` (a 2025 revision) or `modern`.
+ */
+async function eraOf(
+  request: Request,
+  body: { readonly json: unknown } | undefined,
+): Promise<'legacy' | 'modern'> {
+  const legacy =
+    body === undefined ? await isLegacyRequest(request) : await isLegacyRequest(request, body.json);
+  return legacy ? 'legacy' : 'modern';
+}
+
+/** `MCP-Protocol-Version` as a log field: a revision's date as sent, else `none` or `other`. */
+function protocolVersionOf(header: string | undefined): string {
+  if (header === undefined) return 'none';
+  return /^\d{4}-\d{2}-\d{2}$/.test(header) ? header : 'other';
 }
 
 function askedOf(read: { readonly json: unknown } | undefined): McpAsked {

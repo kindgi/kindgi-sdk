@@ -55,6 +55,25 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **files with versions: `client.files`.** `client.files` has `list`, `create`, `get`, `delete` and `pin_history`, and `client.files.versions` has `list`, `add`, `get`, `download`, `restore`, `delete`, `pin` and `unpin`, one for each `files.*` operation, in the async client too. `create` and `add` send a multipart upload, as `client.artifacts.upload` does. A version is named by its number or by `"latest"`. `BlobMeta` gains `file_id` and `version`, for a blob that is a file's version. `client.artifacts`' methods are deprecated: each warns with `DeprecationWarning`, naming the `files` method to use, until 0.8.0 removes them. `file-not-found` and `file-version-not-found` raise `NotFoundError`; `file-version-conflict`, `file-version-pinned`, `file-last-version` and `artifact-in-file` raise `ConflictError`; and `file-too-large` raises `InvalidRequestError`.
+- `kindgi`: **a tool can declare that it updates files, and an agent that its
+  model may change files.** `@tool(updates_files=True)` declares a tool that
+  adds versions to files its run has; only a tool with a handler can.
+  `Agent(files={"update": True, "create": True})` offers the agent's model the
+  built-in `kindgi_update_file` and `kindgi_create_file`. The indexer writes
+  `updatesFiles` and `files` into the pack index, and the vendored
+  `tool.schema.json` (1.5.0) and `pack-index.schema.json` (1.10.0) take them.
+  The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
+  its publish body, and `updates_files` on a tool.
+- `kindgi`: **a tool that updates files gets `ctx.files.update`.** On a call
+  with an idempotency key whose tool files say `updates` (pack protocol
+  2.13.0), a tool that declares `updates_files=True` gets
+  `ctx.files.update(file_id=..., expected_version=..., content_type=...,
+  data=..., name=None)`, and `update_async`. It answers a `FileUpdateAnswer`:
+  `file`, the new version; `same` or `conflict`, Latest; or `not_updated`,
+  why no version was added. An update over 10 MB answers `size`, and nothing
+  is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
+  client's models gain `ToolFileUpdateAnswer`.
 - `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
 - `kindgi`: **a tenant's own limits on the flows and agents in production,
   and its plan id.** `TenantLimits` gains `flows_in_production` and

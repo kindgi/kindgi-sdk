@@ -26,6 +26,7 @@ import type { Conversation } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { guardrailPointFaults } from './guardrail-points.js';
+import { withFileTools } from './model-file-tools.js';
 import { withRememberTool } from './remember-tool.js';
 import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js';
 import { resolveTurnTools } from './resolve-tools.js';
@@ -125,9 +126,13 @@ export async function resolveTurnEnvironment(
   ctx.guardrailPointFaults = guardrailPointFaults(ctx.guardrails, ctx.bindings.checks);
 
   const turnTools = await turnToolRegistry(ctx);
-  ctx.tools = withTextTools(
+  // The built-ins after the registry's tools: `ctx.files` is bound by now.
+  ctx.tools = withFileTools(
     ctx,
-    withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools)),
+    withTextTools(
+      ctx,
+      withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools)),
+    ),
   );
   // The data blocks, at the versions pinned (the turn's own on resume).
   const blocks = await resolveTurnBlocks(ctx, pinnedBlocks);

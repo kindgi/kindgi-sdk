@@ -34,13 +34,18 @@
  *
  * `'*'` is a wildcard — matches any domain that has no specific policy.
  * Useful shape for "unless overridden, everything sits for 90 days".
- * Except `memory` and `conversation`, which hold people's words: their
- * retention is opt-in, so only a policy naming them applies.
+ * Except `memory` and `conversation`, which hold people's words, and
+ * `file_version`, every edit of a file: their retention is opt-in, so
+ * only a policy naming them applies.
  *
  * `memory`: a fact whose last revision was invalidated (deleted, erased)
  * or whose current revision expired is purged, every revision, after the
  * grace; legal hold keeps it. `conversation`: an unregistered conversation
  * is purged after the grace, with its messages and their recall index.
+ * `file_version`: a deleted version is purged after the grace, and so is
+ * one that isn't Latest, isn't among its file's newest 10, isn't pinned,
+ * and was superseded longer ago than the grace. Its bytes go once no
+ * other version of the file uses them; its number, hash and size stay.
  */
 export const RETENTION_DOMAINS = [
   'org',
@@ -62,6 +67,9 @@ export const RETENTION_DOMAINS = [
   'provider',
   'memory',
   'conversation',
+  // A file's versions other than Latest: opt-in, as memory and
+  // conversation are, so a workspace's `*` never purges old versions.
+  'file_version',
   'api_key',
   'service_account',
   '*',

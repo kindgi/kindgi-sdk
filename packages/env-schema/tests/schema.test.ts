@@ -332,6 +332,28 @@ describe('envVarsForTarget — invitation emails', () => {
   });
 });
 
+describe('envVarsForTarget — the license report', () => {
+  test("its address is the server's, optional, in core, and says its default and https only", () => {
+    const report = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_LICENSE_REPORT_URL',
+    );
+    expect(report).toMatchObject({
+      required: false,
+      group: 'core',
+      example: 'https://access.kindgi.com/v1/report',
+    });
+    expect(report?.description).toContain(
+      'Default `https://access.kindgi.com/v1/report`; `https` only',
+    );
+    expect(report?.description).toContain("only a key that doesn't report does");
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === 'KINDGI_LICENSE_REPORT_URL',
+      ),
+    ).toBe(false);
+  });
+});
+
 describe('envVarsForTarget — the retention sweeper (T236)', () => {
   test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));

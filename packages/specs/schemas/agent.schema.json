@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/agent.schema.json",
-  "$comment": "schema-version: 1.8.0",
+  "$comment": "schema-version: 1.9.0",
   "title": "Agent",
   "description": "An agent definition. Declarative composition of instructions + capabilities + tools + memory retrieval + guardrails + conversation policy. The same definition is durable across restarts and versioned like flows — provenance references agents by (id, version).",
   "type": "object",
@@ -107,6 +107,21 @@
               "description": "Days an unverified fact is kept. Default 30."
             }
           }
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Lets the agent's model change its run's files, text only (schema-version 1.9.0). `update: true` offers the built-in tool `kindgi_update_file`: a new version of a text file the run has, given the version the model read. `create: true` offers `kindgi_create_file`: a new text file of the run's. Built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`. Each call changes something, so the agent's approval rules apply, and the run needs `write` where the file is. A runtime with no file store offers neither. Absent: neither tool.",
+      "properties": {
+        "update": {
+          "type": "boolean",
+          "description": "Offers `kindgi_update_file`. Absent means `false`."
+        },
+        "create": {
+          "type": "boolean",
+          "description": "Offers `kindgi_create_file`. Absent means `false`."
         }
       }
     },

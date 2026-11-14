@@ -482,10 +482,10 @@ function finalizeDefinition<
 }
 
 /**
- * Why a tool can't declare `pauses: true`, `storesFiles: true` or
- * `readsFiles: true`, if it can't. Only a handler can answer with a pause,
- * store a file or read one: the runtime runs a declarative spec itself, and
- * an MCP server can't do any of them.
+ * Why a tool can't declare `pauses: true`, `storesFiles: true`,
+ * `readsFiles: true` or `updatesFiles: true`, if it can't. Only a handler
+ * can answer with a pause, or store, read or update a file: the runtime
+ * runs a declarative spec itself, and an MCP server can't do any of them.
  */
 function handlerOnlyRefusal(
   spec: object,
@@ -495,10 +495,13 @@ function handlerOnlyRefusal(
     readonly pauses?: unknown;
     readonly storesFiles?: unknown;
     readonly readsFiles?: unknown;
+    readonly updatesFiles?: unknown;
     readonly transport?: unknown;
   };
   if (declarativeSpec === undefined && declared.transport !== 'mcp') return undefined;
-  const flag = (['pauses', 'storesFiles', 'readsFiles'] as const).find((f) => declared[f] === true);
+  const flag = (['pauses', 'storesFiles', 'readsFiles', 'updatesFiles'] as const).find(
+    (f) => declared[f] === true,
+  );
   if (flag === undefined) return undefined;
   return {
     code: 'invalid-tool-definition',
@@ -519,6 +522,8 @@ const HANDLER_ONLY = {
     "`storesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't store files.",
   readsFiles:
     "`readsFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't read files.",
+  updatesFiles:
+    "`updatesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't update files.",
 } as const;
 
 function stripHandler<TInput, TOutput>(spec: Tool<TInput, TOutput>): ToolManifest {

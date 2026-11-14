@@ -14,6 +14,10 @@ import type { KeyProvider, Provenance, ProvenanceEdge, ProvenanceNode } from './
  * `finalize(keyProvider)` produces a signed `Provenance` ready to hand to
  * a `ProvenanceEmitBinding`.
  *
+ * A file version's node (`fileVersionNodes`) carries as its `contentHash`
+ * the sha256 the files API answers for that version: the stored file's
+ * own, never a digest of a run's value.
+ *
  * Not workspace-scoped internally — the tenantId set at construction is
  * embedded in the final record. Not thread-safe; callers hold one builder
  * per run and don't share it across concurrent runs.

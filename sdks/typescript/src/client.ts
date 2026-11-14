@@ -40,6 +40,7 @@ import {
   type ExportSigningKeysClient,
   makeExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
+import { type FilesClient, makeFilesClient } from './resources/files.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
@@ -205,6 +206,8 @@ export interface KindgiClient {
   readonly events: EventsClient;
   /** @deprecated Use `client.files`. A later minor release removes it, announced in advance. */
   readonly artifacts: ArtifactsClient;
+  /** Files the runtime keeps, with every edit as a version. */
+  readonly files: FilesClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
   /** Where schedules send their results (`sendResultsTo`). */
   readonly destinations: DestinationsClient;
@@ -295,6 +298,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
+    files: makeFilesClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
     destinations: makeDestinationsClient(transport),
     connectionEntries: makeConnectionEntriesClient(transport),

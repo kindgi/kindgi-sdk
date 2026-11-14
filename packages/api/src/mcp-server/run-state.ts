@@ -58,12 +58,35 @@ interface RunJson {
   };
 }
 
+/** The fields of `GET /v1/files` this reads: each file, with its Latest. */
+interface FilePageJson {
+  readonly data: readonly {
+    readonly fileId: string;
+    readonly name: string;
+    readonly latest: {
+      readonly version: number;
+      readonly contentType: string;
+      readonly size: number;
+    };
+  }[];
+}
+
+/** The fields of `GET /v1/artifacts` this reads, where `/v1/files` isn't served. */
 interface ArtifactPageJson {
   readonly data: readonly {
     readonly name: string;
     readonly contentType: string;
     readonly size: number;
   }[];
+}
+
+/** A run's file, from either list: `fileId` and `version` come only from `/v1/files`. */
+interface RunFile {
+  readonly name: string;
+  readonly contentType: string;
+  readonly size: number;
+  readonly fileId?: string;
+  readonly version?: number;
 }
 
 /** Whether a run in this state goes on. */
@@ -74,7 +97,7 @@ export function runGoesOn(state: RunViewState): boolean {
 /** The run's state from its `/v1` record and its files. */
 export function runViewState(
   run: RunJson,
-  files: ArtifactPageJson['data'],
+  files: readonly RunFile[],
   link: ConsolePageLink,
 ): RunViewState {
   const status = STATUS[run.status];
@@ -98,10 +121,12 @@ export function runViewState(
         : 'The run failed. The console says why.',
     }),
     ...(files.length > 0 && {
-      files: files.slice(0, FILE_LIMIT).map(({ name, contentType, size }) => ({
+      files: files.slice(0, FILE_LIMIT).map(({ name, contentType, size, fileId, version }) => ({
         name: clipText(name, TITLE_LIMIT),
         contentType,
         size,
+        ...(fileId !== undefined && { fileId }),
+        ...(version !== undefined && { version }),
       })),
     }),
     ...(consoleUrl !== undefined && { consoleUrl }),
@@ -123,17 +148,37 @@ export async function readRunState(
   const res = await call('GET', `/v1/runs/${encodeURIComponent(runId)}`);
   if (!res.ok) return { error: runReadError(res.status, runId) };
   const run = (await res.json()) as RunJson;
-  let files: ArtifactPageJson['data'] = [];
-  if (DONE.has(STATUS[run.status])) {
-    const page = await call('GET', '/v1/artifacts', {
-      query: { ownerRunId: run.id, limit: String(FILE_LIMIT) },
-    });
-    // The files are extra: a run whose files can't be listed still answers.
-    if (page.ok) files = ((await page.json()) as ArtifactPageJson).data;
-  }
+  const files = DONE.has(STATUS[run.status]) ? await runFiles(call, run.id) : [];
   const state = runViewState(run, files, link);
   if (state.answer === undefined) return { state };
   return { state, blocks: answerBlocks(answerValue(run), ANSWER_LIMIT) };
+}
+
+/**
+ * A done run's files: the files whose version 1 it made, newest change
+ * first, each as its Latest. The files are extra: a run whose files can't
+ * be listed still answers.
+ */
+async function runFiles(call: V1Call, runId: string): Promise<readonly RunFile[]> {
+  const query = { ownerRunId: runId, limit: String(FILE_LIMIT) };
+  const page = await call('GET', '/v1/files', { query });
+  if (page.ok) {
+    return ((await page.json()) as FilePageJson).data.map((file) => ({
+      name: file.name,
+      contentType: file.latest.contentType,
+      size: file.latest.size,
+      fileId: file.fileId,
+      version: file.latest.version,
+    }));
+  }
+  // A list has no "not found" of its own, so a 404 is a server that doesn't
+  // serve `/v1/files`: an app with blob storage but no `fileVersions`, or a
+  // runtime that keeps artifacts but no file versions. It lists them from
+  // `/v1/artifacts` instead. This and the tools' `GET /v1/artifacts` go
+  // when 0.8.0 removes that route.
+  if (page.status !== 404) return [];
+  const artifacts = await call('GET', '/v1/artifacts', { query });
+  return artifacts.ok ? ((await artifacts.json()) as ArtifactPageJson).data : [];
 }
 
 /**

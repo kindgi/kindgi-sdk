@@ -899,6 +899,63 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     ).toBeUndefined();
   });
 
+  test('an agent that declares files, on a deployment with no file store, is warned about', async () => {
+    const registry = createAgentRegistry();
+    const app = (store: boolean) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        // Publishing reads nothing from it: that the store is there is the point.
+        ...(store && { fileVersions: {} as never }),
+      });
+    const filing = (id: string, files: Record<string, boolean>) => ({
+      ...agentSpec({ id }),
+      files,
+    });
+    const off = await publish(app(false), filing('acme.files-off', { update: true }));
+    expect(off.status).toBe(201);
+    expect(off.body.warnings).toEqual([
+      {
+        code: 'files-unavailable',
+        message:
+          "The agent declares files, and this runtime has no file store: its turns don't offer kindgi_update_file or kindgi_create_file.",
+      },
+    ]);
+    expect(
+      (await publish(app(false), filing('acme.files-create', { create: true }))).body.warnings,
+    ).toEqual([expect.objectContaining({ code: 'files-unavailable' })]);
+    expect(
+      (await publish(app(true), filing('acme.files-on', { update: true }))).body.warnings,
+    ).toBeUndefined();
+    // Declared, but neither tool on: nothing to warn about.
+    expect(
+      (await publish(app(false), filing('acme.files-neither', { update: false }))).body.warnings,
+    ).toBeUndefined();
+  });
+
+  test("an agent's files declaration is kept and read back; the file tools' ids are reserved", async () => {
+    const app = appWithMemory(true);
+    const declared = { update: true, create: true };
+    expect(
+      (await publish(app, { ...agentSpec({ id: 'acme.files-kept' }), files: declared })).status,
+    ).toBe(201);
+    const res = await app.request('/v1/agents/acme.files-kept/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { files?: unknown }).files).toEqual(declared);
+    for (const id of ['kindgi_update_file', 'kindgi_create_file']) {
+      const reserved = await publish(app, {
+        ...agentSpec({ id: `acme.reserved-${id.slice(7, 13)}` }),
+        tools: [{ id, version: '1.0.0' }],
+        files: declared,
+      });
+      expect(reserved.status).toBe(400);
+      expect(JSON.stringify(reserved.body)).toContain('a tool built into Kindgi');
+    }
+  });
+
   test("an agent's remember declaration is kept and read back; the built-in id is reserved", async () => {
     const app = appWithMemory(true);
     const declared = { types: ['acme.preference'], scope: 'same-user', keepDays: 14 };

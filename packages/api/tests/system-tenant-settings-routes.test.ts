@@ -237,6 +237,10 @@ describe('PUT /v1/system/tenants/:tenantId/limits', () => {
     // No limit says "none": a tenant kept out of production is the switch's to say.
     const zero = await t.call('kgi_sy_limits', 'PUT', path(active), { projectsInProduction: 0 });
     expect([zero.status, t.code(zero)]).toEqual([400, 'bad-input']);
+    for (const value of [0, 1_000_001]) {
+      const r = await t.call('kgi_sy_limits', 'PUT', path(active), { storageMiB: value });
+      expect([r.status, t.code(r)], `storageMiB ${value}`).toEqual([400, 'bad-input']);
+    }
     for (const body of [{ flowsInProduction: 0 }, { agentsInProduction: 1_000_001 }]) {
       const r = await t.call('kgi_sy_limits', 'PUT', path(active), body);
       expect([r.status, t.code(r)], JSON.stringify(body)).toEqual([400, 'bad-input']);
@@ -266,6 +270,7 @@ describe('GET /v1/system/tenants/:tenantId/limits', () => {
     toolCallsInFlight: 50,
     approvalsPending: 500,
     projectsInProduction: 1,
+    storageMiB: 10240,
     flowsInProduction: 3,
     agentsInProduction: 10,
   };
@@ -304,6 +309,17 @@ describe('GET /v1/system/tenants/:tenantId/limits', () => {
     expect(put.body).toEqual({ tenantId: active, limits: {} });
     expect((await t.call('kgi_sy_limits', 'GET', path(active))).body.inUse).toEqual({
       projectsInProduction: 4,
+    });
+  });
+
+  test('from a runtime that counts files, inUse has the bytes they take, over a lowered storageMiB too', async () => {
+    const inUse = { projectsInProduction: 0, storageUsedBytes: 3 * 1024 * 1024 };
+    const t = makeApp(new Map([[active, inUse]]));
+    await t.call('kgi_sy_limits', 'PUT', path(active), { storageMiB: 2 });
+    expect((await t.call('kgi_sy_limits', 'GET', path(active))).body).toEqual({
+      tenantId: active,
+      limits: { storageMiB: 2 },
+      inUse,
     });
   });
 

@@ -77,7 +77,8 @@ const underApiLimit: MiddlewareHandler<AppEnv> = (c, next) => {
 /** A route whose body has a size limit of its own, checked before the body is read. */
 export interface OwnBodyLimit {
   readonly method: string;
-  readonly path: string;
+  /** The path, exactly; or a pattern, for a route with a parameter in its path. */
+  readonly path: string | RegExp;
   readonly limit: MiddlewareHandler<AppEnv>;
 }
 
@@ -101,12 +102,16 @@ export function readBodyOnce(ownLimits: readonly OwnBodyLimit[] = []): Middlewar
   };
 }
 
-/** The route's own body limit: by method and path, exactly. */
+/** The route's own body limit: by method and path, exactly or by its pattern. */
 function ownLimitOf(
   c: Context<AppEnv>,
   ownLimits: readonly OwnBodyLimit[],
 ): OwnBodyLimit | undefined {
-  return ownLimits.find((route) => route.method === c.req.method && route.path === c.req.path);
+  return ownLimits.find(
+    (route) =>
+      route.method === c.req.method &&
+      (typeof route.path === 'string' ? route.path === c.req.path : route.path.test(c.req.path)),
+  );
 }
 
 /**

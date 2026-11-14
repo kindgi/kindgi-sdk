@@ -283,6 +283,14 @@ export interface TenantLimits {
    */
   readonly projectsInProduction?: number;
   /**
+   * MiB of files the workspace may keep: its uploads, its runs' files and
+   * its tools' files, with the uploads under way. Past it, an upload is
+   * refused with 403 `storage-limit-reached`, and a tool's file isn't
+   * stored. Lowering it deletes no file: with more stored than the limit,
+   * every new file is refused until enough are deleted.
+   */
+  readonly storageMiB?: number;
+  /**
    * Flows in production, each counted once however many of the
    * workspace's projects in production run it. There's a margin: a write
    * that would take the count past the most, the larger of 1.2 times this

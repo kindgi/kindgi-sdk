@@ -45,6 +45,7 @@ from .pack.files import (
     FileStore,
     FileStoreAnswer,
     FileStoreError,
+    FileUpdateAnswer,
 )
 from .pack.trace import CheckResult, ModelCallRecord, RunTrace, ToolCallRecord, ToolResultRecord
 
@@ -62,6 +63,7 @@ __all__ = [
     "FileStore",
     "FileStoreAnswer",
     "FileStoreError",
+    "FileUpdateAnswer",
     "Flow",
     "Guardrail",
     "ModelCallRecord",

@@ -359,6 +359,11 @@ export interface IndexedTool {
    */
   readonly readsFiles?: boolean;
   /**
+   * The tool's declared `updatesFiles` (schema-version 1.10.0+): each call
+   * gets tool files, and its handler `files.update`. Absent means `false`.
+   */
+  readonly updatesFiles?: boolean;
+  /**
    * The tool's declared `resultIsOutsideData`: an agent reads each of its
    * results as data, not instructions. Absent means `false`.
    */
@@ -440,6 +445,8 @@ export interface IndexedAgent {
   readonly mcp?: McpExposure;
   /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
   readonly memory?: Readonly<Record<string, unknown>>;
+  /** Which of its run's files the model may change (`{ update?, create? }`). */
+  readonly files?: Readonly<Record<string, unknown>>;
   readonly modulePath: string;
 }
 
@@ -1669,16 +1676,21 @@ function toolFlagsOf(
 }
 
 /**
- * The tool's `pauses`, `storesFiles` and `readsFiles`, as the index
- * carries them. Only the pack service's own run of a handler can answer
- * `pause`, store a file or read one: the runtime runs a declarative spec
- * itself, and an MCP server can't do any of them.
+ * The tool's `pauses`, `storesFiles`, `readsFiles` and `updatesFiles`, as
+ * the index carries them. Only the pack service's own run of a handler can
+ * answer `pause`, or store, read or update a file: the runtime runs a
+ * declarative spec itself, and an MCP server can't do any of them.
  */
 function handlerFlagsOf(
   rec: Readonly<Record<string, unknown>>,
   relPath: string,
 ): Result<
-  { readonly pauses?: true; readonly storesFiles?: true; readonly readsFiles?: true },
+  {
+    readonly pauses?: true;
+    readonly storesFiles?: true;
+    readonly readsFiles?: true;
+    readonly updatesFiles?: true;
+  },
   IndexerError
 > {
   const flag = HANDLER_FLAGS.find((f) => rec[f] === true);
@@ -1694,16 +1706,18 @@ function handlerFlagsOf(
       ...(rec.pauses === true && { pauses: true }),
       ...(rec.storesFiles === true && { storesFiles: true }),
       ...(rec.readsFiles === true && { readsFiles: true }),
+      ...(rec.updatesFiles === true && { updatesFiles: true }),
     },
   };
 }
 
-const HANDLER_FLAGS = ['pauses', 'storesFiles', 'readsFiles'] as const;
+const HANDLER_FLAGS = ['pauses', 'storesFiles', 'readsFiles', 'updatesFiles'] as const;
 
 const HANDLER_FLAG_DOES = {
   pauses: 'pause',
   storesFiles: 'store files',
   readsFiles: 'read files',
+  updatesFiles: 'update files',
 } as const;
 
 /**
@@ -2067,6 +2081,7 @@ function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent
     'toolErrors',
     'modelSettings',
     'memory',
+    'files',
     'mcp',
   ] as const) {
     if (isObject(rec[key])) out[key] = rec[key];

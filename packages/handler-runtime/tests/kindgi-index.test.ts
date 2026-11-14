@@ -989,6 +989,48 @@ describe('runIndexer — Zod schemas', () => {
     }
   });
 
+  test("a tool's `updatesFiles` is carried into the index; a tool the pack doesn't run can't update files", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/fill.mjs': toolModule({ id: 'acme.fill', updatesFiles: true }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain', updatesFiles: false }),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map((parsed.tools as { id: string }[]).map((t) => [t.id, t]));
+    expect(byId.get('acme.fill')).toMatchObject({ updatesFiles: true });
+    expect(byId.get('acme.fill')).not.toHaveProperty('storesFiles');
+    expect(byId.get('acme.plain')).not.toHaveProperty('updatesFiles');
+
+    for (const remote of [
+      { id: 'acme.remote', updatesFiles: true, transport: 'mcp' },
+      { id: 'acme.declared', updatesFiles: true, spec: { kind: 'http' } },
+    ]) {
+      const refusedPack = await makeFixture({
+        files: { 'kindgi.config.mjs': config(), 'tools/remote.mjs': toolModule(remote) },
+      });
+      const refused = await runIndexer({
+        packDir: refusedPack.packDir,
+        publishedAt: FIXED_TIMESTAMP,
+        importModule: refusedPack.importModule,
+      });
+      expect(refused.kind).toBe('ok');
+      if (refused.kind !== 'ok') return;
+      expect(refused.value.fileErrors[0]?.code).toBe('manifest-validation-failed');
+      expect(refused.value.fileErrors[0]?.message).toContain(
+        "'updatesFiles: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't update files",
+      );
+    }
+  });
+
   test("the pack's declared env is carried, sorted; a pack that declares none has no `env`", async () => {
     const declared = await makeFixture({
       files: {
@@ -1937,7 +1979,7 @@ describe('runIndexer — artifactVersion behavior', () => {
 });
 
 describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
-  test('an agent keeps every field it declares: output, toolErrors, parallelToolCalls, memory, mcp, preferred provider/model, policy, description, tags', async () => {
+  test('an agent keeps every field it declares: output, toolErrors, parallelToolCalls, memory, files, mcp, preferred provider/model, policy, description, tags', async () => {
     const output = {
       name: 'axes',
       schema: { type: 'object', properties: { remedy: { type: 'array' } }, required: ['remedy'] },
@@ -1953,6 +1995,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
           toolErrors,
           parallelToolCalls: false,
           memory: { instructionTypes: ['acme.policy'] },
+          files: { update: true, create: true },
           mcp: { expose: true, readOnly: true },
           conversationPolicy,
           preferredProvider: 'anthropic',
@@ -1975,6 +2018,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
       toolErrors,
       parallelToolCalls: false,
       memory: { instructionTypes: ['acme.policy'] },
+      files: { update: true, create: true },
       mcp: { expose: true, readOnly: true },
       conversationPolicy,
       preferredProvider: 'anthropic',

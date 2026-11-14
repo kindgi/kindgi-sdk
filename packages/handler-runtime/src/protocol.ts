@@ -65,11 +65,14 @@ export interface PackCallContext {
   readonly waitToken?: WaitTokenRef;
   /**
    * Where a tool that declares `storesFiles` or `readsFiles` stores and
-   * reads files (protocol 2.10.0): sent only for such a tool, when the
-   * runtime has a file store, and for one that only stores, when the call
-   * has an `idempotencyKey`. Like `secrets`, never logged. The runner keeps
-   * it from the handler, which gets `files`. A pack service from before
-   * 2.10.0 ignores it.
+   * reads files (protocol 2.10.0), and one that declares `updatesFiles`
+   * adds versions to them (2.13.0): sent only for such a tool, when the
+   * runtime has a file store, and for one that only stores or updates,
+   * when the call has an `idempotencyKey`. Like `secrets`, never logged.
+   * The runner keeps it from the handler, which gets `files`. A pack
+   * service from before 2.10.0 ignores it, and one from before 2.13.0
+   * gives the handler no `update`. The handler gets `update` only when
+   * the runtime sends `updates`.
    */
   readonly toolFiles?: ToolFilesRef;
 }
@@ -90,6 +93,14 @@ export interface WaitTokenRef {
 export interface ToolFilesRef {
   readonly url: string;
   readonly token: string;
+  /**
+   * The call may add versions to files (protocol 2.13.0), under
+   * `<url>/<fileId>/versions`: sent, as `true`, only for a tool that
+   * declares `updatesFiles`. A runtime from before 2.13.0 sends none and
+   * has no such route, so a tool that also stores or reads gets no
+   * `update` there.
+   */
+  readonly updates?: true;
 }
 
 /** The longest a pause may wait: 24 days, in milliseconds (protocol 2.8.0). */

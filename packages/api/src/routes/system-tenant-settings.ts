@@ -53,6 +53,11 @@ export interface SystemTenantSettingsBinding {
 export interface TenantLimitsInUse {
   /** The tenant's projects in production. */
   readonly projectsInProduction: number;
+  /**
+   * The bytes the tenant's files take, with the uploads under way, from a
+   * runtime that counts them: what `storageMiB` is checked against.
+   */
+  readonly storageUsedBytes?: number;
   /** The tenant's flows in production, each counted once. From a runtime that counts it. */
   readonly flowsInProduction?: number;
   /** The tenant's agents in production, each counted once. From a runtime that counts it. */
@@ -77,6 +82,7 @@ export const TENANT_LIMIT_NAMES = [
   'toolCallsInFlight',
   'approvalsPending',
   'projectsInProduction',
+  'storageMiB',
   'flowsInProduction',
   'agentsInProduction',
 ] as const satisfies readonly (keyof TenantLimits)[];
@@ -92,9 +98,9 @@ export const TENANT_LIMIT_NAMES = [
  *   limits as stored, `{ tenantId, limits }`, the shape `PUT` takes, so a
  *   change of one is read, changed and put back. A limit not set is
  *   absent. With a runtime that counts it, `inUse` says how much of each
- *   counted limit the tenant uses now (`projectsInProduction`, and
- *   `flowsInProduction` and `agentsInProduction`). With a runtime that
- *   keeps it, `plan` is the tenant's plan id, or null while none is set.
+ *   counted limit the tenant uses now (`projectsInProduction`,
+ *   `flowsInProduction`, `agentsInProduction`, and `storageUsedBytes` from
+ *   one that counts files). With a runtime that keeps it, `plan` is the tenant's plan id, or null while none is set.
  * - **`PUT /:tenantId/limits`** `{ apiRequestsPerMinute?, … }`
  *   (`system:tenants:limits`): replaces the tenant's limits with exactly
  *   these. A limit left out isn't set, and isn't enforced; the plan id is
