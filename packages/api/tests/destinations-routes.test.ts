@@ -49,6 +49,10 @@ const KNOWN_PERSON = randomUUID() as UserId;
 const SLACK_URL = 'https://hooks.slack.com/services/T000/B000/acme-private-path';
 const URL_REF = { envName: 'local', name: 'ACME_SLACK_URL' };
 const SECRET_REF = { envName: 'local', name: 'ACME_WEBHOOK_SECRET' };
+/** The account key of tenant A's texts registration `acme-texts-app` (`keyHolders`). */
+const TELNYX_KEY = 'ACME_TELNYX_KEY';
+/** The client secret of tenant A's identity provider `acme-okta` (`keyHolders`). */
+const OKTA_SECRET = 'ACME_OKTA_SECRET';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN_A) return { tenantId: tenantA, scopes: ['tenant-admin'] };
@@ -267,13 +271,49 @@ function makeInMemoryBinding(options: BindingOptions = {}): DestinationBinding &
   };
 }
 
-function makeApp(options: BindingOptions = {}) {
+interface AppOptions extends BindingOptions {
+  /**
+   * Tenant A has a texts registration whose account key is `TELNYX_KEY` and
+   * an identity provider whose client secret is `OKTA_SECRET`.
+   */
+  readonly keyHolders?: boolean;
+}
+
+function makeApp(options: AppOptions = {}) {
   const binding = makeInMemoryBinding(options);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
     destinations: binding,
+    ...(options.keyHolders === true && {
+      // A connection binding needs the env this runtime serves.
+      envName: 'local' as EnvName,
+      connections: {
+        entries: () => [],
+        listApps: async (input: { tenantId: TenantId }) => ({
+          data:
+            input.tenantId === tenantA
+              ? [
+                  {
+                    appId: 'acme-texts-app',
+                    tenantId: tenantA,
+                    app: 'texts',
+                    token: {
+                      provider: 'telnyx',
+                      apiKey: { envName: 'local', name: TELNYX_KEY },
+                      publicKey: `${'A'.repeat(43)}=`,
+                    },
+                  },
+                ]
+              : [],
+        }),
+      } as never,
+      identityProviderKeys: {
+        of: async (tenantId: TenantId) =>
+          new Map(tenantId === tenantA ? [[OKTA_SECRET, 'acme-okta']] : []),
+      },
+    }),
   });
   return { app, binding };
 }
@@ -479,6 +519,84 @@ describe('POST /v1/destinations', () => {
     });
     expect(secret.status).toBe(400);
     expect(errorCode(secret.json)).toBe('reserved-name-prefix');
+  });
+});
+
+describe("a texts registration's account key or an identity provider's secret", () => {
+  const refusals = [
+    [
+      'urlRef',
+      'connection-key-refused',
+      TELNYX_KEY,
+      { secret: TELNYX_KEY, appId: 'acme-texts-app' },
+    ],
+    [
+      'secretRef',
+      'connection-key-refused',
+      TELNYX_KEY,
+      { secret: TELNYX_KEY, appId: 'acme-texts-app' },
+    ],
+    [
+      'urlRef',
+      'identity-provider-key-refused',
+      OKTA_SECRET,
+      { secret: OKTA_SECRET, identityProviderId: 'acme-okta' },
+    ],
+    [
+      'secretRef',
+      'identity-provider-key-refused',
+      OKTA_SECRET,
+      { secret: OKTA_SECRET, identityProviderId: 'acme-okta' },
+    ],
+  ] as const;
+
+  test.each(refusals)(
+    'POST: a %s naming it is 400 %s, and nothing is made',
+    async (field, code, name, details) => {
+      const { app, binding } = makeApp({ keyHolders: true });
+      const res = await create(app, { ...WEBHOOK, [field]: { envName: 'local', name } });
+      expect([res.status, errorCode(res.json), errorOf(res.json).details]).toEqual([
+        400,
+        code,
+        details,
+      ]);
+      expect(errorOf(res.json).message).toContain('a destination never names it');
+      expect(binding.rows.size).toBe(0);
+    },
+  );
+
+  test.each(refusals)(
+    'PATCH: a %s naming it is 400 %s, and the destination keeps its own',
+    async (field, code, name, details) => {
+      const { app } = makeApp({ keyHolders: true });
+      const id = await createId(app, WEBHOOK);
+      const res = await call(app, 'PATCH', `/v1/destinations/${id}`, {
+        [field]: { envName: 'local', name },
+      });
+      expect([res.status, errorCode(res.json), errorOf(res.json).details]).toEqual([
+        400,
+        code,
+        details,
+      ]);
+      const kept = await call(app, 'GET', `/v1/destinations/${id}`);
+      expect(kept.json).toMatchObject({ urlRef: URL_REF, secretRef: SECRET_REF });
+    },
+  );
+
+  test("another tenant's registration and identity provider don't refuse the names", async () => {
+    const { app } = makeApp({ keyHolders: true });
+    const res = await call(
+      app,
+      'POST',
+      '/v1/destinations',
+      {
+        ...WEBHOOK,
+        urlRef: { envName: 'local', name: TELNYX_KEY },
+        secretRef: { envName: 'local', name: OKTA_SECRET },
+      },
+      TOKEN_B,
+    );
+    expect(res.status).toBe(201);
   });
 });
 

@@ -1889,7 +1889,7 @@ const IDENTITY_PROVIDER_KEY_REFUSED =
 
 /** A texts registration's key named by another user of the secret (POST and PATCH /v1/connection-apps). */
 const CONNECTION_KEY_IN_USE =
-  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.";
+  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.";
 
 /** The 409 a write answers anyway, and `env-not-served`. */
 function conflictOrEnvNotServed(text: string): ResponseSpec {
@@ -1961,7 +1961,7 @@ export function answersAuthzUnavailable(op: OperationSpec): boolean {
  */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
-    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
   );
 }
 
@@ -13106,7 +13106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field (`unknown-field`), or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs (`bad-input`, `details.setting`); a person in `people` is no member of the workspace (`bad-input`, `details.userId`); the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body, unknown field (\`unknown-field\`), or fields that don't fit the kind (\`bad-input\`); the deployment lacks what the kind needs (\`bad-input\`, \`details.setting\`); a person in \`people\` is no member of the workspace (\`bad-input\`, \`details.userId\`); the URL is refused (\`destination-url-refused\`); a secret \`urlRef\` or \`secretRef\` names does not exist (\`destination-secret-not-found\`), the signing secret is too weak (\`destination-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('A project in `projects` does not exist (`project-not-found`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -13168,7 +13168,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "`destinationId` is not a destination id (a UUID); malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `\`destinationId\` is not a destination id (a UUID); malformed body, unknown field (\`unknown-field\`), \`kind\` given, or fields that don't fit the kind (\`bad-input\`); the deployment lacks what the kind needs; a person in \`people\` is no member of the workspace; the URL is refused (\`destination-url-refused\`); a secret \`urlRef\` or \`secretRef\` names does not exist (\`destination-secret-not-found\`), the signing secret is too weak (\`destination-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '404': ErrorResponse(
         'No destination with that id (`destination-not-found`), or a project in `projects` does not exist (`project-not-found`).',

@@ -17,7 +17,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import { type Logger, createLogger } from '@kindgi/log';
-import type { TenantId, UserId } from '@kindgi/types';
+import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -26,8 +26,15 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'binding-errors-database-busy';
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId, reviewerRole: 'admin' } : null;
+/** A key limited to a project, with no authorization store (`limitedAppReadsBusy`). */
+const LIMITED = 'binding-errors-database-busy-limited';
+const keyProject = randomUUID() as ProjectId;
+const resolveToken: TokenResolver = async (token) => {
+  if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId, reviewerRole: 'admin' };
+  if (token === LIMITED)
+    return { tenantId, userId: 'user-1' as UserId, tokenProjectId: keyProject };
+  return null;
+};
 
 /** A storage failure marked busy, as the bindings' storage gives it. */
 const storageBusy = {
@@ -35,6 +42,13 @@ const storageBusy = {
   message: 'Tenant-scoped query failed: canceling statement due to lock timeout',
   cause: Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }),
 };
+
+/** A read that throws the storage failure, as the run binding does. */
+async function throwsBusy(): Promise<never> {
+  throw Object.assign(new Error(storageBusy.message, { cause: storageBusy.cause }), {
+    code: 'database-busy',
+  });
+}
 
 /** A binding's error re-coding `cause` as `code`, `hops` re-codes deep (1: the storage failure is its cause). */
 function recoded(code: string, hops = 1, cause: unknown = storageBusy) {
@@ -98,13 +112,7 @@ function appFailingWith(
       run: {
         ...stubs.kernelBinding.run,
         readJournal: err,
-        ...(opts.runReadBusy === true && {
-          getRun: async () => {
-            throw Object.assign(new Error(storageBusy.message, { cause: storageBusy.cause }), {
-              code: 'database-busy',
-            });
-          },
-        }),
+        ...(opts.runReadBusy === true && { getRun: throwsBusy }),
       },
     } as never,
     auditEvents: { query: err } as never,
@@ -137,11 +145,12 @@ async function call(
   path: string,
   method = 'GET',
   body?: Record<string, unknown>,
+  token = TOKEN,
 ) {
   const res = await app.request(path, {
     method,
     headers: {
-      authorization: `Bearer ${TOKEN}`,
+      authorization: `Bearer ${token}`,
       'x-request-id': 'req-busy-binding',
       ...(body !== undefined && { 'content-type': 'application/json' }),
     },
@@ -287,4 +296,47 @@ describe('a read a route middleware makes to find what it checks, when the datab
     expect(JSON.parse(answer.text).error.code).toBe('database-busy');
     expect(answer.text).not.toContain('lock timeout');
   });
+
+  // Without a store, a key limited to a project is held on what lies
+  // beyond it: the same reads find the project, before the handler.
+  test.each([
+    ['cancel', `/v1/runs/${runId}/cancel`, {}],
+    ['resume', `/v1/runs/${runId}/resume`, {}],
+    ['a provenance export', `/v1/provenance/${runId}/export`, {}],
+    ['a conversation close', `/v1/conversations/${conversationId}/close`, {}],
+    ['a change to a flow by its id', `/v1/flows/${flowId}/versions/1.0.0/unregister`, {}],
+    ["a pin of a flow's version", `/v1/flows/${flowId}/pinned/pin`, { version: '1.0.0' }],
+  ])(
+    'without a store, a limited key: POST %s answers 503 database-busy with Retry-After',
+    async (_label, path, body) => {
+      const answer = await call(limitedAppReadsBusy(), path, 'POST', body, LIMITED);
+      expect(answer.status, answer.text).toBe(503);
+      expect(answer.retryAfter).toBe('5');
+      expect(JSON.parse(answer.text).error.code).toBe('database-busy');
+      expect(answer.text).not.toContain('lock timeout');
+    },
+  );
 });
+
+const flowId = 'acme.refund-review';
+
+/**
+ * The app without an authorization store, where reading a run, a
+ * conversation or a flow's versions throws the storage failure: what a
+ * limited key's hold reads to find the project it checks.
+ */
+function limitedAppReadsBusy() {
+  const stubs = createStubAppBindings();
+  return createApp({
+    ...stubs,
+    resolveToken,
+    runHandler: {} as RunHandlerBinding,
+    conversationBinding: { ...stubs.conversationBinding, getConversation: throwsBusy } as never,
+    kernelBinding: {
+      ...stubs.kernelBinding,
+      run: { ...stubs.kernelBinding.run, getRun: throwsBusy },
+    } as never,
+    flowRegistry: { listVersions: throwsBusy } as never,
+    pinnedVersions: {} as never,
+  });
+}
