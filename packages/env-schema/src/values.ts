@@ -102,6 +102,12 @@ export const CONSOLE_LINKS_VAR = 'KINDGI_CONSOLE_LINKS';
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
 
+/** The forward proxy for the connections whose host tenant configuration chose, and for webhooks. */
+export const TENANT_EGRESS_PROXY_VAR = 'KINDGI_TENANT_EGRESS_PROXY';
+
+/** The hosts that skip that proxy and connect directly. */
+export const TENANT_EGRESS_NO_PROXY_VAR = 'KINDGI_TENANT_EGRESS_NO_PROXY';
+
 /** Whether a workspace's admins may change its identity providers (`on` / `off`). */
 export const AUTH_TENANT_PROVIDERS_VAR = 'KINDGI_AUTH_TENANT_PROVIDERS';
 
