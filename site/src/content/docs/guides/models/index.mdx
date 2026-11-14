@@ -451,7 +451,7 @@ little as it allows unless an agent asks for more:
 
 ```json
 { "name": "gemini-3.8-flash", "contextWindow": 1048576, "features": ["tool-use"],
-  "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 },
+  "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375, "cachedPromptMultiplier": 0.1 },
   "thinking": { "mode": "adaptive", "lowest": "low", "levels": ["low", "medium", "high"], "default": "lowest" } }
 ```
 
