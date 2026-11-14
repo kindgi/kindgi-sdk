@@ -70,8 +70,8 @@ ones: `kernel.waitpoints`, `kernel.sweeper`,
 (whether the embeddings endpoint answers, runtime 0.6.0 or later),
 `memory.embedder` (embedding the facts kept without a vector, runtime 0.6.0
 or later), `providers.keys`,
-`providers.prune`, `secrets.scopes` and `tenants.purge` (runtime 0.1.10 or
-later).
+`providers.prune`, `secrets.scopes`, `tenants.purge` (runtime 0.1.10 or
+later) and `connections.texts-inbound` (runtime 0.7.0 or later).
 
 ## The two formats
 
