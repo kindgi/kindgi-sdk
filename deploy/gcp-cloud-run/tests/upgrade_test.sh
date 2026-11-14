@@ -2236,6 +2236,7 @@ assert_file_has "$OUT" "2. create, run and then delete 4 Cloud Run jobs with the
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ipk  (check identity-provider-keys)" "the identity-provider-keys job"
 if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 dry run"; else pass; fi
 assert_absent "$STUB_JOBS_LOG" "a check job"
+SCRIPT="$REAL_SCRIPT"
 
 # --- a pack account per tenant (pack_accounts) -------------------------------
 
@@ -2297,7 +2298,7 @@ PT_IMAGE_ONLY="$(pt_plan "" "")"
 LIST_AS_PACK="gcloud run services list --project=demo-proj --region=northamerica-northeast2 --filter=spec.template.spec.serviceAccountName=$PACK_SA --format=value(metadata.name,metadata.labels)"
 LIST_MOVES="gcloud run services list --project=demo-proj --region=northamerica-northeast2 --filter=metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done --format=value(metadata.name,metadata.labels)"
 
-# 84. A pack account per tenant needs runtime 0.7.0: with a target before it,
+# 86. A pack account per tenant needs runtime 0.7.0: with a target before it,
 # the orchestrator would go on placing every pack service as the pack
 # account. Refused before anything is mirrored, backed up or changed.
 case_start "per-tenant with a target before 0.7.0 is refused"
@@ -2311,7 +2312,7 @@ assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
 assert_varfile_unchanged
 
-# 85. The same script with 0.6.0, 0.7.0 and 0.8.0, which it doesn't list yet,
+# 87. The same script with 0.6.0, 0.7.0 and 0.8.0, which it doesn't list yet,
 # for the runs that cross 0.7.0 or start past it.
 PT_SCRIPT="$TMP/upgrade-pt.sh"
 sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0" "0.8.0")/' "$SCRIPT" >"$PT_SCRIPT"
@@ -2319,7 +2320,7 @@ chmod +x "$PT_SCRIPT"
 if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0" "0.8.0")' "$PT_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
 REAL_SCRIPT="$SCRIPT"; SCRIPT="$PT_SCRIPT"
 
-# 86. One tenant, the pack account as before: 0.6.0 -> 0.7.0 changes nothing
+# 88. One tenant, the pack account as before: 0.6.0 -> 0.7.0 changes nothing
 # about the pack accounts, prints none of their steps and lists no service.
 case_start "0.6.0 -> 0.7.0 with one tenant: no pack account steps"
 reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; pt_outputs '{}'
@@ -2329,7 +2330,7 @@ assert_out "0.6.0 -> 0.7.0 applied"
 if grep -qi -e "pack account per tenant" -e "one-way" "$OUT"; then fail "a run with one tenant printed the pack account steps"; else pass; fi
 if grep -q "^gcloud run services list" "$STUB_CALLS_LOG"; then fail "a run with no pack account change listed services"; else pass; fi
 
-# 87. With tenancy = "multi", a run that crosses 0.7.0 offers the move, every
+# 89. With tenancy = "multi", a run that crosses 0.7.0 offers the move, every
 # step: the one-way line first, the version, the tenants' list with a system
 # key, the two counts, then pack_shared_account = false. It changes nothing
 # itself and lists no service.
@@ -2348,14 +2349,14 @@ l="$(grep -n " 1. List the tenants" "$OUT" | head -1 | cut -d: -f1)"
 if [[ -n $o && -n $l && $o -lt $l ]]; then pass; else fail "the one-way line isn't before the tenants' list (at ${o:-none}, list at ${l:-none})"; fi
 if grep -q "^gcloud run services list" "$STUB_CALLS_LOG"; then fail "the offer listed services"; else pass; fi
 
-# 88. Past 0.7.0 the offer isn't made again.
+# 90. Past 0.7.0 the offer isn't made again.
 case_start "multi from 0.7.0: no offer"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
 run "yes" --to 0.8.0
 assert_rc 0 "it runs"
 if grep -qi "pack account per tenant" "$OUT"; then fail "a run from 0.7.0 offered the move again"; else pass; fi
 
-# 89. Turned on with the upgrade: the one-way line comes before the plan, the
+# 91. Turned on with the upgrade: the one-way line comes before the plan, the
 # plan's check takes the tenants' accounts, grants and the Job's map, and the
 # steps that finish the move follow the apply.
 case_start "per-tenant turned on with 0.6.0 -> 0.7.0"
@@ -2375,7 +2376,7 @@ d="$(grep -n "^== Done ==" "$OUT" | head -1 | cut -d: -f1)"
 s="$(grep -n "Steps that finish the move to a pack account per tenant" "$OUT" | head -1 | cut -d: -f1)"
 if [[ -n $d && -n $s && $d -lt $s ]]; then pass; else fail "the finishing steps aren't after the apply (at ${s:-none}, Done at ${d:-none})"; fi
 
-# 90. The same plan without pack_accounts = "per-tenant": the check refuses
+# 92. The same plan without pack_accounts = "per-tenant": the check refuses
 # the tenants' accounts and the Job's map.
 case_start "the tenants' changes without per-tenant are refused"
 reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_ON"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
@@ -2385,7 +2386,7 @@ assert_file_has "$OUT" "google_service_account.tenant[\"$T_A\"]: created" "the a
 assert_file_has "$OUT" "google_cloud_run_v2_job.orchestrator[0]: changes template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS" "the Job's map named"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
-# 91. Going back to shared would delete each tenant's account: refused.
+# 93. Going back to shared would delete each tenant's account: refused.
 case_start "going back to shared is refused"
 reset_env; export STUB_TAGS="0.7.0"; V_OKV="1"; V_TENANCY="multi"; pt_outputs "$PT_AB"
 run "yes" --to 0.8.0
@@ -2395,7 +2396,7 @@ assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
 assert_varfile_unchanged
 
-# 92. A tenant taken out of pack_tenants loses its account: stopped while a
+# 94. A tenant taken out of pack_tenants loses its account: stopped while a
 # pack service runs as it, by name.
 case_start "a tenant's removal is stopped while its account runs a service"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_B_OUT"; V_OKV="1"; V_TENANCY="multi"
@@ -2409,7 +2410,7 @@ assert_file_has "$STUB_CALLS_LOG" "--filter=spec.template.spec.serviceAccountNam
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
 
-# 93. And let through when its account runs none: the plan's check takes its
+# 95. And let through when its account runs none: the plan's check takes its
 # account's delete and the Job's smaller map.
 case_start "a tenant's removal with no service on its account"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_B_OUT"; V_OKV="1"; V_TENANCY="multi"
@@ -2422,7 +2423,7 @@ assert_out "plan check: it changes the image(s)"
 assert_present "$STUB_MARKER_APPLY" "apply"
 if grep -qi "pack account per tenant" "$OUT"; then fail "a tenant's removal printed the move's steps"; else pass; fi
 
-# 94. Before pack_shared_account = false deletes the pack account, both lines
+# 96. Before pack_shared_account = false deletes the pack account, both lines
 # must list nothing: a service still on it, one whose move is at a step
 # (kindgi-move <n>) or rolled back, and one refused (back on it), each stop
 # the run with both counts and the services' labels.
@@ -2443,7 +2444,7 @@ for svc in "kp-shop-4a1c $PACK_SA -" "kp-shop-4a1c $SA_A 2" "kp-shop-4a1c $SA_A 
   assert_varfile_unchanged
 done
 
-# 95. With every move done, the pack account goes: the plan's check takes its
+# 97. With every move done, the pack account goes: the plan's check takes its
 # deletes, and the two lines were the README's.
 case_start "pack_shared_account = false with every move done"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_SERVICES="kp-shop-4a1c $SA_A done
@@ -2458,7 +2459,7 @@ assert_file_has "$STUB_CALLS_LOG" "$LIST_MOVES" "the moves' line"
 assert_out "plan check: it changes the image(s)"
 assert_present "$STUB_MARKER_APPLY" "apply"
 
-# 96. The pack account's deletes without pack_shared_account = false are
+# 98. The pack account's deletes without pack_shared_account = false are
 # refused by the plan's check.
 case_start "the pack account's deletes with pack_shared_account true are refused"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE"; V_OKV="1"; V_TENANCY="multi"
@@ -2468,7 +2469,7 @@ assert_rc 1 "the plan check refuses"
 assert_file_has "$OUT" "google_service_account.pack[0]: deleted" "the delete named"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
-# 97. A list gcloud refuses stops the run, its error said.
+# 99. A list gcloud refuses stops the run, its error said.
 case_start "a services list that fails stops the run"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_LIST_RC=1; V_OKV="1"; V_TENANCY="multi"
 V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
@@ -2477,7 +2478,7 @@ assert_rc 1 "stopped"
 assert_file_has "$OUT" "couldn't list the pack services that run as $PACK_SA. ERROR: (gcloud.run.services.list) stub refused" "the error said"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
-# 98. A dry run says each pack account change with the rest, and only reads:
+# 100. A dry run says each pack account change with the rest, and only reads:
 # a tenant added, one taken out (its account listed, empty).
 case_start "dry run: a tenant added and one taken out"
 reset_env; export STUB_TAGS="0.7.0" STUB_SERVICES="kp-shop-4a1c $SA_A done"; V_OKV="1"; V_TENANCY="multi"
@@ -2504,7 +2505,7 @@ SA_C="kp-t41dd5d3856716de0@demo-proj.iam.gserviceaccount.com"
 PT_ABC="$(jq -cnS --arg a "$T_A" --arg sa "$SA_A" --arg b "$T_B" --arg sb "$SA_B" --arg c "$T_C" --arg sc "$SA_C" '{($a): $sa, ($b): $sb, ($c): $sc}')"
 SECRET_A="google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets[\"projects/demo-proj/secrets/s|$T_A\"]"
 
-# 99. Per-tenant already, the plan's check takes no grant for a tenant that
+# 101. Per-tenant already, the plan's check takes no grant for a tenant that
 # stays: one more secret for tenant A is refused, as the same edit is with
 # the pack account.
 case_start "per-tenant: a grant for a tenant that stays is refused"
@@ -2515,7 +2516,7 @@ assert_rc 1 "the plan check refuses"
 assert_file_has "$OUT" "$SECRET_A: created" "the grant named"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
-# 100. A tenant added doesn't let another tenant's grant through: C's account
+# 102. A tenant added doesn't let another tenant's grant through: C's account
 # and grants and the Job's map are taken, A's new secret isn't.
 case_start "a tenant added: another tenant's grant is still refused"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_ABC" "create $T_C")" "$T_A" create)"; V_OKV="1"; V_TENANCY="multi"
@@ -2526,7 +2527,7 @@ assert_file_has "$OUT" "$SECRET_A: created" "A's grant named"
 if grep -q -e "\[\"$T_C\"\]: created" -e ": changes template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS" "$OUT"; then fail "the added tenant's changes were refused too"; else pass; fi
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
-# 101. The added tenant's own grants are taken, keyed "<secret>|<tenant>" too.
+# 103. The added tenant's own grants are taken, keyed "<secret>|<tenant>" too.
 case_start "a tenant added with a secret of its own"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_ABC" "create $T_C")" "$T_C" create)"; V_OKV="1"; V_TENANCY="multi"
 V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\",\"$T_C\"]"; pt_outputs "$PT_AB"
@@ -2535,7 +2536,7 @@ assert_rc 0 "it runs"
 assert_out "plan check: it changes the image(s)"
 assert_present "$STUB_MARKER_APPLY" "apply"
 
-# 102. A tenant taken out doesn't let a grant of a tenant that stays go with
+# 104. A tenant taken out doesn't let a grant of a tenant that stays go with
 # it: B's account goes, A's secret stays.
 case_start "a tenant taken out: another tenant's grant deleted is refused"
 reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$PT_B_OUT" "$T_A" delete)"; V_OKV="1"; V_TENANCY="multi"
