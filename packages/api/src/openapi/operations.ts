@@ -3341,7 +3341,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
   },
@@ -3420,7 +3420,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
   },
@@ -3511,7 +3511,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The runtime isn't keeping repos for projects without a GitHub repo now (`kept-repos-off`): `KINDGI_KEPT_REPOS` is off. Nothing was requested.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
       ),
     },
   },
