@@ -293,8 +293,9 @@ async function gate(
 
 /**
  * The first secret named by `urlRef` or `secretRef` that can't be used: one
- * under an env this runtime doesn't serve, a reserved `kindgi.` name, or a
- * model provider's key.
+ * under an env this runtime doesn't serve, a reserved `kindgi.` name, a
+ * model provider's key, a texts registration's key or an identity
+ * provider's secret.
  */
 async function refuseSecrets(
   options: DestinationsRouterOptions,

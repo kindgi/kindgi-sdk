@@ -273,10 +273,11 @@ may miss the runs of some.
   with `400 bad-input`. An earlier runtime ignores the filter and lists
   every run you may see.
 - **`startedBy`** (`started_by`) lists the runs started one way, not by
-  one person (runtime 0.7.0 or later): `person`, `key` (a service account's
-  key), `schedule`, `webhook`, `event`, `mail` or `text`. A run inside another has
-  its parent's, so add `topLevel: true` for the runs schedules started. A
-  run from before the runtime recorded it has none, and isn't listed.
+  one person (runtime 0.7.0 or later): `person`, `key` (a service
+  account's key), `schedule`, `webhook`, `event`, `mail` or `text`. A
+  run inside another has its parent's, so add `topLevel: true` for the
+  runs schedules started. A run from before the runtime recorded it has
+  none, and isn't listed.
 - **`completedAfter`** / **`completedBefore`** (`completed_after` /
   `completed_before`) list the runs that ended strictly after, or at or
   before, a time, the earliest end first (runtime 0.7.0 or later). Runs
@@ -284,8 +285,8 @@ may miss the runs of some.
   pages them.
 - In Python, `paginate` follows `next_cursor` for you.
 
-A status that doesn't exist, a `startedBy` that isn't one of the six, a
-time that isn't one, an empty value, or a version without its id is
+A status that doesn't exist, a `startedBy` that isn't one of the seven,
+a time that isn't one, an empty value, or a version without its id is
 refused with `400 bad-input`, naming it:
 
 ```json

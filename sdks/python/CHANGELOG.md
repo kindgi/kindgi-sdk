@@ -89,6 +89,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   agent's test cases, the cost records and the people list send a list as
   one comma-separated parameter. One value works as before.
 - `kindgi`: **`client.license.replace(key=...)` hands a running server a renewed license key** (`PUT /v1/license`), with the deployment's own token or a system key holding `system:license`. A server that takes it runs the new key without a restart. Runtime 0.7.0 doesn't serve the route, so it runs a renewed key from its next start. A key the server refuses raises `ConflictError` (`license-key-refused`, with `details["reason"]`); `LicenseKeyBody` is the request. `LicenseStatus` gains `limits` (`LicenseLimits`: `flows` and `agents`, each a `LicenseLimit` with `plan`, `most` and `in_use`), set only when the key carries limits, and only in the operator's view.
+- `kindgi`: **`Tool.mutating`'s description says a tool that isn't read-only asks before
+  each call**, not only the first time: an approval isn't remembered, so
+  `ask_on_first_use` asks before every call, as `always_ask` does. The client's
+  models and the vendored `tool.schema.json` say the same. How a call is gated
+  doesn't change.
+- `kindgi`: **sign-in options can link the deployment's own sign-up page.**
+  `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
+  "No account yet? Sign up". It's `None` when the operator set none, and from
+  older servers.
 
 ## 0.6.0
 

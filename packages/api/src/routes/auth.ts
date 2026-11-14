@@ -118,8 +118,8 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
   };
 
   // An identity provider's secret is sign-in's only: a secret a tool, an
-  // endpoint, a webhook trigger or a connection app already uses would be
-  // refused to it from then on, so say so now.
+  // endpoint, a webhook trigger, a destination or a connection app already
+  // uses would be refused to it from then on, so say so now.
   const secretInUse = async (c: Context<AppEnv>, config: ProviderConfig) => {
     const secretUsers = options.secretUsers;
     if (secretUsers === undefined) return undefined;

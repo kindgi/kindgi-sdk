@@ -299,7 +299,7 @@ const add: LeafCommand = {
     'api-key-ref': {
       type: 'string',
       description:
-        "Texts: the secret holding the provider account's API key, as --client-secret-ref. The key is used by this registration only: no tool, endpoint, webhook trigger, model provider or other registration may name the same secret.",
+        "Texts: the secret holding the provider account's API key, as --client-secret-ref. The key is used by this registration only: no tool, endpoint, webhook trigger, destination, model provider or other registration may name the same secret.",
     },
     'public-key': {
       type: 'string',

@@ -90,9 +90,9 @@ npx --yes @kindgi/cli@0.4 secrets set ACME_TELNYX_API_KEY --env=production --sco
 The command asks for the value twice, and doesn't show what you type.
 
 The key reaches the whole Telnyx account, so only this registration may
-use it: no tool, endpoint, webhook trigger, model provider or other
-registration may name the same secret, and a pack's own code never gets
-it.
+use it: no tool, endpoint, webhook trigger, destination, model provider or
+other registration may name the same secret, and a pack's own code never
+gets it.
 
 ## 3. Register the account
 

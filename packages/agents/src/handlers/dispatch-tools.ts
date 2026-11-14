@@ -925,8 +925,8 @@ async function planCall(
   // deterministic tokenId returns the resolved decision from the
   // journal — no re-park. The gate itself is decided once
   // (`decideToolGate`), so a policy changed during the park can't
-  // skip the reviewer's answer. Cross-turn `ask_on_first_use` caching
-  // (via conversation metadata) is not implemented.
+  // skip the reviewer's answer. `ask_on_first_use` asks before each
+  // call, as `always_ask` does: no approval is reused for a later call.
   const gate = await decideToolGate(ctx, kctx, call, tool);
 
   // A replay turn decides the call first: a recorded or refused call

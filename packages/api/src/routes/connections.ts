@@ -159,8 +159,8 @@ export function connectionAppsRouter(
 
   /**
    * What already names a texts registration's key `name`: the tenant's tools,
-   * endpoints and webhook triggers, then each of its other live registrations,
-   * in any of their secrets.
+   * endpoints, webhook triggers and destinations, then each of its other live
+   * registrations, in any of their secrets.
    */
   const usersOfKey = async (
     tenantId: TenantId,
@@ -188,8 +188,8 @@ export function connectionAppsRouter(
     const refusal = await secretRefusal(tenantId, secretsOf(parsed.value), ownAppId);
     if (refusal !== undefined) return answer(c, refusal.code, refusal.message, refusal);
     // A texts registration's key reaches the whole provider account: a key
-    // a tool, an endpoint, a webhook trigger or another registration already
-    // uses would hand them that account, so say so now.
+    // a tool, an endpoint, a webhook trigger, a destination or another
+    // registration already uses would hand them that account, so say so now.
     const keyName = parsed.value.token?.apiKey.name;
     const usedBy = keyName === undefined ? [] : await usersOfKey(tenantId, keyName, ownAppId);
     if (keyName !== undefined && usedBy.length > 0) {
