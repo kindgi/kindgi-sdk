@@ -176,6 +176,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/auth/providers/{providerId}'],
   },
   { name: 'sign-in-settings', route: '/v1/auth/settings', paging: 'one', admin: true },
+  { name: 'join-domains', route: '/v1/auth/join-domains', paging: whole },
 
   // Settings.
   { name: 'environments', route: '/v1/environments', paging: cursor, admin: true },
@@ -697,6 +698,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/tenants/{tenantId}': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/admins': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/limits': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/join-domains': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/env': "the server's operator routes",
   '/v1/env/cloud-secrets':
     "names the server's operator set to its own cloud's secrets: the operator's to set, not the workspace's to move",

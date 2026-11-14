@@ -2,8 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type {
+  AllowJoinDomainBody,
+  ChangeJoinDomainBody,
   CreateSystemTenantBody,
   CreateSystemTenantResult,
+  JoinDomain,
+  JoinDomainList,
+  JoinDomainLookupResult,
+  JoinLookupWorkspace,
   ProjectSuspension,
   SystemTenantList,
   SystemTenantPurge,
@@ -13,6 +19,7 @@ import type {
   TenantLimits as TenantLimitsWire,
   TenantPlan,
   TenantProductionAllowed,
+  UnregisterJoinDomainResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 import type { RenameTenantInput } from './tenant.js';
@@ -23,6 +30,7 @@ export type SystemTenantSpec = CreateSystemTenantBody;
 export type CreatedSystemTenant = CreateSystemTenantResult;
 export type TenantAdminContact = TenantAdminContacts['data'][number];
 export type TenantPurge = SystemTenantPurge;
+export type { JoinLookupWorkspace };
 
 /**
  * What the control plane sets on a tenant, with a system key (`kgi_sy_…`)
@@ -121,6 +129,58 @@ export interface SystemTenantsClient {
    * @wire `GET /v1/system/tenants/{tenantId}/admins`
    */
   admins(tenantId: string): Promise<readonly TenantAdminContact[]>;
+  /**
+   * The email domains a tenant lets people join from, the first allowed
+   * first. Takes `system:join-domains`.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}/join-domains`
+   */
+  joinDomains(tenantId: string): Promise<readonly JoinDomain[]>;
+  /**
+   * Let people at a domain join a tenant (`role` default `viewer`), as the
+   * operator: never a public mailbox domain, nor one verified for another
+   * tenant. Takes `system:join-domains`.
+   *
+   * @wire `POST /v1/system/tenants/{tenantId}/join-domains`
+   */
+  allowJoinDomain(
+    tenantId: string,
+    input: AllowJoinDomainBody,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<JoinDomain>;
+  /**
+   * Change what someone joining a tenant by a domain gets. People who joined
+   * already keep what they have. Takes `system:join-domains`.
+   *
+   * @wire `PATCH /v1/system/tenants/{tenantId}/join-domains/{domain}`
+   */
+  updateJoinDomain(
+    tenantId: string,
+    domain: string,
+    changes: ChangeJoinDomainBody,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<JoinDomain>;
+  /**
+   * Stop letting people at a domain join a tenant: new joins stop, joiners
+   * stay. Takes `system:join-domains`.
+   *
+   * @wire `POST /v1/system/tenants/{tenantId}/join-domains/{domain}/unregister`
+   */
+  unregisterJoinDomain(
+    tenantId: string,
+    domain: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterJoinDomainResult>;
+  /**
+   * For one email a sign-up page verified, of the workspaces that let
+   * people at its domain join, the ones it may join (`join`) and the ones
+   * it's in already (`member`): ids, names and join roles only, never every
+   * workspace it's in. Takes `system:join-domains:read` or
+   * `system:join-domains`.
+   *
+   * @wire `POST /v1/system/join-domains/lookup`
+   */
+  lookupJoinDomains(email: string): Promise<readonly JoinLookupWorkspace[]>;
   /**
    * Purge a closed tenant for good, once its export window has passed:
    * every row of it, its artifacts' bytes and its authorization store.
@@ -265,6 +325,44 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
       const page = await transport.request<TenantAdminContacts>({
         method: 'GET',
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/admins`,
+      });
+      return page.data;
+    },
+    async joinDomains(tenantId) {
+      const page = await transport.request<JoinDomainList>({
+        method: 'GET',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains`,
+      });
+      return page.data;
+    },
+    async allowJoinDomain(tenantId, input, options) {
+      return transport.request<JoinDomain>({
+        method: 'POST',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains`,
+        body: input,
+        ...idem(options),
+      });
+    },
+    async updateJoinDomain(tenantId, domain, changes, options) {
+      return transport.request<JoinDomain>({
+        method: 'PATCH',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains/${encodeURIComponent(domain)}`,
+        body: changes,
+        ...idem(options),
+      });
+    },
+    async unregisterJoinDomain(tenantId, domain, options) {
+      return transport.request<UnregisterJoinDomainResult>({
+        method: 'POST',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/join-domains/${encodeURIComponent(domain)}/unregister`,
+        ...idem(options),
+      });
+    },
+    async lookupJoinDomains(email) {
+      const page = await transport.request<JoinDomainLookupResult>({
+        method: 'POST',
+        path: '/v1/system/join-domains/lookup',
+        body: { email },
       });
       return page.data;
     },

@@ -54,6 +54,7 @@ import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { type HeldItems, itemRightsOf, itemServingOf } from './item-rights.js';
+import type { JoinDomainBinding } from './join-domain-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import { type McpServerInput, mountMcpServer } from './mcp-server/endpoint.js';
 import { MCP_TOOL_SETS } from './mcp-server/tool-sets.js';
@@ -172,6 +173,11 @@ import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
 import { improveRunsRouter } from './routes/improve-runs.js';
+import {
+  joinDomainsRouter,
+  systemJoinLookupRouter,
+  systemTenantJoinDomainsRouter,
+} from './routes/join-domains.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -1209,6 +1215,19 @@ export interface CreateAppInput {
    * session store's (`resolveToken`).
    */
   readonly secondFactor?: SecondFactorBinding;
+  /**
+   * Optional. The email domains a workspace lets people join from: mounts
+   * `/v1/auth/join-domains` (a `GET` takes `read` on the tenant, a change
+   * `admin`; the binding keeps the rules: a person's own proved domain,
+   * never a public one; with `identityProviderChanges: 'operator'`,
+   * letting more people in takes `kindgi:system`), `POST
+   * /v1/system/join-domains/lookup` (`system:join-domains:read` or
+   * `system:join-domains`), for one verified email the workspaces a
+   * sign-up page offers, and, with `systemTenantDirectory`, the operator's
+   * `/v1/system/tenants/{tenantId}/join-domains` (`system:join-domains`).
+   * Joining itself is the deployment's sign-in.
+   */
+  readonly joinDomains?: JoinDomainBinding;
   /**
    * The deployment's public base URL (e.g. `https://kindgi.acme.example`):
    * what a webhook trigger's `receiveUrl` is made from. Never taken from a
@@ -2407,6 +2426,28 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     };
     v1.route('/identity', secondFactorIdentityRouter(secondFactor));
     v1.route('/auth/settings', authSettingsRouter(secondFactor));
+  }
+  if (input.joinDomains !== undefined) {
+    const joinDomains = {
+      binding: input.joinDomains,
+      ...(authorizer !== undefined && { authorizer }),
+    };
+    v1.route(
+      '/auth/join-domains',
+      joinDomainsRouter({
+        ...joinDomains,
+        ...(input.identityProviderChanges !== undefined && {
+          changes: input.identityProviderChanges,
+        }),
+      }),
+    );
+    v1.route('/system/join-domains', systemJoinLookupRouter(joinDomains));
+    if (input.systemTenantDirectory !== undefined) {
+      v1.route(
+        '/system/tenants',
+        systemTenantJoinDomainsRouter({ ...joinDomains, directory: input.systemTenantDirectory }),
+      );
+    }
   }
   if (input.cost !== undefined) {
     v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));

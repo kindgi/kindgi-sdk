@@ -995,6 +995,7 @@ export function serializeUser(u: UserRecord): Record<string, unknown> {
     ...(u.firstSignedInAt !== undefined && {
       firstSignedInAt: u.firstSignedInAt as unknown as string,
     }),
+    ...(u.createdBy !== undefined && { createdBy: u.createdBy }),
     ...(u.metadata !== undefined && { metadata: u.metadata }),
   };
 }

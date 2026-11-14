@@ -86,6 +86,37 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.admins": Operation(
         "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
     ),
+    "systemTenants.joinDomains": Operation(
+        "systemTenants.joinDomains",
+        "GET",
+        "/v1/system/tenants/{tenantId}/join-domains",
+        "json",
+        False,
+    ),
+    "systemTenants.allowJoinDomain": Operation(
+        "systemTenants.allowJoinDomain",
+        "POST",
+        "/v1/system/tenants/{tenantId}/join-domains",
+        "json",
+        True,
+    ),
+    "systemTenants.updateJoinDomain": Operation(
+        "systemTenants.updateJoinDomain",
+        "PATCH",
+        "/v1/system/tenants/{tenantId}/join-domains/{domain}",
+        "json",
+        True,
+    ),
+    "systemTenants.unregisterJoinDomain": Operation(
+        "systemTenants.unregisterJoinDomain",
+        "POST",
+        "/v1/system/tenants/{tenantId}/join-domains/{domain}/unregister",
+        "json",
+        True,
+    ),
+    "systemTenants.lookupJoinDomains": Operation(
+        "systemTenants.lookupJoinDomains", "POST", "/v1/system/join-domains/lookup", "json", False
+    ),
     "systemTenants.purge": Operation(
         "systemTenants.purge", "POST", "/v1/system/tenants/{tenantId}/purge", "json", True
     ),
@@ -814,6 +845,22 @@ OPERATIONS: dict[str, Operation] = {
     "auth.settings.get": Operation("auth.settings.get", "GET", "/v1/auth/settings", "json", False),
     "auth.settings.update": Operation(
         "auth.settings.update", "PATCH", "/v1/auth/settings", "json", True
+    ),
+    "auth.joinDomains.list": Operation(
+        "auth.joinDomains.list", "GET", "/v1/auth/join-domains", "json", False
+    ),
+    "auth.joinDomains.allow": Operation(
+        "auth.joinDomains.allow", "POST", "/v1/auth/join-domains", "json", True
+    ),
+    "auth.joinDomains.update": Operation(
+        "auth.joinDomains.update", "PATCH", "/v1/auth/join-domains/{domain}", "json", True
+    ),
+    "auth.joinDomains.unregister": Operation(
+        "auth.joinDomains.unregister",
+        "POST",
+        "/v1/auth/join-domains/{domain}/unregister",
+        "json",
+        True,
     ),
     "auth.refresh": Operation("auth.refresh", "POST", "/v1/auth/refresh", "json", True),
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
@@ -2358,6 +2405,115 @@ class SystemTenantsResource:
             query={},
             headers={},
             response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    def join_domains(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JoinDomainList:
+        """The email domains a tenant lets people join from. `GET /v1/system/tenants/{tenantId}/join-domains`
+
+        As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.joinDomains"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    def allow_join_domain(
+        self,
+        tenant_id: str | UUID,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains`
+
+        The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.allowJoinDomain"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def update_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining a tenant by a domain gets. `PATCH /v1/system/tenants/{tenantId}/join-domains/{domain}`
+
+        As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.updateJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def unregister_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.unregisterJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+    def lookup_join_domains(
+        self,
+        body: _models.JoinDomainLookupBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomainLookupResult:
+        """The workspaces one verified email may join by its domain. `POST /v1/system/join-domains/lookup`
+
+        For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.lookupJoinDomains"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.JoinDomainLookupBody, body, fields),
+            response=_models.JoinDomainLookupResult,
             timeout=timeout,
         )
 
@@ -7716,6 +7872,90 @@ class AuthSettingsResource:
         )
 
 
+class AuthJoinDomainsResource:
+    """`client.auth.join_domains` — the `auth.joinDomains` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.JoinDomainList:
+        """The email domains people may join the workspace from. `GET /v1/auth/join-domains`
+
+        Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    def allow(
+        self,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join the workspace. `POST /v1/auth/join-domains`
+
+        Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.allow"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining by a domain gets. `PATCH /v1/auth/join-domains/{domain}`
+
+        A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.update"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self, domain: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join. `POST /v1/auth/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.joinDomains.unregister"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+
 class AuthSitesResource:
     """`client.auth.sites` — the `auth.sites` operations."""
 
@@ -7752,6 +7992,7 @@ class AuthResource:
         self._client = client
         self.providers = AuthProvidersResource(client)
         self.settings = AuthSettingsResource(client)
+        self.join_domains = AuthJoinDomainsResource(client)
         self.sites = AuthSitesResource(client)
 
     def sign_in_options(
@@ -13326,6 +13567,115 @@ class AsyncSystemTenantsResource:
             timeout=timeout,
         )
 
+    async def join_domains(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JoinDomainList:
+        """The email domains a tenant lets people join from. `GET /v1/system/tenants/{tenantId}/join-domains`
+
+        As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.joinDomains"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    async def allow_join_domain(
+        self,
+        tenant_id: str | UUID,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains`
+
+        The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.allowJoinDomain"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def update_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining a tenant by a domain gets. `PATCH /v1/system/tenants/{tenantId}/join-domains/{domain}`
+
+        As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.updateJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def unregister_join_domain(
+        self,
+        tenant_id: str | UUID,
+        domain: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join a tenant. `POST /v1/system/tenants/{tenantId}/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.unregisterJoinDomain"],
+            path={"tenantId": tenant_id, "domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+    async def lookup_join_domains(
+        self,
+        body: _models.JoinDomainLookupBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomainLookupResult:
+        """The workspaces one verified email may join by its domain. `POST /v1/system/join-domains/lookup`
+
+        For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.lookupJoinDomains"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.JoinDomainLookupBody, body, fields),
+            response=_models.JoinDomainLookupResult,
+            timeout=timeout,
+        )
+
     async def purge(
         self,
         tenant_id: str | UUID,
@@ -18695,6 +19045,90 @@ class AsyncAuthSettingsResource:
         )
 
 
+class AsyncAuthJoinDomainsResource:
+    """`client.auth.join_domains` — the `auth.joinDomains` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.JoinDomainList:
+        """The email domains people may join the workspace from. `GET /v1/auth/join-domains`
+
+        Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.JoinDomainList,
+            timeout=timeout,
+        )
+
+    async def allow(
+        self,
+        body: _models.AllowJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Let people at an email domain join the workspace. `POST /v1/auth/join-domains`
+
+        Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.allow"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AllowJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        domain: str,
+        body: _models.ChangeJoinDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JoinDomain:
+        """Change what someone joining by a domain gets. `PATCH /v1/auth/join-domains/{domain}`
+
+        A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.update"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeJoinDomainBody, body, fields),
+            response=_models.JoinDomain,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self, domain: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+    ) -> _models.UnregisterJoinDomainResult:
+        """Stop letting people at a domain join. `POST /v1/auth/join-domains/{domain}/unregister`
+
+        New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.joinDomains.unregister"],
+            path={"domain": domain},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJoinDomainResult,
+            timeout=timeout,
+        )
+
+
 class AsyncAuthSitesResource:
     """`client.auth.sites` — the `auth.sites` operations."""
 
@@ -18731,6 +19165,7 @@ class AsyncAuthResource:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
         self.settings = AsyncAuthSettingsResource(client)
+        self.join_domains = AsyncAuthJoinDomainsResource(client)
         self.sites = AsyncAuthSitesResource(client)
 
     async def sign_in_options(

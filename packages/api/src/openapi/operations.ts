@@ -1951,6 +1951,11 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
+/** A change that lets more people join, or gives joiners more, refused (`routes/join-domains.ts`). */
+const JoinDomainWidenRefused: ResponseSpec = ErrorResponse(
+  `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Not the caller's to widen (\`join-domain-not-yours\`): an API key or a service account, a session whose sign-in proved another domain or no email, or one by a way in that doesn't count for it (GitHub; the workspace's own provider for a domain the deployment doesn't route to the workspace). Or this deployment's operator manages sign-in (\`join-domains-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only \`kindgi:system\` lets more people in.`,
+);
+
 /**
  * Reads that never reach the storage backend, so they can't answer
  * `503 database-busy`: the liveness probe (`GET /health`) and the spec
@@ -3188,6 +3193,185 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:contacts` (`system-scope-missing`).",
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains',
+    operationId: 'systemTenants.joinDomains',
+    summary: 'The email domains a tenant lets people join from',
+    description:
+      "As the tenant's own `GET /v1/auth/join-domains`, for the operator. Takes `system:join-domains`, and every read is recorded.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The allowed domains.', schema: ref('JoinDomainList') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains',
+    operationId: 'systemTenants.allowJoinDomain',
+    summary: 'Let people at an email domain join a tenant',
+    description:
+      "The operator's allow: as `POST /v1/auth/join-domains`, without the person's rules, which the operator's own check of the domain replaces. Still never a public mailbox domain, nor one verified for another tenant, and it needs the authorization store. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('AllowJoinDomainBody') },
+    responses: {
+      '201': { description: 'Allowed.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        "The tenant is closing (`tenant-closing`); the domain is verified for another tenant (`join-domain-verified-elsewhere`); no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`); or an Idempotency-Key reused with another body.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains/:domain',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains/{domain}',
+    operationId: 'systemTenants.updateJoinDomain',
+    summary: 'Change what someone joining a tenant by a domain gets',
+    description:
+      "As `PATCH /v1/auth/join-domains/{domain}`, for the operator, whose raise needs no person's rules. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ChangeJoinDomainBody') },
+    responses: {
+      '200': { description: 'The domain now.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse("A body that isn't `{ role }` (`bad-input`)."),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); a raise for a domain since verified for another tenant (`join-domain-verified-elsewhere`); or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/join-domains/:domain/unregister',
+    openapiPath: '/v1/system/tenants/{tenantId}/join-domains/{domain}/unregister',
+    operationId: 'systemTenants.unregisterJoinDomain',
+    summary: 'Stop letting people at a domain join a tenant',
+    description:
+      'New joins by the domain stop; people who joined stay. Takes `system:join-domains`. A closing tenant is refused (`409 tenant-closing`). Audited.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Unregistered.', schema: ref('UnregisterJoinDomainResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:join-domains` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        "No such tenant (`tenant-not-found`), or it doesn't allow that domain (`join-domain-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`), or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`). Or the authorization store couldn't be reached (`authz-backend-unavailable`, with `Retry-After`), or the database was too busy for the authorization check (`database-busy`, with `Retry-After`), so the request wasn't run.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/join-domains/lookup',
+    openapiPath: '/v1/system/join-domains/lookup',
+    operationId: 'systemTenants.lookupJoinDomains',
+    summary: 'The workspaces one verified email may join by its domain',
+    description:
+      "For a sign-up page that offers a workspace before it makes a new one: of the workspaces this runtime serves that let people at the email's domain join, by the emailed link's rules, the ones it may join (`join`) and the ones it's in already (`member`). Never one that removed the email, nor one that takes only its own identity provider for the domain, and never a list of every workspace the email is in. Ids, names and join roles only. Empty for a public mailbox domain. The email goes in the body, so it stays out of access logs. Takes `system:join-domains:read` or `system:join-domains`, and every read is recorded.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('JoinDomainLookupBody') },
+    responses: {
+      '200': { description: 'The workspaces.', schema: ref('JoinDomainLookupResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A body that isn't `{ email }`, or an email that isn't one (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key with neither `system:join-domains:read` nor `system:join-domains` (`system-scope-missing`).",
+      ),
     },
   },
   {
@@ -8380,6 +8564,105 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         'Turned on from a session made without a second factor (`second-factor-enroll-first`), or an idempotency conflict.',
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/auth/join-domains',
+    openapiPath: '/v1/auth/join-domains',
+    operationId: 'auth.joinDomains.list',
+    summary: 'The email domains people may join the workspace from',
+    description:
+      "Someone with a verified email at one of these domains, who signs in by a way that counts for it (a Google Workspace account there, a Microsoft work account, or the emailed link, which proves the mailbox) and whom the workspace doesn't have yet, is offered the workspace and joins with a press, holding the domain's role. GitHub never counts. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. Someone the workspace removed stays out. Members read it. Mounted when the deployment keeps join domains.",
+    tags: ['auth'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The allowed domains.', schema: ref('JoinDomainList') },
+      ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/join-domains',
+    openapiPath: '/v1/auth/join-domains',
+    operationId: 'auth.joinDomains.allow',
+    summary: 'Let people at an email domain join the workspace',
+    description:
+      "Letting more people in takes a person who's a tenant admin, for the domain of the email their session's sign-in proved, exactly (not a subdomain, nor the parent), signed in by a way that counts for it; or the deployment's operator (`kindgi:system`). An API key or a service account has no proved email, so it can't. When the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`), only the operator can. Never a public mailbox domain (gmail.com, outlook.com, ...), nor a domain the operator verified for another workspace. It needs the deployment's authorization store, so a joiner's role can be checked. The first rule that fails answers: the caller, a public domain, another workspace's domain, the authorization store, a domain allowed already. Audited.",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AllowJoinDomainBody') },
+    responses: {
+      '201': { description: 'Allowed.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that isn't `{ domain, role? }`, or a domain that isn't one (`bad-input`); a public mailbox domain (`join-domain-public`).",
+      ),
+      '403': JoinDomainWidenRefused,
+      '409': ErrorResponse(
+        "The operator verified the domain for another workspace (`join-domain-verified-elsewhere`); the deployment has no authorization store (`domain-join-needs-authorization`); it's allowed already (`join-domain-exists`: change its role instead); or an Idempotency-Key reused with another body.",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/auth/join-domains/:domain',
+    openapiPath: '/v1/auth/join-domains/{domain}',
+    operationId: 'auth.joinDomains.update',
+    summary: 'Change what someone joining by a domain gets',
+    description:
+      "A raise (`none` to `viewer` to `runner`) gives joiners more, so it takes allowing's rules: a person who's a tenant admin for their own proved email's domain, or the operator, and only the operator when it manages sign-in. A lower role takes any tenant admin, an API key too. The same role writes nothing. People who joined already keep what they have. Audited.",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ChangeJoinDomainBody') },
+    responses: {
+      '200': { description: 'The domain now.', schema: ref('JoinDomain') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse("A body that isn't `{ role }` (`bad-input`)."),
+      '403': JoinDomainWidenRefused,
+      '404': ErrorResponse("The workspace doesn't allow that domain (`join-domain-not-found`)."),
+      '409': ErrorResponse(
+        'A raise for a domain the operator has since verified for another workspace (`join-domain-verified-elsewhere`), or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/join-domains/:domain/unregister',
+    openapiPath: '/v1/auth/join-domains/{domain}/unregister',
+    operationId: 'auth.joinDomains.unregister',
+    summary: 'Stop letting people at a domain join',
+    description:
+      'New joins by the domain stop; people who joined stay. Any tenant admin, an API key too, also when the operator manages sign-in. Audited.',
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'domain',
+        in: 'path',
+        required: true,
+        description: 'The domain, as the list gives it (`acme.com`).',
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Unregistered.', schema: ref('UnregisterJoinDomainResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
+      '404': ErrorResponse("The workspace doesn't allow that domain (`join-domain-not-found`)."),
     },
   },
   {

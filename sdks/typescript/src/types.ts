@@ -2037,7 +2037,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, createdBy?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -2058,6 +2058,13 @@ export interface User {
   readonly invite?: UserInvite;
   /** Their first sign-in; absent before it, and for people added before the runtime kept it. */
   readonly firstSignedInAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Who added them: `user:<id>` or `service_account:<id>`;
+   * `identity_provider:<providerId>` or `email_domain:<domain>` for someone
+   * who joined by domain; `site:<siteId>` for a person a site signs in.
+   * Absent for the seed user, and from a runtime that doesn't keep it.
+   */
+  readonly createdBy?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
   /**
    * The person's grants: only from `users.list({ includeGrants: true })`,

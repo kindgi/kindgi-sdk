@@ -111,6 +111,8 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:kept-repos` | [Kept repos](#kept-repos), for the repo store's reconcile: the rulings on the repos it holds, the unfinished erasures, and reporting a purge done. It can't request an erasure |
 | `system:kept-repos:erase` | [Requesting a kept repo's erasure](#erase-a-kept-repo), and reading its state |
 | `system:license` | Reading the deployment's license, for its renewal |
+| `system:join-domains` | [The email domains a tenant lets people join from](../../people-and-keys/#let-people-at-your-domain-join): listing, allowing, changing and stopping them, and the sign-up lookup (runtime 0.8.0 or later) |
+| `system:join-domains:read` | For one verified email, of the tenants that let people at its domain join, the ones it may join and the ones it's in already, for a sign-up page that offers them before it makes a new tenant: ids, names and join roles only, never a list of every tenant the email is in (`POST /v1/system/join-domains/lookup`, runtime 0.8.0 or later) |
 | `kindgi:system` | All of them: a full key |
 
 ```sh
