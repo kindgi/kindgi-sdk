@@ -3604,6 +3604,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'project-is-default': {
+    description:
+      "The workspace's default project can't be deleted, whatever else is true of it. Nothing is deleted.",
+    details: [],
+  },
+  'project-in-use': {
+    description:
+      "The project still holds what the workspace keeps (published agents, tools, flows, guardrails or data blocks; deployments; test sets; runs, test runs or triggers; artifacts; company connection choices; audit events; cost records), or a site is still registered on it, so it can't be deleted. Nothing is deleted. Unregister its sites (`kindgi sites unregister <site-id> --project=<project-id>`), delete its artifacts (`kindgi artifacts delete <blob-id>`) and unset its company connection choices (`kindgi connection-choices unset <choice-id>`) first; a person's own connection choices don't hold it. A project with history stays, and so does one that had a secret or an environment value set on it, a key made limited to it, or a trigger set to run as it: each of these records an audit event that names the project.",
+    details: [],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",

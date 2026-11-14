@@ -24,6 +24,9 @@
  *   project holds it too; two renames at once both keep theirs.
  * - `project-not-found` / `project-membership-not-found` outcomes from
  *   writes on a missing row.
+ * - `delete` refuses the default project (`project-is-default`) before any
+ *   other check, and, with `checksProjectsInUse`, a project something the
+ *   workspace keeps still names (`project-in-use`).
  * - `listForUser` aggregates memberships across projects.
  * - Cross-tenant isolation on every reachable read.
  */
@@ -91,6 +94,14 @@ export function runProjectBindingConformance(
      */
     readonly putInEnvironmentOrder?: (tenantId: TenantId, projectId: ProjectId) => Promise<string>;
     readonly clearEnvironmentOrder?: (tenantId: TenantId, projectId: ProjectId) => Promise<void>;
+    /**
+     * With `checksProjectsInUse`: make something the workspace keeps name the
+     * project, so it's in use, or release it. The store backs this however it
+     * keeps content (the in-memory adapter a set, a binding over a database a
+     * row that references the project), so the one guard suite runs on both.
+     */
+    readonly holdProject?: (tenantId: TenantId, projectId: ProjectId) => Promise<void>;
+    readonly releaseProject?: (tenantId: TenantId, projectId: ProjectId) => Promise<void>;
   },
   label = 'ProjectBinding',
   options: {
@@ -133,6 +144,14 @@ export function runProjectBindingConformance(
      * `clearEnvironmentOrder` on the binding.
      */
     readonly checksEnvironmentOrders?: boolean;
+    /**
+     * The binding refuses to delete a project something the workspace keeps
+     * still names (`project-in-use`), keeping it with its memberships and
+     * grants, and deletes it once released. Needs `holdProject` +
+     * `releaseProject` on the binding; a binding over a database holds a
+     * project with a row that references it.
+     */
+    readonly checksProjectsInUse?: boolean;
   } = {},
 ): void {
   describe(`${label} — project CRUD`, () => {
@@ -308,6 +327,105 @@ export function runProjectBindingConformance(
         expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
         expect(await projects.get(T1, id)).toBeUndefined();
       });
+
+      it('refuses to delete the default project in an order as the default', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The default is refused whatever else is true, so it's checked first.
+        const id = await createProject(projects, T1, {
+          name: 'Default',
+          slug: 'default',
+          isDefault: true,
+        });
+        await put(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'project-is-default' });
+        expect((await projects.getDefault(T1))?.id).toBe(id);
+      });
+    });
+  }
+
+  if (options.checksProjectsInUse === true) {
+    describe(`${label} — a project in use`, () => {
+      function useOps(binding: ReturnType<typeof makeBinding>) {
+        const hold = binding.holdProject;
+        const release = binding.releaseProject;
+        if (hold === undefined || release === undefined) {
+          throw new Error('checksProjectsInUse needs holdProject + releaseProject');
+        }
+        return { hold, release };
+      }
+
+      it('refuses to delete a project in use; it stays, with its memberships and grants', async () => {
+        const binding = makeBinding();
+        const { projects, memberships, grants } = binding;
+        const { hold } = useOps(binding);
+        const id = await createProject(projects, T1, { name: 'Matter', slug: 'matter' });
+        await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
+        await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
+        await hold(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'project-in-use' });
+        expect((await projects.get(T1, id))?.id).toBe(id);
+        expect((await memberships.listForUser(T1, U1, {})).items).toHaveLength(1);
+        expect((await grants.listForTeam(T1, TEAM_A, {})).items).toHaveLength(1);
+      });
+
+      it('deletes a project in use once it is released', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { hold, release } = useOps(binding);
+        const id = await createProject(projects, T1, { name: 'Matter', slug: 'matter' });
+        await hold(T1, id);
+        await release(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await projects.get(T1, id)).toBeUndefined();
+      });
+
+      it('deletes another project while one is in use', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { hold } = useOps(binding);
+        const held = await createProject(projects, T1, { name: 'Held', slug: 'held' });
+        const free = await createProject(projects, T1, { name: 'Free', slug: 'free' });
+        await hold(T1, held);
+        expect(await projects.delete(T1, free)).toEqual({ kind: 'ok' });
+        expect(await projects.get(T1, free)).toBeUndefined();
+        expect((await projects.get(T1, held))?.id).toBe(held);
+      });
+
+      it('refuses to delete the default project in use as the default', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { hold } = useOps(binding);
+        const id = await createProject(projects, T1, {
+          name: 'Default',
+          slug: 'default',
+          isDefault: true,
+        });
+        await hold(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'project-is-default' });
+        expect((await projects.getDefault(T1))?.id).toBe(id);
+      });
+
+      if (options.checksEnvironmentOrders === true) {
+        it('refuses a project in an order and in use for its order first', async () => {
+          const binding = makeBinding();
+          const { projects } = binding;
+          const { hold } = useOps(binding);
+          const put = binding.putInEnvironmentOrder;
+          if (put === undefined) {
+            throw new Error('checksEnvironmentOrders needs putInEnvironmentOrder');
+          }
+          const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+          const orderId = await put(T1, id);
+          await hold(T1, id);
+          expect(await projects.delete(T1, id)).toEqual({
+            kind: 'project-in-environment-order',
+            orderId,
+          });
+          expect((await projects.get(T1, id))?.id).toBe(id);
+        });
+      }
     });
   }
 
@@ -652,6 +770,21 @@ export function runProjectBindingConformance(
       });
       const got = await projects.getDefault(T2);
       expect(got?.id).toBe(d2);
+    });
+
+    it('refuses to delete the default project; it stays, with its memberships and grants', async () => {
+      const { projects, memberships, grants } = makeBinding();
+      const id = await createProject(projects, T1, {
+        name: 'Default',
+        slug: 'default',
+        isDefault: true,
+      });
+      await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
+      await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'project-is-default' });
+      expect((await projects.getDefault(T1))?.id).toBe(id);
+      expect((await memberships.listForUser(T1, U1, {})).items).toHaveLength(1);
+      expect((await grants.listForTeam(T1, TEAM_A, {})).items).toHaveLength(1);
     });
   });
 

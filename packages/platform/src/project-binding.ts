@@ -118,13 +118,19 @@ export interface ProjectBinding {
     patch: ProjectPatch,
   ): Promise<ProjectUpdateOutcome>;
   /**
-   * Delete a `Project`. Resolves to `project-in-environment-order` when the
-   * project is a member of an environment order — the delete does not happen;
-   * clear it from the order first. A deleted project's slugs, its current
-   * one and its `formerSlugs`, are free again. Deleting an id that names no
-   * project is `ok` (idempotent). What happens to content rows that still
-   * reference a deleted project is the storage layer's concern; the
-   * in-memory adapter removes the project's direct memberships and team
+   * Delete a `Project`. The checks run in this order, and the first that
+   * holds answers:
+   *
+   * 1. No project has `projectId` in the workspace: `ok` (idempotent).
+   * 2. It's the workspace's default project: `project-is-default`.
+   * 3. It's a member of an environment order: `project-in-environment-order`
+   *    (clear it from the order first).
+   * 4. Something the workspace keeps still names it: `project-in-use`.
+   * 5. Otherwise it's deleted. Its slugs, its current one and its
+   *    `formerSlugs`, are free again.
+   *
+   * A refusal deletes nothing. A project still referenced is `project-in-use`;
+   * the in-memory adapter removes the project's direct memberships and team
    * grants with it.
    */
   delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
@@ -331,12 +337,27 @@ export type ProjectUpdateOutcome =
 export type ProjectDeleteOutcome =
   | { readonly kind: 'ok' }
   | {
+      /** The workspace's default project can't be deleted. */
+      readonly kind: 'project-is-default';
+    }
+  | {
       /**
        * The project is a member of an environment order, so it can't be
        * deleted. Clear it from the order first.
        */
       readonly kind: 'project-in-environment-order';
       readonly orderId: string;
+    }
+  | {
+      /**
+       * Something the workspace keeps still names the project, such as a
+       * published item, a deployment, a test set, a run, a test run, a
+       * trigger, an artifact, a company connection choice, an audit event or
+       * a cost record, or a site is still registered on it, so it can't be
+       * deleted. A person's own connection choices don't hold it. Nothing is
+       * deleted.
+       */
+      readonly kind: 'project-in-use';
     };
 
 /** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */

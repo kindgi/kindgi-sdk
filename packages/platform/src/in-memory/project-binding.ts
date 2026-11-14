@@ -86,6 +86,11 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
  *   the durable binding does under its per-workspace lock; absent, no project is
  *   in an order. Compose this to the environment-order binding's `orderOf`
  *   wherever both share a store so the guard is never silently unset.
+ * - `projectInUse`: whether something the workspace keeps still names a
+ *   project, such as a published item, a deployment or a run, read where
+ *   those are kept. Given, `delete` refuses a project in use
+ *   (`project-in-use`), as the durable binding does; absent, no project is
+ *   in use. Compose it where the content bindings share a store.
  * - `promoteOnlyDeployment`: a promote-only build deployed into a project
  *   (not promoted there), or `undefined` for none, read where deployments
  *   are kept. Read synchronously, so `setProduction` reads it and changes
@@ -99,6 +104,7 @@ export interface InMemoryHierarchyOptions {
     tenantId: TenantId,
     projectId: ProjectId,
   ) => string | undefined | Promise<string | undefined>;
+  readonly projectInUse?: (tenantId: TenantId, projectId: ProjectId) => boolean | Promise<boolean>;
   readonly promoteOnlyDeployment?: (
     tenantId: TenantId,
     projectId: ProjectId,
@@ -421,12 +427,19 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       const row = findProjectInTenant(tenantId, projectId);
       // An id that names no project is `ok` — deleting is idempotent.
       if (row === undefined) return { kind: 'ok' };
-      const orderId = await options.environmentOrderOf?.(tenantId, projectId);
+      // The default is refused whatever else is true, so it's checked first.
+      if (row.isDefault) return { kind: 'project-is-default' };
+      // Both answers are read before either decides, so there's no await
+      // between them and the delete: the checks and the delete are one step,
+      // as a binding over a database makes them under a lock.
+      const [orderId, inUse] = await Promise.all([
+        options.environmentOrderOf?.(tenantId, projectId),
+        options.projectInUse?.(tenantId, projectId),
+      ]);
       if (orderId !== undefined) {
         return { kind: 'project-in-environment-order', orderId };
       }
-      // No await between the order answer and the delete — one step, as the
-      // durable binding's per-tenant lock makes it.
+      if (inUse === true) return { kind: 'project-in-use' };
       projectRows.delete(projectId);
       cascadeProjectDelete(projectId);
       return { kind: 'ok' };

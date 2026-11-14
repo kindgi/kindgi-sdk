@@ -73,3 +73,38 @@ runProjectBindingConformance(
   'InMemoryProjectBinding (environment-order guard)',
   { checksEnvironmentOrders: true },
 );
+// With the in-use guard, beside the order guard: a project something still
+// names can't be deleted, the default answers as the default first, and an
+// order answers before use.
+runProjectBindingConformance(
+  () => {
+    const orders = new Map<string, string>();
+    const inUse = new Set<string>();
+    const key = (tenantId: TenantId, projectId: ProjectId) => `${tenantId}::${projectId}`;
+    return {
+      ...makeInMemoryProjectBinding({
+        environmentOrderOf: (tenantId, projectId) => orders.get(key(tenantId, projectId)),
+        projectInUse: (tenantId, projectId) => inUse.has(key(tenantId, projectId)),
+      }),
+      putInEnvironmentOrder: (tenantId, projectId) => {
+        const orderId = `tenant:${tenantId}`;
+        orders.set(key(tenantId, projectId), orderId);
+        return Promise.resolve(orderId);
+      },
+      clearEnvironmentOrder: (tenantId, projectId) => {
+        orders.delete(key(tenantId, projectId));
+        return Promise.resolve();
+      },
+      holdProject: (tenantId, projectId) => {
+        inUse.add(key(tenantId, projectId));
+        return Promise.resolve();
+      },
+      releaseProject: (tenantId, projectId) => {
+        inUse.delete(key(tenantId, projectId));
+        return Promise.resolve();
+      },
+    };
+  },
+  'InMemoryProjectBinding (in-use guard)',
+  { checksEnvironmentOrders: true, checksProjectsInUse: true },
+);

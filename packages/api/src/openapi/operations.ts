@@ -9581,7 +9581,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.delete',
     summary: 'Delete a project (idempotent)',
     description:
-      "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
+      "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204. Keys and sessions limited to the project are revoked. A failed revoke is tried once more, then logged, and the delete still answers 204. Deleting the project again finishes a revoke that failed.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9597,8 +9597,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "Not the project's owner, or an admin of its org or the workspace (`permission-denied`).",
+      ),
       '409': ErrorResponse(
-        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+        "Nothing is deleted. `project-is-default`: the workspace's default project can't be deleted. `project-in-environment-order`: the project is a member of an environment order, so it can't be deleted; clear it from the order first. `project-in-use`: the project still holds what the workspace keeps (published agents, tools, flows, guardrails or data blocks; deployments; test sets; runs, test runs or triggers; artifacts; company connection choices; audit events; cost records), or a site is still registered on it; unregister its sites, delete its artifacts and unset its company connection choices first.",
       ),
     },
   },

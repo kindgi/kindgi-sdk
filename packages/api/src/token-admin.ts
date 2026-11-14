@@ -23,6 +23,15 @@ export interface TokenAdmin {
   list(input: TokenListInput): Promise<readonly ApiTokenRecord[]>;
   get(input: TokenGetInput): Promise<ApiTokenRecord | undefined>;
   revoke(input: TokenRevokeInput): Promise<TokenRevokeOutcome>;
+  /**
+   * Revoke every live key limited to one project (its `projectId`), in one
+   * tenant: `DELETE /v1/projects/:projectId` calls it once the project is
+   * deleted, and again on a repeat delete. Keys not limited to a project
+   * are left alone. Answers how many it revoked; a repeat call revokes
+   * none. Absent: those keys stay until they expire or are revoked one by
+   * one, though a request naming the deleted project finds no project.
+   */
+  revokeByProject?(input: TokenRevokeByProjectInput): Promise<TokenRevokeByProjectOutcome>;
 }
 
 /**
@@ -170,3 +179,16 @@ export type TokenRevokeOutcome =
       readonly alsoRevoked?: readonly ApiTokenId[];
     }
   | { readonly kind: 'not-found' };
+
+export interface TokenRevokeByProjectInput {
+  readonly tenantId: TenantId;
+  /** The project the keys are limited to (`TokenMintInput.projectId`). */
+  readonly projectId: ProjectId;
+  /** Who revoked them, as for `revoke`: `user:<id>` or `service_account:<id>`. */
+  readonly revokedBy?: string;
+}
+
+export interface TokenRevokeByProjectOutcome {
+  /** How many keys this call revoked: none on a repeat. */
+  readonly revokedCount: number;
+}

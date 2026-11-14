@@ -4,7 +4,9 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Principal, ref } from '@kindgi/authz';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   Project,
@@ -18,13 +20,15 @@ import type {
 } from '@kindgi/platform';
 import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
-import { callerRef } from '../caller.js';
+import { callerIdentity, callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
+import type { SessionStoreBinding } from '../session-store-binding.js';
+import type { TokenAdmin, TokenRevokeByProjectInput } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import {
@@ -33,6 +37,8 @@ import {
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
   projectInEnvironmentOrderError,
+  projectInUseError,
+  projectIsDefaultError,
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
@@ -69,6 +75,12 @@ import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
  *                                          `slug-conflict` (a new slug, or a
  *                                          move to an org that has it).
  *   - `DELETE /:projectId`               — 204 idempotent.
+ *                                          409 `project-is-default`,
+ *                                          `project-in-environment-order`
+ *                                          or `project-in-use`: nothing is
+ *                                          deleted. After a 204, the keys
+ *                                          and sessions limited to the
+ *                                          project are revoked.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
  *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`
  *                                          or `{ email, role }`; 201, or 404
@@ -108,6 +120,12 @@ export function projectsRouter(
    * deleted project's account is unregistered with it.
    */
   serviceAccounts?: Pick<ServiceAccountBinding, 'projectAccounts' | 'unregister'>,
+  /**
+   * Optional. Where the keys and sessions limited to a deleted project are
+   * revoked, and where the sessions' end is recorded: after every delete
+   * that answers 204, a repeat included.
+   */
+  revokes?: ProjectDeleteRevokes,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -872,19 +890,146 @@ export function projectsRouter(
     const projectId = c.req.param('projectId') as ProjectId;
     const requestId = c.get('requestId');
     const outcome = await binding.delete(tenantId, projectId);
-    if (outcome.kind === 'project-in-environment-order') {
-      const error = projectInEnvironmentOrderError(outcome.orderId);
-      c.status(statusFor(error.code) as never);
-      return c.json(toWireError(error, requestId));
+    // A refusal deleted nothing, so it answers before anything goes with
+    // the project: its account, keys and sessions stay.
+    switch (outcome.kind) {
+      case 'ok':
+        break;
+      case 'project-is-default':
+        return deleteRefused(c, projectIsDefaultError(), requestId);
+      case 'project-in-environment-order':
+        return deleteRefused(c, projectInEnvironmentOrderError(outcome.orderId), requestId);
+      case 'project-in-use':
+        return deleteRefused(c, projectInUseError(), requestId);
+      default: {
+        const unexpected: never = outcome;
+        throw new Error(`Unknown project delete outcome: ${JSON.stringify(unexpected)}`);
+      }
     }
     // Only once the project is gone: a delete refused before here leaves
     // its triggers their account.
     await unregisterProjectAccount(c, serviceAccounts, tenantId, projectId);
+    // On every `ok`, a repeat delete of a gone project too, so a repeat
+    // finishes a revoke that failed.
+    await revokeProjectAccess(c, revokes, tenantId, projectId);
     c.status(204);
     return c.body(null);
   });
 
   return r;
+}
+
+/**
+ * Where the keys and sessions limited to a deleted project are revoked,
+ * and where the sessions' end is recorded. Each is optional: without a
+ * store, or a store without `revokeByProject`, nothing is revoked there.
+ */
+export interface ProjectDeleteRevokes {
+  /** Revokes the keys limited to the project, as revoked by the caller (`revokedBy`). */
+  readonly tokenAdmin?: Pick<TokenAdmin, 'revokeByProject'>;
+  /** Ends the sessions limited to the project. */
+  readonly sessionStore?: Pick<SessionStoreBinding, 'revokeByProject'>;
+  /** Where the sessions' end is recorded (`sessions-ended`), with the caller as its actor. */
+  readonly auditEvents?: AuditEventBinding;
+}
+
+/** A refused delete's answer. Nothing was deleted. */
+function deleteRefused(
+  c: Context<AppEnv>,
+  error: Parameters<typeof toWireError>[0],
+  requestId: string,
+): Response {
+  c.status(statusFor(error.code) as never);
+  return c.json(toWireError(error, requestId));
+}
+
+/**
+ * Revokes the keys and sessions limited to a deleted project. Taking
+ * access away isn't best effort: each revoke that fails is logged at
+ * error level with the workspace and the project, then tried once more, and
+ * a second failure is logged again. The 204 stands either way, since the
+ * project is gone, and deleting it again finishes the revoke. A store that
+ * can't revoke by project is named in one warning per delete.
+ */
+async function revokeProjectAccess(
+  c: Context<AppEnv>,
+  revokes: ProjectDeleteRevokes | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId,
+): Promise<void> {
+  const tokens = revokes?.tokenAdmin;
+  const sessions = revokes?.sessionStore;
+  const unrevoked = [
+    ...(tokens !== undefined && tokens.revokeByProject === undefined ? ['keys'] : []),
+    ...(sessions !== undefined && sessions.revokeByProject === undefined ? ['sessions'] : []),
+  ];
+  if (unrevoked.length > 0) {
+    c.get('log').warn(
+      `project ${projectId as unknown as string} deleted, but the ${unrevoked.join(' and ')} limited to it weren't revoked: this runtime can't revoke them by project`,
+      { tenantId, projectId },
+    );
+  }
+  if (tokens?.revokeByProject !== undefined) {
+    const by = callerRef(c);
+    const input: TokenRevokeByProjectInput = {
+      tenantId,
+      projectId,
+      ...(by !== undefined && { revokedBy: by }),
+    };
+    await revokeWithOneRetry(c, 'keys', tenantId, projectId, () => tokens.revokeByProject?.(input));
+  }
+  if (sessions?.revokeByProject !== undefined) {
+    const ended = await revokeWithOneRetry(c, 'sessions', tenantId, projectId, () =>
+      sessions.revokeByProject?.({ tenantId, projectId }),
+    );
+    // The session store's input carries no actor, so the end of the
+    // sessions is recorded here, with the caller as its actor. It names
+    // the project in its doc only: the project is gone, and a store that
+    // ties audit rows to projects refuses an event naming a deleted one.
+    if (ended !== undefined && ended.revokedCount > 0) {
+      await emitAuditEvent({
+        auditEvents: revokes?.auditEvents,
+        tenantId,
+        kind: 'sessions-ended',
+        actor: callerIdentity(c),
+        correlationId: c.get('requestId'),
+        doc: { projectId, reason: 'project-deleted', revokedCount: ended.revokedCount },
+        log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
+  }
+}
+
+/**
+ * One revoke, tried at most twice. A failure is logged at error level
+ * with the workspace and the project, then the revoke is tried once more; a
+ * second failure is logged again. Its outcome, or `undefined` when both
+ * tries failed.
+ */
+async function revokeWithOneRetry<T>(
+  c: Context<AppEnv>,
+  what: 'keys' | 'sessions',
+  tenantId: TenantId,
+  projectId: ProjectId,
+  revoke: () => Promise<T> | undefined,
+): Promise<T | undefined> {
+  try {
+    return await revoke();
+  } catch (err) {
+    c.get('log').error(
+      `could not revoke the ${what} limited to a deleted project; trying once more`,
+      { err, tenantId, projectId },
+    );
+  }
+  try {
+    return await revoke();
+  } catch (err) {
+    c.get('log').error(
+      `could not revoke the ${what} limited to a deleted project; deleting it again revokes them`,
+      { err, tenantId, projectId },
+    );
+    return undefined;
+  }
 }
 
 /**

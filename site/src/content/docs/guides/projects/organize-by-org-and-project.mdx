@@ -614,6 +614,75 @@ Kindgi keeps the deleted org's record until a
 [retention policy](../../../deploy/retention/) on `org` purges it. That
 comes after its environments' and MCP endpoints' own records are purged.
 
+## Delete a project
+
+Delete a project you set up and never used, or one you've cleared. For
+reference, the code looks like this, with `kindgi` and `project` from the
+script:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+await kindgi.projects.delete(project.id);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+kindgi.projects.delete(str(project.id))
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/com/acme/app/CustomerOrg.java, when the project is cleared
+kindgi.projects().delete(project.id());
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/app/CustomerOrg.scala, when the project is cleared
+kindgi.projects().delete(project.id)
+```
+
+</TabItem>
+</Tabs>
+
+- **The workspace's default project is never deleted:** it answers
+  `409 project-is-default`.
+- **A project with history stays.** One that still holds what the workspace
+  keeps (published agents, tools, flows, guardrails or data blocks;
+  deployments; test sets; runs, test runs or triggers; artifacts; company
+  connection choices; audit events; cost records), or that a site is still
+  registered on, answers `409 project-in-use`. Its sites, artifacts and
+  company connection choices go first: unregister its sites
+  (`kindgi sites unregister <site-id> --project=<project-id>`), delete its
+  artifacts (`kindgi artifacts delete <blob-id>`) and unset its company
+  connection choices (`kindgi connection-choices unset <choice-id>`).
+  `kindgi sites list`, `kindgi artifacts list` and
+  `kindgi connection-choices list`, each with `--project=<project-id>`, find
+  them. A person's own connection choices don't hold it. A project that had
+  a secret or an environment value set on it, a key made limited to it, or a
+  trigger set to run as it, stays too: each of these records an audit event
+  that names the project.
+- **A project in an environment order** answers
+  `409 project-in-environment-order`: clear it from the order first.
+- **A refusal deletes nothing,** and the project's account, keys and sessions
+  stay.
+- **What goes with it:** its members and team grants, its secrets and
+  environment values, its MCP servers, its pinned versions and whether it's
+  in production, and its other settings. Its own account is unregistered
+  ([A project's own account](../../../deploy/people-and-keys/#a-projects-own-account)).
+- **Keys and sessions limited to it are revoked.** A revoke that fails is
+  tried once more, then logged, and the delete still goes through.
+- **Deleting it again changes nothing,** except that it finishes a revoke that
+  failed.
+
 ## Rename your workspace
 
 Your workspace is the tenant your orgs and projects sit in. A tenant admin
