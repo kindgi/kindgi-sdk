@@ -531,6 +531,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     name: 'text-triggers',
     route: '/v1/text-triggers',
     paging: cursor,
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/text-triggers/{triggerId}'],
   },
   {
@@ -538,12 +539,14 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/text-triggers/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
   },
   {
     name: 'text-trigger-versions',
     route: '/v1/text-triggers/{triggerId}/versions',
     paging: cursor,
     parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/text-triggers/{triggerId}/versions/{version}'],
   },
   {

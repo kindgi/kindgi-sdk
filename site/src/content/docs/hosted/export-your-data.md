@@ -123,9 +123,9 @@ same way:
 - **An agent's retired test set cases:** `?include=retired`.
 - **Removed versions** of agents, flows, tools, blocks, policies and test
   sets: `?includeTombstoned=true`.
-- **Removed sites, people, service accounts, schedules, webhook triggers and
-  mail triggers:** `?includeUnregistered=true`, on a removed trigger's
-  versions and fires too.
+- **Removed sites, people, service accounts, schedules, webhook triggers,
+  mail triggers and text triggers:** `?includeUnregistered=true`, on a
+  removed trigger's versions and fires too.
 - **Removed connection apps, connections and connection choices:**
   `?includeRemoved=true`.
 - **Revoked signing keys and secrets:** `?includeRevoked=true`.
@@ -163,6 +163,7 @@ A list that pages answers a page at a time: `?limit=` (at most 100), and
 | Schedules, removed ones too: every version, and when they fired | `schedules.jsonl`, `schedule-versions.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
 | Webhook triggers, removed ones too: every version, and when they fired | `webhooks.jsonl`, `webhook-versions.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
 | Mail triggers, removed ones too: every version, and when they fired | `mail-triggers.jsonl`, `mail-trigger-versions.jsonl`, `mail-trigger-fires.jsonl` | `GET /v1/mail-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Text triggers, removed ones too: every version, and when they fired | `text-triggers.jsonl`, `text-trigger-versions.jsonl`, `text-trigger-fires.jsonl` | `GET /v1/text-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
 | Webhook endpoints, and their deliveries | `webhook-endpoints.jsonl`, `webhook-deliveries.jsonl` | `GET /v1/webhook-endpoints`, `…/{endpointId}/deliveries` |
 | MCP endpoints | `mcp-endpoints.jsonl` | `GET /v1/mcp/endpoints` |
 | Capabilities | `capabilities.jsonl` | `GET /v1/capabilities` |

@@ -29195,6 +29195,11 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the text trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then."
           }
         }
       },
@@ -89481,7 +89486,7 @@
             }
           }
         },
-        "description": "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+        "description": "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed text triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
         "parameters": [
           {
             "name": "limit",
@@ -89512,6 +89517,16 @@
             },
             "required": false,
             "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "projectId",
@@ -89560,7 +89575,7 @@
             }
           },
           "404": {
-            "description": "No text trigger with that id, or the row was tombstoned.",
+            "description": "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -89610,6 +89625,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           }
         ],
         "security": [
@@ -90143,7 +90168,7 @@
             }
           }
         },
-        "description": "Who may unregister it is as for a pause. Its connection is free for another text trigger.",
+        "description": "Who may unregister it is as for a pause. Its connection is free for another text trigger. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.",
         "parameters": [
           {
             "name": "triggerId",
@@ -90202,7 +90227,7 @@
             }
           },
           "404": {
-            "description": "No text trigger with that id.",
+            "description": "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -90265,6 +90290,16 @@
             "description": "TriggerId — the trigger id (a UUID)."
           },
           {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -90322,7 +90357,7 @@
             }
           },
           "404": {
-            "description": "No text trigger with that id.",
+            "description": "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -90362,7 +90397,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.",
+        "description": "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions. A removed text trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -90373,6 +90408,16 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `true`, a removed trigger too, carrying `unregisteredAt`. Default: `false` (triggers that are still there)."
           },
           {
             "name": "limit",
@@ -90442,7 +90487,7 @@
             }
           },
           "404": {
-            "description": "No text trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
+            "description": "No text trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -90482,6 +90527,7 @@
             }
           }
         },
+        "description": "A removed text trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the text trigger since. Reading it takes what reading the text trigger does.",
         "parameters": [
           {
             "name": "triggerId",

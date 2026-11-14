@@ -17811,6 +17811,12 @@ export const TextTriggerRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the text trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.',
+    },
   },
 };
 

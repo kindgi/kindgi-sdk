@@ -8,9 +8,13 @@
  * the company's, so registering and every PATCH take a project admin; a
  * shared trigger's pause, resume and unregister take `write`, and a
  * personal one's its owner or an admin. `toolsAllowedUnattended` never
- * lists `kindgi_send_text`. Driven through the app, with an authorizer that
- * grants every right but `admin`, which only Ada and Pia hold, and
- * without one, where the token's tenant-admin scope decides.
+ * lists `kindgi_send_text`. A removed text trigger's one version reads
+ * with no flag, carrying when it was removed (`unregisteredAt`), as a run's
+ * `trigger.version` names it; the trigger, its versions and its fires only
+ * with `includeUnregistered=true`, and nothing changes it. Driven through
+ * the app, with an authorizer that grants every right but `admin`, which
+ * only Ada and Pia hold, and none to Eve, and without one, where the
+ * token's tenant-admin scope decides.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -46,6 +50,8 @@ const ADA = randomUUID() as UserId;
 const WREN = randomUUID() as UserId;
 /** A project admin who isn't a tenant admin. */
 const PIA = randomUUID() as UserId;
+/** In the tenant, but may read nothing. */
+const EVE = randomUUID() as UserId;
 const BOT = 'sa-front-desk';
 const PROJECT = randomUUID() as ProjectId;
 
@@ -53,14 +59,17 @@ const TOKENS: Record<string, Awaited<ReturnType<TokenResolver>>> = {
   ada: { tenantId, userId: ADA, scopes: ['tenant-admin'] },
   wren: { tenantId, userId: WREN, scopes: [] },
   pia: { tenantId, userId: PIA, scopes: [] },
+  eve: { tenantId, userId: EVE, scopes: [] },
+  other: { tenantId: randomUUID() as TenantId, userId: ADA, scopes: ['tenant-admin'] },
 };
 const resolveToken: TokenResolver = async (token) => TOKENS[token] ?? null;
 
-/** Every right, but `admin` only for Ada, and for Pia below the tenant. */
+/** Every right, but `admin` only for Ada, and for Pia below the tenant; none for Eve. */
 function decision(principal: unknown, action: Action, resource: ResourceRef): Decision {
   const actor = (principal as { actor?: { id?: string } }).actor?.id;
   const allowed =
-    action !== 'admin' || actor === ADA || (actor === PIA && resource.type !== 'tenant');
+    actor !== EVE &&
+    (action !== 'admin' || actor === ADA || (actor === PIA && resource.type !== 'tenant'));
   return {
     allowed,
     reason: allowed ? 'test: granted' : 'test: not an admin',
@@ -765,6 +774,105 @@ describe('versions and take-over', () => {
     const never = await h.call('GET', `${BASE}/${id}/versions/9`);
     expect(never.status).toBe(404);
     expect(never.body.error.code).toBe('trigger-version-not-found');
+  });
+
+  test("a removed trigger's one version reads with no flag, with when it was removed; the rest only when asked", async () => {
+    const h = harness();
+    const id = await registered(h, answering(FRONT_DESK, { label: 'Front desk' }));
+    expect((await h.call('PATCH', `${BASE}/${id}`, { config: { runsPerHour: 30 } })).status).toBe(
+      200,
+    );
+    const runId = randomUUID();
+    h.triggerRegistry.recordFire({
+      triggerId: id as TriggerId,
+      kind: 'text',
+      firedAt: '2026-10-07T10:00:01.000Z',
+      outcome: 'started',
+      runId: runId as never,
+      version: 2,
+    });
+    expect((await h.call('POST', `${BASE}/${id}/unregister`)).status).toBe(200);
+
+    // The version a run started from, as its `trigger.version` names it.
+    const v1 = await h.call('GET', `${BASE}/${id}/versions/1`, undefined, 'wren');
+    expect(v1.status, JSON.stringify(v1.body)).toBe(200);
+    expect(validateAgainst('TextTriggerVersion', v1.body)).toEqual([]);
+    expect(v1.body).toMatchObject({ triggerId: id, version: 1, cause: 'register' });
+    expect(v1.body.definition).toMatchObject({
+      agentId: 'acme.support',
+      connectionId: FRONT_DESK.connectionId,
+      runsPerHour: 60,
+      perSenderPerHour: 10,
+      label: 'Front desk',
+    });
+    const removedAt = v1.body.unregisteredAt as string;
+    expect(Number.isNaN(Date.parse(removedAt))).toBe(false);
+    expect((await h.call('GET', `${BASE}/${id}/versions/3`)).body.error.code).toBe(
+      'trigger-version-not-found',
+    );
+    // Reading it is reading the trigger: as for a live one.
+    expect((await h.call('GET', `${BASE}/${id}/versions/1`, undefined, 'eve')).status).toBe(403);
+    const elsewhere = await h.call('GET', `${BASE}/${id}/versions/1`, undefined, 'other');
+    expect(elsewhere.body.error.code).toBe('trigger-not-found');
+
+    // Unasked, the rest answers as for a trigger that isn't there.
+    for (const path of ['', '/versions', '/fires']) {
+      const unasked = await h.call('GET', `${BASE}/${id}${path}`);
+      expect(unasked.status, path).toBe(404);
+      expect(unasked.body.error.code, path).toBe('trigger-not-found');
+    }
+    const listed = await h.call('GET', BASE);
+    expect(listed.body.data.map((r: { triggerId: string }) => r.triggerId)).not.toContain(id);
+
+    // Asked: the trigger as it was, its versions and its fires.
+    const asked = '?includeUnregistered=true';
+    const record = await h.call('GET', `${BASE}/${id}${asked}`, undefined, 'wren');
+    expect(record.status, JSON.stringify(record.body)).toBe(200);
+    expect(validateAgainst('TextTriggerRecord', record.body)).toEqual([]);
+    expect(record.body).toMatchObject({
+      triggerId: id,
+      status: 'active',
+      version: 2,
+      unregisteredAt: removedAt,
+    });
+    const page = await h.call('GET', `${BASE}/${id}/versions${asked}`);
+    expect(page.status).toBe(200);
+    expect(validateAgainst('TextTriggerVersionPage', page.body)).toEqual([]);
+    expect(
+      page.body.data.map((v: { version: number; unregisteredAt?: string }) => [
+        v.version,
+        v.unregisteredAt,
+      ]),
+    ).toEqual([
+      [2, removedAt],
+      [1, removedAt],
+    ]);
+    const fires = await h.call('GET', `${BASE}/${id}/fires${asked}`);
+    expect(fires.status).toBe(200);
+    expect(validateAgainst('TextFirePage', fires.body)).toEqual([]);
+    expect(fires.body.data).toMatchObject([{ runId, version: 2 }]);
+    for (const [query, has] of [
+      [asked, true],
+      [`${asked}&status=active`, true],
+      [`${asked}&status=paused`, false],
+    ] as const) {
+      const rows = (await h.call('GET', `${BASE}${query}`)).body.data as {
+        triggerId: string;
+        unregisteredAt?: string;
+      }[];
+      expect(
+        rows.some((r) => r.triggerId === id && r.unregisteredAt === removedAt),
+        query,
+      ).toBe(has);
+    }
+    expect(
+      validateAgainst('TextTriggerCollectionPage', (await h.call('GET', `${BASE}${asked}`)).body),
+    ).toEqual([]);
+
+    // Nothing changes it.
+    const patched = await h.call('PATCH', `${BASE}/${id}${asked}`, { config: { runsPerHour: 20 } });
+    expect(patched.status).toBe(404);
+    expect((await h.call('POST', `${BASE}/${id}/pause${asked}`)).status).toBe(404);
   });
 
   test("a take-over is an admin's: it keeps the list, a body that names it is a 400, and the former owner is told", async () => {

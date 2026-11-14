@@ -12156,17 +12156,24 @@ class TextTriggersResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.TextTriggerCollectionPage:
         """List text triggers. `GET /v1/text-triggers`
 
-        The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed text triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return self._client._request(
             _OPERATIONS["textTriggers.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.TextTriggerCollectionPage,
             timeout=timeout,
@@ -12196,13 +12203,18 @@ class TextTriggersResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.TextTriggerRecord:
         """Fetch a text trigger. `GET /v1/text-triggers/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["textTriggers.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.TextTriggerRecord,
             timeout=timeout,
@@ -12284,7 +12296,7 @@ class TextTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a text trigger (tombstone). `POST /v1/text-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause. Its connection is free for another text trigger.
+        Who may unregister it is as for a pause. Its connection is free for another text trigger. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.
         """
         return self._client._request(
             _OPERATIONS["textTriggers.unregister"],
@@ -12300,6 +12312,7 @@ class TextTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -12311,7 +12324,7 @@ class TextTriggersResource:
         return self._client._request(
             _OPERATIONS["textTriggers.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.TextFirePage,
             timeout=timeout,
@@ -12322,18 +12335,19 @@ class TextTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.TextTriggerVersionPage:
         """A text trigger's versions. `GET /v1/text-triggers/{triggerId}/versions`
 
-        Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.
+        Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions. A removed text trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return self._client._request(
             _OPERATIONS["textTriggers.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.TextTriggerVersionPage,
             timeout=timeout,
@@ -12342,7 +12356,10 @@ class TextTriggersResource:
     def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.TextTriggerVersion:
-        """Fetch one version of a text trigger. `GET /v1/text-triggers/{triggerId}/versions/{version}`"""
+        """Fetch one version of a text trigger. `GET /v1/text-triggers/{triggerId}/versions/{version}`
+
+        A removed text trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the text trigger since. Reading it takes what reading the text trigger does.
+        """
         return self._client._request(
             _OPERATIONS["textTriggers.getVersion"],
             path={"triggerId": trigger_id, "version": version},
@@ -23783,17 +23800,24 @@ class AsyncTextTriggersResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        include_unregistered: bool | None = None,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.TextTriggerCollectionPage:
         """List text triggers. `GET /v1/text-triggers`
 
-        The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed text triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.
         """
         return await self._client._request(
             _OPERATIONS["textTriggers.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "status": status,
+                "includeUnregistered": include_unregistered,
+                "projectId": project_id,
+            },
             headers={},
             response=_models.TextTriggerCollectionPage,
             timeout=timeout,
@@ -23823,13 +23847,18 @@ class AsyncTextTriggersResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
     ) -> _models.TextTriggerRecord:
         """Fetch a text trigger. `GET /v1/text-triggers/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["textTriggers.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"includeUnregistered": include_unregistered},
             headers={},
             response=_models.TextTriggerRecord,
             timeout=timeout,
@@ -23911,7 +23940,7 @@ class AsyncTextTriggersResource:
     ) -> _models.WebhookTriggerUnregisterResult:
         """Soft-delete a text trigger (tombstone). `POST /v1/text-triggers/{triggerId}/unregister`
 
-        Who may unregister it is as for a pause. Its connection is free for another text trigger.
+        Who may unregister it is as for a pause. Its connection is free for another text trigger. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.
         """
         return await self._client._request(
             _OPERATIONS["textTriggers.unregister"],
@@ -23927,6 +23956,7 @@ class AsyncTextTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -23938,7 +23968,7 @@ class AsyncTextTriggersResource:
         return await self._client._request(
             _OPERATIONS["textTriggers.fires"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.TextFirePage,
             timeout=timeout,
@@ -23949,18 +23979,19 @@ class AsyncTextTriggersResource:
         trigger_id: str | UUID,
         /,
         *,
+        include_unregistered: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.TextTriggerVersionPage:
         """A text trigger's versions. `GET /v1/text-triggers/{triggerId}/versions`
 
-        Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.
+        Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions. A removed text trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.
         """
         return await self._client._request(
             _OPERATIONS["textTriggers.listVersions"],
             path={"triggerId": trigger_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeUnregistered": include_unregistered, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.TextTriggerVersionPage,
             timeout=timeout,
@@ -23969,7 +24000,10 @@ class AsyncTextTriggersResource:
     async def get_version(
         self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
     ) -> _models.TextTriggerVersion:
-        """Fetch one version of a text trigger. `GET /v1/text-triggers/{triggerId}/versions/{version}`"""
+        """Fetch one version of a text trigger. `GET /v1/text-triggers/{triggerId}/versions/{version}`
+
+        A removed text trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the text trigger since. Reading it takes what reading the text trigger does.
+        """
         return await self._client._request(
             _OPERATIONS["textTriggers.getVersion"],
             path={"triggerId": trigger_id, "version": version},

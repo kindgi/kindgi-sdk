@@ -520,7 +520,7 @@ const IncludeTombstonedQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: false },
 };
 
-/** A trigger read's: a removed trigger too (schedules, webhook triggers, mail triggers). */
+/** A trigger read's: a removed trigger too (schedules, webhook triggers, mail triggers, text triggers). */
 const IncludeUnregisteredTriggerQueryParam: ParameterSpec = {
   name: 'includeUnregistered',
   in: 'query',
@@ -13745,13 +13745,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'textTriggers.list',
     summary: 'List text triggers',
     description:
-      "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it). Removed text triggers only with `?includeUnregistered=true`, each with `unregisteredAt`, and `?status=` matches the status a removed one had.",
     tags: ['text-triggers'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
       TriggerStatusFilterQueryParam,
+      IncludeUnregisteredTriggerQueryParam,
       {
         name: 'projectId',
         in: 'query',
@@ -13773,11 +13774,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a text trigger',
     tags: ['text-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [TriggerIdPathParam, IncludeUnregisteredTriggerQueryParam],
     responses: {
       '200': { description: 'Text trigger record.', schema: ref('TextTriggerRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No text trigger with that id, or the row was tombstoned.'),
+      '404': ErrorResponse(
+        "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13847,7 +13850,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'textTriggers.unregister',
     summary: 'Soft-delete a text trigger (tombstone)',
     description:
-      'Who may unregister it is as for a pause. Its connection is free for another text trigger.',
+      'Who may unregister it is as for a pause. Its connection is free for another text trigger. Its record, versions and fires stay, readable with `?includeUnregistered=true` (one version with no flag), until the workspace is purged.',
     tags: ['text-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -13867,11 +13870,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.',
     tags: ['text-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: "Page of the trigger's texts.", schema: ref('TextFirePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No text trigger with that id.'),
+      '404': ErrorResponse(
+        "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
       ),
@@ -13884,17 +13894,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'textTriggers.listVersions',
     summary: "A text trigger's versions",
     description:
-      "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.",
+      "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions. A removed text trigger's versions stay: `?includeUnregistered=true` lists them, each with `unregisteredAt`.",
     tags: ['text-triggers'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      TriggerIdPathParam,
+      IncludeUnregisteredTriggerQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of versions, newest first.',
         schema: ref('TextTriggerVersionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No text trigger with that id.'),
+      '404': ErrorResponse(
+        "No text trigger with that id, or it was removed and the read didn't ask for one (`includeUnregistered`).",
+      ),
     },
   },
   {
@@ -13903,6 +13920,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/text-triggers/{triggerId}/versions/{version}',
     operationId: 'textTriggers.getVersion',
     summary: 'Fetch one version of a text trigger',
+    description:
+      "A removed text trigger's too, with no flag, carrying `unregisteredAt`: a run keeps the version it started from (its `trigger.version`), whatever became of the text trigger since. Reading it takes what reading the text trigger does.",
     tags: ['text-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
@@ -13911,7 +13930,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No text trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+        'No text trigger with that id, removed or not (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
