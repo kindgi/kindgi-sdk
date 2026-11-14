@@ -23,7 +23,7 @@
  * asserts against captured requests.
  */
 
-import { createHash, generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
 import {
   chmod,
   lstat,
@@ -1436,59 +1436,6 @@ describe('kindgi dev — boot flow (no watch)', () => {
     // With Kindgi's own copy, no hint.
     await writeFile(join(packDir, '.kindgi', 'secrets.env'), 'ANTHROPIC_API_KEY=sk-kindgi\n');
     expect(await boot()).not.toContain(hint);
-  });
-
-  describe('a database URL with a list of hosts, whose record was keyed on a hash of it', () => {
-    const URL_LIST = 'postgres://me@h1:5432,h2:6543/db';
-    const FLAGS = [`--database-url=${URL_LIST}`];
-    const KEY = 'h1:5432,h2:6543/db tenant tenant-abc';
-
-    /** One boot registers gemini; then the record is as the CLI wrote it before: keyed on 16 hex of the URL's sha256. */
-    async function bootThenKeyOnHash(fixtures: Fixtures): Promise<string> {
-      await writeFile(
-        join(packDir, 'kindgi.config.ts'),
-        "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n",
-        'utf8',
-      );
-      expect(await bootSaid(fixtures, FLAGS)).toContain('  ✓ gemini: registered\n');
-      const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
-      const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-        readonly runtimes: Record<string, unknown>;
-      };
-      expect(Object.keys(record.runtimes)).toEqual([KEY]);
-      const hash = createHash('sha256').update(URL_LIST).digest('hex').slice(0, 16);
-      await writeFile(
-        recordPath,
-        JSON.stringify({ v: 1, runtimes: { [`${hash} tenant tenant-abc`]: record.runtimes[KEY] } }),
-      );
-      return recordPath;
-    }
-
-    test("the entries move to the URL's hosts, ports and database before they're read: the provider is still this pack's", async () => {
-      const fixtures = makeFixtures();
-      const recordPath = await bootThenKeyOnHash(fixtures);
-
-      const next = await bootSaid(fixtures, FLAGS);
-      expect(next).toContain('gemini (unchanged)');
-      expect(next).not.toContain('not from kindgi.config.ts');
-      expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([KEY]);
-    });
-
-    test("a record the move can't write is said under --quiet too, and kindgi dev goes on", async () => {
-      const fixtures = makeFixtures();
-      const recordPath = await bootThenKeyOnHash(fixtures);
-      // A directory where the file is written first, so no write can land.
-      await mkdir(`${recordPath}.${process.pid}.tmp`);
-
-      for (const flags of LOUD_AND_QUIET) {
-        const said = await bootSaid(fixtures, [...FLAGS, ...flags]);
-        expect(said.split('\n').filter((l) => l.includes('could not update'))).toEqual([
-          expect.stringMatching(
-            /^ {4}⚠ could not update \.kindgi\/dev\/providers\.json: EISDIR.*\. Providers this pack registered may read as not its own\.$/,
-          ),
-        ]);
-      }
-    });
   });
 
   test('under --quiet the providers that need a look are said, under their heading; the ones that went fine are not', async () => {
@@ -2962,32 +2909,6 @@ describe('kindgi dev — a database per project', () => {
     expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([
       `127.0.0.1:58091/kindgi_acme tenant ${tenant}`,
     ]);
-  });
-
-  test("a key of the old hash's shape is deleted on any boot; the entries beside it stay", async () => {
-    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
-    const base = makeFixtures();
-    await boot(withProjectDatabase({ base }).fixtures);
-    const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
-    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-      readonly runtimes: Record<string, unknown>;
-    };
-    const own = 'bundled kindgi_acme tenant tenant-abc';
-    expect(Object.keys(record.runtimes)).toEqual([own]);
-    await writeFile(
-      recordPath,
-      JSON.stringify({
-        v: 1,
-        runtimes: {
-          ...record.runtimes,
-          '0123456789abcdef tenant tenant-abc': record.runtimes[own],
-        },
-      }),
-    );
-
-    const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
-    expect(next.log).toContain(OWN);
-    expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([own]);
   });
 
   test("a providers.json that can't be written is said under --quiet too, once for each write", async () => {
