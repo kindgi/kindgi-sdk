@@ -1291,6 +1291,41 @@ export const GLOBAL_FLAG_DEFAULTS = {
  * then the line. The guides' own lines are added after these.
  */
 export const CLI_EXAMPLES = {
+  'artifacts list': [
+    {
+      purpose:
+        'The artifacts one run produced. `kindgi files list` takes its place, with the same flags; 0.8.0 removes `kindgi artifacts`.',
+      line: 'kindgi artifacts list --run=<run-id> --table',
+    },
+  ],
+  'artifacts get': [
+    {
+      purpose:
+        "An artifact's name, type, size and sha256. `kindgi files get <file-id> <version>` takes its place: the id an upload answered is the file's id, at version 1.",
+      line: 'kindgi artifacts get <blob-id>',
+    },
+  ],
+  'artifacts upload': [
+    {
+      purpose:
+        "Keep a run's report. `kindgi files upload` takes its place, and takes the type from the file's extension.",
+      line: 'kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf',
+    },
+  ],
+  'artifacts download': [
+    {
+      purpose:
+        "Save an artifact's bytes to a file. `kindgi files download <file-id> <version>` takes its place, with the same flags.",
+      line: 'kindgi artifacts download <blob-id> -o report.pdf',
+    },
+  ],
+  'artifacts delete': [
+    {
+      purpose:
+        'Delete an artifact. `kindgi files delete <file-id> <version>` takes its place, and deletes that version only.',
+      line: 'kindgi artifacts delete <blob-id>',
+    },
+  ],
   'auth login': [
     {
       purpose:
@@ -2893,6 +2928,7 @@ export const CLI_EXAMPLES = {
 
 /** "See also" for a command group that no guide runs: page slugs. */
 export const CLI_GROUP_SEE_ALSO = {
+  artifacts: ['concepts/files-and-versions', 'guides/runs/keep-files-with-a-run'],
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/self-hosted/sign-in', 'start/introduction'],
