@@ -97,7 +97,8 @@ def customer_orders(input: Customer) -> Orders:
 A package a tool imports must be in your app's main dependencies
 (`[project].dependencies`), not a dev group: the deployed pack installs
 without dev dependencies, so a dev-only import works under `kindgi dev` and
-fails once deployed.
+fails in the image. The image's build then stops, naming the file and the
+missing package.
 
 Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 `__init__.py` to `kindgi/`: the folder would shadow the `kindgi` package.
