@@ -135,7 +135,7 @@ export const ENV_DEFAULTS = {
   KINDGI_PAGINATION_PREVIOUS_KEY_PATH: 'none: no previous key',
   KINDGI_PAGINATION_PREVIOUS_KEY: 'none: no previous key',
   KINDGI_COMPLIANCE_CLASSIFIER: 'none: no compliance routes, and no audit event is purged',
-  KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
+  KINDGI_ARTIFACTS: 'none: no file store (no `/v1/files` or `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
   KINDGI_FILE_MEMORY_MIB:
