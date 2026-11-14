@@ -108,6 +108,8 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
 | `system:env-refs` | [Setting a tenant's env names to a cloud secret](#set-a-name-to-a-cloud-secret), for its pack services (runtime 0.4.0 or later) |
+| `system:kept-repos` | [Kept repos](#kept-repos), for the repo store's reconcile: the rulings on the repos it holds, the unfinished erasures, and reporting a purge done. It can't request an erasure |
+| `system:kept-repos:erase` | [Requesting a kept repo's erasure](#erase-a-kept-repo), and reading its state |
 | `system:license` | Reading the deployment's license, for its renewal |
 | `kindgi:system` | All of them: a full key |
 
@@ -529,6 +531,71 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   and it lists to retire. Restored, it serves again from the endpoint
   recorded for it. If its endpoint is pending, or was cleared meanwhile, it
   lists as needing a pack service.
+
+## Kept repos
+
+Kindgi Cloud keeps a git repo for each project without a GitHub repo, in a
+repo store beside a runtime serving many tenants. The store holds the repos.
+The runtime holds their record: which projects are live, deleted or moved to
+GitHub, which repos are due a purge, and each purge done. A runtime you run
+has no repo store, so `KINDGI_KEPT_REPOS` stays off on it. This section says
+what the runtime's side does, and what its routes answer.
+
+- **It's turned on** with `KINDGI_KEPT_REPOS=on`, on the runtime and on the
+  store's gateway alike. Off is the default. A runtime serving one tenant
+  refuses to start with it on.
+- **Turning it off erases nothing.** Repos the store holds stay there until
+  they're purged while it's on. An erasure requested while it was on stays
+  unfinished while it's off, and completes once it's on again.
+- **The store's key** holds `system:kept-repos`, and nothing more. With it,
+  each pass of the store's reconcile:
+  - asks for a ruling on each repo it holds, up to 500 at a time
+    (`POST /v1/system/kept-repos/rulings`): `keep`, with the mark it sets
+    on the repo, or `purge`, for a reason (`erasure`, `retention`,
+    `tenant-purged` or `no-record`);
+  - lists the unfinished erasures (`GET /v1/system/kept-repos/erasures`),
+    and purges each, whether or not it holds the repo;
+  - reports each purge done
+    (`POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged`
+    with `{"reason": "..."}`), which completes the erasure waiting on it.
+  The three answer whether or not `KINDGI_KEPT_REPOS` is on, so a store
+  still purges what's ruled while the runtime's is off.
+- **A repo is kept** while its project is live, and for 90 days after its
+  project is deleted or the repo moves to GitHub, its kept window (`keep`,
+  marked `deleted` or `moved`). Then it's ruled `purge` for `retention`,
+  unless something holds it (`keep`, marked `held`).
+
+### Erase a kept repo
+
+With a key holding `system:kept-repos:erase`:
+
+```sh
+curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/projects/$PROJECT_ID/kept-repo/erasure" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY")
+```
+
+- **`202`** `{"state": "erasure-requested", "since": "..."}`: requested, now
+  or by an earlier request still unfinished. The store's next pass purges
+  the repo and reports it, which completes the erasure.
+- **`200`** `{"state": "purged", "since": "..."}`: its erasure is done
+  already, and nothing more is requested. A repo purged when its kept
+  window ended is requested still, so its erasure is recorded too.
+- **`404 project-not-found`:** the runtime has no record of the project.
+- **`409 legal-hold`:** something holds the repo, and nothing is requested.
+- **`501 kept-repos-off`:** `KINDGI_KEPT_REPOS` is off on the runtime, and
+  nothing is requested.
+
+`GET` on the same path, under the same scope, answers the repo's state:
+`live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and
+since when.
+
+Each erasure done is recorded off the database too, under
+`KINDGI_TENANT_PURGE_RECORD` (`kept-repos/erased/<tenant id>/<project id>.json`)
+and in every copy of the erasure ledger, so a restore from an older backup
+can't bring an erased repo back. After a restore, keep the store's gateway
+stopped until
+[`erasures replay --records`](../back-up-and-restore/#copies-the-runtime-keeps-on-its-own)
+and [`tenants repurge`](#after-a-restore-tenants-repurge) have run.
 
 ## Close and purge a tenant
 

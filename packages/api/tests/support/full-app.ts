@@ -840,6 +840,23 @@ export function fullAppInput(): CreateAppInput {
         throw new Error('not used: no system principal in the sweeps');
       },
     },
+    systemKeptRepos: {
+      rulings: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      reportPurged: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      state: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      requestErasure: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      openErasures: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+    },
     usage: {
       acrossTenants: async () => {
         throw new Error('not used: no system principal in the sweeps');

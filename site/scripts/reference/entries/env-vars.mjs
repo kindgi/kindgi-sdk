@@ -131,6 +131,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
   KINDGI_TENANT_PURGE_RECORD:
     'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
+  KINDGI_KEPT_REPOS:
+    '`off`: no kept repos, and `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses (`kept-repos-off`)',
   KINDGI_PASSIVE: '`off`',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',

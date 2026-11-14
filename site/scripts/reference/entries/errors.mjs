@@ -395,7 +395,7 @@ export const ERROR_ENTRIES = {
   },
   'legal-hold': {
     description:
-      "The fact is under legal hold, so it can't be deleted or superseded; or a memory erasure would reach facts under hold, and nothing is erased. Lift the hold first.",
+      "The fact is under legal hold, so it can't be deleted or superseded; or a memory erasure would reach facts under hold, and nothing is erased; or something holds a project's kept repo, so its erasure isn't requested. Lift the hold first.",
     details: [
       {
         key: 'factId',
@@ -404,6 +404,10 @@ export const ERROR_ENTRIES = {
       {
         key: 'factIds',
         meaning: 'the facts under hold (starting an erasure)',
+      },
+      {
+        key: 'projectId',
+        meaning: "the project whose kept repo is held (requesting a kept repo's erasure)",
       },
     ],
   },
@@ -2536,6 +2540,11 @@ export const ERROR_ENTRIES = {
   },
   'tenant-purge-unsupported': {
     description: "This runtime doesn't purge tenants through the API.",
+    details: [],
+  },
+  'kept-repos-off': {
+    description:
+      "You requested a kept repo's erasure on a runtime that isn't keeping repos for projects without a GitHub repo now (`KINDGI_KEPT_REPOS` is off), so nothing was requested. Turning it off erases nothing: repos kept while it was on stay until they're purged with it on. Turn it on, on the runtime and on the repo store's gateway, then request the erasure again.",
     details: [],
   },
   'tenant-slug-taken': {

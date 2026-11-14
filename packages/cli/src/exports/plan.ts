@@ -666,6 +666,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/usage': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env':
     "the server's operator routes",
+  '/v1/system/kept-repos/erasures': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo': "the server's operator routes",
   // The caller, not the workspace.
   '/v1/identity/whoami': 'the caller, not the workspace',
   '/v1/identity/me/permissions': 'the caller, not the workspace',

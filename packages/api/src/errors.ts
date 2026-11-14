@@ -369,6 +369,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-store-delete-failed': 502,
   /** A runtime whose tenants binding doesn't purge. */
   'tenant-purge-unsupported': 501,
+  /**
+   * An erasure of a kept repo, on a runtime that isn't keeping repos for
+   * projects without a GitHub repo now (`KINDGI_KEPT_REPOS` off).
+   */
+  'kept-repos-off': 501,
   /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,

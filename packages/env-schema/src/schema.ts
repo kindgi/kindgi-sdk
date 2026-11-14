@@ -982,11 +982,21 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_PURGE_RECORD',
     description:
-      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value in none of these forms stops the server from starting.",
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. With `KINDGI_KEPT_REPOS` on, each kept repo's erasure has its record there too, `kept-repos/erased/<tenant id>/<project id>.json`, written once its purge is reported, and `kindgi-runtime erasures replay --records` puts each one back after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value in none of these forms stops the server from starting.",
     example: 'gcs:acme-purge-records/runtime',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
+  },
+  {
+    name: 'KINDGI_KEPT_REPOS',
+    description:
+      "`on` keeps repos for the runtime's projects without a GitHub repo, in a repo store beside the runtime: the runtime keeps their record, rules on each repo the store holds, and records each purge. Kindgi Cloud's repo store uses it, with the same value on the store's gateway; a runtime you run has no repo store, so leave it off there. Off (the default), `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses with `501 kept-repos-off` and requests nothing; the other kept-repo routes answer either way. Turning it off erases nothing: repos the store holds stay until they're purged while it's on, and an erasure requested while it was on stays unfinished until it's on again. Only a runtime serving many tenants (`KINDGI_TENANCY=multi`) keeps them: one serving one tenant refuses to start with it on. With `KINDGI_TENANT_PURGE_RECORD` unset, a kept repo's erasure has no record of its own off the database: only the erasure ledger's copies list it, so a restore can't put back one made since the last copy, and the startup output says so.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['on', 'off'],
   },
   {
     name: 'KINDGI_PASSIVE',

@@ -74,6 +74,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only.",
   'system-keys':
     "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none.",
+  'system-kept-repos':
+    "The repos a store keeps for the runtime's projects without a GitHub repo, on a runtime serving many tenants: the store's reconcile asks the runtime what to keep and what to purge, and reports each purge done (`system:kept-repos`); the operator requests a repo's erasure and reads its state (`system:kept-repos:erase`). System keys only.",
   'system-deployments':
     "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL.",
   tokens:

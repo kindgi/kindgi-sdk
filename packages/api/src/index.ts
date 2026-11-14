@@ -103,6 +103,20 @@ export {
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
+export {
+  KEPT_REPO_ERASURES_PAGE_MAX,
+  KEPT_REPO_PURGE_REASONS,
+  KEPT_REPO_RULINGS_MAX,
+  KEPT_REPO_STATES,
+  type KeptRepoErasureOutcome,
+  type KeptRepoId,
+  type KeptRepoOpenErasure,
+  type KeptRepoPurgeReason,
+  type KeptRepoRuling,
+  type KeptRepoState,
+  type KeptRepoStateName,
+  type SystemKeptReposBinding,
+} from './routes/system-kept-repos.js';
 export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
