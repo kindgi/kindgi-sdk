@@ -144,6 +144,7 @@ _NOT_FOUND = {
     "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
     "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
     "capability-not-found", "token-not-found", "agent-version-not-found", "pin-not-found",
+    "file-not-found", "file-version-not-found",
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
@@ -162,13 +163,14 @@ _CONFLICT = {
     "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
     "release-gate-needs-pin", "release-gate-descendant-unpinned", "fact-changed", "legal-hold",
     "erasure-in-progress", "provider-key-in-use",
+    "artifact-in-file", "file-version-conflict", "file-version-pinned", "file-last-version",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
     "guardrail-config-invalid", "provider-config-invalid",
-    "scope-invalid", "artifact-too-large", "provider-key-refused",
+    "scope-invalid", "artifact-too-large", "provider-key-refused", "file-too-large",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",

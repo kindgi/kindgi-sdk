@@ -293,6 +293,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'provenance-not-found':
     case 'observation-not-found':
     case 'blob-not-found':
+    case 'file-not-found':
+    case 'file-version-not-found':
     case 'audit-bundle-not-found':
     case 'signing-not-configured':
     case 'signing-key-not-found':
@@ -357,6 +359,10 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'identity-user-unregistered':
     case 'identity-user-not-invited':
     case 'provider-key-in-use':
+    case 'artifact-in-file':
+    case 'file-version-conflict':
+    case 'file-version-pinned':
+    case 'file-last-version':
       return conflict(code, message, details);
     case 'invalid-request':
     case 'validation-failed':
@@ -376,6 +382,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'provider-key-refused':
     case 'scope-invalid':
     case 'artifact-too-large':
+    case 'file-too-large':
       return invalidRequest(message, obj, details);
     case 'guardrail-violation': {
       const attempts = details?.attempts;

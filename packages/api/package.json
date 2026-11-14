@@ -26,6 +26,11 @@
       "import": "./dist/testing/index.js",
       "default": "./dist/testing/index.js"
     },
+    "./run-result": {
+      "types": "./dist/run-result/index.d.ts",
+      "import": "./dist/run-result/index.js",
+      "default": "./dist/run-result/index.js"
+    },
     "./openapi.json": "./openapi.json",
     "./package.json": "./package.json"
   },

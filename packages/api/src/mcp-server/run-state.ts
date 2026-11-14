@@ -12,19 +12,26 @@
 
 import type { CallToolResult } from '@modelcontextprotocol/server';
 
+import { pickedAnswer } from '../run-result/answer.js';
+import { type AnswerBlocks, answerBlocks, answerValue, clipText } from '../run-result/index.js';
 import type { V1Call } from './in-process.js';
 import type { ConsolePageLink } from './links.js';
 import type { RunViewState } from './run-view.js';
 
+export { clipText };
+
 /** The most of an answer a chat gets; the whole of it is in the console. */
 export const ANSWER_LIMIT = 8_000;
+/** The `_meta` key of a run tool's result that holds the answer's blocks, for the run view. */
+export const ANSWER_BLOCKS_META = 'kindgi/blocks';
 /** The most a call waits for a run, in seconds: well under a chat app's limit on a call. */
 export const RUN_STATE_WAIT_S = 25;
 const TITLE_LIMIT = 280;
 const FAILURE_LIMIT = 500;
 const FILE_LIMIT = 25;
 
-const STATUS = {
+/** A run's status as the run view has it. */
+export const STATUS = {
   pending: 'queued',
   running: 'running',
   suspended: 'waiting',
@@ -103,13 +110,16 @@ export function runViewState(
 
 /**
  * Reads a run, and its files once it's done, as the person. A route's
- * refusal comes back as a plain sentence for the tool's error.
+ * refusal comes back as a plain sentence for the tool's error. With an
+ * answer, its blocks come too, for the run view to draw.
  */
 export async function readRunState(
   call: V1Call,
   link: ConsolePageLink,
   runId: string,
-): Promise<{ readonly state: RunViewState } | { readonly error: string }> {
+): Promise<
+  { readonly state: RunViewState; readonly blocks?: AnswerBlocks } | { readonly error: string }
+> {
   const res = await call('GET', `/v1/runs/${encodeURIComponent(runId)}`);
   if (!res.ok) return { error: runReadError(res.status, runId) };
   const run = (await res.json()) as RunJson;
@@ -121,11 +131,17 @@ export async function readRunState(
     // The files are extra: a run whose files can't be listed still answers.
     if (page.ok) files = ((await page.json()) as ArtifactPageJson).data;
   }
-  return { state: runViewState(run, files, link) };
+  const state = runViewState(run, files, link);
+  if (state.answer === undefined) return { state };
+  return { state, blocks: answerBlocks(answerValue(run), ANSWER_LIMIT) };
 }
 
-/** A tool's answer for a run: the state, and a short text for text-only clients. */
-export function runStateResult(state: RunViewState): CallToolResult {
+/**
+ * A tool's answer for a run: the state, and a short text for text-only
+ * clients. The answer's blocks go in `_meta`, which the run view reads and
+ * a model isn't given, so a model doesn't get the answer twice.
+ */
+export function runStateResult(state: RunViewState, blocks?: AnswerBlocks): CallToolResult {
   const lines = [`Kindgi run ${state.runId} (${state.name}): ${state.status}.`];
   for (const wait of state.waitingFor ?? []) lines.push(`Waiting for: ${wait.title}.`);
   if (state.status === 'queued' || state.status === 'running') {
@@ -146,6 +162,7 @@ export function runStateResult(state: RunViewState): CallToolResult {
   return {
     content: [{ type: 'text', text: lines.join('\n') }],
     structuredContent: { ...state },
+    ...(blocks !== undefined && { _meta: { [ANSWER_BLOCKS_META]: blocks } }),
   };
 }
 
@@ -166,24 +183,12 @@ function runReadError(status: number, runId: string): string {
  * reply's text. A flow's is its output. Anything not a string goes as JSON.
  */
 function answerOf(run: RunJson): string | undefined {
-  const output = run.output as { response?: { content?: unknown }; output?: unknown } | undefined;
-  if (output === undefined || output === null) return undefined;
-  if (run.agent === undefined) return asText(output);
-  if (output.output !== undefined && output.output !== null) return asText(output.output);
-  return output.response?.content === undefined ? undefined : asText(output.response.content);
+  const answer = pickedAnswer(run);
+  return answer === undefined ? undefined : asText(answer);
 }
 
 function asText(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-}
-
-/** At most `limit` UTF-16 units, never ending in half a character. */
-export function clipText(text: string, limit: number): string {
-  if (text.length <= limit) return text;
-  // A high surrogate at the end would be half a character.
-  const last = text.charCodeAt(limit - 1);
-  const end = last >= 0xd800 && last <= 0xdbff ? limit - 1 : limit;
-  return text.slice(0, end);
 }
 
 function waitsOf(
