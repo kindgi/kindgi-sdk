@@ -1332,6 +1332,8 @@ export const CLI_DEFAULTS = {
 export const GLOBAL_FLAG_DEFAULTS = {
   hosted:
     "off, unless the env the command acts in has `build: 'hosted'` in `kindgi.config.ts` (`--env`, else `staging` for `kindgi build` and `kindgi deploy`)",
+  profile:
+    '`KINDGI_PROFILE`; with neither set, no profile: the command uses `KINDGI_API_URL` and `KINDGI_API_TOKEN`, then `./.kindgirc.json`, then the login without a name in `~/.kindgi/config.json`. No current profile is stored. `kindgi dev` refuses `--profile` and ignores `KINDGI_PROFILE`',
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
@@ -1384,6 +1386,23 @@ export const CLI_EXAMPLES = {
       purpose:
         'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
       line: 'kindgi auth login --url=https://kindgi.acme.example',
+    },
+  ],
+  'auth logout': [
+    {
+      purpose: 'Remove the login without a name from ~/.kindgi/config.json.',
+      line: 'kindgi auth logout',
+    },
+    {
+      purpose: "Remove one Kindgi login profile's login.",
+      line: 'kindgi auth logout --profile=acme-prod',
+    },
+  ],
+  'auth list': [
+    {
+      purpose:
+        'The logins ~/.kindgi/config.json holds, each with its address and whether it can be used, never a key.',
+      line: 'kindgi auth list --table',
     },
   ],
   'auth whoami': [
