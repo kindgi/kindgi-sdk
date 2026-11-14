@@ -84,7 +84,8 @@ const login: LeafCommand = {
     if (lost !== undefined && ctx.options.force !== true) {
       return { kind: 'error', stderr: keptLogin(lost, url, ctx.globals.hosted), exitCode: 2 };
     }
-    const before = await readHomeLogin(ctx.home, profile);
+    // A profile holds no project: only the login without a name has one to drop.
+    const before = profile === undefined ? await readHomeLogin(ctx.home) : undefined;
     const path =
       profile === undefined
         ? await saveHomeConfig({ apiUrl: url, token }, ctx.home)
@@ -298,19 +299,31 @@ function keptLogin(lost: LostLogin, url: string, hosted: boolean): string {
   return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, save ${url}'s login ${where}: \`kindgi auth login --profile <name> ${hosted ? '--hosted' : `--url ${url}`}\`, which asks for its key on a terminal (or give it with --token-stdin).\n${replace}`;
 }
 
+/** What a login said it replaced (--force): a warning, under --quiet too. */
+function replacedNote(lost: LostLogin, path: string): string {
+  return lost.problem === undefined
+    ? `Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`
+    : `Replaced ${whoseLogin(lost)}, in ${path}.`;
+}
+
 /**
  * The project stored beside the login this one replaced: it went with that
- * key and address (`keepsProject`). A profile holds none.
+ * key and address (`keepsProject`). `before` is the login without a name's;
+ * `undefined` under a profile.
  */
-function droppedProject(before: HomeLogin, url: string, token: string): string | undefined {
-  return before.project !== undefined && !keepsProject(before, { apiUrl: url, token })
+function droppedProject(
+  before: HomeLogin | undefined,
+  url: string,
+  token: string,
+): string | undefined {
+  return before?.project !== undefined && !keepsProject(before, { apiUrl: url, token })
     ? before.project
     : undefined;
 }
 
 /**
- * What a login warns of, under --quiet too: the login it replaced (--force),
- * and the project that was stored with it.
+ * What a login warns of, under --quiet too: the login it replaced (a key
+ * no longer stored), and the project that was stored with it.
  */
 function loginWarnings(
   path: string,
@@ -327,13 +340,6 @@ function loginWarnings(
     );
   }
   return lines;
-}
-
-/** What a login said it replaced (--force). */
-function replacedNote(lost: LostLogin, path: string): string {
-  return lost.problem === undefined
-    ? `Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`
-    : `Replaced ${whoseLogin(lost)}, in ${path}.`;
 }
 
 /**

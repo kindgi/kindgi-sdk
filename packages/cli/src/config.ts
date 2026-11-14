@@ -49,7 +49,8 @@ export interface ResolvedConfig {
    * slug, as `--project` takes. A command that names no project goes into
    * it (`kindgi deploy`, and the commands that would take the tenant's
    * default project). Set only when the key came from a file that has one,
-   * so a key given with `--token` or `KINDGI_API_TOKEN` has none.
+   * so a key given with `--token` or `KINDGI_API_TOKEN` has none, and nor
+   * does a profile's.
    */
   readonly keyProject?: string;
   /**
@@ -183,9 +184,7 @@ export async function loadConfig(inputs: ConfigInputs = {}): Promise<ResolvedCon
   const folderFile = await readConfigFile(join(cwd, '.kindgirc.json'), 'folder', read);
   const named = profileNamed(inputs.flagProfile, env);
   if (named !== undefined) {
-    // With no home folder no profile is held: the refusal names the usual path.
-    const shownPath = homePath ?? '~/.kindgi/config.json';
-    return profileConfig(named, inputs, env, shownPath, homeFile, folderFile);
+    return profileConfig(named, inputs, env, homePath, homeFile, folderFile);
   }
   const summaries = homeFile?.profiles.summaries ?? [];
   const resolve = (files: readonly (ReadConfigFile | undefined)[]) =>
@@ -227,7 +226,7 @@ function profileConfig(
   named: { readonly name: string; readonly from: 'flag' | 'env' },
   inputs: ConfigInputs,
   env: Readonly<Record<string, string | undefined>>,
-  homePath: string,
+  homePath: string | undefined,
   homeFile: ReadConfigFile | undefined,
   folderFile: ReadConfigFile | undefined,
 ): ResolvedConfig {
@@ -248,9 +247,9 @@ function profileConfig(
       profileRefusal: held.refusal,
     };
   }
-  const { entry } = held;
+  const { entry, path } = held;
   const by = from === 'flag' ? `--profile ${name}` : `${PROFILE_ENV}=${name}`;
-  const file: ConfigFile = { path: homePath, kind: 'home', profile: name };
+  const file: ConfigFile = { path, kind: 'home', profile: name };
   const apiUrl = pickWithSource(inputs.flagUrl, undefined, entry.apiUrl);
   const token = pickWithSource(inputs.flagToken, undefined, entry.token);
   const stored = token.source === 'file';
@@ -291,14 +290,15 @@ type ProfileRefusal = NonNullable<ResolvedConfig['profileRefusal']>;
 /**
  * The named profile's entry, or why it can't be used before its address is
  * read: KINDGI_PROFILE isn't a name, or is set beside KINDGI_API_URL or
- * KINDGI_API_TOKEN, or the home file holds no usable entry by that name.
+ * KINDGI_API_TOKEN, or there's no home folder, or the home file holds no
+ * usable entry by that name.
  */
 function heldProfile(
   named: { readonly name: string; readonly from: 'flag' | 'env' },
   exported: readonly string[],
-  homePath: string,
+  homePath: string | undefined,
   profiles: ReadProfiles | undefined,
-): { readonly entry: ProfileLogin } | { readonly refusal: ProfileRefusal } {
+): { readonly entry: ProfileLogin; readonly path: string } | { readonly refusal: ProfileRefusal } {
   const { name, from } = named;
   if (from === 'env' && !PROFILE_NAME.test(name)) {
     return {
@@ -319,9 +319,17 @@ function heldProfile(
       },
     };
   }
-  const entry = profiles?.usable.get(name);
-  if (entry !== undefined) return { entry };
   const by = from === 'flag' ? `--profile ${name}` : `${PROFILE_ENV}=${name}`;
+  if (homePath === undefined) {
+    return {
+      refusal: {
+        kind: 'unknown',
+        message: `${by}: found no home folder for .kindgi/config.json, which holds the profiles, since HOME is empty. Set HOME and run it again.`,
+      },
+    };
+  }
+  const entry = profiles?.usable.get(name);
+  if (entry !== undefined) return { entry, path: homePath };
   const summaries = profiles?.summaries ?? [];
   // A held entry that isn't usable is a malformed one, or `profiles` itself is.
   const problem = profiles?.malformed ?? summaries.find((p) => p.name === name)?.problem;
@@ -471,12 +479,13 @@ function parseJson(raw: string, path: string): FileConfig {
 /**
  * What `~/.kindgi/config.json` holds now for one login, the one without a
  * name or a profile: its path, and its address, key and project, each when
- * there (a profile holds no project).
+ * there. A profile holds no project.
  */
 export interface HomeLogin {
   readonly path: string;
   readonly apiUrl?: string;
   readonly token?: string;
+  /** For the login without a name: the project stored beside its key. */
   readonly project?: string;
   /** For a profile: the file holds an entry by that name, usable or not. */
   readonly held?: boolean;
@@ -642,9 +651,9 @@ export async function saveHomeProfile(
 
 /**
  * Remove a login from `~/.kindgi/config.json`: `profile`'s, or the one
- * without a name (its `apiUrl` and `token`, and the `project` stored with
- * them). Everything else stays; an empty `profiles` goes. The file stays
- * `0600`.
+ * without a name (its `apiUrl` and `token`, and the `project` stored
+ * beside them). Everything else stays; an empty `profiles` goes. The file
+ * stays `0600`.
  */
 export async function removeHomeLogin(profile: string | undefined, home?: string): Promise<string> {
   return rewriteHomeConfig((base) => {
