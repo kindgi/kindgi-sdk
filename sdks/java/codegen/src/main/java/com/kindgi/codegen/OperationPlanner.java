@@ -39,6 +39,7 @@ final class OperationPlanner {
           "requestBody",
           "responses",
           "security",
+          "deprecated",
           "x-kindgi-sender-only");
   private static final Set<String> PARAMETER_KEYS =
       Set.of("name", "in", "schema", "required", "description", "x-kindgi-segment-path");
@@ -69,6 +70,11 @@ final class OperationPlanner {
     String path;
     String summary;
     String description;
+    /**
+     * A deprecated operation's note: its description's first paragraph, which says what to use
+     * instead ({@code null} when it isn't deprecated).
+     */
+    String deprecated;
     final List<PathParam> pathParams = new ArrayList<>();
     final List<OtherParam> otherParams = new ArrayList<>();
     ClassName paramsType;
@@ -279,6 +285,7 @@ final class OperationPlanner {
     copy.path = op.path;
     copy.summary = op.summary;
     copy.description = op.description;
+    copy.deprecated = op.deprecated;
     copy.pathParams.addAll(op.pathParams);
     copy.otherParams.addAll(op.otherParams);
     copy.paramsType = op.paramsType;
@@ -309,6 +316,15 @@ final class OperationPlanner {
     op.path = path;
     op.summary = (String) raw.getOrDefault("summary", "");
     op.description = (String) raw.getOrDefault("description", "");
+    if (Boolean.TRUE.equals(raw.get("deprecated"))) {
+      // Its description opens with what to use instead, which the Python client's warning says too.
+      String note = Docs.firstParagraph(op.description).strip();
+      if (note.isEmpty()) {
+        throw new GenerationException(
+            id + " is deprecated, and its description doesn't open with what to use instead");
+      }
+      op.deprecated = String.join(" ", note.split("\\s+"));
+    }
     op.operationConstant = Names.constant(id);
     String hint = Names.pascal(id);
 

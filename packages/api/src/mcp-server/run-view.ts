@@ -14,6 +14,10 @@
  * `kindgi.run_state`.
  */
 
+import { LONG_CHARS } from '../run-result/blocks.js';
+import { RUN_STATUS_WORDS } from '../run-result/index.js';
+import { ANSWER_BLOCKS_META, STATUS } from './run-state.js';
+
 export const RUN_VIEW_URI = 'ui://kindgi/run.html';
 export const RUN_VIEW_MIME = 'text/html;profile=mcp-app';
 
@@ -35,14 +39,35 @@ export interface RunViewState {
   readonly truncated?: boolean;
   /** A plain sentence, when failed. */
   readonly failure?: string;
-  readonly files?: readonly { name: string; contentType: string; size: number }[];
+  /**
+   * The files it made. Where the server keeps files, each is as its Latest
+   * is, with its id and version.
+   */
+  readonly files?: readonly {
+    name: string;
+    contentType: string;
+    size: number;
+    fileId?: string;
+    version?: number;
+  }[];
   readonly consoleUrl?: string;
 }
+
+/** The status words, keyed as the view has the status: the same words as the console's. */
+const VIEW_WORDS = Object.fromEntries(
+  Object.entries(STATUS).map(([status, view]) => [
+    view,
+    RUN_STATUS_WORDS[status as keyof typeof STATUS],
+  ]),
+);
 
 // The view is one file, no library and nothing fetched: the chat app runs
 // it in a sandboxed frame, and it talks to the chat app by JSON-RPC over
 // postMessage (MCP Apps, protocol 2026-01-26). It writes text only through
-// `textContent`, so nothing an agent answers becomes markup.
+// `textContent`, so nothing an agent answers becomes markup. It draws the
+// answer's blocks from the result's `_meta`; a result without them (a chat
+// app may leave `_meta` out of a call the view makes) shows the answer as
+// one text, as before.
 export const RUN_VIEW_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -57,7 +82,13 @@ export const RUN_VIEW_HTML = `<!doctype html>
   h1 { font-size: 15px; margin: 0 0 2px; }
   .muted { color: var(--muted); font-size: 12px; }
   .bad { color: var(--bad); }
-  .answer { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; max-height: 480px; overflow: auto; }
+  .answer { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0 4px; }
+  .answer.fold { max-height: 240px; overflow: hidden; }
+  .block-title { font-weight: 600; margin-bottom: 4px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 3px 12px 3px 0; border-bottom: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+  th { color: var(--muted); font-weight: 500; }
   ul { padding-left: 18px; margin: 6px 0; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
   button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
@@ -75,8 +106,8 @@ export const RUN_VIEW_HTML = `<!doctype html>
     <div class="muted">It's done in Kindgi. This view goes on by itself.</div>
   </section>
   <div id="failure" class="bad" hidden></div>
-  <div id="answer" class="answer" hidden></div>
-  <div id="truncated" class="muted" hidden>The answer is longer than the chat shows. The whole of it is in Kindgi.</div>
+  <div id="answer" hidden></div>
+  <div id="truncated" class="muted" hidden>The answer is longer than the chat shows. <span id="wholeText">The whole of it is in Kindgi.</span><button id="whole" type="button" class="link" hidden>See the whole answer in the console</button></div>
   <section id="files" hidden>
     <div class="muted">Files</div>
     <ul id="fileList"></ul>
@@ -100,6 +131,9 @@ export const RUN_VIEW_HTML = `<!doctype html>
   function notify(method, params) { post({ method: method, params: params || {} }); }
 
   var DONE = { completed: true, failed: true, cancelled: true };
+  var WORDS = ${JSON.stringify(VIEW_WORDS)};
+  var BLOCKS = ${JSON.stringify(ANSWER_BLOCKS_META)};
+  var LONG = ${LONG_CHARS};
   var opened = Date.now();
   var state;
   var timer;
@@ -126,29 +160,73 @@ export const RUN_VIEW_HTML = `<!doctype html>
     }
     return li;
   }
+  function el(tag, className, text) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function table(columns, rows, named) {
+    var t = el("table");
+    if (columns) {
+      var head = el("tr");
+      columns.forEach(function (c) { head.appendChild(el("th", "", c)); });
+      t.appendChild(el("thead")).appendChild(head);
+    }
+    var body = t.appendChild(el("tbody"));
+    rows.forEach(function (r) {
+      var tr = body.appendChild(el("tr"));
+      r.forEach(function (c, i) { tr.appendChild(el(named && i === 0 ? "th" : "td", "", c)); });
+    });
+    return t;
+  }
+  // One block of the answer: a value, a text, fields or records. A long one
+  // is folded, with "Show all".
+  function block(b) {
+    var box = el("div", "answer");
+    if (b.title) box.appendChild(el("div", "block-title", b.title));
+    if (b.kind === "value") box.appendChild(el("div", "", b.value));
+    else if (b.kind === "text") box.appendChild(el("div", "", b.text));
+    else if (b.kind === "fields") box.appendChild(table(null, b.fields.map(function (f) { return [f.name, f.value]; }), true));
+    else if (b.kind === "records") box.appendChild(el("div", "scroll")).appendChild(table(b.columns, b.rows, false));
+    else return null;
+    var wrap = el("div");
+    wrap.appendChild(box);
+    if (b.long) {
+      box.classList.add("fold");
+      var more = wrap.appendChild(el("button", "link", "Show all"));
+      more.type = "button";
+      more.addEventListener("click", function () { box.classList.remove("fold"); more.hidden = true; });
+    }
+    return wrap;
+  }
+  // The blocks from the result's _meta, else the answer as one text.
+  function answerOf(next, meta) {
+    var given = meta && meta[BLOCKS];
+    if (given && Array.isArray(given.blocks)) return given;
+    if (!next.answer || !next.answer.trim()) return { blocks: [], truncated: false };
+    return { blocks: [{ kind: "text", text: next.answer, long: next.answer.length > LONG }], truncated: !!next.truncated };
+  }
 
-  function show(next) {
+  function show(next, meta) {
     if (!next || !next.runId) return;
     state = next;
     $("title").textContent = next.name || "Kindgi run";
     var since = (Date.parse(next.completedAt || "") || Date.now()) - (Date.parse(next.createdAt) || opened);
-    var SAY = {
-      queued: "Starting...",
-      running: "Running for " + clock(since / 1000) + ".",
-      waiting: "Waiting, " + clock(since / 1000) + " so far.",
-      completed: "Done after " + clock(since / 1000) + ".",
-      failed: "It failed after " + clock(since / 1000) + ".",
-      cancelled: "Cancelled."
-    };
-    $("status").textContent = SAY[next.status] || next.status;
+    var word = WORDS[next.status] || next.status;
+    $("status").textContent = next.status === "queued" || next.status === "cancelled" ? word : word + ", " + clock(since / 1000);
     var waits = next.waitingFor || [];
     $("waits").replaceChildren.apply($("waits"), waits.map(function (w) { return item(w.title, w.consoleUrl); }));
     $("waiting").hidden = next.status !== "waiting" || waits.length === 0;
     $("failure").textContent = next.failure || "";
     $("failure").hidden = !next.failure;
-    $("answer").textContent = next.answer || "";
-    $("answer").hidden = !next.answer;
-    $("truncated").hidden = !next.truncated;
+    var answer = answerOf(next, meta);
+    var drawn = answer.blocks.map(block).filter(Boolean);
+    $("answer").replaceChildren.apply($("answer"), drawn);
+    $("answer").hidden = drawn.length === 0;
+    $("truncated").hidden = !answer.truncated;
+    $("whole").hidden = !next.consoleUrl;
+    $("wholeText").hidden = !!next.consoleUrl;
     var files = next.files || [];
     $("fileList").replaceChildren.apply($("fileList"), files.map(function (f) { return item(f.name + " (" + size(f.size) + ")"); }));
     $("files").hidden = files.length === 0;
@@ -176,7 +254,7 @@ export const RUN_VIEW_HTML = `<!doctype html>
   function check() {
     if (!state) return schedule();
     request("tools/call", { name: "kindgi.run_state", arguments: { runId: state.runId } }).then(function (result) {
-      if (result && !result.isError) show(result.structuredContent);
+      if (result && !result.isError) show(result.structuredContent, result._meta);
       if (!state || !DONE[state.status]) schedule();
     }, function () { schedule(); });
   }
@@ -193,7 +271,7 @@ export const RUN_VIEW_HTML = `<!doctype html>
     }
     if (m.id !== undefined && m.method) { post({ id: m.id, result: {} }); return; }
     if (m.method === "ui/notifications/tool-result") {
-      show(m.params && m.params.structuredContent);
+      show(m.params && m.params.structuredContent, m.params && m.params._meta);
     } else if (m.method === "ui/notifications/tool-cancelled") {
       $("status").textContent = "The chat stopped waiting; the run goes on in Kindgi.";
     } else if (m.method === "ui/notifications/host-context-changed") {
@@ -208,6 +286,7 @@ export const RUN_VIEW_HTML = `<!doctype html>
   }
 
   $("open").addEventListener("click", function () { openLink(state && state.consoleUrl); });
+  $("whole").addEventListener("click", function () { openLink(state && state.consoleUrl); });
 
   new ResizeObserver(function () {
     notify("ui/notifications/size-changed", {
