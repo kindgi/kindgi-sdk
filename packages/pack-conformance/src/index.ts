@@ -618,13 +618,17 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         }
         expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
-        expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
-          ...FIXTURE_CHECK_IDS,
-        ]);
+        expect(
+          index.guardrails
+            .filter((g) => g.checkBuiltIn !== true)
+            .map((g) => g.checkId ?? g.id)
+            .sort(),
+        ).toEqual([...FIXTURE_CHECK_IDS]);
         expect(index.guardrails.map((g) => g.id)).toEqual([
           'conformance.check-throws',
           'conformance.judged',
           'conformance.min-length',
+          'conformance.no-guarantees',
         ]);
         expect(index.agents.map((a) => a.id)).toEqual(['conformance.echo-agent']);
         expect(index.agents[0]?.tools).toEqual([{ id: 'conformance.echo', version: '1.0.0' }]);
@@ -698,6 +702,23 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           action: { 'on-violation': 'log-only' },
           config: { rubric: 'The reply answers the message.', responseFormat: 'pass-fail' },
           judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+        });
+      });
+
+      test('a guardrail that names a built-in check indexes the same in every SDK', () => {
+        // The runtime runs a built-in and checks its config: the entry marks it, with no
+        // configSchema and no checkPoints, and its module is only where it's declared.
+        const { checkModulePath, ...entry } =
+          index.guardrails.find((g) => g.id === 'conformance.no-guarantees') ?? {};
+        expect(typeof checkModulePath).toBe('string');
+        expect(entry).toEqual({
+          id: 'conformance.no-guarantees',
+          kind: 'zero-llm',
+          action: { 'on-violation': 'halt' },
+          at: 'model-step',
+          checkId: 'forbidden-substring',
+          checkBuiltIn: true,
+          config: { patterns: ['guaranteed', 'we promise'] },
         });
       });
 
@@ -1752,6 +1773,20 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           kind: 'error',
           code: 'check-not-in-pack',
           checkId: 'conformance.checks.nope',
+        });
+      });
+
+      test('a built-in check: check-not-in-pack, since the runtime runs it', async () => {
+        const answer = response(
+          await invoke(
+            service,
+            checkCall('forbidden-substring', { patterns: ['guaranteed'] }, 'guaranteed'),
+          ),
+        );
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'check-not-in-pack',
+          checkId: 'forbidden-substring',
         });
       });
 

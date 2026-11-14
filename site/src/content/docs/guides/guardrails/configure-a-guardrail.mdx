@@ -404,23 +404,90 @@ each time a turn reaches that point.
 </TabItem>
 <TabItem label="Python">
 
-A Python guardrail runs at the final answer only. `@guardrail` has no field
-for `at`, and a check has no `points`, so `scope.tools` doesn't apply
-either.
+A Python guardrail with its own check runs at the final answer only.
+`@guardrail` has no field for `at`, and a check has no `points`, so
+`scope.tools` doesn't apply either.
+
+A guardrail that names a built-in check takes `at=` and `scope=`, at any of
+the built-in's points
+([Where each check runs](../use-a-built-in-check/#where-each-check-runs)):
+
+```python
+# guardrails/no_secret_in_results.py
+from kindgi import built_in_guardrail
+
+no_secret_in_results = built_in_guardrail(
+    id="my-pack.no-secret-in-results",
+    check="forbidden-substring",
+    config={"patterns": ["SECRET"]},
+    at="after-tool",
+    scope={"tools": ["acme.crm.*"]},
+    on_violation="retry",
+    severity="error",
+)
+```
+
+`built_in_guardrail` refuses, where the guardrail is defined, what a TypeScript pack's build
+refuses: an `at` that isn't one of the values above, a `scope.tools` that's
+empty or has a `*` anywhere but the end, `scope.tools` at `'model-step'` or
+`'final-answer'`, and `'escalate'` or `'compensate'` away from the final
+answer. Deploying the pack also refuses a built-in at a point it doesn't
+run at.
 
 </TabItem>
 <TabItem label="Java">
 
-A Java guardrail runs at the final answer only. `Guardrail.define` has no
-method for `at`, and a check has no `points`, so `scope.tools` doesn't apply
-either.
+A Java guardrail with its own check runs at the final answer only.
+`Guardrail.define` has no method for `at`, and a check has no `points`, so
+`scope.tools` doesn't apply either.
+
+A guardrail that names a built-in check takes `set("at", …)` and
+`set("scope", …)`, at any of the built-in's points
+([Where each check runs](../use-a-built-in-check/#where-each-check-runs)):
+
+```java
+public static final Guardrail<Map<String, Object>> NO_SECRET_IN_RESULTS =
+    Guardrail.define("my-pack.no-secret-in-results")
+        .set("at", "after-tool")
+        .set("scope", Map.of("tools", List.of("acme.crm.*")))
+        .onViolation("retry")
+        .severity("error")
+        .builtInCheck("forbidden-substring", Map.of("patterns", List.of("SECRET")));
+```
+
+`builtInCheck` refuses, where the guardrail is defined, what a TypeScript pack's build
+refuses: an `at` that isn't one of the values above, a `scope.tools` that's
+empty or has a `*` anywhere but the end, `scope.tools` at `'model-step'` or
+`'final-answer'`, and `'escalate'` or `'compensate'` away from the final
+answer. Deploying the pack also refuses a built-in at a point it doesn't
+run at.
 
 </TabItem>
 <TabItem label="Scala">
 
-A Scala guardrail runs at the final answer only. `Guardrail[Config](…)` has
-no method for `at`, and a check has no `points`, so `scope.tools` doesn't
-apply either.
+A Scala guardrail with its own check runs at the final answer only.
+`Guardrail[Config](…)` has no method for `at`, and a check has no `points`,
+so `scope.tools` doesn't apply either.
+
+A guardrail that names a built-in check takes `set("at", …)` and
+`set("scope", …)`, at any of the built-in's points
+([Where each check runs](../use-a-built-in-check/#where-each-check-runs)):
+
+```scala
+val noSecretInResults: Guardrail[Map[String, Any]] = Guardrail.json("my-pack.no-secret-in-results")
+  .set("at", "after-tool")
+  .set("scope", Map("tools" -> List("acme.crm.*")))
+  .onViolation("retry")
+  .severity("error")
+  .builtInCheck("forbidden-substring", Map("patterns" -> List("SECRET")))
+```
+
+`builtInCheck` refuses, where the guardrail is defined, what a TypeScript pack's build
+refuses: an `at` that isn't one of the values above, a `scope.tools` that's
+empty or has a `*` anywhere but the end, `scope.tools` at `'model-step'` or
+`'final-answer'`, and `'escalate'` or `'compensate'` away from the final
+answer. Deploying the pack also refuses a built-in at a point it doesn't
+run at.
 
 </TabItem>
 </Tabs>

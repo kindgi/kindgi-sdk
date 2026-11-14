@@ -74,6 +74,7 @@ __all__ = [
     "Guardrail",
     "Primitive",
     "Tool",
+    "built_in_guardrail",
     "guardrail",
     "http_tool",
     "tool",
@@ -408,7 +409,7 @@ CheckFn = Callable[..., Any]
 #: The built-in checks' ids (`BUILT_IN_CHECK_IDS` in the TypeScript `@kindgi/guardrails`). The
 #: runtime runs the built-in for a guardrail naming one, so a pack can't ship its own check under
 #: one: a `@guardrail` always ships its check, so its check id (`check_id=`, or the guardrail's
-#: own id) can't be one of these.
+#: own id) can't be one of these. A `built_in_guardrail` names one, and ships no check.
 RESERVED_CHECK_IDS = frozenset(
     {
         "must-cite",
@@ -421,10 +422,19 @@ RESERVED_CHECK_IDS = frozenset(
     }
 )
 
+#: Where in a turn a guardrail may run (`GUARDRAIL_POINTS` in the TypeScript `@kindgi/guardrails`).
+_GUARDRAIL_POINTS = ("before-tool", "after-tool", "model-step", "final-answer")
+
+#: A `scope.tools` entry: a tool id, or a prefix with a trailing `*` (`SCOPE_TOOL` in TypeScript).
+_SCOPE_TOOL = re.compile(r"^[^*]*\*?$")
+
 
 @dataclass(frozen=True, eq=False)
 class Guardrail:
-    """A guardrail whose check is this module's function. Calling it calls the check."""
+    """A guardrail and its check: this module's function, or a built-in the runtime runs.
+
+    Calling it calls the check. A built-in's (`built_in_guardrail`) raises: it runs in Kindgi.
+    """
 
     id: str
     check: CheckFn
@@ -445,11 +455,18 @@ class Guardrail:
     network: Mapping[str, Any] | None = None
     judge_capabilities: Mapping[str, Any] | None = None
     """An `llm-judge` guardrail's judge: what its model is routed by (wire keys)."""
+    at: str | None = None
+    """Where in the turn it runs (`built_in_guardrail`'s `at=`); `None` is the final answer."""
     module: str = ""
     _config_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
 
     def __call__(self, config: Any, trace: Any) -> Any:
         return self.check(config, trace)
+
+    @property
+    def built_in(self) -> bool:
+        """Whether its check is a built-in, which the runtime runs (`built_in_guardrail`)."""
+        return self.check_id in RESERVED_CHECK_IDS
 
     def parse_config(self, value: Mapping[str, Any]) -> Any:
         return (
@@ -564,6 +581,94 @@ def guardrail(
         )
 
     return decorate
+
+
+def built_in_guardrail(
+    *,
+    id: str,
+    check: str,
+    config: Mapping[str, Any] | None = None,
+    on_violation: str | None = None,
+    action: Mapping[str, Any] | None = None,
+    name: str | None = None,
+    severity: str | None = None,
+    scope: Mapping[str, Any] | None = None,
+    at: str | None = None,
+) -> Guardrail:
+    """Declare a guardrail whose check is a built-in — no check function: the runtime runs it.
+
+    The Python counterpart of a TypeScript guardrail's `check: 'forbidden-substring'`.
+    `check` is one of `RESERVED_CHECK_IDS`, and `config=` is its settings, keyed as on
+    the wire (`{"patterns": ["guaranteed"]}`); without it the built-in takes its
+    defaults. `on_violation=` and `action=` are `@guardrail`'s. `at=` is where in the
+    turn it runs: `"before-tool"`, `"after-tool"`, `"model-step"` or `"final-answer"`
+    (left out: the final answer). The runtime checks the settings, and that the
+    built-in runs at that point, when the pack is registered and deployed. Calling
+    the guardrail in Python raises: it runs in Kindgi.
+    """
+    where = f'Guardrail "{id}"'
+    _require_id(id, where)
+    if check not in RESERVED_CHECK_IDS:
+        raise DefinitionError(
+            f'{where}: "{check}" isn\'t a built-in check. The built-ins are '
+            f"{', '.join(sorted(RESERVED_CHECK_IDS))}; a check of your own is a @guardrail."
+        )
+    if (on_violation is None) == (action is None):
+        raise DefinitionError(f"{where}: pass exactly one of on_violation= or action=")
+    resolved_action: Mapping[str, Any] = (
+        action if action is not None else {"on-violation": on_violation}
+    )
+    violation = resolved_action.get("on-violation")
+    if not isinstance(violation, str):
+        raise DefinitionError(f'{where}: action needs a string "on-violation"')
+    # TypeScript's indexer refuses the same, at build (`guardrailPointIssues`).
+    point = at if at is not None else "final-answer"
+    if point not in _GUARDRAIL_POINTS:
+        raise DefinitionError(f"{where}: at= must be one of {', '.join(_GUARDRAIL_POINTS)}")
+    tools = None if scope is None else scope.get("tools")
+    if (
+        scope is not None
+        and "tools" in scope
+        and not (
+            isinstance(tools, (list, tuple))
+            and len(cast("Sequence[object]", tools)) > 0
+            and all(
+                isinstance(t, str) and t != "" and _SCOPE_TOOL.match(t) is not None
+                for t in cast("Sequence[object]", tools)
+            )
+        )
+    ):
+        raise DefinitionError(
+            f"{where}: scope.tools must name one or more tool ids, each with at most a trailing '*'"
+        )
+    if violation in ("escalate", "compensate") and point != "final-answer":
+        raise DefinitionError(
+            f'{where}: "{violation}" is recorded at the final answer only, not at "{point}"'
+        )
+    if scope is not None and "tools" in scope and point not in ("before-tool", "after-tool"):
+        raise DefinitionError(
+            f'{where}: scope.tools is for "before-tool" and "after-tool", not "{point}"'
+        )
+
+    def runs_in_kindgi(_config: Any, _trace: Any) -> NoReturn:
+        raise RuntimeError(
+            f'{where} names the built-in check "{check}": the Kindgi runtime runs it, not'
+            " Python. Run it through Kindgi (an agent, a flow, `kindgi dev`)."
+        )
+
+    return Guardrail(
+        id=id,
+        check=runs_in_kindgi,
+        check_id=check,
+        kind="zero-llm",
+        action=dict(resolved_action),
+        name=name,
+        severity=severity,
+        scope=scope,
+        config=None if config is None else dict(config),
+        at=at,
+        module=_defined_in(1),
+    )
 
 
 def check_result_to_wire(result: Any) -> dict[str, Any] | None:

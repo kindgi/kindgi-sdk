@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -40,7 +40,7 @@ level in a file under `guardrails/` declares both. For an agent turn,
 the runtime evaluates every guardrail the agent lists once, on the final
 answer, before it is stored.
 
-`@guardrail(...)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Python guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.6/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+`@guardrail(...)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a guardrail with its own check runs at the final answer only. One that names a built-in check takes `at=` (`built_in_guardrail`, below). The points are documented at https://docs.kindgi.com/v0.6/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
 
 Ask what the rule should catch before writing one; the sample
 `response-not-empty` guardrail is a demonstration, not a template.
@@ -175,10 +175,38 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
   `max-tool-calls`, `output-matches`, `tool-order`, `required-substring`,
   `forbidden-substring`): a pack can't replace a built-in, and the
   decorator raises `DefinitionError`. Name yours
-  `<pack>.checks.<name>`. A Python pack can't use a built-in check yet,
-  since `@guardrail` always decorates a check function: write the rule
-  as your own check.
+  `<pack>.checks.<name>`. To use a built-in, name it with
+  `built_in_guardrail` (below).
 - `sandbox=`, `limits=`, `network=` are recorded in the index.
+
+## A built-in check: `built_in_guardrail(...)`
+
+A rule a built-in checks needs no check of yours: name the built-in.
+
+```python
+# guardrails/no_guarantees.py
+from kindgi import built_in_guardrail
+
+no_guarantees = built_in_guardrail(
+    id="acme.no-guarantees",
+    check="forbidden-substring",
+    config={"patterns": ["guaranteed", "we promise"]},
+    on_violation="halt",
+)
+```
+
+- **`check`** — a built-in's id (above); **`config`** — its settings,
+  keyed as on the wire, which the runtime checks. Each built-in's
+  settings and points: https://docs.kindgi.com/v0.6/guides/guardrails/use-a-built-in-check/.
+- **`at`** — `"final-answer"` (default), `"before-tool"`, `"after-tool"`
+  or `"model-step"`: one of the built-in's points. At `"before-tool"`,
+  `never-call-tool`, `max-tool-calls` and `tool-order` stop a call before
+  it runs.
+- `on_violation=`/`action=`, `name=`, `severity=`, `scope=` are
+  `@guardrail`'s. `scope={"tools": [...]}` only at `"before-tool"` or
+  `"after-tool"`, and `escalate`/`compensate` only at the final answer:
+  else `DefinitionError`.
+- Calling it in Python raises: the runtime runs it.
 
 ## Testing
 

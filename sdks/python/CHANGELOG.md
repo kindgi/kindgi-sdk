@@ -44,6 +44,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
+- `kindgi`: **a guardrail can name a built-in check: `built_in_guardrail(...)`.** It takes `id`, `check` (one of `RESERVED_CHECK_IDS`), `config` (the built-in's settings, keyed as on the wire), `on_violation` or `action`, `name`, `severity`, `scope` and `at`, and returns a `Guardrail` with no check function: the runtime runs the built-in and checks its settings, and calling it raises. Its index entry is a TypeScript pack's: `checkId` is the built-in's, with `checkBuiltIn: true` and no `configSchema`. It raises `DefinitionError` where it's defined for an id that isn't a built-in's, and for what a TypeScript pack's build refuses: an `at` that isn't a guardrail point, a `scope.tools` that names no tool ids or is set away from `before-tool` and `after-tool`, and `escalate` or `compensate` away from the final answer. `Guardrail` gains `at` and `built_in`. The indexer gives a built-in's id no `check-id-unprefixed` warning, and the pack service holds no check for it.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
