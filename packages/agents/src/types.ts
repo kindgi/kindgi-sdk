@@ -291,19 +291,6 @@ export interface ConversationPolicy {
 }
 
 /**
- * Tool-level HITL mode.
- *
- * - `never_ask`   — dispatch straight through, no gate. Read-only tools
- *   (`Tool.mutating: false`) get this default.
- * - `ask_on_first_use` — on the first call to `(toolId, hashOfArgs)`
- *   within a conversation, park + require approval. Approved decisions
- *   cache on the conversation so subsequent identical calls dispatch
- *   without re-parking. Mutating tools default to this.
- * - `always_ask`  — park + require approval on EVERY invocation. No
- *   caching. Highest friction; used for external-effect actions
- *   (email/payment/deploy) where every occurrence is a real event.
- */
-/**
  * A tool's gate (`never_ask` | `ask_on_first_use` | `always_ask`), and a
  * per-tool rule — a mode plus the reviewer role its approvals need
  * (deployments that route "always-ask-financial-tools" through senior

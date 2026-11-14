@@ -323,8 +323,8 @@ same keys, `separateApprover` included.
 - **It compares people.** A turn started with an app's key names the key's
   service account (`service_account:<id>`), so a person holding that key
   can still approve the call as themselves.
-- **With `ask_on_first_use`,** only a tool's first call is asked, and
-  someone other than whoever asked approves that one.
+- **With `ask_on_first_use`,** as with `always_ask`, each call is asked,
+  and someone other than whoever asked approves it.
 - **The template's tools:** the store agent sets `separateApprover` per tool,
   and `defineAgent` refuses an override naming a tool the agent doesn't
   have, so a mistyped id never leaves the real tool without four eyes.

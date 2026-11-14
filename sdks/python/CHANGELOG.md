@@ -79,6 +79,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   why no version was added. An update over 10 MB answers `size`, and nothing
   is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
   client's models gain `ToolFileUpdateAnswer`.
+- `kindgi`: **`Tool.mutating`'s description says a tool that isn't read-only asks before
+  each call**, not only the first time: an approval isn't remembered, so
+  `ask_on_first_use` asks before every call, as `always_ask` does. The client's
+  models and the vendored `tool.schema.json` say the same. How a call is gated
+  doesn't change.
 - `kindgi`: **sign-in options can link the deployment's own sign-up page.**
   `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
   "No account yet? Sign up". It's `None` when the operator set none, and from

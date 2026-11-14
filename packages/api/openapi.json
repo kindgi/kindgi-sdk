@@ -9823,7 +9823,7 @@
           },
           "mutating": {
             "type": "boolean",
-            "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait."
+            "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait."
           },
           "needsApprovalWhenUnattended": {
             "type": "boolean",
@@ -9957,7 +9957,7 @@
           },
           "mutating": {
             "type": "boolean",
-            "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait."
+            "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait."
           },
           "needsApprovalWhenUnattended": {
             "type": "boolean",
@@ -10147,7 +10147,7 @@
           },
           "mutating": {
             "type": "boolean",
-            "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait."
+            "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, and a mutating tool asks before each call. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait."
           },
           "needsApprovalWhenUnattended": {
             "type": "boolean",
