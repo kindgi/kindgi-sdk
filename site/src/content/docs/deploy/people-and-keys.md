@@ -421,9 +421,11 @@ a role.
   most 280 characters. Setting it takes `env:write`, as every config entry
   does ([Who can do what](#who-can-do-what)).
 
-A key limited to a project sees that project alone. A `member` key is never
-a tenant admin. You see only what you may read: no project you can't read,
-and no one else's role.
+A key limited to a project sees that project alone (in memory, it also reads
+its person's own facts that name no other project:
+[Who sees what](../../guides/agents/memory-reference/#who-sees-what)). A
+`member` key is never a tenant admin. You see only what you may read: no
+project you can't read, and no one else's role.
 
 The console hides actions by it
 ([The console, by role](../authorization/#the-console-by-role)). The server
@@ -494,6 +496,15 @@ console signed in through SSO, a social sign-in or an emailed link.
   with `permission-denied`, as before. Without a store, a write to an
   existing item by its id is judged as before, except a memory fact's,
   which goes by the fact's scope, as writing one does.
+
+  Such a key reads its project's work and what that work needs: the
+  workspace's release gates and the org its project is in, but no team.
+  The workspace's settings answer it `403`: providers, policies, adapters,
+  capabilities, signing keys and sign-in providers. A row with no project,
+  such as an approval or a cost record with none, is the whole workspace's:
+  a list leaves it out, and asked for alone it answers as another project's
+  row does. A cost total it asks for counts only its project's records, and
+  one for another org's scope answers `403`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,

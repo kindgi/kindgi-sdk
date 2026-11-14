@@ -35,6 +35,8 @@ import {
   denyPayload,
   fgaSubject,
 } from '@kindgi/authz';
+import type { ProjectBinding } from '@kindgi/platform';
+import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
@@ -142,7 +144,60 @@ export interface Authorizer {
   ) => void;
 }
 
-export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
+/**
+ * What a key limited to a project reads of the orgs: its project's own,
+ * looked up once per request (`orgOfKeyProject`), never stored with the
+ * key, since a project can move to another org.
+ */
+export interface AuthorizerOptions {
+  readonly projects?: Pick<ProjectBinding, 'get'>;
+}
+
+export function createAuthorizer(
+  binding: AuthzCheckBinding,
+  options: AuthorizerOptions = {},
+): Authorizer {
+  /**
+   * The org of the project the caller's key is limited to, once per
+   * request. None without a project binding, for a project in no org, for
+   * one the binding doesn't find, or when the lookup fails, however it
+   * fails: the key then reads no org.
+   */
+  const keyProjectOrgs = new WeakMap<Context<AppEnv>, Promise<string | undefined>>();
+  function orgOfKeyProject(c: Context<AppEnv>, keyProject: string): Promise<string | undefined> {
+    let org = keyProjectOrgs.get(c);
+    if (org === undefined) {
+      const projects = options.projects;
+      org =
+        projects === undefined
+          ? Promise.resolve(undefined)
+          : Promise.resolve()
+              .then(() => projects.get(c.get('tenantId') as TenantId, keyProject as ProjectId))
+              .then((p) => p?.orgId as string | undefined)
+              .catch(() => undefined);
+      keyProjectOrgs.set(c, org);
+    }
+    return org;
+  }
+
+  /**
+   * What the caller's key rules out (`keyCeilingDeny`), and for a key
+   * limited to a project, any org but its project's own.
+   */
+  async function keyRefusal(
+    c: Context<AppEnv>,
+    action: Action,
+    resource: ResourceRef,
+  ): Promise<Decision | undefined> {
+    const ceiling = keyCeilingDeny(c, action, resource);
+    if (ceiling !== undefined) return ceiling;
+    const keyProject = c.get('tokenProjectId');
+    if (keyProject === undefined || resource.type !== 'org') return undefined;
+    return (await orgOfKeyProject(c, keyProject)) === resource.id
+      ? undefined
+      : keyDecision(action, resource, `${limitedOne(c)} is limited to project ${keyProject}`);
+  }
+
   /**
    * Whether a resource is inside the project the caller's API key is
    * limited to (always, for a caller with no such key). The tenant, orgs,
@@ -189,7 +244,7 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         : keyProject === undefined || servedBy.includes(keyProject);
     return (
       undefinedRelation(c, action, resource) ??
-      keyCeilingDeny(c, action, resource) ??
+      (await keyRefusal(c, action, resource)) ??
       (inKey
         ? undefined
         : keyDecision(
@@ -395,7 +450,7 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         ids.map(async (id) => {
           const resource: ResourceRef = { type, id };
           return (
-            keyCeilingDeny(c, action, resource) === undefined &&
+            (await keyRefusal(c, action, resource)) === undefined &&
             (await inKeyProject(c, principal, resource))
           );
         }),
@@ -447,6 +502,24 @@ function undefinedRelation(
 /** Types a key's project limit is checked on directly, not through `inProject`. */
 const STRUCTURAL: ReadonlySet<string> = new Set(['tenant', 'org', 'team', 'project']);
 
+/**
+ * Refs to the tenant that stand for the whole workspace, not for the root
+ * its projects are read through: a row no project holds (an artifact, a
+ * cost record, a provenance record, an approval, a deployment serving no
+ * project) and a workspace setting (`tenantResourceAccess`). A key limited
+ * to a project reads none of them (`keyCeilingDeny`). They're marked by
+ * identity, so `ResourceRef` stays as the authz package defines it: a ref
+ * rebuilt from its `type` and `id` loses the mark.
+ */
+const TENANT_WIDE = new WeakSet<ResourceRef>();
+
+/** The tenant as the whole workspace (`TENANT_WIDE`), for a check on a row or setting no project holds. */
+export function tenantWide(tenantId: string): ResourceRef {
+  const resource: ResourceRef = { type: 'tenant', id: tenantId };
+  TENANT_WIDE.add(resource);
+  return resource;
+}
+
 function keyDecision(action: Action, resource: ResourceRef, reason: string): Decision {
   return {
     allowed: false,
@@ -477,12 +550,14 @@ function limitedOne(c: Context<AppEnv>): string {
  *   grants or policies. Below the tenant, its principal's roles hold: a
  *   project admin's member key administers that project.
  * - A key limited to a project acts on no other project, and takes no
- *   `admin` action on the tenant, an org or a team. Other resources must
- *   be in its project (`inKeyProject`).
+ *   `admin` action on the tenant, an org or a team. It reads the tenant
+ *   only as its project's root: no row or setting of the whole workspace
+ *   (`tenantWide`), no team, and no org but its project's own
+ *   (`keyRefusal`). Other resources must be in its project
+ *   (`inKeyProject`).
  * - A session limited to a project takes no action at all on the tenant,
  *   an org or a team, reading included: its person's tenant membership
  *   reads the tenant's settings, which such a session must not reach.
- *   A key keeps today's rule, since its holder is its principal.
  */
 function keyCeilingDeny(
   c: Context<AppEnv>,
@@ -496,13 +571,23 @@ function keyCeilingDeny(
       `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the workspace`,
     );
   }
-  return beyondKeyProject(c, action, resource)
+  return beyondKeyProject(c, action, resource) || readsAboveKeyProject(c, resource)
     ? keyDecision(
         action,
         resource,
         `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
       )
     : undefined;
+}
+
+/**
+ * Whether a key or session limited to a project reads above it, which an
+ * authorization store refuses it: a team, or a row or setting of the
+ * whole workspace (`tenantWide`). Without a store, nothing changes.
+ */
+function readsAboveKeyProject(c: Context<AppEnv>, resource: ResourceRef): boolean {
+  if (c.get('tokenProjectId') === undefined) return false;
+  return resource.type === 'team' || TENANT_WIDE.has(resource);
 }
 
 /**

@@ -3,16 +3,19 @@
 
 import { type ResourceRef, ref } from '@kindgi/authz';
 import type { AgentPinScope, ProjectId, RunId, TenantId } from '@kindgi/types';
+import { tenantWide } from './middleware/authorize.js';
 
 /**
  * What an approval is authorized on: its project, else its provenance run's
- * project, else the tenant. The approve/decide route resolves it from a
+ * project, else the whole workspace (`tenantWide`), which a key limited to a
+ * project doesn't read. The approve/decide route resolves it from a
  * stored approval (its `projectId` and `provenanceRef.runId`); the suggested change
  * service resolves the SAME ref for the approval a drafter's pin WILL
  * open, so its separate-approver count admits exactly the reviewers the
  * decide route would let through. `getRun` is only consulted when a
  * run id is present and no project is set, so the suggested change service — which
- * passes a project (or none) and never a run — may omit it.
+ * passes a project (or none) and never a run — may omit it. The count asks the
+ * binding for each reviewer, a person, so the workspace mark doesn't change it.
  */
 export async function approvalResourceRef(
   tenantId: TenantId,
@@ -23,11 +26,11 @@ export async function approvalResourceRef(
     return ref('project', fields.projectId as unknown as string);
   }
   if (fields.runId === undefined || getRun === undefined) {
-    return ref('tenant', tenantId as unknown as string);
+    return tenantWide(tenantId as unknown as string);
   }
   const run = await getRun(tenantId, fields.runId);
   return run === null
-    ? ref('tenant', tenantId as unknown as string)
+    ? tenantWide(tenantId as unknown as string)
     : ref('project', run.projectId as unknown as string);
 }
 

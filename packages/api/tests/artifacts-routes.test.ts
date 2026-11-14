@@ -41,19 +41,29 @@ const RUNS: Readonly<Record<string, { readonly projectId: string; readonly actsF
   [ACCOUNTS_RUN]: { projectId: P3, actsFor: 'service_account:sa-1' },
 };
 
-/** Alice reads and writes P1 and reads P2; Bob has nothing; Carol may only run P3. */
+/**
+ * Alice reads and writes P1 and reads P2; Bob has nothing; Carol may only run P3;
+ * Erin reads the tenant and P1.
+ */
 const GRANTS: Readonly<Record<string, readonly string[]>> = {
   alice: [`read:project:${P1}`, `write:project:${P1}`, `read:project:${P2}`],
   bob: [],
   carol: [`run:project:${P3}`],
+  erin: [`read:tenant:${tenantId}`, `read:project:${P1}`],
 };
 
-/** `alice-key-p1` is alice with an API key limited to project P1. */
+/** `alice-key-p1` and `erin-key-p1` are alice and erin with an API key limited to project P1. */
 const resolveToken: TokenResolver = async (token) =>
-  token === 'alice' || token === 'bob' || token === 'carol'
+  token === 'alice' || token === 'bob' || token === 'carol' || token === 'erin'
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
-    : token === 'alice-key-p1'
-      ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
+    : token === 'alice-key-p1' || token === 'erin-key-p1'
+      ? {
+          tenantId,
+          userId: token.slice(0, -'-key-p1'.length) as UserId,
+          scopes: [],
+          capabilities: [],
+          tokenProjectId: P1,
+        }
       : null;
 
 /**
@@ -515,6 +525,30 @@ describe('a key limited to a project', () => {
     const r = await h.upload('alice-key-p1');
     expect(r.status).toBe(201);
     expect(r.body).toMatchObject({ projectId: P1, createdBy: 'user:alice' });
+  });
+
+  test("an artifact with no project is the whole workspace's: the key's person reads it, the key gets 404 and no list row", async () => {
+    const h = harness();
+    const own = (await h.upload('alice', { projectId: P1 })).body.blobId as string;
+    const old = (await h.upload('alice', { projectId: P1 })).body.blobId as string;
+    // Stored before projects were recorded.
+    const { projectId: _, ...noProject } = h.blobs.rows.get(old) as BlobMeta;
+    h.blobs.rows.set(old, noProject as BlobMeta);
+
+    expect((await h.call('erin', 'HEAD', `/v1/artifacts/${old}`)).status).toBe(200);
+    const key = await h.call('erin-key-p1', 'GET', `/v1/artifacts/${old}`);
+    expect([key.status, key.json().error.code]).toEqual([404, 'blob-not-found']);
+    expect((await h.call('erin-key-p1', 'HEAD', `/v1/artifacts/${old}`)).status).toBe(404);
+    expect((await h.call('erin-key-p1', 'HEAD', `/v1/artifacts/${own}`)).status).toBe(200);
+
+    const ids = async (as: string) =>
+      (await h.call(as, 'GET', '/v1/artifacts'))
+        .json()
+        .data.map((m: BlobMeta) => m.blobId)
+        .sort();
+    expect(await ids('erin')).toEqual([own, old].sort());
+    expect(await ids('erin-key-p1')).toEqual([own]);
+    expect(h.blobs.opened).toEqual([]);
   });
 
   test('its own project is fine; another, named or through an owner run, is refused', async () => {
