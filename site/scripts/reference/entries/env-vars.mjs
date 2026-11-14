@@ -129,6 +129,8 @@ export const ENV_DEFAULTS = {
   KINDGI_TENANT_PURGE_RECORD:
     'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
   KINDGI_PASSIVE: '`off`',
+  KINDGI_TICK_CALLER: "none: no tick; the background work runs on the server's own timers",
+  KINDGI_SERVICE_URL: 'none (with `KINDGI_TICK_CALLER` unset)',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
   KINDGI_PAGINATION_KEY: 'none: same as `KINDGI_PAGINATION_KEY_PATH`',
