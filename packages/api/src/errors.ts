@@ -731,6 +731,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
+  // Destinations (`/v1/destinations`).
+  'destination-not-found': 404,
+  'destination-delivery-not-found': 404,
+  'destination-url-refused': 400,
+  'destination-secret-not-found': 400,
+  'destination-secret-too-weak': 400,
   // Connections (`/v1/connection-apps`, `/v1/connections`, `/v1/connection-choices`).
   'connection-app-not-found': 404,
   'connection-not-found': 404,

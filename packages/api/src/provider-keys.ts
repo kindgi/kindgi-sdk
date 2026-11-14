@@ -5,6 +5,7 @@ import { toolSecretNames } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { ConnectionBinding } from './connection-binding.js';
+import type { DestinationBinding } from './destination-binding.js';
 import type { IdentityProviderBinding, ProviderConfig } from './identity-provider-binding.js';
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretNames } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -19,7 +20,7 @@ import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
 /**
  * A model provider's key is used by its provider only: no tool, MCP
- * endpoint, webhook endpoint or webhook trigger may name a secret that a provider
+ * endpoint, webhook endpoint, webhook trigger or destination may name a secret that a provider
  * registration of the tenant references (by name, whatever its env). The
  * runtime refuses to hand one out; these checks refuse it earlier, where
  * the name is written, with the same words.
@@ -142,6 +143,7 @@ export type SecretUser =
   | 'a webhook endpoint'
   | 'a webhook trigger'
   | 'a connection app'
+  | 'a destination'
   | 'a model provider'
   | "a pack's env"
   | 'an identity provider';
@@ -210,7 +212,8 @@ export function identityProviderKeyRefusal(
 
 /**
  * Something that uses a secret by name: a tool (its current version), an
- * endpoint, a webhook trigger, or a connection app registration.
+ * endpoint, a webhook trigger, a connection app registration, or a
+ * destination.
  */
 export interface SecretUse {
   readonly kind:
@@ -218,7 +221,8 @@ export interface SecretUse {
     | 'mcp-endpoint'
     | 'webhook-endpoint'
     | 'webhook-trigger'
-    | 'connection-app';
+    | 'connection-app'
+    | 'destination';
   readonly id: string;
   readonly version?: string;
 }
@@ -230,6 +234,8 @@ export interface SecretUsersDeps {
   readonly webhookEndpoints?: WebhookEndpointBinding;
   /** Webhook triggers, by the secret they verify deliveries with (`hmacSecretName`). */
   readonly triggers?: TriggerRegistryBinding;
+  /** Destinations, by the secrets their `urlRef` and `secretRef` name. */
+  readonly destinations?: DestinationBinding;
 }
 
 /**
@@ -258,7 +264,8 @@ export async function* pages<T>(
 /**
  * Everything registered in the tenant that uses the secret `name`: each
  * tool whose current version declares or sends it, each MCP or webhook
- * endpoint that names it, and each webhook trigger that verifies with it. (A tool's older version an agent still
+ * endpoint that names it, each webhook trigger that verifies with it, and each destination that
+ * names it. (A tool's older version an agent still
  * pins is refused at call time, and the runtime's boot warning names it.)
  */
 export async function usersOfSecret(
@@ -310,6 +317,26 @@ export async function usersOfSecret(
       if (t.kind === 'webhook' && t.hmacSecretName === name) {
         out.push({ kind: 'webhook-trigger', id: t.triggerId as unknown as string });
       }
+    }
+  }
+  if (deps.destinations !== undefined) {
+    out.push(...(await destinationsUsing(deps.destinations, tenantId, name)));
+  }
+  return out;
+}
+
+/** Each destination whose `urlRef` or `secretRef` names the secret `name`. */
+async function destinationsUsing(
+  destinations: DestinationBinding,
+  tenantId: TenantId,
+  name: string,
+): Promise<SecretUse[]> {
+  const out: SecretUse[] = [];
+  for await (const d of pages((cursor) =>
+    destinations.list({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+  )) {
+    if (d.urlRef?.name === name || d.secretRef?.name === name) {
+      out.push({ kind: 'destination', id: d.destinationId as unknown as string });
     }
   }
   return out;

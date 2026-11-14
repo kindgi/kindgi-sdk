@@ -152,6 +152,45 @@ describe('schedules — agents, history, run-now, ownership', () => {
     ]);
   });
 
+  it('sendResultsTo on register; listDeliveries: GET /v1/schedules/:triggerId/deliveries, by status', async () => {
+    const sendResultsTo = [{ to: 'me', on: ['failed' as const] }];
+    const delivery = {
+      deliveryId: 'd-1',
+      to: 'me',
+      event: 'run.finished',
+      scheduleId: ID,
+      runId: 'r-1',
+      approvalId: null,
+      status: 'failed',
+      reason: 'window-ended',
+      attempts: 9,
+      nextAttemptAt: null,
+      lastAttemptAt: '2026-11-04T10:00:00Z',
+      lastResponseStatus: 421,
+      lastError: 'smtp-refused',
+      createdAt: '2026-11-03T10:00:00Z',
+      deliveredAt: null,
+    };
+    const stub = recordingFetch([
+      { status: 201, body: JSON.stringify({ ...SAMPLE_SCHEDULE, sendResultsTo }) },
+      { status: 200, body: JSON.stringify({ data: [delivery], hasMore: false }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const created = await client.schedules.register({
+      flowId: 'acme.nightly',
+      flowVersion: '1.0.0',
+      config: { cronExpression: '0 2 * * *' },
+      sendResultsTo: [{ to: 'me', on: ['failed'] }],
+    });
+    expect(created.sendResultsTo).toEqual(sendResultsTo);
+    const page = await client.schedules.listDeliveries(ID, { status: 'failed', limit: 5 });
+    expect(page.data[0]?.reason).toBe('window-ended');
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}').sendResultsTo).toEqual(sendResultsTo);
+    expect(
+      stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
+    ).toEqual(['POST /v1/schedules', `GET /v1/schedules/${ID}/deliveries?limit=5&status=failed`]);
+  });
+
   it('versions / getVersion: GET /v1/schedules/:triggerId/versions, paged, and one by number', async () => {
     const v2 = {
       scheduleId: ID,

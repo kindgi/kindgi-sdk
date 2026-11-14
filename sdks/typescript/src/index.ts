@@ -351,11 +351,13 @@ export type {
 } from './resources/events.js';
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
+  ListScheduleDeliveriesFilter,
   ListScheduleFiresFilter,
   ListScheduleVersionsFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
+  ScheduleDeliveryPage,
   ScheduleFire,
   ScheduleFirePage,
   SchedulePage,
@@ -421,6 +423,23 @@ export type {
   WebhookEvent,
   WebhookTestEvent,
 } from './resources/webhook-endpoints.js';
+export type {
+  CreateDestinationInput,
+  Destination,
+  DestinationContent,
+  DestinationDelivery,
+  DestinationDeliveryEvent,
+  DestinationDeliveryPage,
+  DestinationDeliveryStatus,
+  DestinationKind,
+  DestinationPage,
+  DestinationSecretRef,
+  DestinationStatus,
+  DestinationsClient,
+  ListDestinationDeliveriesFilter,
+  ListDestinationsFilter,
+  UpdateDestinationInput,
+} from './resources/destinations.js';
 export type {
   ListWebhookFiresFilter,
   ListWebhookTriggerVersionsFilter,
@@ -930,6 +949,8 @@ export type {
   WaitResumedEvent,
   WaitSuspendedEvent,
   WebhookEndpointId,
+  DestinationId,
+  DestinationDeliveryId,
   WhoamiResult,
   WriteFactInput,
   SupersedeFactInput,

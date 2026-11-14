@@ -465,6 +465,12 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
   },
   {
+    name: 'schedule-deliveries',
+    route: '/v1/schedules/{triggerId}/deliveries',
+    paging: cursor,
+    parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
+  },
+  {
     name: 'schedule-versions',
     route: '/v1/schedules/{triggerId}/versions',
     paging: cursor,
@@ -535,6 +541,19 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/webhook-endpoints/{endpointId}/deliveries',
     paging: cursor,
     parent: { kind: 'webhook-endpoints', params: { endpointId: 'endpointId' } },
+  },
+  {
+    name: 'destinations',
+    route: '/v1/destinations',
+    paging: cursor,
+    covers: ['/v1/destinations/{destinationId}'],
+    admin: true,
+  },
+  {
+    name: 'destination-deliveries',
+    route: '/v1/destinations/{destinationId}/deliveries',
+    paging: cursor,
+    parent: { kind: 'destinations', params: { destinationId: 'destinationId' } },
   },
 
   // What ran, and what came of it.

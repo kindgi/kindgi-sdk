@@ -21,6 +21,8 @@
  * `components.schemas` (populated from `schemas.ts`).
  */
 
+import { RUN_STARTED_BY } from '@kindgi/runtime';
+
 import { type JsonSchema, ref } from './schemas.js';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head';
@@ -296,6 +298,42 @@ const RunCreatedBeforeQueryParam: ParameterSpec = {
   required: false,
   description: 'Only runs created strictly before this time.',
   schema: { type: 'string', format: 'date-time' },
+};
+
+const RunCompletedAfterQueryParam: ParameterSpec = {
+  name: 'completedAfter',
+  in: 'query',
+  required: false,
+  description:
+    "Only runs that ended strictly after this time (`Run.completedAt`), or at exactly this time with an id after `afterRunId`. With it or `completedBefore`, the page is sorted `completedAt asc, id asc`, runs that haven't ended aren't listed, and `cursor` can't be given: no `nextCursor` comes back, and the next page is `completedAfter` and `afterRunId` set to the last run's `completedAt` and `id`. Pass `completedAt` as the API returned it, since its fraction of a second is kept.",
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunAfterRunIdQueryParam: ParameterSpec = {
+  name: 'afterRunId',
+  in: 'query',
+  required: false,
+  description:
+    'With `completedAfter`: a run that ended at exactly `completedAfter` is listed when its id sorts after this one. The last run of the previous page.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const RunCompletedBeforeQueryParam: ParameterSpec = {
+  name: 'completedBefore',
+  in: 'query',
+  required: false,
+  description:
+    'Only runs that ended at or before this time (`Run.completedAt`). Sorts and pages as `completedAfter` does.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunStartedByQueryParam: ParameterSpec = {
+  name: 'startedBy',
+  in: 'query',
+  required: false,
+  description:
+    "Only runs started this way (`Run.startedBy`). A child run has its parent's, so `startedBy=schedule&topLevel=true` lists the runs schedules started. Runs from before runs recorded it never match.",
+  schema: { type: 'string', enum: [...RUN_STARTED_BY] },
 };
 
 const RunAgentVersionQueryParam: ParameterSpec = {
@@ -1198,6 +1236,39 @@ const WebhookDeliveryStatusQueryParam: ParameterSpec = {
   required: false,
   description: 'Only deliveries with this status.',
   schema: { $ref: '#/components/schemas/WebhookDeliveryStatus' },
+};
+
+const DestinationIdPathParam: ParameterSpec = {
+  name: 'destinationId',
+  in: 'path',
+  required: true,
+  description: 'The destination id.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const DestinationDeliveryIdPathParam: ParameterSpec = {
+  name: 'deliveryId',
+  in: 'path',
+  required: true,
+  description: 'The delivery id.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const DestinationDeliveryStatusQueryParam: ParameterSpec = {
+  name: 'status',
+  in: 'query',
+  required: false,
+  description: 'Only deliveries with this status.',
+  schema: { $ref: '#/components/schemas/DestinationDeliveryStatus' },
+};
+
+const DestinationProjectIdQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `host`, `urlRef`, `secretRef` and `projects`; a tenant admin sees every field.",
+  schema: { type: 'string', format: 'uuid' },
 };
 
 const TriggerStatusFilterQueryParam: ParameterSpec = {
@@ -2166,7 +2237,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.list',
     summary: 'List runs',
     description:
-      "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
+      "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`; with `completedAfter` or `completedBefore`, `completedAt asc, id asc`, paged by `completedAfter` and `afterRunId` instead of a cursor. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [
@@ -2184,6 +2255,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunStatusQueryParam,
       RunCreatedAfterQueryParam,
       RunCreatedBeforeQueryParam,
+      RunCompletedAfterQueryParam,
+      RunAfterRunIdQueryParam,
+      RunCompletedBeforeQueryParam,
+      RunStartedByQueryParam,
       RunAgentVersionQueryParam,
       RunFlowIdQueryParam,
       RunFlowVersionQueryParam,
@@ -6492,7 +6567,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         `Validation failed (see \`details.reason\`), a \`secret_ref.name\` under the reserved \`kindgi.\` prefix among them (\`bad-input\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '409': ErrorResponse(
-        `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
+        `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a destination uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
       ),
       '422': ErrorResponse(
         "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
@@ -11531,6 +11606,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/schedules/:triggerId/deliveries',
+    openapiPath: '/v1/schedules/{triggerId}/deliveries',
+    operationId: 'schedules.listDeliveries',
+    summary: "List where a schedule's results went",
+    description:
+      'Newest first: each message its `sendResultsTo` sent, to a destination or to `me`, and how it went: pending, delivered, failed or skipped, with the reason. Whoever can read the schedule can read them.',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [
+      TriggerIdPathParam,
+      DestinationDeliveryStatusQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': {
+        description: 'Page of deliveries.',
+        schema: ref('DestinationDeliveryCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Unknown `status` (`bad-input`).'),
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse('`trigger-operation-unsupported`: this deployment has no destinations.'),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/schedules/:triggerId/versions',
     openapiPath: '/v1/schedules/{triggerId}/versions',
     operationId: 'schedules.listVersions',
@@ -11602,7 +11704,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
+        "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended`, or a service account or the project's own account named while `sendResultsTo` has `me`, its owner's own email (`bad-input`).",
       ),
       '403': ErrorResponse(
         withLimitedTrigger(
@@ -12870,6 +12972,185 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id.'),
+    },
+  },
+  // ---------- destinations (where schedules send their results) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/destinations',
+    openapiPath: '/v1/destinations',
+    operationId: 'destinations.create',
+    summary: 'Make a destination',
+    description:
+      "Makes a named place outside Kindgi that schedules send their results to: a Slack, Teams, Google Chat or Discord channel's incoming webhook, a signed webhook, or workspace members' email. A chat webhook URL lets anyone who has it post to that channel, so `url` is write-only: the runtime keeps it in its secrets store, and the API shows only its `host`. Or name a secret you stored with `urlRef`. A `webhook` destination signs its requests as webhook endpoints do, with the secret `secretRef` names. `content: \"answer\"` sends the run's answer too, up to its first 1,000 characters: it needs `projects`, and the `webhook` kind never takes it.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateDestinationBody') },
+    responses: {
+      '201': { description: 'Destination made.', schema: ref('Destination') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        "Malformed body, unknown field (`unknown-field`), or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs (`bad-input`, `details.setting`); a person in `people` is no member of the workspace (`bad-input`, `details.userId`); the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+      ),
+      '404': ErrorResponse('A project in `projects` does not exist (`project-not-found`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/destinations',
+    openapiPath: '/v1/destinations',
+    operationId: 'destinations.list',
+    summary: 'List destinations',
+    description:
+      "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationProjectIdQueryParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of destinations.', schema: ref('DestinationCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a UUID (`bad-input`).'),
+      '403': ErrorResponse(
+        `Not a tenant admin, or, with \`projectId\`, may not make a schedule in that project (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/destinations/:destinationId',
+    openapiPath: '/v1/destinations/{destinationId}',
+    operationId: 'destinations.get',
+    summary: 'Fetch a destination',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam],
+    responses: {
+      '200': { description: 'The destination.', schema: ref('Destination') },
+      ...CommonAuthErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
+      '404': ErrorResponse(
+        'No destination with that id, or it was removed (`destination-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/destinations/:destinationId',
+    openapiPath: '/v1/destinations/{destinationId}',
+    operationId: 'destinations.update',
+    summary: 'Update a destination',
+    description:
+      "Absent fields are kept, and `kind` never changes. A new `url` replaces the stored one; `urlRef` replaces where it's kept. `projects: null` lets every project's schedules use it again. The kind's rules hold for the result: `content: \"answer\"` still needs `projects`.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateDestinationBody') },
+    responses: {
+      '200': { description: 'The updated destination.', schema: ref('Destination') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        "`destinationId` is not a destination id (a UUID); malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+      ),
+      '404': ErrorResponse(
+        'No destination with that id (`destination-not-found`), or a project in `projects` does not exist (`project-not-found`).',
+      ),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/destinations/:destinationId',
+    openapiPath: '/v1/destinations/{destinationId}',
+    operationId: 'destinations.remove',
+    summary: 'Remove a destination (soft delete)',
+    description:
+      'Its stored URL is revoked. Schedules that still name it send it nothing: each of their messages is recorded `skipped`, with the reason `destination-removed`.',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '204': { description: 'Removed. No body.' },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
+      '404': ErrorResponse(
+        'No destination with that id, or it was removed already (`destination-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/destinations/:destinationId/deliveries',
+    openapiPath: '/v1/destinations/{destinationId}/deliveries',
+    operationId: 'destinations.listDeliveries',
+    summary: "List a destination's deliveries",
+    description: 'Newest first.',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [
+      DestinationIdPathParam,
+      DestinationDeliveryStatusQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': {
+        description: 'Page of deliveries.',
+        schema: ref('DestinationDeliveryCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        '`destinationId` is not a destination id (a UUID), or an unknown `status` (`bad-input`).',
+      ),
+      '404': ErrorResponse('No destination with that id (`destination-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/destinations/:destinationId/deliveries/:deliveryId/redeliver',
+    openapiPath: '/v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver',
+    operationId: 'destinations.redeliver',
+    summary: 'Redeliver a message',
+    description:
+      "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, DestinationDeliveryIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'Queued.', schema: ref('DestinationDelivery') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        '`destinationId` is not a destination id, or `deliveryId` a delivery id (a UUID).',
+      ),
+      '404': ErrorResponse(
+        'No destination with that id (`destination-not-found`), or no delivery with that id for it (`destination-delivery-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/destinations/:destinationId/test',
+    openapiPath: '/v1/destinations/{destinationId}/test',
+    operationId: 'destinations.sendTest',
+    summary: 'Send a test message to a destination',
+    description:
+      'Queues a `destination.test` message, to check the destination end to end; follow it in the delivery log. A `failing` destination the test reaches goes back to `active`, and its held deliveries still inside their retry window go out, oldest first.',
+    tags: ['destinations'],
+    security: 'bearer',
+    parameters: [DestinationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'Queued.', schema: ref('DestinationDelivery') },
+      ...CommonMutationErrors,
+      ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
+      '404': ErrorResponse('No destination with that id (`destination-not-found`).'),
     },
   },
   // ---------- connections (accounts at other apps that tools act with) ----------

@@ -54,7 +54,7 @@ A subsystem no part of the runtime logs under only warns:
 `boot`, `http`, `authz`, `runs`, `provenance` (runtime 0.3.0 or later),
 `kernel`, `leases`, `approvals`, `retention`, `erasure` (runtime 0.6.0 or
 later, for [erasing a person's data](../../../guides/agents/erase-a-persons-data/)),
-`audit`, `webhooks`, `mcp`,
+`audit`, `webhooks`, `destinations` (runtime 0.7.0 or later), `mcp`,
 `providers`, `promotions`, `pinned-versions` (runtime 0.3.0 or later),
 `block-version-prs` (runtime 0.4.0 or later), `tools`, `guardrails`,
 `pack`, `pack-orchestrator` (runtime 0.4.0 or later, for the
@@ -65,7 +65,8 @@ later, for [erasing a person's data](../../../guides/agents/erase-a-persons-data
 `memory` (runtime 0.6.0 or later), `api-keys`, and `connections`
 (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
-`webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
+`webhooks.worker`, `destinations.worker` (runtime 0.7.0 or later),
+`authz.outbox`, `approvals.notifier`, `audit.retention`,
 `mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `memory.embeddings`
 (whether the embeddings endpoint answers, runtime 0.6.0 or later),
 `memory.embedder` (embedding the facts kept without a vector, runtime 0.6.0

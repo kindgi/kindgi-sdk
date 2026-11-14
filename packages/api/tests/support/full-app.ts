@@ -33,6 +33,7 @@ import type {
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
+  DestinationBinding,
   EnvBinding,
   EnvironmentOrderBinding,
   ExpertQueueBinding,
@@ -309,6 +310,18 @@ const noopWebhookEndpoints: WebhookEndpointBinding = {
   listDeliveries: async () => ({ kind: 'not-found' }),
   redeliver: async () => ({ kind: 'not-found' }),
   sendTest: async () => ({ kind: 'not-found' }),
+};
+
+const noopDestinations: DestinationBinding = {
+  create: async () => ({ kind: 'url-refused', reason: 'noop' }),
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  update: async () => ({ kind: 'not-found' }),
+  remove: async () => ({ removed: false }),
+  listDeliveries: async () => ({ kind: 'not-found' }),
+  redeliver: async () => ({ kind: 'not-found' }),
+  sendTest: async () => ({ kind: 'not-found' }),
+  listScheduleDeliveries: async () => ({ kind: 'not-found' }),
 };
 
 const noopTriggerRegistry: TriggerRegistryBinding = {
@@ -722,6 +735,7 @@ export function fullAppInput(): CreateAppInput {
     adapterRegistry: noopAdapterRegistry,
     triggerRegistry: noopTriggerRegistry,
     webhookEndpoints: noopWebhookEndpoints,
+    destinations: noopDestinations,
     connections: noopConnections,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,

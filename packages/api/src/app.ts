@@ -37,6 +37,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { DeploymentValuesDeps } from './deployment-values.js';
+import type { DestinationBinding, ResultEmail } from './destination-binding.js';
 import type { EnvBinding, EnvCloudSecretBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
@@ -157,6 +158,7 @@ import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
 import { correctionsRouter, correctorGroupsRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
 import { type DeploymentsRouterBindings, deploymentsRouter } from './routes/deployments.js';
+import { destinationsRouter } from './routes/destinations.js';
 import { envRouter } from './routes/env.js';
 import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
@@ -963,6 +965,20 @@ export interface CreateAppInput {
    * `WebhookEndpointBinding`.
    */
   readonly webhookEndpoints?: WebhookEndpointBinding;
+  /**
+   * Optional. When present, mounts `/v1/destinations/*`: the named places
+   * outside Kindgi (chat channels, a signed webhook, members' email) a
+   * schedule's results go to, their delivery log, redelivery and a test
+   * message. The runtime supplies storage, the URLs in its secrets store,
+   * the queue and the senders; see `DestinationBinding`.
+   */
+  readonly destinations?: DestinationBinding;
+  /**
+   * Optional. Whether this deployment sends email, which a schedule's
+   * `sendResultsTo: [{ to: 'me' }]` needs: off, a save naming `me` is
+   * refused with the setting named. Absent: it does.
+   */
+  readonly resultEmail?: ResultEmail;
   /**
    * Optional. When present, mounts connections: tools acting with a
    * member's own account at another app, or the company's.
@@ -1987,6 +2003,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.mcpEndpointRegistry !== undefined && { mcpEndpoints: input.mcpEndpointRegistry }),
         ...(input.webhookEndpoints !== undefined && { webhookEndpoints: input.webhookEndpoints }),
         ...(input.triggerRegistry !== undefined && { triggers: input.triggerRegistry }),
+        ...(input.destinations !== undefined && { destinations: input.destinations }),
       },
       tenantId,
       name,
@@ -2010,6 +2027,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.webhookEndpoints !== undefined && {
               webhookEndpoints: input.webhookEndpoints,
             }),
+            ...(input.destinations !== undefined && { destinations: input.destinations }),
           }),
         }
       : undefined;
@@ -2379,6 +2397,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           itemRights,
           targetTools,
           input.triggerOwnerNotices,
+          input.destinations,
+          input.resultEmail,
         ),
       );
     }
@@ -2477,6 +2497,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route(
       '/webhook-endpoints',
       webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
+        providerKeys,
+        connectionKeys,
+        identityProviderKeys,
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
+    );
+  }
+  if (input.destinations !== undefined) {
+    v1.route(
+      '/destinations',
+      destinationsRouter(input.destinations, authorizer, {
         providerKeys,
         connectionKeys,
         identityProviderKeys,

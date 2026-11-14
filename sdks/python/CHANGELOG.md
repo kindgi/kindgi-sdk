@@ -60,6 +60,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
 
 ## 0.6.0
 

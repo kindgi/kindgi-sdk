@@ -7,6 +7,7 @@
 
 import type {
   Cursor,
+  DestinationId,
   ProjectId,
   RecordedSecretScope,
   Result,
@@ -429,6 +430,28 @@ export interface RegisterCronTriggerInput {
    * route checks both). Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * Where its runs' results go: destinations its project may use, or `me`
+   * (its owner's own email; a person's schedule only). The route checks
+   * both. Absent: nowhere outside Kindgi.
+   */
+  readonly sendResultsTo?: readonly ScheduleResultTarget[];
+}
+
+/** Which of a schedule's runs send a message: by how a run ended, or when it waits on a person's approval. */
+export const SCHEDULE_RESULT_EVENTS = ['completed', 'failed', 'cancelled', 'waiting'] as const;
+export type ScheduleResultEvent = (typeof SCHEDULE_RESULT_EVENTS)[number];
+
+/**
+ * One place a schedule's results go (`RegisterCronTriggerInput.sendResultsTo`):
+ * a destination, or `me`, the schedule owner's own email, resolved when a
+ * message is sent. Only runs the schedule started count, never their
+ * replays or child runs.
+ */
+export interface ScheduleResultTarget {
+  readonly to: DestinationId | 'me';
+  /** Which of its runs send a message; never empty. */
+  readonly on: readonly ScheduleResultEvent[];
 }
 
 export interface RegisterEventTriggerInput {
@@ -596,6 +619,8 @@ export interface UpdateCronTriggerInput extends Omit<UpdateBase, 'flowVersion'> 
   readonly startingDeadlineSeconds?: number;
   /** The `toolsAllowedUnattended`, replaced: `[]` clears it. Absent: kept as it is. */
   readonly toolsAllowedUnattended?: readonly string[];
+  /** The `sendResultsTo`, replaced: `[]` clears it. Absent: kept as it is. */
+  readonly sendResultsTo?: readonly ScheduleResultTarget[];
 }
 
 export interface UpdateEventTriggerInput extends UpdateBase {
@@ -707,6 +732,8 @@ export interface CronTriggerRecord extends TriggerRecordBase {
    * (`RegisterCronTriggerInput.toolsAllowedUnattended`). Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /** Where its runs' results go (`RegisterCronTriggerInput.sendResultsTo`). Absent: nowhere outside Kindgi. */
+  readonly sendResultsTo?: readonly ScheduleResultTarget[];
 }
 
 export interface EventTriggerRecord extends FlowTriggerRecordBase {
@@ -874,6 +901,7 @@ export type CronTriggerDefinition = Pick<
   | 'startingDeadlineSeconds'
   | 'label'
   | 'toolsAllowedUnattended'
+  | 'sendResultsTo'
 >;
 
 /** An event trigger's definition, as {@link CronTriggerDefinition}. */
