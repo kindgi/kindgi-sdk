@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Agent } from '@kindgi/agents';
+import { type Agent, REMEMBER_TOOL_ID } from '@kindgi/agents';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } from '@kindgi/flow';
+import { HAND_TO_PERSON_TOOL_ID, REPLY_TO_TEXT_TOOL_ID, type TriggerKind } from '@kindgi/runtime';
 import type { AgentId, FlowId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
@@ -23,9 +24,10 @@ type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
  * - each tool by its id, no wildcard or pattern, each once;
  * - setting or changing it, at register too, takes `admin` on the
  *   trigger's project (a body that names it, `[]` included);
- * - each id must be one the target can call (`toolsTargetCanCall`), so a
- *   typo is refused rather than lifting nothing; an Improve run calls
- *   no tools, so its list can only be empty;
+ * - each id must be one the target can call (`toolsTargetCanCall`), the
+ *   built-ins it's offered included, so a typo is refused rather than
+ *   lifting nothing; an Improve run calls no tools, so its list can only
+ *   be empty;
  * - every change is audited (`trigger-tools-allowed-unattended-set`).
  *
  * It lifts only that wait: the tenant's approval floor, the agent's own
@@ -97,29 +99,36 @@ export interface TargetToolsDeps {
 const MAX_FLOWS = 64;
 
 /**
- * What `target` can call in a trigger's `projectId`. `tools`: every tool
- * by id, an agent's (at its version, else what runs there, `agentAt`); a
- * flow's tool nodes and fan-out branches, in loop bodies too, its agent
- * nodes' agents' tools (at the node's version, else the flow version's
- * pin, else what runs there) and its subflows', at their versions.
- * `nothingRuns`: the agents it runs at no version that have none running
- * there, whose tools can't be counted. `undefined` when the target can't
- * be read (no registry, or no such agent or flow version). An Improve
- * run calls none.
+ * What `target` can call in a trigger's `projectId`, when a trigger of
+ * `kind` runs it. `tools`: every tool by id, an agent's (at its version,
+ * else what runs there, `agentAt`); a flow's tool nodes and fan-out
+ * branches, in loop bodies too, its agent nodes' agents' tools (at the
+ * node's version, else the flow version's pin, else what runs there) and
+ * its subflows', at their versions. An agent's tools include the
+ * built-ins it's offered: `kindgi_remember` when it declares
+ * `memory.remember`, and on a text trigger the texts tools
+ * (`kindgi_reply_to_text`, `kindgi_hand_to_person`) for the target's own
+ * turns: an agent target, or a flow target's agent steps, never a
+ * subflow's, whose runs don't answer the text. `nothingRuns`: the agents
+ * it runs at no version that have none running there, whose tools can't
+ * be counted. `undefined` when the target can't be read (no registry, or
+ * no such agent or flow version). An Improve run calls none.
  */
 export async function toolsTargetCanCall(
   deps: TargetToolsDeps | undefined,
   scope: TriggerScope,
   target: TriggerTarget,
+  kind: TriggerKind,
 ): Promise<TargetCalls | undefined> {
   if (target.kind === 'improve') return { tools: new Set(), nothingRuns: new Set() };
+  const texts = kind === 'text' ? TEXT_TOOL_IDS : [];
   if (target.kind === 'agent') {
     const agentId = target.agentId as unknown as string;
     const agent = await agentAt(deps, scope, agentId, target.agentVersion);
     if (agent === undefined) return undefined;
     return agent === NOTHING_RUNS
-      ? { tools: new Set(), nothingRuns: new Set([agentId]) }
-      : { tools: new Set(agentToolIds(agent)), nothingRuns: new Set() };
+      ? { tools: new Set(texts), nothingRuns: new Set([agentId]) }
+      : { tools: new Set([...agentToolIds(agent), ...texts]), nothingRuns: new Set() };
   }
   const root = await flowAt(
     deps,
@@ -133,16 +142,22 @@ export async function toolsTargetCanCall(
     nothingRuns: new Set(),
     seen: new Set([`${target.flowId as unknown as string}@${target.flowVersion}`]),
   };
-  const pending: Flow[] = [root];
+  // The target's own agent steps answer a text; its subflows' don't.
+  const pending: { readonly flow: Flow; readonly texts: readonly string[] }[] = [
+    { flow: root, texts },
+  ];
   while (pending.length > 0) {
-    const flow = pending.shift() as Flow;
+    const { flow, texts: offered } = pending.shift() as (typeof pending)[number];
     for (const leaf of leaves(flow.nodes)) {
-      const sub = await visitLeaf(deps, scope, flow, leaf, walk);
-      if (sub !== undefined) pending.push(sub);
+      const sub = await visitLeaf(deps, scope, flow, leaf, walk, offered);
+      if (sub !== undefined) pending.push({ flow: sub, texts: [] });
     }
   }
   return { tools: walk.tools, nothingRuns: walk.nothingRuns };
 }
+
+/** The texts tools a text trigger's target is offered, by id. */
+const TEXT_TOOL_IDS: readonly string[] = [REPLY_TO_TEXT_TOOL_ID, HAND_TO_PERSON_TOOL_ID];
 
 /** What a trigger's target can call (`toolsTargetCanCall`). */
 export interface TargetCalls {
@@ -172,19 +187,24 @@ interface FlowWalk {
   readonly seen: Set<string>;
 }
 
-/** Adds what one leaf of `flow` calls to the walk; a subflow version not followed yet comes back, to walk. */
+/**
+ * Adds what one leaf of `flow` calls to the walk, an agent step's `texts`
+ * included; a subflow version not followed yet comes back, to walk.
+ */
 async function visitLeaf(
   deps: TargetToolsDeps | undefined,
   scope: TriggerScope,
   flow: Flow,
   leaf: Leaf,
   walk: FlowWalk,
+  texts: readonly string[],
 ): Promise<Flow | undefined> {
   if (leaf.kind === 'tool') {
     walk.tools.add(leaf.id);
     return undefined;
   }
   if (leaf.kind === 'agent') {
+    for (const id of texts) walk.tools.add(id);
     const version = leaf.version ?? flow.pins?.agents[leaf.id];
     const agent = await agentAt(deps, scope, leaf.id, version);
     if (agent === NOTHING_RUNS) walk.nothingRuns.add(leaf.id);
@@ -226,9 +246,14 @@ function leaves(nodes: readonly FlowNode[]): Leaf[] {
   return found;
 }
 
-/** An agent's tool ids: a deployment's index carries agents as authored, so `tools` may be absent. */
+/**
+ * An agent's tool ids, with `kindgi_remember` when it declares
+ * `memory.remember`: a deployment's index carries agents as authored, so
+ * `tools` may be absent.
+ */
 function agentToolIds(agent: Agent): string[] {
-  return (agent.tools ?? []).map((tool) => tool.id as unknown as string);
+  const ids = (agent.tools ?? []).map((tool) => tool.id as unknown as string);
+  return agent.memory?.remember === undefined ? ids : [...ids, REMEMBER_TOOL_ID];
 }
 
 /**
@@ -292,24 +317,25 @@ function targetName(target: TriggerTarget): string {
 }
 
 /**
- * Why `tools` can't be the list of a trigger that runs `target` (a
- * `bad-input` message), or `undefined` when it can: an Improve run
+ * Why `tools` can't be the list of a trigger of `kind` that runs `target`
+ * (a `bad-input` message), or `undefined` when it can: an Improve run
  * calls no tools, so only `[]`; else each id must be one the target can
- * call. An id it doesn't call where one of its agents at no version has
- * none running can't be checked, and the message says why. An empty list
- * is always fine.
+ * call (`toolsTargetCanCall`, its built-ins included). An id it doesn't
+ * call where one of its agents at no version has none running can't be
+ * checked, and the message says why. An empty list is always fine.
  */
 export async function toolsAllowedUnattendedProblem(
   deps: TargetToolsDeps | undefined,
   scope: TriggerScope,
   target: TriggerTarget,
   tools: readonly string[],
+  kind: TriggerKind,
 ): Promise<string | undefined> {
   if (tools.length === 0) return undefined;
   if (target.kind === 'improve') {
     return 'an Improve run calls no tools: its `toolsAllowedUnattended` can only be empty';
   }
-  const calls = await toolsTargetCanCall(deps, scope, target);
+  const calls = await toolsTargetCanCall(deps, scope, target, kind);
   if (calls === undefined) {
     return `\`toolsAllowedUnattended\`: can't read ${targetName(target)} to check the tools it calls`;
   }

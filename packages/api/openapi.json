@@ -27568,7 +27568,7 @@
       "TextTriggerRecord": {
         "type": "object",
         "additionalProperties": false,
-        "description": "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.",
+        "description": "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); a text that isn't a reply always waits.",
         "required": [
           "triggerId",
           "projectId",
@@ -27657,7 +27657,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           },
           "lastFiredAt": {
             "type": [
@@ -27782,7 +27782,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `kindgi_send_text` (400): a text that isn't a reply always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -27827,7 +27827,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "Replaces the list (`[]` clears it; absent keeps it). Never `kindgi_send_text` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -28460,7 +28460,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -74926,7 +74926,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `connectionId`, `runsPerHour` and `perSenderPerHour`, a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+            "description": "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `connectionId`, `runsPerHour` and `perSenderPerHour`, a limit out of its range, a `connectionId` naming a person's own live connection of the app, `kindgi_send_text` in `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75006,7 +75006,7 @@
             }
           }
         },
-        "description": "Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `texts.send`, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `kindgi_send_text`, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -75208,7 +75208,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST /v1/text-triggers/{triggerId}/owner`), a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or a new target or connection without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+            "description": "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST /v1/text-triggers/{triggerId}/owner`), a limit out of its range, a `connectionId` naming a person's own live connection of the app, `kindgi_send_text` in `toolsAllowedUnattended`, or a new target or connection without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75278,7 +75278,7 @@
             }
           }
         },
-        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `texts.send`, and a new target or connection while it lists any must name it again.",
+        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `kindgi_send_text`, and a new target or connection while it lists any must name it again.",
         "parameters": [
           {
             "name": "triggerId",

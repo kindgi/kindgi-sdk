@@ -8,7 +8,7 @@
  * the company's, so registering and every PATCH take a project admin; a
  * shared trigger's pause, resume and unregister take `write`, and a
  * personal one's its owner or an admin. `toolsAllowedUnattended` never
- * lists `texts.send`. Driven through the app, with an authorizer that
+ * lists `kindgi_send_text`. Driven through the app, with an authorizer that
  * grants every right but `admin`, which only Ada and Pia hold, and
  * without one, where the token's tenant-admin scope decides.
  */
@@ -17,10 +17,12 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { REMEMBER_TOOL_ID } from '@kindgi/agents';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { google } from '@kindgi/connections/google';
+import { HAND_TO_PERSON_TOOL_ID, REPLY_TO_TEXT_TOOL_ID, SEND_TEXT_TOOL_ID } from '@kindgi/runtime';
 import type { Cursor, EnvName, ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 
 import type { ConnectionBinding, ConnectionRecord } from '../src/connection-binding.js';
@@ -72,11 +74,16 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 }
 
 const tool = (id: string) => ({ id });
-/** It can send texts: no list may let it do so unattended. */
-const SUPPORT = { tools: [tool('acme.lookup'), tool('acme.note'), tool('texts.send')] };
-const AGENTS: Record<string, Record<string, { tools: { id: string }[] }>> = {
+const SUPPORT = { tools: [tool('acme.lookup'), tool('acme.note')] };
+/** It declares what it remembers, so it is offered the remember tool. */
+const REMEMBERS = {
+  tools: [tool('acme.lookup')],
+  memory: { remember: { types: ['preference'], scope: 'same-user' } },
+};
+const AGENTS: Record<string, Record<string, { tools: { id: string }[]; memory?: unknown }>> = {
   'acme.support': { latest: SUPPORT, '1.0.0': SUPPORT, '2.0.0': SUPPORT },
   'acme.triage': { latest: { tools: [tool('acme.lookup')] } },
+  'acme.remembers': { latest: REMEMBERS },
 };
 
 const agentRegistry = {
@@ -90,9 +97,25 @@ const agentRegistry = {
   },
 } as unknown as AgentRegistryBinding;
 
+/**
+ * The flows, by id: `acme.orders`, whose one step is the agent
+ * `acme.triage`; `acme.batch`, with tool steps only; `acme.nested`, whose
+ * one step runs `acme.orders` as a subflow.
+ */
+const FLOWS: Record<string, readonly Record<string, unknown>[]> = {
+  'acme.orders': [{ id: 'help', kind: 'agent', ref: 'acme.triage' }],
+  'acme.batch': [{ id: 'look', kind: 'tool', ref: 'acme.lookup' }],
+  'acme.nested': [
+    { id: 'inner', kind: 'subgraph', flowRef: { flowId: 'acme.orders', version: '1.0.0' } },
+  ],
+};
+
 const flowRegistry = {
   get: async () => null,
-  getVersion: async () => null,
+  getVersion: async ({ flowId, version }: { flowId: string; version: string }) => {
+    const nodes = FLOWS[flowId];
+    return nodes === undefined ? null : { id: flowId, version, nodes };
+  },
 } as unknown as FlowRegistryBinding;
 
 const serviceAccountBinding = {
@@ -510,9 +533,9 @@ describe('the company connection it answers', () => {
 });
 
 describe('toolsAllowedUnattended', () => {
-  test('never lists `texts.send`, even where its agent calls it: a 400 at register and on PATCH', async () => {
+  test('never lists `kindgi_send_text`: a 400 at register and on PATCH', async () => {
     const h = harness();
-    for (const tools of [['texts.send'], ['acme.lookup', 'texts.send']]) {
+    for (const tools of [[SEND_TEXT_TOOL_ID], ['acme.lookup', SEND_TEXT_TOOL_ID]]) {
       const res = await h.call(
         'POST',
         BASE,
@@ -520,16 +543,100 @@ describe('toolsAllowedUnattended', () => {
       );
       expect(res.status, tools.join()).toBe(400);
       expect(res.body.error.message).toBe(
-        "`toolsAllowedUnattended` can't list `texts.send`: sending a text is never allowed unattended, so each one waits for a person's yes",
+        "`toolsAllowedUnattended` can't list `kindgi_send_text`: a text that isn't a reply always waits for a person's yes",
       );
     }
     const id = await registered(h, answering(FRONT_DESK));
     const patched = await h.call('PATCH', `${BASE}/${id}`, {
-      toolsAllowedUnattended: ['texts.send'],
+      toolsAllowedUnattended: [SEND_TEXT_TOOL_ID],
     });
     expect(patched.status).toBe(400);
-    expect(patched.body.error.message).toMatch(/never allowed unattended/);
+    expect(patched.body.error.message).toMatch(/always waits for a person's yes/);
     expect(h.events('trigger-tools-allowed-unattended-set')).toEqual([]);
+  });
+
+  test("an agent target's text trigger can list the reply and hand-to-person tools it is offered", async () => {
+    const h = harness();
+    const tools = [REPLY_TO_TEXT_TOOL_ID, HAND_TO_PERSON_TOOL_ID];
+    const res = await h.call(
+      'POST',
+      BASE,
+      answering(FRONT_DESK, { agentId: 'acme.triage', toolsAllowedUnattended: tools }),
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.toolsAllowedUnattended).toEqual(tools);
+    const patched = await h.call('PATCH', `${BASE}/${res.body.triggerId}`, {
+      toolsAllowedUnattended: [HAND_TO_PERSON_TOOL_ID],
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.toolsAllowedUnattended).toEqual([HAND_TO_PERSON_TOOL_ID]);
+  });
+
+  test('`texts.send` is just an id its agent does not call: a 400 that says so', async () => {
+    const h = harness();
+    const res = await h.call(
+      'POST',
+      BASE,
+      answering(FRONT_DESK, { agentId: 'acme.triage', toolsAllowedUnattended: ['texts.send'] }),
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe(
+      '`toolsAllowedUnattended`: agent "acme.triage" doesn\'t call "texts.send"',
+    );
+  });
+
+  test('a flow whose step is an agent can list the reply and hand-to-person tools', async () => {
+    const h = harness();
+    const tools = [REPLY_TO_TEXT_TOOL_ID, HAND_TO_PERSON_TOOL_ID];
+    const res = await h.call('POST', BASE, {
+      flowId: 'acme.orders',
+      flowVersion: '1.0.0',
+      projectId: PROJECT,
+      config: { connectionId: FRONT_DESK.connectionId },
+      toolsAllowedUnattended: tools,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.toolsAllowedUnattended).toEqual(tools);
+  });
+
+  test("a flow with no agent step of its own can't: only the target's agent steps answer the text", async () => {
+    const h = harness();
+    // Tool steps only; or an agent step in a subflow, whose run is the
+    // subflow's, not the trigger's target's.
+    for (const flowId of ['acme.batch', 'acme.nested']) {
+      const res = await h.call('POST', BASE, {
+        flowId,
+        flowVersion: '1.0.0',
+        projectId: PROJECT,
+        config: { connectionId: FRONT_DESK.connectionId },
+        toolsAllowedUnattended: [REPLY_TO_TEXT_TOOL_ID],
+      });
+      expect(res.status, flowId).toBe(400);
+      expect(res.body.error.message).toBe(
+        `\`toolsAllowedUnattended\`: flow "${flowId}" at 1.0.0 doesn't call "${REPLY_TO_TEXT_TOOL_ID}"`,
+      );
+    }
+  });
+
+  test('an agent that declares what it remembers can list the remember tool', async () => {
+    const h = harness();
+    const res = await h.call(
+      'POST',
+      BASE,
+      answering(FRONT_DESK, {
+        agentId: 'acme.remembers',
+        toolsAllowedUnattended: [REMEMBER_TOOL_ID],
+      }),
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.toolsAllowedUnattended).toEqual([REMEMBER_TOOL_ID]);
+    // An agent that declares none is not offered it.
+    const none = await h.call(
+      'POST',
+      BASE,
+      answering(FRONT_DESK, { agentId: 'acme.triage', toolsAllowedUnattended: [REMEMBER_TOOL_ID] }),
+    );
+    expect(none.status).toBe(400);
   });
 
   test("an admin's list of tools its target calls is set and audited; a tool it never calls is a 400", async () => {

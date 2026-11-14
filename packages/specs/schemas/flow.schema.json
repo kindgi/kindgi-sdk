@@ -90,7 +90,7 @@
         "ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Reference to the concrete tool/agent implementation. Interpretation depends on kind and is opaque to the flow loader."
+          "description": "Reference to the concrete tool/agent implementation. Interpretation depends on kind. The flow loader refuses a tool node whose ref names a tool built into Kindgi (the `kindgi_` prefix): an agent gets those from its declaration or its run."
         },
         "config": {
           "type": "object",

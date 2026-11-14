@@ -16707,7 +16707,7 @@ export const TextTriggerRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.",
+    "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); a text that isn't a reply always waits.",
   required: [
     'triggerId',
     'projectId',
@@ -16749,7 +16749,7 @@ export const TextTriggerRecordSchema: JsonSchema = {
         "The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version.",
     },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
-      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none.",
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none.",
     ),
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -16801,7 +16801,7 @@ export const RegisterTextTriggerBodySchema: JsonSchema = {
     config: { $ref: '#/components/schemas/RegisterTextTriggerBodyConfig' },
     label: { type: 'string' },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
-      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits.",
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `kindgi_send_text` (400): a text that isn't a reply always waits.",
     ),
   },
 };
@@ -16816,7 +16816,7 @@ export const PatchTextTriggerBodySchema: JsonSchema = {
     config: { $ref: '#/components/schemas/PatchTextTriggerBodyConfig' },
     label: { type: ['string', 'null'] },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
-      'Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`.',
+      'Replaces the list (`[]` clears it; absent keeps it). Never `kindgi_send_text` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`.',
     ),
   },
 };

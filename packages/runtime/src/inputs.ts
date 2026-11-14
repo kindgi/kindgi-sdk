@@ -22,6 +22,7 @@ import type {
 
 import type { HandlerMissingError } from './errors.js';
 import type { KernelEventBusBinding } from './event-bus.js';
+import { HAND_TO_PERSON_TOOL_ID, type RunTextThread } from './texts.js';
 import type { RunOptions } from './types.js';
 
 /**
@@ -220,7 +221,9 @@ export type UnattendedWaitReason =
  *   the run's own `mailbox`, its app and kind (`mail-own-mailbox`; any
  *   connection, when the run records no mailbox);
  * - a text started the run (`text`), and the tool changes something
- *   (`text-change`: it isn't `mutating: false`).
+ *   (`text-change`: it isn't `mutating: false`), save the built-in
+ *   hand-over to a person (`HAND_TO_PERSON_TOOL_ID`), which only stops the
+ *   trigger's runs for the thread.
  *
  * Unless the trigger that started the run lists the tool in its
  * `toolsAllowedUnattended`: only the runs a webhook, a schedule, a mail or
@@ -268,7 +271,11 @@ function waitReasonOf(
   if (tool.needsApprovalWhenUnattended === true) return 'declared';
   const needs = connectionNeedsOf(tool);
   if (needs.some((need) => need.as === 'person')) return 'persons-connection';
-  if (startedBy === 'text') return tool.mutating !== false ? 'text-change' : undefined;
+  if (startedBy === 'text') {
+    return tool.mutating !== false && tool.id !== HAND_TO_PERSON_TOOL_ID
+      ? 'text-change'
+      : undefined;
+  }
   if (startedBy !== 'mail') return undefined;
   if (tool.mutating !== false) return 'mail-change';
   const ownMailbox = needs.some(
@@ -373,6 +380,13 @@ export interface RunFlowInput {
    * Absent on every other run.
    */
   readonly mailbox?: RunMailbox;
+  /**
+   * The thread a text trigger's run answers (`RunTextThread`), set when
+   * the trigger fires, on its target only: the triggered run, and the runs
+   * of its flow's agent steps; never inherited by a run an agent's tool or
+   * another step starts. Absent on every other run.
+   */
+  readonly textThread?: RunTextThread;
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -485,6 +499,8 @@ export interface StartRunParams {
   readonly toolsAllowedUnattended?: readonly string[];
   /** The mailbox a mail trigger's run came from; see `RunFlowInput.mailbox`. */
   readonly mailbox?: RunMailbox;
+  /** The thread a text trigger's run answers; see `RunFlowInput.textThread`. */
+  readonly textThread?: RunTextThread;
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */

@@ -202,7 +202,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a text started, every call that changes something waits for one otherwise. Never \`texts.send\`: sending a text always waits. Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or --connection must name it again (or `none`).' : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a text started, every call that changes something, except handing the conversation to a person (\`kindgi_hand_to_person\`), waits for one otherwise. Never \`kindgi_send_text\`: a text that isn't a reply always waits. Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or --connection must name it again (or `none`).' : ''}`,
     },
   };
 }
@@ -284,7 +284,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Start a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as its input. The number is the company's, so it takes `admin` on the project. Its runs act as you (or, with --run-as, a service account or the project's own), with your connections; in them, every call that changes something waits for a person's yes, and sending a text always does.",
+    "Start a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as its input. The number is the company's, so it takes `admin` on the project. Its runs act as you (or, with --run-as, a service account or the project's own), with your connections; in them, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes, and a text that isn't a reply always does.",
   usage:
     'kindgi text-triggers create (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) --connection=<connection> [--runs-per-hour=<n>] [--per-sender-per-hour=<n>] [--label=<text>] [--project=<project-id>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]...',
   optionSpec: {

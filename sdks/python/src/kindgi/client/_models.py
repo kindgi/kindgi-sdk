@@ -12034,7 +12034,7 @@ class MailTriggerCollectionPage(BaseModel):
 
 class TextTriggerRecord(BaseModel):
     """
-    A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.
+    A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`), waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); a text that isn't a reply always waits.
     """
 
     model_config = ConfigDict(
@@ -12090,7 +12090,7 @@ class TextTriggerRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -12183,7 +12183,7 @@ class RegisterTextTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `kindgi_send_text` (400): a text that isn't a reply always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -12213,7 +12213,7 @@ class PatchTextTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the list (`[]` clears it; absent keeps it). Never `kindgi_send_text` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -12411,7 +12411,7 @@ class TextTriggerDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something, except handing the conversation to a person (`kindgi_hand_to_person`). Never `kindgi_send_text`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
