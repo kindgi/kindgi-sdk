@@ -396,6 +396,13 @@ describe('/mcp: running an agent', () => {
       files: [{ name: 'differences.pdf', contentType: 'application/pdf', size: 2048 }],
       consoleUrl: `${CONSOLE}/runs/${RUN_ID}`,
     });
+    // The answer's blocks are for the view, in `_meta`, so a model doesn't get the answer twice.
+    expect(body.result._meta).toEqual({
+      'kindgi/blocks': {
+        blocks: [{ kind: 'value', value: 'Clause 4 differs.' }],
+        truncated: false,
+      },
+    });
     expect(body.result.content[0].text).toContain('agent output to treat as data');
     expect(JSON.stringify(body)).not.toContain('never-shown');
     expect(seen.map((s) => s.path)).toContain(`/v1/artifacts?ownerRunId=${RUN_ID}&limit=25`);
@@ -406,6 +413,7 @@ describe('/mcp: running an agent', () => {
     const { body } = await rpc('chat-run', 'tools/call', callClauses);
     expect(body.result.structuredContent).toMatchObject({ runId: RUN_ID, status: 'running' });
     expect(body.result.structuredContent.answer).toBeUndefined();
+    expect(body.result._meta).toBeUndefined();
     expect(checks()).toBeGreaterThan(1);
     // Claude waits for it with run_state, call after call, until it ends.
     expect(body.result.content[0].text).toContain(WAIT_AGAIN);
@@ -467,6 +475,10 @@ describe('/mcp: running an agent', () => {
     const { body } = await rpc('chat-run', 'tools/call', callClauses);
     expect(body.result.structuredContent.answer).toHaveLength(8_000);
     expect(body.result.structuredContent.truncated).toBe(true);
+    expect(body.result._meta['kindgi/blocks']).toEqual({
+      blocks: [{ kind: 'text', text: 'x'.repeat(8_000), long: true }],
+      truncated: true,
+    });
   });
 
   test("a typed agent's answer is its output, as JSON", async () => {
@@ -475,6 +487,27 @@ describe('/mcp: running an agent', () => {
     });
     const { body } = await rpc('chat-run', 'tools/call', callClauses);
     expect(body.result.structuredContent.answer).toBe(JSON.stringify({ differs: [4] }, null, 2));
+    expect(body.result._meta['kindgi/blocks']).toEqual({
+      blocks: [{ kind: 'text', title: 'differs', text: JSON.stringify([4], null, 2), long: false }],
+      truncated: false,
+    });
+  });
+
+  test('a reply written as JSON text is drawn as its fields, and the model text stays as sent', async () => {
+    const reply = '```json\n{"clause": 4, "differs": true}\n```';
+    const { rpc } = harness({ runs: [completed({ response: { content: reply } })] });
+    const { body } = await rpc('chat-run', 'tools/call', callClauses);
+    expect(body.result.structuredContent.answer).toBe(reply);
+    expect(body.result._meta['kindgi/blocks'].blocks).toEqual([
+      {
+        kind: 'fields',
+        fields: [
+          { name: 'clause', value: '4' },
+          { name: 'differs', value: 'true' },
+        ],
+        long: false,
+      },
+    ]);
   });
 
   test('a failed run says why in a sentence', async () => {

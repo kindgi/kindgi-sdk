@@ -351,9 +351,9 @@ async function followRun(
     await pause(Math.min(delay, deadline - Date.now()), signal);
     const read = await readRunState(context.call, context.link, runId);
     if ('error' in read) return toolError(read.error);
-    const { state } = read;
-    if (!runGoesOn(state) || state.status === 'waiting') return runStateResult(state);
-    if (Date.now() >= deadline || signal.aborted) return runStateResult(state);
+    const { state, blocks } = read;
+    if (!runGoesOn(state) || state.status === 'waiting') return runStateResult(state, blocks);
+    if (Date.now() >= deadline || signal.aborted) return runStateResult(state, blocks);
     delay = wait.checkMs;
   }
 }
