@@ -64,7 +64,7 @@ The same runtime image runs everywhere:
 - **In your infrastructure:** you deploy the runtime and your pack service
   next to your data. Prompts, data and keys stay there. See
   [Deploy](../../deploy/).
-- **Kindgi Cloud:** Kindgi operates the runtime for you (private preview).
+- **Kindgi Cloud:** Kindgi operates the runtime for you.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your

@@ -17,7 +17,7 @@ Either way, you build and test the pack on your machine with `kindgi dev`.
 
 ## Kindgi Cloud
 
-We run it for you. In private preview.
+We run it for you.
 
 - **[Deploy your agent to Kindgi Cloud](../hosted/deploy-your-agent/):**
   sign the CLI in, sign the pack, give it your model key, deploy it, try it
