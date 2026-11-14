@@ -3726,13 +3726,15 @@ export const ERROR_ENTRIES = {
     ],
   },
   'secret-revoked': {
-    description: "The secret was revoked, so its value can't be read or rotated.",
+    description:
+      "The secret was revoked, so its value can't be read or rotated. A set can get it too, when a hard revoke began while it was writing: what it wrote isn't served.",
     details: [
       {
         key: 'name',
         meaning: 'the revoked secret name (in binding results)',
       },
     ],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-version-not-found': {
     description: 'The secret exists but has no version with the number you asked for.',
@@ -3877,8 +3879,9 @@ export const ERROR_ENTRIES = {
   },
   'secret-provider-unavailable': {
     description:
-      "The external secret provider can't be reached, or the active secrets store can't do provider-driven rotation, so send the new value yourself.",
+      "The external secret provider can't be reached, or the active secrets store can't do provider-driven rotation, so send the new value yourself. A set, or another hard revoke, also gets it while a hard revoke is still erasing the secret: try again in a few minutes.",
     details: [],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-provider-unauthorized': {
     description:

@@ -1135,9 +1135,15 @@ to, so set it to the deployment's before any `gcloud` command for it
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
   - the switch, and the way back.
-- **Rotate a secret:** add a version, then roll a new revision of the
-  runtime's service
-  (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`).
+- **Rotate a secret:** add a version, then set `server_rotation` to a value
+  it hasn't had, such as the date and time (`"2026-11-06-1530"`), and apply.
+  The runtime's service rolls a new revision, which reads each secret it
+  takes at `"latest"` again. A `server_secret_env` entry pinned to a version
+  is rotated by setting its `version` instead. Roll it through Terraform,
+  not `gcloud run services update`: the next apply would take back what
+  gcloud set. A rotation made with gcloud before shows once in the next
+  plan, which sets the revision's labels and client fields back: apply that
+  plan before the next `./upgrade.sh`, whose plan check stops on it.
   The orchestrator's key is pinned: mint a new one as in
   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator), add it as
   the secret's next version, set `orchestrator_key_version` to it and apply.
@@ -1188,6 +1194,26 @@ to, so set it to the deployment's before any `gcloud` command for it
   transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
   for off). An instance from before that variable gets the flag at the next
   apply, in place: Cloud SQL lists it as needing no restart
+  ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
+- **Database connections** (the setting needs runtime 0.7.0 or later): each
+  server copy keeps a pool of up to 10 connections, opened as queries need
+  them and closed after 30 s idle. `KINDGI_DB_POOL_SIZE` in `server_env`
+  changes it: a whole number from 1 to 262143, Postgres's own ceiling. The
+  start-up log's `Database timeouts:` line ends with the size in effect.
+  Everything that connects must fit under the instance's `max_connections`:
+  - every server copy's pool (up to `server_max_instances` copies, 1 by
+    default), and the old revision's copies' too, which a deploy keeps up
+    while the new ones start;
+  - up to 5 more for each system tenant purge in flight, up to 10 for each
+    admin command that runs (`kindgi-runtime tenants …`, `check …`), and a
+    pool of this size for a `kindgi-runtime erasures …` run;
+  - OpenFGA's own, when its store is on the same instance;
+  - a reserve.
+
+  Cloud SQL sets `max_connections` from the tier's memory: 100 on the
+  module's default `database_tier`, `db-custom-1-3840`. With one server copy
+  and the default pool, the server takes up to 20 of them during a deploy.
+  `SHOW max_connections;` in `psql` reads the value in effect
   ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
   it erased, so it can be replayed after you restore a backup. The key goes

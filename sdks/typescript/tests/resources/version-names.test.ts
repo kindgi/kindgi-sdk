@@ -3,8 +3,9 @@
 
 /**
  * One name for a version's calls on every resource: `X.versions.list /
- * get / unregister / reinstate` (and `policies.publish`). Each old name
- * still works, deprecated, and sends the same request.
+ * get / unregister / reinstate`, whichever the API backs (and
+ * `policies.publish`). Each old name still works, deprecated, and sends
+ * the same request.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -37,6 +38,12 @@ const FLOW_UNREGISTERED = { flowId: 'acme.intake', version: '1.0.0', unregistere
 const FLOW_REINSTATED = { flowId: 'acme.intake', version: '1.0.0', wasTombstoned: true };
 const AGENT_REINSTATED = { agentId: 'acme.drafter', version: '1.0.0', wasTombstoned: true };
 const POLICY_SPEC = { id: 'acme.keep-90d', version: '1.0.0', domain: 'run', mode: 'tombstone' };
+const POLICY_ROW = { id: 'acme.keep-90d', version: '1.0.0', kind: 'retention', spec: {} };
+const POLICY_UNREGISTERED = { policyId: 'acme.keep-90d', version: '1.0.0', unregistered: true };
+const POLICY_REINSTATED = { policyId: 'acme.keep-90d', version: '1.0.0', wasTombstoned: true };
+const TRIGGER_VERSION = { version: 2 };
+const TENANT = { kind: 'tenant' } as const;
+const SECRET = { scope: TENANT, envName: 'dev' as never, name: 'API_KEY' };
 
 const CASES: readonly {
   readonly name: string;
@@ -137,6 +144,123 @@ const CASES: readonly {
     call: (c) => c.policies.publish(POLICY_SPEC as never),
     old: (c) => c.policies.author(POLICY_SPEC as never),
   },
+  {
+    name: 'policies.versions.list',
+    deprecated: 'policies.versions(id)',
+    answer: PAGE,
+    method: 'GET',
+    path: '/v1/policies/acme.keep-90d/versions?limit=5',
+    call: (c) => c.policies.versions.list('acme.keep-90d' as never, { limit: 5 }),
+    old: (c) => c.policies.versions('acme.keep-90d' as never, { limit: 5 }),
+  },
+  {
+    name: 'policies.versions.get',
+    deprecated: 'policies.getVersion',
+    answer: POLICY_ROW,
+    method: 'GET',
+    path: '/v1/policies/acme.keep-90d/versions/1.0.0',
+    call: (c) => c.policies.versions.get('acme.keep-90d' as never, '1.0.0'),
+    old: (c) => c.policies.getVersion('acme.keep-90d' as never, '1.0.0'),
+  },
+  {
+    name: 'policies.versions.unregister',
+    deprecated: 'policies.unregister',
+    answer: POLICY_UNREGISTERED,
+    method: 'POST',
+    path: '/v1/policies/acme.keep-90d/versions/1.0.0/unregister',
+    call: (c) => c.policies.versions.unregister('acme.keep-90d' as never, '1.0.0'),
+    old: (c) => c.policies.unregister('acme.keep-90d' as never, '1.0.0'),
+  },
+  {
+    name: 'policies.versions.reinstate',
+    deprecated: 'policies.reinstateVersion',
+    answer: POLICY_REINSTATED,
+    method: 'POST',
+    path: '/v1/policies/acme.keep-90d/versions/1.0.0/reinstate',
+    call: (c) => c.policies.versions.reinstate('acme.keep-90d' as never, '1.0.0'),
+    old: (c) => c.policies.reinstateVersion('acme.keep-90d' as never, '1.0.0'),
+  },
+  {
+    name: 'schedules.versions.list',
+    deprecated: 'schedules.versions(triggerId)',
+    answer: PAGE,
+    method: 'GET',
+    path: '/v1/schedules/t-1/versions?limit=5',
+    call: (c) => c.schedules.versions.list('t-1', { limit: 5 }),
+    old: (c) => c.schedules.versions('t-1', { limit: 5 }),
+  },
+  {
+    name: 'schedules.versions.get',
+    deprecated: 'schedules.getVersion',
+    answer: TRIGGER_VERSION,
+    method: 'GET',
+    path: '/v1/schedules/t-1/versions/2',
+    call: (c) => c.schedules.versions.get('t-1', 2),
+    old: (c) => c.schedules.getVersion('t-1', 2),
+  },
+  {
+    name: 'webhooks.versions.list',
+    deprecated: 'webhooks.versions(triggerId)',
+    answer: PAGE,
+    method: 'GET',
+    path: '/v1/webhooks/t-1/versions?limit=5',
+    call: (c) => c.webhooks.versions.list('t-1', { limit: 5 }),
+    old: (c) => c.webhooks.versions('t-1', { limit: 5 }),
+  },
+  {
+    name: 'webhooks.versions.get',
+    deprecated: 'webhooks.getVersion',
+    answer: TRIGGER_VERSION,
+    method: 'GET',
+    path: '/v1/webhooks/t-1/versions/2',
+    call: (c) => c.webhooks.versions.get('t-1', 2),
+    old: (c) => c.webhooks.getVersion('t-1', 2),
+  },
+  {
+    name: 'mailTriggers.versions.list',
+    deprecated: 'mailTriggers.versions(triggerId)',
+    answer: PAGE,
+    method: 'GET',
+    path: '/v1/mail-triggers/t-1/versions?limit=5',
+    call: (c) => c.mailTriggers.versions.list('t-1', { limit: 5 }),
+    old: (c) => c.mailTriggers.versions('t-1', { limit: 5 }),
+  },
+  {
+    name: 'mailTriggers.versions.get',
+    deprecated: 'mailTriggers.getVersion',
+    answer: TRIGGER_VERSION,
+    method: 'GET',
+    path: '/v1/mail-triggers/t-1/versions/2',
+    call: (c) => c.mailTriggers.versions.get('t-1', 2),
+    old: (c) => c.mailTriggers.getVersion('t-1', 2),
+  },
+  {
+    name: 'projects.queueRules.versions.list',
+    deprecated: 'projects.queueRules.versions(projectId, ruleId)',
+    answer: PAGE,
+    method: 'GET',
+    path: '/v1/projects/p-1/queue-rules/jr-1/versions?limit=3',
+    call: (c) => c.projects.queueRules.versions.list('p-1', 'jr-1', { limit: 3 }),
+    old: (c) => c.projects.queueRules.versions('p-1', 'jr-1', { limit: 3 }),
+  },
+  {
+    name: 'secrets.versions.list',
+    deprecated: 'secrets.listVersions',
+    answer: PAGE,
+    method: 'GET',
+    path: '/v1/secrets/API_KEY/versions?envName=dev&scopeKind=tenant&limit=5',
+    call: (c) => c.secrets.versions.list({ ...SECRET, limit: 5 }),
+    old: (c) => c.secrets.listVersions({ ...SECRET, limit: 5 }),
+  },
+  {
+    name: 'secrets.versions.get',
+    deprecated: 'secrets.getVersion',
+    answer: { versionId: 2 },
+    method: 'GET',
+    path: '/v1/secrets/API_KEY/versions/2?envName=dev&scopeKind=tenant',
+    call: (c) => c.secrets.versions.get({ ...SECRET, versionId: 2 }),
+    old: (c) => c.secrets.getVersion({ ...SECRET, versionId: 2 }),
+  },
 ];
 
 describe.each(CASES)('$name', (t) => {
@@ -159,6 +283,17 @@ describe('what the new calls answer', () => {
       c.flows.versions.unregister('acme.intake' as never, '1.0.0'),
     );
     expect(result).toEqual(FLOW_UNREGISTERED);
+  });
+
+  it('policies.versions.unregister returns the result that policies.unregister drops', async () => {
+    const now = await request(POLICY_UNREGISTERED, (c) =>
+      c.policies.versions.unregister('acme.keep-90d' as never, '1.0.0'),
+    );
+    expect(now.result).toEqual(POLICY_UNREGISTERED);
+    const before = await request(POLICY_UNREGISTERED, (c) =>
+      c.policies.unregister('acme.keep-90d' as never, '1.0.0'),
+    );
+    expect(before.result).toBeUndefined();
   });
 
   it('agents.versions.reinstate says whether the version was tombstoned', async () => {

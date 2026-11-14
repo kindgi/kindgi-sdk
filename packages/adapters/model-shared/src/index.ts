@@ -11,6 +11,7 @@ export {
   type ModelProviderErrorKind,
   kindOf,
   modelProviderError,
+  withCauses,
 } from './errors.js';
 export {
   MAX_VENDOR_WAIT_MS,

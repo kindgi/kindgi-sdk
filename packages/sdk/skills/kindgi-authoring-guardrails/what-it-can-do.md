@@ -39,13 +39,16 @@ Read this before you plan a guardrail. These decide what can be built:
   `400 validation-failed` on register). A failure names `details.point` and, at a tool point,
   `details.callId`. A resumed turn reuses each point's recorded outcome:
   no judge is asked or billed twice.
-- **A check sees one turn.** The trace holds the current turn only: its
-  user message (`trace.userInput`), its tool calls and their results
+- **A check sees one turn, unless its guardrail says
+  `sees: 'conversation'`.** The trace holds the current turn: its user
+  message (`trace.userInput`), its tool calls and their results
   (`trace.toolCalls`, `trace.toolResults`) and its response
-  (`trace.output`, at the final answer only). Earlier turns' messages,
-  tool results and responses aren't in it. A check that every figure in
-  the response comes from a tool result or the user's message therefore
-  blocks a response that repeats a figure seen only in an earlier turn.
+  (`trace.output`, at the final answer only). With `'conversation'`,
+  `trace.earlier` adds the earlier turns the model was given (all, or the
+  agent's `conversationPolicy.historyLimit` window), oldest first, each
+  `{ userInput?, output?, toolCalls, toolResults }`; on a first turn it's
+  `[]`. An llm-judge then also sends its judge their messages, calls and
+  answers, quoted, as data.
 - **A check's in-memory state doesn't last.** The check runs in the pack
   service's process, so anything it keeps at module level (say, a record
   per `trace.conversationId`) is lost when that process is replaced: under
@@ -54,9 +57,7 @@ Read this before you plan a guardrail. These decide what can be built:
   each keeps its own copy, and one conversation's turns can land on
   different instances. Don't keep a conversation's history this way.
 
-What works today for a check on figures: tell the agent, in its
-instructions, to call its tools again in every response that quotes a
-figure, so the figure is in that turn's tool results. It depends on the
-model following the instruction, and it doesn't cover figures the user
-typed in an earlier turn: `trace.userInput` is only the current turn's
-message, so a response that repeats them is still blocked.
+A check that every figure in the response comes from a tool result or a
+user's message reads `trace.earlier` with the current turn, under
+`sees: 'conversation'`. Without it, a figure seen only in an earlier
+turn fails the check.

@@ -188,6 +188,40 @@ run "latest_is_refused" {
   expect_failures = [var.secrets_aad_key_version]
 }
 
+run "no_rotation_label_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].labels == null
+    error_message = "With server_rotation unset, the server's revision has no labels, so an existing deployment's plan doesn't change."
+  }
+}
+
+# A secret's rotation goes through Terraform: a new value is a new revision,
+# which reads each secret at "latest" again.
+run "a_rotation_is_the_revisions_label" {
+  command = plan
+
+  variables {
+    server_rotation = "2026-11-06-1530"
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].labels == tomap({ rotated = "2026-11-06-1530" })
+    error_message = "server_rotation is the server revision's rotated label, and its only label."
+  }
+}
+
+run "a_rotation_that_isnt_a_label_value_is_refused" {
+  command = plan
+
+  variables {
+    server_rotation = "2026/11/06"
+  }
+
+  expect_failures = [var.server_rotation]
+}
+
 run "an_existing_repository_in_the_same_project" {
   command = plan
 

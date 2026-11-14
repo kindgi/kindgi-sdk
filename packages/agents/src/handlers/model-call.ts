@@ -36,7 +36,7 @@ import {
 import { toWireMessages } from './guardrail-retry.js';
 import { replayTag } from './replay.js';
 import { chargeTurnMemory } from './turn-memory.js';
-import { type FileRead, addModelCallNode, filesReadOf } from './turn-provenance.js';
+import { type FileRead, addModelCallNode, agentActor, filesReadOf } from './turn-provenance.js';
 
 /**
  * Loop-body node #1. Invoke the model with the current
@@ -152,6 +152,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
         },
         ctx.userMessage.sequence,
         ctx.toolResultIds ?? [],
+        agentActor(ctx.input.agent),
       );
     }
 

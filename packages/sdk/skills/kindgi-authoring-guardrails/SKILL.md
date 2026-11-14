@@ -18,7 +18,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.3"
+version: "0.4.4"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -51,8 +51,9 @@ each model reply that asks for calls, before any of them runs
 
 Read [what-it-can-do.md](what-it-can-do.md) before you plan one: what
 `halt` and `retry` do at each point, that `escalate` and `compensate` are
-only recorded, that a check sees only the current turn, and that its
-in-memory state doesn't last.
+only recorded, that a check sees only the current turn unless its
+guardrail says `sees: 'conversation'`, and that its in-memory state
+doesn't last.
 
 ## Guardrail vs check
 

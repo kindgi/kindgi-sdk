@@ -85,6 +85,12 @@ locals {
     # keyed hash, so erasures replay after a backup restore (read at a pinned version).
     erasure_ledger_key = "erasure-ledger-key"
   }
+  # 32 random bytes, base64: KINDGI_PAGINATION_KEY, the key page cursors are
+  # sealed with (read at a pinned version). Granted and read only once
+  # pagination_key_version names a version: a grant is made on the secret,
+  # which exists only once the operator has added it.
+  pagination_key_secret  = "pagination-key"
+  pagination_key_secrets = var.pagination_key_version == "" ? {} : { pagination_key = local.pagination_key_secret }
   # export_signing = "secret": the export signing key, a PEM private key, base64.
   export_signing_secrets = var.export_signing == "secret" ? { export_signing_key = "export-signing-key" } : {}
   shared_secrets = {
@@ -95,14 +101,20 @@ locals {
   # minutes and restarts the revisions that read it (C-SEC-4). Pinned to one
   # version: the AAD key (C-SEC-3: a new one would make every secret stored
   # in Postgres unreadable), the erasure ledger's key (a new one would make
-  # the ledger unreplayable after a restore) and, with database_url_version,
-  # the database URL: a way back's new revision reads the restored server's.
-  pinned_versions = merge({
-    secrets_aad_key    = var.secrets_aad_key_version
-    erasure_ledger_key = var.erasure_ledger_key_version
-  }, var.database_url_version == "" ? {} : { database_url = var.database_url_version })
+  # the ledger unreplayable after a restore), the page-cursor key (a new one,
+  # picked up at a time nobody chose, would break every cursor sealed before
+  # it, with no previous key set) and, with database_url_version, the
+  # database URL: a way back's new revision reads the restored server's.
+  pinned_versions = merge(
+    {
+      secrets_aad_key    = var.secrets_aad_key_version
+      erasure_ledger_key = var.erasure_ledger_key_version
+    },
+    var.pagination_key_version == "" ? {} : { pagination_key = var.pagination_key_version },
+    var.database_url_version == "" ? {} : { database_url = var.database_url_version },
+  )
   secret_ids = {
-    for role, name in merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets) :
+    for role, name in merge(local.server_secrets, local.pagination_key_secrets, local.export_signing_secrets, local.shared_secrets) :
     role => (
       contains(keys(local.pinned_versions), role)
       ? "${azurerm_key_vault.kindgi.vault_uri}secrets/${name}/${local.pinned_versions[role]}"
@@ -111,7 +123,7 @@ locals {
   }
 
   secret_ids_by_name = {
-    for role, name in merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets) : name => local.secret_ids[role]
+    for role, name in merge(local.server_secrets, local.pagination_key_secrets, local.export_signing_secrets, local.shared_secrets) : name => local.secret_ids[role]
   }
 
   # The pack's own secrets (`secret_env` from `kindgi env plan`), one
@@ -136,7 +148,13 @@ locals {
       : "${azurerm_key_vault.kindgi.vault_uri}secrets/${ref.secret}/${ref.version}"
     )
   }
-  server_extra_secret_names = toset([for ref in values(var.server_secret_env) : ref.secret])
+  # The module's own pagination-key gets no second assignment: after a
+  # rotation, KINDGI_PAGINATION_PREVIOUS_KEY names it at the version before,
+  # and server_reads grants it already. Key Vault ignores case in a name.
+  server_extra_secret_names = toset([
+    for ref in values(var.server_secret_env) : ref.secret
+    if !contains([for name in values(local.pagination_key_secrets) : lower(name)], lower(ref.secret))
+  ])
 }
 
 # Who may read which secret: on each secret, never the whole vault. The
@@ -145,7 +163,7 @@ locals {
 # that use it; C-PK-6: the pack gets nothing of Kindgi's but the shared token).
 
 resource "azurerm_role_assignment" "server_reads" {
-  for_each             = merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)
+  for_each             = merge(local.server_secrets, local.pagination_key_secrets, local.export_signing_secrets, local.shared_secrets)
   scope                = "${azurerm_key_vault.kindgi.id}/secrets/${each.value}"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.server.principal_id
@@ -187,4 +205,22 @@ resource "time_sleep" "secret_grants" {
     azurerm_role_assignment.pack_reads_its_secrets,
     azurerm_role_assignment.server_signs_exports,
   ]
+}
+
+# The same wait whenever the grants change. secret_grants waits once, when
+# it's made, but an apply that adds a grant later (pagination_key_version
+# set, a new server_secret_env or pack_secret_env entry) makes the revision
+# that reads it in the same apply: this one is made again then, between the
+# two. A resource of its own, not triggers on secret_grants: those would
+# replace it in the first plan after this module copy, and upgrade.sh stops
+# on a replace.
+resource "time_sleep" "secret_grants_changed" {
+  create_duration = "60s"
+  triggers = {
+    server_reads             = join(",", keys(azurerm_role_assignment.server_reads))
+    server_reads_its_secrets = join(",", keys(azurerm_role_assignment.server_reads_its_secrets))
+    pack_reads_token         = join(",", keys(azurerm_role_assignment.pack_reads_token))
+    pack_reads_its_secrets   = join(",", keys(azurerm_role_assignment.pack_reads_its_secrets))
+    server_signs_exports     = tostring(length(azurerm_role_assignment.server_signs_exports))
+  }
 }

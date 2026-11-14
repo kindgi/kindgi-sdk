@@ -129,6 +129,7 @@ import {
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import {
+  type SecretLocate,
   callerAdministers,
   deploymentSecretScope,
   secretScopesFor,
@@ -315,6 +316,12 @@ export interface DeploymentsRouterBindings {
    * functional without it.
    */
   readonly secretsBinding?: SecretBinding;
+  /**
+   * Where `secretsBinding` would read a secret, revoked or not
+   * (`SecretLocate`), for the values check (`valuesDepsFor`). Absent: the
+   * check reads as `get` answers.
+   */
+  readonly secretLocate?: SecretLocate;
   /**
    * OPTIONAL at the type level, but REQUIRED at runtime any time
    * `validated.agents.length > 0` OR `validated.flows.length > 0`
@@ -693,14 +700,17 @@ export function deploymentsRouter(
     // In a project other than its own, the one a promotion would take it
     // to, a tool's secret counts only at a scope the caller administers, as
     // their promotion would record it, so the list says what that
-    // promotion's check would. In its own project, every scope counts: the
-    // list says where a run there finds each value.
+    // promotion's check would. In its own project, the list says where a
+    // run there finds each value: a tool version made there has its secrets
+    // read where it recorded them, or at the tenant when it recorded none
+    // (`asRecorded`); any other value is looked for at every scope.
     const administers = projectId === own ? undefined : callerAdministers(c, authorizer, tenantId);
     const { carried } = await carriedFor(bindings, record);
     const data = await deploymentValues(valuesDepsFor(bindings, administers), {
       deployment: record,
       carried,
       projectId,
+      ...(projectId === own && { asRecorded: true }),
     });
     return c.json({ data });
   });

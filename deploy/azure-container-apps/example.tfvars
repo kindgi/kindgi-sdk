@@ -26,6 +26,10 @@ secrets_aad_key_version = "0123456789abcdef0123456789abcdef"
 # backup restore only with the same key.
 erasure_ledger_key_version = "fedcba9876543210fedcba9876543210"
 
+# The page-cursor key, pinned the same way: a page cursor outlives a restart
+# and a new revision only with the same key.
+pagination_key_version = "00ff11ee22dd33cc44bb55aa66997788"
+
 cors_origins = ["https://app.acme.example"]
 
 pack_env = {

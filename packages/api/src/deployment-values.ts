@@ -19,8 +19,15 @@ import type { CarriedVersion } from './carried-versions.js';
 import type { Deployment } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
 import type { ProviderRegistryBinding, ProviderRuntimeEntry } from './provider-binding.js';
-import { findNamedSecretScope, secretScopeChain, toolSecretRefs } from './secret-scope.js';
-import type { SecretBinding } from './secrets-binding.js';
+import {
+  type SecretLocate,
+  findNamedSecretScope,
+  sameScope,
+  scopeOfRecorded,
+  secretScopeChain,
+  toolSecretRefs,
+} from './secret-scope.js';
+import type { SecretBinding, SecretGetInput, SecretRecord } from './secrets-binding.js';
 import type { ToolRecord, ToolRegistryBinding } from './tool-binding.js';
 
 /** Where a value is set, as a run looks for it: the project, else its org, else the tenant. */
@@ -28,7 +35,9 @@ export type DeploymentValueScope = 'project' | 'org' | 'tenant';
 
 /**
  * Why a value isn't ready:
- * - `missing`: a required value set nowhere a run looks;
+ * - `missing`: a required value set nowhere a run looks, or a tool's
+ *   secret its version recorded as read nowhere, which refuses a call
+ *   whether it's optional or not;
  * - `secret-not-yet`: a pack env name set only as a secret, which isn't
  *   given into a pack service's environment yet;
  * - `ambiguous`: a pack env name set two ways, as two of a plain value, a
@@ -117,6 +126,12 @@ export interface DeploymentValuesDeps {
   /** The tenant's model providers. Absent: no model key is checked. */
   readonly providers?: Pick<ProviderRegistryBinding, 'resolveForRuntime'>;
   readonly modelKeyLookup?: ModelKeyLookup;
+  /**
+   * Where a tool's secret is, revoked or not (`SecretLocate`): one revoked
+   * at the scope its version recorded (`asRecorded`) is `revoked`, as
+   * `get` never answers it. Absent: a tool's secret is as `get` answers.
+   */
+  readonly secretLocate?: SecretLocate;
   /** The pack service's own env at the project, as `pack-env` values. Absent: not checked. */
   readonly packEnv?: (input: {
     readonly tenantId: TenantId;
@@ -132,6 +147,14 @@ export interface DeploymentValuesInput {
   readonly carried: readonly CarriedVersion[];
   /** Where the values are needed: the project it's promoted to. */
   readonly projectId: ProjectId;
+  /**
+   * `projectId` is the deployment's own. A tool version made there has each
+   * secret read where a run there reads it: at the scope the version
+   * recorded (`ToolRecord.secretScopes`), or at the tenant when it recorded
+   * none. Absent: each is read where a promotion to `projectId` would
+   * record it.
+   */
+  readonly asRecorded?: boolean;
 }
 
 /**
@@ -141,7 +164,9 @@ export interface DeploymentValuesInput {
  *
  * - each tool version's secrets, at the scope a promotion records for it
  *   (the first of the project, its org and the tenant that holds it, among
- *   those the person promoting administers);
+ *   those the person promoting administers); with `asRecorded`, at the
+ *   scope its version recorded (the tenant, when it recorded none), when
+ *   it was made in `projectId`;
  * - each tool version's env values that have no default, at the project,
  *   else its org, else the tenant;
  * - a model key for each agent version shipped or carried: its
@@ -171,7 +196,9 @@ export async function deploymentValues(
     const tool = await toolAt(deps, tenantId, id, version);
     if (tool === null) continue;
     const neededBy = { type: 'tool' as const, id, version: tool.version as unknown as string };
-    out.push(...(await toolSecrets(deps, chain, tool, neededBy)));
+    const readsAt =
+      input.asRecorded === true ? recordedReads(tenantId, tool, projectId) : undefined;
+    out.push(...(await toolSecrets(deps, chain, tool, neededBy, readsAt)));
     out.push(...(await toolEnv(deps, chain, tool, neededBy)));
   }
   out.push(...(await modelKeys(deps, input)));
@@ -198,17 +225,46 @@ async function toolAt(
 }
 
 /**
- * A tool's secrets, each at the scope a promotion records for it: what a
- * run reads, and only there. An optional one (its schema accepts `null`)
- * that's set nowhere isn't listed, as a call runs without it; set, it's
- * listed, and revoked it's a problem, as it still refuses the call. The
- * authorization's `secretRef` is always required.
+ * Where a run in `projectId` reads each of `tool`'s secrets, by name, when
+ * the version was made there: at its recorded scope (`secretScopes`), or
+ * nowhere (`null`) for one recorded so, as for a name the record lacks; at
+ * the tenant, as it always has, when the version is from before scopes were
+ * recorded. `undefined` otherwise: a version made in another project is
+ * read where a deploy into `projectId` recorded, or where the version
+ * recorded, or nowhere, as the runtime's environment orders decide, which
+ * the version doesn't carry.
+ */
+function recordedReads(
+  tenantId: TenantId,
+  tool: ToolRecord,
+  projectId: ProjectId,
+): ((name: string) => Scope | null) | undefined {
+  const madeIn = tool.madeInProjectId ?? tool.projectId;
+  if (madeIn !== undefined && madeIn !== projectId) return undefined;
+  const recorded = tool.secretScopes;
+  if (recorded === undefined) return () => ({ kind: 'tenant', tenantId });
+  return (name) => {
+    const at = Object.hasOwn(recorded, name) ? (recorded[name] ?? null) : null;
+    return at === null ? null : scopeOfRecorded(tenantId, at);
+  };
+}
+
+/**
+ * A tool's secrets, each where a run reads it, and only there: at the
+ * scope its version recorded (`readsAt`), revoked there when the store
+ * locates it so (`secretLocate`), else at the scope a promotion records
+ * for it. An optional one (its schema accepts `null`) that's set
+ * nowhere isn't listed, as a call runs without it; set, it's listed, and
+ * revoked it's a problem, as it still refuses the call. One recorded as
+ * read nowhere is `missing`, optional or not: it refuses the call too.
+ * The authorization's `secretRef` is always required.
  */
 async function toolSecrets(
   deps: DeploymentValuesDeps,
   chain: readonly Scope[],
   tool: ToolRecord,
   neededBy: NeededBy,
+  readsAt: ((name: string) => Scope | null) | undefined,
 ): Promise<DeploymentValue[]> {
   const out: DeploymentValue[] = [];
   const optional = new Set(toolOptionalSecretNames(tool));
@@ -220,13 +276,26 @@ async function toolSecrets(
       out.push(base);
       continue;
     }
-    const at = await findNamedSecretScope({
-      secrets: deps.secrets,
-      ...(deps.administers !== undefined && { administers: deps.administers }),
-      chain,
-      envName: ref.envName,
-      name: ref.name,
-    });
+    const named = { envName: ref.envName, name: ref.name };
+    const recorded = readsAt?.(ref.name);
+    if (recorded === null) {
+      out.push({ ...base, problem: 'missing' });
+      continue;
+    }
+    if (recorded !== undefined && (await revokedThere(deps, { scope: recorded, ...named }))) {
+      out.push({ ...base, foundAt: recorded.kind, problem: 'revoked' });
+      continue;
+    }
+    const at =
+      recorded === undefined
+        ? await findNamedSecretScope({
+            secrets: deps.secrets,
+            ...(deps.administers !== undefined && { administers: deps.administers }),
+            chain,
+            envName: ref.envName,
+            name: ref.name,
+          })
+        : await getAt(deps.secrets, { scope: recorded, ...named });
     if (at?.found === undefined) {
       if (!optional.has(ref.name)) out.push({ ...base, problem: 'missing' });
     } else if (at.found.revokedAt !== undefined) {
@@ -236,6 +305,25 @@ async function toolSecrets(
     }
   }
   return out;
+}
+
+/** `input.scope`, and the secret there when `get` finds it: a read there only. */
+async function getAt(
+  secrets: Pick<SecretBinding, 'get'>,
+  input: SecretGetInput,
+): Promise<{ readonly scope: Scope; readonly found?: SecretRecord }> {
+  const found = await secrets.get(input);
+  return found === null ? { scope: input.scope } : { scope: input.scope, found };
+}
+
+/**
+ * Whether a run's read at `input.scope` answers `secret-revoked`: the
+ * store locates the secret there, revoked (`secretLocate`). `false` with
+ * no locate.
+ */
+async function revokedThere(deps: DeploymentValuesDeps, input: SecretGetInput): Promise<boolean> {
+  const located = await deps.secretLocate?.(input);
+  return located?.revokedAt !== undefined && sameScope(located.scope, input.scope);
 }
 
 /** A tool's env values with no default: the first of the project, its org and the tenant that sets each. */
@@ -382,15 +470,17 @@ async function modelKey(
     neededBy: { type: 'provider' as const, id: entry.metadata.id },
   };
   if (deps.secrets === undefined) return base;
+  const foundAt = location.scope.kind;
+  // Revoked where a run looks first, by the lookup's word: asked before the
+  // store, whose `get` answers `null` for a revoked key (`SecretBinding`'s
+  // contract), which would read as `missing`.
+  if (location.revokedAt !== undefined) return { ...base, foundAt, problem: 'revoked' };
   const found = await deps.secrets.get({
     scope: location.scope,
     envName: location.envName as EnvName,
     name: location.name,
   });
   if (found === null) return { ...base, problem: 'missing' };
-  const foundAt = location.scope.kind;
-  if (location.revokedAt !== undefined || found.revokedAt !== undefined) {
-    return { ...base, foundAt, problem: 'revoked' };
-  }
+  if (found.revokedAt !== undefined) return { ...base, foundAt, problem: 'revoked' };
   return { ...base, foundAt };
 }
