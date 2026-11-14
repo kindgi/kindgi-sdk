@@ -208,6 +208,8 @@ export const CLI_DEFAULTS = {
     domains: 'required',
     'idp-metadata': 'none',
     issuer: 'none',
+    join: '`invite`',
+    'join-role': '`viewer`',
     kind: 'required',
     name: 'none',
     'sp-decryption-certificate': 'none',
@@ -222,6 +224,8 @@ export const CLI_DEFAULTS = {
     domains: 'none',
     'idp-metadata': 'none',
     issuer: 'none',
+    join: 'none: the provider keeps its own',
+    'join-role': 'none: the provider keeps its own',
     kind: 'none',
     name: 'none',
     remove: 'none',
@@ -1507,6 +1511,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Add a second sign-in domain and drop the display name.',
       line: 'kindgi sso providers update acme-okta --domains=acme.com,acme-ops.com --remove=displayName',
+    },
+    {
+      purpose:
+        'Let colleagues at its domains join by signing in, as viewers of the default project.',
+      line: 'kindgi sso providers update acme-okta --join=domain --join-role=viewer',
     },
   ],
   'sso providers get': [

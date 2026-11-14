@@ -356,6 +356,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'identity-user-email-taken':
     case 'last-tenant-admin':
     case 'seed-user-admin':
+    case 'listed-admin':
     case 'identity-user-unregister-refused':
     case 'identity-user-unregistered':
     case 'identity-user-not-invited':

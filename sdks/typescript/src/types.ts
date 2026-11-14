@@ -2491,6 +2491,11 @@ export interface PersonGrants {
   readonly tenantAdmin?: boolean;
   /** A tenant member: reads the workspace's settings, not its projects. Absent when not reported. */
   readonly tenantMember?: boolean;
+  /**
+   * The server's `KINDGI_ADMIN_EMAILS` names them: demote and removal answer
+   * `409 listed-admin`. Absent when not reported.
+   */
+  readonly tenantAdminFromSetting?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
     readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';

@@ -158,6 +158,10 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/tenants" \
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
   once. Store it, because nothing shows it again. Only the full capability
   creates a tenant that way.
+- **`KINDGI_ADMIN_EMAILS` is for a runtime that serves one tenant.** With
+  several, the runtime refuses it at start: `firstAdmin` names each tenant's
+  first admin instead
+  ([Tenant admins by email](../../people-and-keys/#tenant-admins-by-email)).
 - **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
   `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
   new person by email, with what a first admin holds: every capability but

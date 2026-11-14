@@ -490,6 +490,7 @@
           "identity-user-email-taken": 409,
           "last-tenant-admin": 409,
           "seed-user-admin": 409,
+          "listed-admin": 409,
           "identity-user-unregister-refused": 409,
           "identity-user-unregistered": 409,
           "identity-user-not-invited": 409,
@@ -530,6 +531,7 @@
           "identity-provider-invalid": 422,
           "identity-providers-operator-managed": 403,
           "identity-providers-need-secrets-store": 409,
+          "domain-join-needs-authorization": 409,
           "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
@@ -18540,7 +18542,16 @@
               "invite",
               "domain"
             ],
-            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`."
+            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`."
+          },
+          "joinRole": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
           },
           "signIn": {
             "$ref": "#/components/schemas/IdentityProviderSignIn"
@@ -18626,7 +18637,16 @@
               "invite",
               "domain"
             ],
-            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`."
+            "description": "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`."
+          },
+          "joinRole": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "runner",
+              "none"
+            ],
+            "description": "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`."
           },
           "signIn": {
             "$ref": "#/components/schemas/IdentityProviderSignIn"
@@ -19092,6 +19112,21 @@
                 "enum": [
                   "invite",
                   "domain"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "joinRole": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "runner",
+                  "none"
                 ]
               },
               {
@@ -19877,6 +19912,10 @@
           "tenantAdmin": {
             "type": "boolean",
             "description": "Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then."
+          },
+          "tenantAdminFromSetting": {
+            "type": "boolean",
+            "description": "Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it."
           },
           "tenantMember": {
             "type": "boolean",
@@ -59785,7 +59824,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets `join: domain` or `joinRole` where the deployment has no authorization store (`domain-join-needs-authorization`, `KINDGI_OPENFGA_API_URL`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60142,7 +60181,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one. Or the change sets `join: domain` or `joinRole` where the deployment has no authorization store (`domain-join-needs-authorization`, `KINDGI_OPENFGA_API_URL`): without one, roles aren't checked, so no one joins by domain. A value sent back as stored isn't a change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61248,7 +61287,7 @@
             }
           },
           "409": {
-            "description": "Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.",
+            "description": "Yourself, the seed user or a person `KINDGI_ADMIN_EMAILS` names (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61278,7 +61317,7 @@
             }
           }
         },
-        "description": "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+        "description": "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, every grant and membership they hold is taken away, and every connection they own is removed (`owner-removed`, withdrawn at its app where the app allows), all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed takes what their removal left (one that stopped part-way, or one on an earlier version that kept their connections), and otherwise changes nothing. Refused for yourself, the deployment's seed user, and someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back (`identity-user-unregister-refused`, `details.reason` `listed-admin`: take the address off the list and restart first), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
         "parameters": [
           {
             "name": "userId",
@@ -62672,7 +62711,7 @@
             }
           },
           "409": {
-            "description": "The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.",
+            "description": "The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), a person `KINDGI_ADMIN_EMAILS` names (`listed-admin`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62722,7 +62761,7 @@
             }
           }
         },
-        "description": "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.",
+        "description": "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first), and for someone the server's `KINDGI_ADMIN_EMAILS` names, whom every start makes one (`listed-admin`: take the address off the list and restart first). Tenant admins only.",
         "parameters": [
           {
             "name": "userId",

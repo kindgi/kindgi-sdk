@@ -200,6 +200,7 @@ export type {
   OidcProviderConfig,
   ProviderConfig,
   ProviderConfigBase,
+  ProviderJoinRole,
   ProviderSignIn,
   SamlAttributeMapping,
   SamlProviderConfig,

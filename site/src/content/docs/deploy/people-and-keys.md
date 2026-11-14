@@ -15,8 +15,11 @@ has **service accounts**, which act for a pipeline or an app. A **tenant
 admin** adds them. With authorization on, what each may do is kept in
 OpenFGA, and the first tenant admin is the runtime's seed user:
 `KINDGI_SEED_USER_ID`, or the API token's user. The runtime makes the seed
-user a tenant admin at every start. Without authorization, roles aren't
-checked ([Without authorization](#without-authorization)).
+user a tenant admin at every start. On a runtime that serves one workspace,
+`KINDGI_ADMIN_EMAILS` names more, who are tenant admins from their first
+sign-in ([Tenant admins by email](#tenant-admins-by-email)). Without
+authorization, roles aren't checked
+([Without authorization](#without-authorization)).
 
 :::note[On Kindgi Cloud]
 Whoever signs up is the workspace's first tenant admin. Authorization is
@@ -97,6 +100,12 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 - **Roles aren't checked.** A project role you record, and a service
   account's grants, give nothing more here. Making a person a tenant admin
   answers `501 person-grants-unsupported`.
+- **Neither tenant admins by email nor domain join works here.** The
+  runtime refuses `KINDGI_ADMIN_EMAILS` at start without a store, since a
+  person who signs in can't be a tenant admin. Setting an identity
+  provider's `join: domain` answers `409 domain-join-needs-authorization`,
+  since a joiner would work in every project. Add people one by one, or
+  run with authorization for either.
 - **Schedules and webhook triggers keep to their owners** (runtime 0.2.0 or
   later). Only a tenant admin changes, pauses, fires or unregisters someone
   else's personal one, changes what a shared one runs, sets one's tools
@@ -320,13 +329,17 @@ In TypeScript, that's `users.list({ includeGrants: true })`, and in Python
 the same shape as their own grants read. A runtime without an authorization
 store lists the people without them.
 
-Taking tenant admin away is refused in two cases:
+Taking tenant admin away is refused in three cases:
 
 - `409 last-tenant-admin`: they're the only one. Make someone else a tenant
   admin first.
 - `409 seed-user-admin`: they're the seed user, whom the runtime makes a
   tenant admin again at every start. Unset `KINDGI_SEED_USER_ID` and restart
   the runtime first.
+- `409 listed-admin`: the server's `KINDGI_ADMIN_EMAILS` names them, and
+  every start makes them a tenant admin again. Take their address off the
+  list and restart the runtime first
+  ([Tenant admins by email](#tenant-admins-by-email)).
 
 If the first admin stops being a tenant admin, the capabilities they held
 are revoked, and the audit entry lists them. A key acts as the person or
@@ -363,6 +376,52 @@ CI's deploy key is a tenant admin's key too, with no capability. It can
 still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
+
+### Tenant admins by email
+
+On a runtime that serves one workspace and has an authorization store,
+name its tenant admins by email. They're tenant admins from their first
+sign-in, with no step that needs the API token:
+
+```sh
+KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com
+```
+
+- **At every start,** each listed address that isn't a tenant admin yet is
+  made one. If no one in the workspace has that email, the runtime adds
+  them first, with no invitation. They sign in by that address, through the
+  workspace's identity provider or the deployment's own ways in. They get
+  what a first admin holds, as `kindgi-runtime tenants make-admin` gives it,
+  and each change is audited.
+- **While an address is listed, the list holds.** Taking tenant admin from
+  that person answers `409 listed-admin`. Removing them answers
+  `409 identity-user-unregister-refused`, with `reason` `listed-admin`,
+  since the next start would add them back as someone new. Their grants
+  read `tenantAdminFromSetting: true`. In the console, People's Access
+  column says "tenant admin, from the server's setting", and on their page
+  both actions are off, with the way to change it under each.
+- **Take an address off the list and restart:** someone the list made a
+  tenant admin stops being one at that start. They lose what a first admin
+  holds, as when tenant admin is taken from them, and stay a member.
+- **Unset or empty is an empty list.** A start without
+  `KINDGI_ADMIN_EMAILS`, or with it empty, takes every address off: everyone
+  the list made a tenant admin stops being one, and the start log says the
+  list is unset or empty. A redeploy that drops the variable does the same,
+  so keep the line in the runtime's environment for as long as they should
+  be admins. Where the list made no one a tenant admin, unset changes
+  nothing.
+- **Tenant admins made any other way aren't touched.** That's `people
+  grant`, the console or `tenants make-admin`. Listing them, or taking them
+  off the list, changes nothing for them.
+- **The start log** names whom it made a tenant admin, and who stopped
+  being one. When no one who signs in would be left a tenant admin, it
+  still follows the list and says so. The seed user is still one, so the
+  way back is the API token, or `tenants make-admin`.
+- **It's refused at start** when the runtime serves several workspaces,
+  where each one's first admin comes with it (`firstAdmin` on
+  `POST /v1/system/tenants`), and without an authorization store
+  ([Without authorization](#without-authorization)). A malformed address
+  stops the runtime at start too.
 
 ## What you may do
 
@@ -807,8 +866,9 @@ webhook triggers, upgrade the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`
 on someone already removed takes what's left.
 
-It's refused for yourself and for the seed user, with
-`identity-user-unregister-refused`, and for the only tenant admin, with
+It's refused for yourself, for the seed user, and for someone the server's
+`KINDGI_ADMIN_EMAILS` names, with `identity-user-unregister-refused` (its
+`reason` says which), and for the only tenant admin, with
 `last-tenant-admin`. Removed people are left out of lists.
 `kindgi people list --include-removed` shows them too.
 

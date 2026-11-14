@@ -442,7 +442,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'last-tenant-admin': 409,
   /** Removing tenant admin from the seed user, whom the runtime re-grants it at every boot. */
   'seed-user-admin': 409,
-  /** Unregistering yourself, or the deployment's seed user (`details.reason`). */
+  /** Removing tenant admin from someone `KINDGI_ADMIN_EMAILS` names, whom every start makes one again. */
+  'listed-admin': 409,
+  /**
+   * Unregistering yourself, the deployment's seed user, the only tenant
+   * admin, or someone `KINDGI_ADMIN_EMAILS` names (`details.reason`).
+   */
   'identity-user-unregister-refused': 409,
   /** A grant or a key for a person who was unregistered. */
   'identity-user-unregistered': 409,
@@ -517,6 +522,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // provider's client secret and keys are references into: adding or
   // changing a provider waits until it has one.
   'identity-providers-need-secrets-store': 409,
+  // Setting `join: domain` or `joinRole` on a deployment with no
+  // authorization store: a joiner's role couldn't be checked there, so
+  // they'd work in every project.
+  'domain-join-needs-authorization': 409,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.

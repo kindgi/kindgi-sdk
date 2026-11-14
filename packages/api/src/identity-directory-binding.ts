@@ -113,8 +113,15 @@ export interface IdentityUnregisterUserInput {
   readonly unregisteredBy?: string;
 }
 
-/** Why a person can't be unregistered. */
-export type IdentityUnregisterUserRefusal = 'yourself' | 'seed-user' | 'last-tenant-admin';
+/**
+ * Why a person can't be unregistered. `listed-admin`: the server's
+ * `KINDGI_ADMIN_EMAILS` names them, and the next start would add them back.
+ */
+export type IdentityUnregisterUserRefusal =
+  | 'yourself'
+  | 'seed-user'
+  | 'last-tenant-admin'
+  | 'listed-admin';
 
 export type IdentityUnregisterUserResult =
   | {
@@ -147,7 +154,11 @@ export interface IdentityCreateUserInput {
   readonly tenantId: TenantId;
   readonly displayName: string;
   readonly primaryEmail?: string;
-  /** Who added them: `user:<id>` or `service_account:<id>`. */
+  /**
+   * Who added them: `user:<id>` or `service_account:<id>`, or
+   * `identity_provider:<providerId>` for someone who joined by domain
+   * through that provider (`join: domain`).
+   */
   readonly createdBy?: string;
   /**
    * Email them the invitation (default true). False still invites them,

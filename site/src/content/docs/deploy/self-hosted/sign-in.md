@@ -324,6 +324,15 @@ nothing. Access is decided after the provider signs them in:
    until an admin of that workspace sends the invitation again:
 
    ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask a tenant admin of this workspace to send it again, then sign in. Detail: invite-expired. Below it, Your email and Continue.](../../../../assets/sso/sign-in-invite-expired.png)
+
+   A workspace's own identity provider can let in more: with `join: domain`,
+   someone it signs in for the first time, with a verified email at one of
+   its domains, is added with the provider's join role, never tenant admin.
+   It needs an authorization store, and someone removed stays out
+   ([Or let your colleagues join](../../../guides/sso/#or-let-your-colleagues-join)).
+   With `KINDGI_ADMIN_EMAILS`, the listed people are added at start, so
+   they're found here too, as tenant admins
+   ([Tenant admins by email](../../people-and-keys/#tenant-admins-by-email)).
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't

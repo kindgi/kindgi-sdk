@@ -11042,7 +11042,13 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
     type: 'string',
     enum: ['invite', 'domain'],
     description:
-      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.",
+      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` also lets in anyone this provider says has a verified email at one of `domains`, when the deployment routes that domain to this tenant: they become a person holding `joinRole`. Someone removed from the tenant stays out. It needs the deployment's authorization store: without one, setting it answers 409 `domain-join-needs-authorization`.",
+  },
+  joinRole: {
+    type: 'string',
+    enum: ['viewer', 'runner', 'none'],
+    description:
+      "What someone who joins by domain gets: `viewer` (default) or `runner` (who also runs its agents and flows) on the tenant's default project, or `none`, a tenant member with no project. Never tenant admin. Setting it needs `join: domain`; it's kept while `join` is `invite`.",
   },
   signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
   metadata: { type: 'object', additionalProperties: true },
@@ -11448,6 +11454,9 @@ export const UpdateIdentityProviderBodySchema: JsonSchema = {
     displayName: NULLABLE_STRING,
     domains: NULLABLE_STRINGS,
     join: { oneOf: [{ type: 'string', enum: ['invite', 'domain'] }, { type: 'null' }] },
+    joinRole: {
+      oneOf: [{ type: 'string', enum: ['viewer', 'runner', 'none'] }, { type: 'null' }],
+    },
     metadata: { oneOf: [{ type: 'object', additionalProperties: true }, { type: 'null' }] },
     issuer: { type: 'string', format: 'uri' },
     clientId: { type: 'string', minLength: 1 },
@@ -11861,6 +11870,11 @@ export const PersonGrantsSchema: JsonSchema = {
       type: 'boolean',
       description:
         'Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.',
+    },
+    tenantAdminFromSetting: {
+      type: 'boolean',
+      description:
+        "Whether the running server's `KINDGI_ADMIN_EMAILS` names the person: they're a tenant admin at every start, and taking tenant admin from them, or removing them, answers 409 `listed-admin` until the address is off the list. Absent when the runtime doesn't report it.",
     },
     tenantMember: {
       type: 'boolean',

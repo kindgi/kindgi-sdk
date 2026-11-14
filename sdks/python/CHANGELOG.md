@@ -47,11 +47,6 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
-- `kindgi`: **the identity provider models' `join` docstring says `domain`
-  lets no one in on its own.** `OidcIdentityProviderConfig.join` and
-  `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
-  provider's `domains`, but sign-in doesn't use it: with either value, only
-  people a tenant admin added get in. What you pass or read doesn't change.
 - `kindgi`: **the docstrings say what a key or session limited to a project
   may do on `identity.users.list_sessions`, `identity.users.revoke_sessions`,
   `identity.users.grants`, `identity.me`'s second factor, `connections` and
@@ -82,6 +77,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   answers `skipped: "project-deleted"`, a system deployment retired with its
   project says `reason: "project-deleted"`, and an audit event's `kind` can be
   `project-deleted` or `project-restored`.
+- `kindgi`: **an identity provider can let colleagues join by domain, and a person's grants say when the server's setting makes them a tenant admin.** The identity provider models, and their register and update bodies, gain `join_role` (`viewer`, `runner` or `none`), what someone who joins by domain gets, and `join`'s description says what `domain` now does. `PersonGrants` gains `tenant_admin_from_setting`: the server's `KINDGI_ADMIN_EMAILS` names the person, and taking tenant admin from them, or removing them, is refused with `listed-admin`.
 
 ## 0.6.0
 

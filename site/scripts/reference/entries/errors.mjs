@@ -2666,12 +2666,19 @@ export const ERROR_ENTRIES = {
       "The person is the seed user, whom the runtime makes tenant admin at every start, so the admin grant can't be removed while that setting stands. Unset the seed user and restart first.",
     details: [],
   },
+  'listed-admin': {
+    description:
+      "The server's `KINDGI_ADMIN_EMAILS` names the person, and every start makes them tenant admin, so the admin grant can't be removed while it does. Take their address off the list and restart the runtime first.",
+    details: [],
+    seeAlso: ['deploy/people-and-keys'],
+  },
   'identity-user-unregister-refused': {
-    description: "You can't unregister yourself or the seed user. Ask another tenant admin.",
+    description:
+      "You can't unregister yourself, the seed user, or someone the server's `KINDGI_ADMIN_EMAILS` names, whom the next start would add back. Ask another tenant admin, or take the address off the list and restart the runtime first.",
     details: [
       {
         key: 'reason',
-        meaning: "why it was refused: 'yourself' or 'seed-user'",
+        meaning: "why it was refused: 'yourself', 'seed-user' or 'listed-admin'",
       },
       {
         key: 'userId',
@@ -3035,6 +3042,17 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
+  },
+  'domain-join-needs-authorization': {
+    description:
+      "The deployment has no authorization store (`KINDGI_OPENFGA_API_URL`), so a provider can't let people join by domain: without one, roles aren't checked, and a joiner would work in every project. Setting `join: domain` or `joinRole` is refused. A provider already stored with them keeps them, and a change that leaves them alone goes through. Add people one by one, or run with authorization.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed',
+      },
+    ],
+    seeAlso: ['deploy/people-and-keys', 'guides/sso/index'],
   },
   'license-operator-only': {
     description:
