@@ -420,6 +420,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_LICENSE_REPORT_URL',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. Where the server sends its daily license report. Default `https://access.kindgi.com/v1/report`; `https` only. The report honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`. No setting turns reports off: only a key that doesn't report does.",
+    example: 'https://access.kindgi.com/v1/report',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_ENV',
     description:
       'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',
