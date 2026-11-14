@@ -41,6 +41,13 @@ export interface PackCallContext {
    */
   readonly idempotencyKey?: string;
   /**
+   * The workspace's time zone, an IANA name, read once for the agent turn
+   * the call belongs to; `UTC` when the workspace sets none or it can't be
+   * read (protocol 2.12.0). Absent outside an agent turn. A pack service
+   * from before 2.12.0 ignores it.
+   */
+  readonly timeZone?: string;
+  /**
    * The env values the tool declares (`needsSpec.env`), resolved for this
    * call: project, else org, else workspace (protocol 2.5.0). Strings.
    */

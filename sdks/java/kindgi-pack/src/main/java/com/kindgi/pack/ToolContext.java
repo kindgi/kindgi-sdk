@@ -45,6 +45,13 @@ import org.jspecify.annotations.Nullable;
  *     declares none. When the app refuses a token, throw {@link ConnectionRejectedException}.
  *     Printing them, or the context, shows their names, never a token, and the context's JSON leaves
  *     them out.
+ * @param timeZone the workspace's time zone, an IANA name such as {@code "America/Toronto"}. An agent
+ *     turn reads it once, from the workspace's {@code time-zone} fact, and every call the turn makes
+ *     gets the same one: {@code "UTC"} when the workspace sets none, or when it can't be read. A tool
+ *     that answers a date or a time answers it in this zone
+ *     ({@code ZonedDateTime.now(ZoneId.of(ctx.timeZone() != null ? ctx.timeZone() : "UTC"))}).
+ *     {@code null} outside an agent turn, and from a runtime before pack protocol 2.12.0: use UTC
+ *     then.
  */
 public record ToolContext(
     String tenantId,
@@ -59,7 +66,8 @@ public record ToolContext(
     Cancellation cancellation,
     @JsonIgnore Logger log,
     @Nullable String idempotencyKey,
-    @JsonIgnore Map<String, ToolConnection> connections) {
+    @JsonIgnore Map<String, ToolConnection> connections,
+    @Nullable String timeZone) {
   /** Copies the maps, unmodifiable. */
   public ToolContext {
     Objects.requireNonNull(tenantId, "tenantId");
@@ -71,6 +79,42 @@ public record ToolContext(
     Objects.requireNonNull(cancellation, "cancellation");
     Objects.requireNonNull(log, "log");
     connections = Collections.unmodifiableMap(new LinkedHashMap<>(connections));
+  }
+
+  /**
+   * A context without a time zone: the components before pack protocol 2.12.0, so code that built
+   * one before keeps compiling.
+   *
+   * @param tenantId the workspace the call runs for
+   * @param runId the run the call belongs to
+   * @param requestId the individual call, when sent
+   * @param projectId the run's project, when sent
+   * @param orgId the project's org, when it has one
+   * @param env resolved environment values for the call
+   * @param secrets resolved secrets for the call, by name
+   * @param config resolved configuration for the call
+   * @param settings the settings blocks the calling agent version pins, by block id
+   * @param cancellation fires when the call passes its deadline or its caller goes away
+   * @param log a logger bound to this call
+   * @param idempotencyKey a key for this call's side effects, when sent
+   * @param connections the connections the tool declares, by its name for each
+   */
+  public ToolContext(
+      String tenantId,
+      String runId,
+      @Nullable String requestId,
+      @Nullable String projectId,
+      @Nullable String orgId,
+      Map<String, Object> env,
+      Map<String, Object> secrets,
+      Map<String, Object> config,
+      Map<String, Map<String, Object>> settings,
+      Cancellation cancellation,
+      Logger log,
+      @Nullable String idempotencyKey,
+      Map<String, ToolConnection> connections) {
+    this(tenantId, runId, requestId, projectId, orgId, env, secrets, config, settings, cancellation, log,
+        idempotencyKey, connections, null);
   }
 
   /**
@@ -191,7 +235,7 @@ public record ToolContext(
         : new LinkedHashMap<>(builder.env);
     return new ToolContext(builder.tenantId, builder.runId, builder.requestId, builder.projectId,
         builder.orgId, env, builder.secrets, builder.config, builder.settings, new Cancellation(),
-        builder.log, builder.idempotencyKey, builder.connections);
+        builder.log, builder.idempotencyKey, builder.connections, builder.timeZone);
   }
 
   /**
@@ -235,6 +279,7 @@ public record ToolContext(
     private Logger log = Logger.noop();
     private @Nullable String idempotencyKey;
     private Map<String, ToolConnection> connections = Map.of();
+    private @Nullable String timeZone;
 
     /**
      * @param tenantId the workspace the call runs for
@@ -353,6 +398,15 @@ public record ToolContext(
      */
     public Builder withConnections(Map<String, ToolConnection> connections) {
       this.connections = new LinkedHashMap<>(connections);
+      return this;
+    }
+
+    /**
+     * @param timeZone the workspace's time zone, an IANA name such as {@code "America/Toronto"}
+     * @return this
+     */
+    public Builder withTimeZone(String timeZone) {
+      this.timeZone = timeZone;
       return this;
     }
   }

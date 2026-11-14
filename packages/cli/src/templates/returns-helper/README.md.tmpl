@@ -19,7 +19,8 @@ Improve, pin its suggested change, and watch the correction become Fixed.
 ├── lib/orders.ts                 # four sample orders, in memory, dated from today
 ├── tools/
 │   ├── find-order/index.ts       # looks an order up
-│   └── refund/index.ts           # refunds within the window; the limit is in code
+│   ├── refund/index.ts           # refunds within the window; the limit is in code
+│   └── today/index.ts            # the date and time in the workspace's time zone
 ├── agents/
 │   └── returns-desk/index.ts   # pins the three blocks by range
 └── blocks/
@@ -37,7 +38,7 @@ A-1004 (on its way).
 ```sh
 {{INSTALL}}
 {{TYPECHECK}}  # verify the pack compiles
-{{KINDGI}} test  # the refund tool's cases
+{{KINDGI}} test  # the refund and today tools' cases
 {{KINDGI}} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack
 ```
 

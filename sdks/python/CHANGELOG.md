@@ -79,6 +79,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   why no version was added. An update over 10 MB answers `size`, and nothing
   is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
   client's models gain `ToolFileUpdateAnswer`.
+- `kindgi`: **a tool's context names the workspace's time zone.** `ToolContext` gains `time_zone`, an IANA name such as `"America/Toronto"`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `"UTC"` when the workspace sets none. It's `None` outside an agent turn and from an older runtime, so a tool uses UTC then. `ToolContext.for_test(time_zone=…)` passes one in a unit test.
 
 ## 0.6.0
 

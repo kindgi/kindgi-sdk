@@ -1740,6 +1740,8 @@ function toolContextFor(
     // The run's own project and org, never the model's arguments.
     projectId: ctx.input.projectId,
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+    // The workspace's zone, read once for the turn.
+    ...(ctx.timeZone !== undefined && { timeZone: ctx.timeZone }),
     requestId: call.id,
     ...(idempotencyKey !== undefined && { idempotencyKey }),
     // Files the call stores, as files its run owns, reads and adds

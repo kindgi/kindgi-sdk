@@ -285,6 +285,12 @@ class ToolContext:
     says the call may (`toolFiles.updates`, pack protocol 2.13.0 on). `None` for a tool that
     declares none of them, and from a runtime before pack protocol 2.10.0: return a file's
     `notShown` as `store` then."""
+    time_zone: str | None = None
+    """The workspace's time zone, an IANA name such as `"America/Toronto"`. An agent turn reads it
+    once, from the workspace's `time-zone` fact, and every call the turn makes gets the same one:
+    `"UTC"` when the workspace sets none, or when it can't be read. A tool that answers a date or
+    a time answers it in this zone (`datetime.now(ZoneInfo(ctx.time_zone or "UTC"))`). `None`
+    outside an agent turn, and from a runtime before pack protocol 2.12.0: use UTC then."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property
@@ -374,6 +380,7 @@ class ToolContext:
             idempotency_key=idempotency_key,
             project_id=text("projectId"),
             org_id=text("orgId"),
+            time_zone=text("timeZone"),
             env=mapping("env"),
             secrets=mapping("secrets"),
             config=mapping("config"),

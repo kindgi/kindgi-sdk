@@ -157,6 +157,11 @@ object Citator {
   or looks for it there first: a refund never goes out twice. A UUID; `null`
   outside a run and from a runtime before 0.1.6. Docs:
   https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+- `ctx.timeZone`: the workspace's time zone, an IANA name such as
+  `"America/Toronto"`: an agent turn reads it once, so all its calls get the
+  same one, `"UTC"` when the workspace sets none. `null` outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
 - `ctx.projectId`, `ctx.orgId`: the run's project, and its org (`null` when
   it has none). The runtime sets them from the run, never from the input.
   To check an id the input names, compare it with these.
@@ -173,6 +178,46 @@ object Citator {
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config`: **reserved, empty today**.
+
+### A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```scala
+// src/main/scala/acme/tools/Today.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+import java.time.{ZoneId, ZonedDateTime}
+import java.time.format.{DateTimeFormatter, TextStyle}
+import java.util.Locale
+
+object Today {
+  final case class Input()
+
+  final case class Output(date: String, weekday: String, time: String, timeZone: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.today")
+    .description(
+      "Today's date, weekday and time in the workspace's time zone. " +
+        "Call it before answering anything that depends on today's date.")
+    .readOnly
+    .handler { (_, ctx) =>
+      val zone = Option(ctx.timeZone).getOrElse("UTC")
+      val now = ZonedDateTime.now(ZoneId.of(zone))
+      Output(
+        now.toLocalDate.toString,
+        now.getDayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+        now.format(DateTimeFormatter.ofPattern("HH:mm")),
+        zone)
+    }
+}
+```
+
+Test it with `ToolContext.forTest(new ToolContext.Builder().withTimeZone("Asia/Tokyo"))`.
+Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 
