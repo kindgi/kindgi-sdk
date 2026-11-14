@@ -494,6 +494,8 @@ console signed in through SSO, a social sign-in or an emailed link.
   with `permission-denied`, as before. Without a store, a write to an
   existing item by its id is judged as before, except a memory fact's,
   which goes by the fact's scope, as writing one does.
+  A key limited to a project can't carry `kindgi:system`: that mint is
+  refused, `403 capability-not-mintable`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,

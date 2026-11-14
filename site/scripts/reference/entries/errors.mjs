@@ -2289,7 +2289,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-not-mintable': {
     description:
-      "A workspace's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
+      "A workspace's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`. On a runtime serving one tenant, a key limited to a project can't carry `kindgi:system` either: mint it without the project, or without `kindgi:system`.",
     details: [
       {
         key: 'capabilities',

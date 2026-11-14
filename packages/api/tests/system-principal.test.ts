@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
-import type { ApiTokenId, TenantId, UserId } from '@kindgi/types';
+import type { ApiTokenId, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -44,6 +44,8 @@ import type {
  */
 
 const tenantId = randomUUID() as TenantId;
+/** A project of the tenant's, as a mint body names it. */
+const PROJECT = randomUUID();
 /** An access record that keeps nothing. */
 const NO_AUDIT = {
   record: async () => undefined,
@@ -505,6 +507,54 @@ describe("a tenant's key never carries the operator's powers", () => {
     });
     expect(minted.status, JSON.stringify(minted.body)).toBe(201);
   });
+
+  test('kindgi:system on a key limited to a project: refused in single mode too, naming the project', async () => {
+    for (const tenancy of ['single', 'unset'] as const) {
+      const { call, code } = makeApp(tenancy);
+      const r = await call(SINGLE_BOOT, 'POST', '/v1/tokens', {
+        capabilities: ['kindgi:system'],
+        projectId: PROJECT,
+      });
+      expect(r.status, tenancy).toBe(403);
+      expect(code(r), tenancy).toBe('capability-not-mintable');
+      const error = r.body.error as { message: string; details: Record<string, unknown> };
+      expect(error.message, tenancy).toBe(
+        `A key limited to project ${PROJECT} can't carry kindgi:system: the operator's powers reach past any one project. Mint it without the project, or without kindgi:system`,
+      );
+      expect(error.details, tenancy).toMatchObject({ capabilities: ['kindgi:system'] });
+      // Without the project, as before.
+      const minted = await call(SINGLE_BOOT, 'POST', '/v1/tokens', {
+        capabilities: ['kindgi:system'],
+      });
+      expect(minted.status, JSON.stringify(minted.body)).toBe(201);
+    }
+  });
+
+  test('a system scope beside the project: the system keys refusal, naming only the scope', async () => {
+    const { call, code } = makeApp('single');
+    const r = await call(SINGLE_BOOT, 'POST', '/v1/tokens', {
+      capabilities: ['kindgi:system', 'system:tenants'],
+      projectId: PROJECT,
+    });
+    expect(r.status).toBe(403);
+    expect(code(r)).toBe('capability-not-mintable');
+    expect((r.body.error as { details: Record<string, unknown> }).details).toMatchObject({
+      capabilities: ['system:tenants'],
+    });
+  });
+
+  test('multi mode: a key limited to a project gets the many-tenants refusal', async () => {
+    const multi = makeApp('multi');
+    const r = await multi.call(multi.tenant.legacy, 'POST', '/v1/tokens', {
+      capabilities: ['kindgi:system'],
+      projectId: PROJECT,
+    });
+    expect(r.status).toBe(403);
+    expect(multi.code(r)).toBe('capability-not-mintable');
+    expect((r.body.error as { message: string }).message).toBe(
+      "A workspace's key can't carry kindgi:system: the operator's powers are system keys' (/v1/system/keys)",
+    );
+  });
 });
 
 describe('withSystemTenantContext', () => {
@@ -613,18 +663,32 @@ describe('withSystemTenantContext', () => {
 describe("the operator's powers stay fenced in both ways", () => {
   /** A bare app: a caller set by hand, then the fence, then two routes. */
   function bare(
-    caller: { system?: boolean; keyId?: string; capabilities: string[] },
+    caller: {
+      system?: boolean;
+      keyId?: string;
+      capabilities: string[];
+      /** The key's (or the session's) project limit. */
+      projectId?: string;
+      /** A session, not a key. */
+      session?: boolean;
+    },
     tenancy?: 'single' | 'multi',
   ) {
     const app = new Hono<AppEnv>();
     const warnings: unknown[] = [];
+    const messages: string[] = [];
     app.use('*', async (c, next) => {
       c.set('requestId', 'req-1');
       c.set('log', {
-        warn: (_message: string, fields: unknown) => void warnings.push(fields),
+        warn: (message: string, fields: unknown) => {
+          messages.push(message);
+          warnings.push(fields);
+        },
         error: () => undefined,
       } as never);
-      c.set('tokenId', 'key-legacy' as ApiTokenId);
+      if (caller.session === true) c.set('sessionId', 'session-1' as SessionId);
+      else c.set('tokenId', 'key-legacy' as ApiTokenId);
+      if (caller.projectId !== undefined) c.set('tokenProjectId', caller.projectId);
       if (caller.system === true) c.set('systemPrincipal', { keyId: caller.keyId ?? 'k-1' });
       c.set('capabilities', caller.capabilities);
       await next();
@@ -638,7 +702,7 @@ describe("the operator's powers stay fenced in both ways", () => {
     app.get('/v1/system/ungated', (c) => c.json({ reached: true }));
     app.get('/v1/system/who', (c) => c.json({ identity: callerIdentity(c) }));
     app.get('/v1/system/keys', (c) => c.json({ reached: true }));
-    return { app, warnings };
+    return { app, warnings, messages };
   }
 
   test('the fence serves one tenant unless told it serves many', async () => {
@@ -687,6 +751,69 @@ describe("the operator's powers stay fenced in both ways", () => {
     expect(await (await app.request('/v1/caps')).json()).toEqual({
       capabilities: ['kindgi:system', 'env:write'],
     });
+    expect(warnings).toEqual([]);
+  });
+
+  test('single mode: a key limited to a project loses kindgi:system, with a warning naming the key and the project', async () => {
+    for (const tenancy of ['single', undefined] as const) {
+      const { app, warnings, messages } = bare(
+        { capabilities: ['kindgi:system', 'env:write'], projectId: 'p-1' },
+        tenancy,
+      );
+      expect(await (await app.request('/v1/caps')).json(), tenancy).toEqual({
+        capabilities: ['env:write'],
+      });
+      expect(warnings, tenancy).toEqual([
+        {
+          event: 'system-capability-dropped',
+          tokenId: 'key-legacy',
+          projectId: 'p-1',
+          dropped: ['kindgi:system'],
+        },
+      ]);
+      expect(messages, tenancy).toEqual([
+        "A key limited to a project carries the operator's capabilities, which it doesn't use: revoke it, and mint its replacement without them or without the project",
+      ]);
+    }
+  });
+
+  test('single mode: a session limited to a project loses kindgi:system too', async () => {
+    const { app, warnings } = bare(
+      { capabilities: ['kindgi:system', 'env:write'], projectId: 'p-1', session: true },
+      'single',
+    );
+    expect(await (await app.request('/v1/caps')).json()).toEqual({ capabilities: ['env:write'] });
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        event: 'system-capability-dropped',
+        projectId: 'p-1',
+        dropped: ['kindgi:system'],
+      }),
+    ]);
+  });
+
+  test('multi mode: a key limited to a project is warned once, as every tenant key there', async () => {
+    const { app, warnings, messages } = bare(
+      { capabilities: ['kindgi:system'], projectId: 'p-1' },
+      'multi',
+    );
+    expect(await (await app.request('/v1/caps')).json()).toEqual({ capabilities: [] });
+    expect(warnings).toEqual([
+      {
+        event: 'system-capability-dropped',
+        tokenId: 'key-legacy',
+        projectId: 'p-1',
+        dropped: ['kindgi:system'],
+      },
+    ]);
+    expect(messages).toEqual([
+      "A tenant's key carries the operator's capabilities, which a runtime serving many tenants ignores: revoke it, and use a system key",
+    ]);
+  });
+
+  test('a key limited to a project holding no system capability: nothing dropped, no warning', async () => {
+    const { app, warnings } = bare({ capabilities: ['env:write'], projectId: 'p-1' }, 'single');
+    expect(await (await app.request('/v1/caps')).json()).toEqual({ capabilities: ['env:write'] });
     expect(warnings).toEqual([]);
   });
 
