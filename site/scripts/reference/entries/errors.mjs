@@ -3688,7 +3688,7 @@ export const ERROR_ENTRIES = {
   },
   'identity-provider-key-in-use': {
     description:
-      "A secret the identity provider being registered or changed references (its OIDC client secret, or its SAML signing or decryption key) is already used by a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration. An identity provider's secret is sign-in's only, so each of them would be refused it from then on. Store the identity provider's own secret under its own name and reference that. If one app registration serves both sign-in and a connection, give it a second client secret. Nothing is stored.",
+      "A secret the identity provider being registered or changed references (its OIDC client secret, or its SAML signing or decryption key) is already used by a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration. An identity provider's secret is sign-in's only, so each of them would be refused it from then on. Store the identity provider's own secret under its own name and reference that. If one app registration serves both sign-in and a connection, give it a second client secret. Nothing is stored.",
     details: [
       {
         key: 'secret',
@@ -3707,7 +3707,7 @@ export const ERROR_ENTRIES = {
   },
   'provider-key-in-use': {
     description:
-      'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint or webhook trigger. Give each a key of its own.',
+      'The `secret_ref` of the provider being registered names a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or destination. Give each a key of its own.',
     details: [
       {
         key: 'secret',
@@ -3881,7 +3881,7 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a connection app or an identity provider.",
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a connection app or an identity provider.",
     details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
@@ -4439,7 +4439,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-key-in-use': {
     description:
-      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.",
+      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger, destination or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.",
     details: [
       {
         key: 'secret',

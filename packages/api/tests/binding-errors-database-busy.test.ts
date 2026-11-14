@@ -66,6 +66,7 @@ function recoded(code: string, hops = 1, cause: unknown = storageBusy) {
 const runId = randomUUID();
 const approvalId = randomUUID();
 const conversationId = randomUUID();
+const flowId = 'acme.refund-review';
 
 /** A provenance record, so the run's call usage is read after it. */
 const record = {
@@ -304,12 +305,18 @@ describe('a read a route middleware makes to find what it checks, when the datab
     ['resume', `/v1/runs/${runId}/resume`, {}],
     ['a provenance export', `/v1/provenance/${runId}/export`, {}],
     ['a conversation close', `/v1/conversations/${conversationId}/close`, {}],
+    [
+      "a conversation close, reading the conversation's agent",
+      `/v1/conversations/${conversationId}/close`,
+      {},
+      { conversationFound: true },
+    ],
     ['a change to a flow by its id', `/v1/flows/${flowId}/versions/1.0.0/unregister`, {}],
     ["a pin of a flow's version", `/v1/flows/${flowId}/pinned/pin`, { version: '1.0.0' }],
   ])(
     'without a store, a limited key: POST %s answers 503 database-busy with Retry-After',
-    async (_label, path, body) => {
-      const answer = await call(limitedAppReadsBusy(), path, 'POST', body, LIMITED);
+    async (_label, path, body, opts = {}) => {
+      const answer = await call(limitedAppReadsBusy(opts), path, 'POST', body, LIMITED);
       expect(answer.status, answer.text).toBe(503);
       expect(answer.retryAfter).toBe('5');
       expect(JSON.parse(answer.text).error.code).toBe('database-busy');
@@ -318,20 +325,40 @@ describe('a read a route middleware makes to find what it checks, when the datab
   );
 });
 
-const flowId = 'acme.refund-review';
-
 /**
- * The app without an authorization store, where reading a run, a
- * conversation or a flow's versions throws the storage failure: what a
- * limited key's hold reads to find the project it checks.
+ * The app without an authorization store, where a limited key's hold
+ * finds the database too busy for what it reads to find the project it
+ * checks: reading a run or a flow's versions throws the storage failure,
+ * as those bindings do, and reading the conversation answers it as an
+ * err. With `conversationFound`, the conversation (in another project) is
+ * read, and reading its agent's projects throws.
  */
-function limitedAppReadsBusy() {
+function limitedAppReadsBusy(opts: { conversationFound?: boolean } = {}) {
   const stubs = createStubAppBindings();
+  const conversation = {
+    id: conversationId,
+    tenantId,
+    agentId: 'support-bot',
+    agentVersion: '1.0.0',
+    title: 'Refund',
+    projectId: randomUUID(),
+    scope: {},
+    openedAt: '2026-10-16T00:00:00.000Z',
+  };
   return createApp({
     ...stubs,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    conversationBinding: { ...stubs.conversationBinding, getConversation: throwsBusy } as never,
+    conversationBinding: {
+      ...stubs.conversationBinding,
+      getConversation: async () =>
+        opts.conversationFound === true
+          ? { kind: 'ok', value: conversation }
+          : { kind: 'err', error: recoded('persistence-error') },
+    } as never,
+    ...(opts.conversationFound === true && {
+      agentRegistry: { headExists: throwsBusy, listVersions: throwsBusy } as never,
+    }),
     kernelBinding: {
       ...stubs.kernelBinding,
       run: { ...stubs.kernelBinding.run, getRun: throwsBusy },

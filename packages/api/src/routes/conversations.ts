@@ -26,7 +26,11 @@ import {
   runIn,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
+import {
+  beforeHandler,
+  beforeHandlerAnswer,
+  databaseBusyAnswer,
+} from '../middleware/error-mapper.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
 import {
   type ReferenceScopeBinding,
@@ -142,14 +146,15 @@ export function conversationsRouter(
    */
   const heldClose: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (authorizer !== undefined || c.get('tokenProjectId') === undefined) return next();
-    // Before the handler (`beforeHandler`), so a database too busy to read
-    // the conversation answers 503 on any method.
+    // Before the handler, so a database too busy to read the conversation
+    // (its busy err) or its agent (a throw, `beforeHandler`) answers 503 on
+    // any method. Any other err is left to the route's 404 or 500.
     const refused = await beforeHandler(c, async () => {
       const existing = await conversationBinding.getConversation(
         c.get('tenantId') as TenantId,
         c.req.param('conversationId') as ConversationId,
       );
-      if (existing.kind === 'err') return undefined;
+      if (existing.kind === 'err') return beforeHandlerAnswer(existing.error, c);
       const conv = existing.value;
       const project = await heldProject(c, conv);
       const projects = (await held?.agents.projects(c, conv.agentId as unknown as string)) ?? [];

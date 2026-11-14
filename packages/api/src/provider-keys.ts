@@ -46,8 +46,8 @@ export function providerKeysOf(registry: ProviderRegistryBinding | undefined): P
 /**
  * A texts registration's key (`token.apiKey`) reaches the whole provider
  * account, so it's used by its registration only: no tool, MCP endpoint,
- * webhook endpoint, webhook trigger, model provider, pack's env or other
- * connection app registration may name a secret that a live token
+ * webhook endpoint, webhook trigger, destination, model provider, pack's env
+ * or other connection app registration may name a secret that a live token
  * registration of the tenant references. These checks refuse it where the
  * name is written, and `guardSecretKeys` where it's read.
  */
@@ -90,10 +90,10 @@ export function connectionKeysOf(binding: ConnectionBinding | undefined): Connec
  * An identity provider's secret (an OIDC client secret, a SAML service
  * provider key) is what signs the tenant's people in, so it's used by
  * sign-in only: no tool, MCP endpoint, webhook endpoint, webhook trigger,
- * connection app registration, model provider or pack's env may name a
- * secret that an identity provider of the tenant references (by name,
- * whatever its env). These checks refuse it where the name is written, and
- * `guardSecretKeys` where it's read.
+ * destination, connection app registration, model provider or pack's env
+ * may name a secret that an identity provider of the tenant references (by
+ * name, whatever its env). These checks refuse it where the name is
+ * written, and `guardSecretKeys` where it's read.
  */
 export interface IdentityProviderKeys {
   /** Each secret an identity provider of the tenant references, by name, with the provider's id. */
