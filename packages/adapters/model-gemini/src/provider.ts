@@ -266,7 +266,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
             config,
           })
           .catch((error: unknown) => {
-            throw typedFailure(error);
+            throw typedFailure(error, input.abortSignal);
           }),
       );
       const response = counted.value;

@@ -5,10 +5,11 @@
  * A failed call is the shared typed error (`ModelProviderError`): its kind
  * from the status and the vendor's words (the response's body), its
  * message the SDK's own, byte for byte, and the SDK's `ApiError` its
- * `cause`. A failed connection and an abort are what the SDK threw. With
- * the real `@google/genai` client (an API key sends through the global
- * `fetch`, replaced here by a fixture). The adapter's retries of a 429 or
- * a 5xx back off at once.
+ * `cause`. A failed connection is `network`, the SDK's `fetch failed` then
+ * what its causes add; an abort is what the SDK threw. With the real
+ * `@google/genai` client (an API key sends through the global `fetch`,
+ * replaced here by a fixture). The adapter's retries of a 429 or a 5xx back
+ * off at once.
  */
 
 import { ApiError, GoogleGenAI } from '@google/genai';
@@ -121,15 +122,60 @@ describe('a response that refuses the call', () => {
 });
 
 describe('a call with no response', () => {
-  test('a failed connection is what the SDK threw, unchanged', async () => {
+  /** Every request fails as `fetch` does when nothing comes back: with `error`. */
+  function fail(error: Error): void {
     globalThis.fetch = async () => {
-      throw new TypeError('fetch failed');
+      throw error;
     };
-    const sdk = await thrown(sdkCall());
+  }
+
+  const refused = (address: string) =>
+    Object.assign(new Error(`connect ECONNREFUSED ${address}`), { code: 'ECONNREFUSED' });
+
+  test('a failed connection is `network`: the SDK’s words, then why', async () => {
+    // Node tries every address a host has; refused at all of them, it throws an AggregateError
+    // with an empty message, and `fetch` rejects with `fetch failed`, that as its cause.
+    const failed = new TypeError('fetch failed', {
+      cause: Object.assign(new AggregateError([refused('::1:443'), refused('127.0.0.1:443')], ''), {
+        code: 'ECONNREFUSED',
+      }),
+    });
+    fail(failed);
+    // The SDK throws the fetch's error as it is: it says only `fetch failed`.
+    expect(await thrown(sdkCall())).toBe(failed);
     const error = await thrown(call());
-    expect(error).not.toBeInstanceOf(ModelProviderError);
-    expect(error.constructor).toBe(sdk.constructor);
-    expect(error.message).toBe(sdk.message);
+    expect(error).toBeInstanceOf(ModelProviderError);
+    expect(error).toMatchObject({
+      kind: 'network',
+      status: undefined,
+      message:
+        'fetch failed; caused by AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:443, connect ECONNREFUSED 127.0.0.1:443',
+    });
+    expect(error.cause).toBe(failed);
+  });
+
+  test('a failed connection with nothing below it: the SDK’s words alone', async () => {
+    fail(new TypeError('fetch failed'));
+    const error = await thrown(call());
+    expect(error).toBeInstanceOf(ModelProviderError);
+    expect(error).toMatchObject({ kind: 'network', status: undefined, message: 'fetch failed' });
+  });
+
+  test('a host the runtime’s egress rules refuse: `network`, in the refusal’s own words', async () => {
+    const egress = Object.assign(
+      new Error('egress refused: 169.254.169.254 is link-local, which this deployment forbids'),
+      { code: 'EKINDGIEGRESS' },
+    );
+    fail(new TypeError('fetch failed', { cause: egress }));
+    const error = await thrown(call());
+    expect(error).toBeInstanceOf(ModelProviderError);
+    expect(error).toMatchObject({ kind: 'network', status: undefined, message: egress.message });
+  });
+
+  test('a TypeError that is no failed connection (a bug) is what the SDK threw, unchanged', async () => {
+    const bug = new TypeError("Cannot read properties of undefined (reading 'headers')");
+    fail(bug);
+    expect(await thrown(call())).toBe(bug);
   });
 
   test('an abort is what the SDK threw, unchanged', async () => {
@@ -139,5 +185,15 @@ describe('a call with no response', () => {
     const error = await thrown(call(aborted.signal));
     expect(error).not.toBeInstanceOf(ModelProviderError);
     expect(error).not.toBeInstanceOf(ApiError);
+  });
+
+  test('a connection that fails as the call is aborted is what the SDK threw, unchanged', async () => {
+    const aborted = new AbortController();
+    const failed = new TypeError('fetch failed');
+    globalThis.fetch = async () => {
+      aborted.abort();
+      throw failed;
+    };
+    expect(await thrown(call(aborted.signal))).toBe(failed);
   });
 });
