@@ -69,6 +69,29 @@ public final class RequestSpec {
   }
 
   /**
+   * A list as one query parameter, its values comma-separated ({@code include=a,b}). {@code null}
+   * values are skipped; the parameter is left out when the list is {@code null} or nothing is left.
+   *
+   * @param name the parameter
+   * @param values its values
+   * @return this
+   */
+  public RequestSpec queryJoined(String name, @Nullable Collection<?> values) {
+    if (values != null) {
+      List<String> texts = new ArrayList<>();
+      for (Object item : values) {
+        if (item != null) {
+          texts.add(Wire.text(item));
+        }
+      }
+      if (!texts.isEmpty()) {
+        query.add(new AbstractMap.SimpleImmutableEntry<>(name, String.join(",", texts)));
+      }
+    }
+    return this;
+  }
+
+  /**
    * A header: left out when {@code null}.
    *
    * @param name the header

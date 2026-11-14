@@ -80,6 +80,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 - `kindgi`: **a workspace can let people at its email domain join.** `client.auth.join_domains` lists the domains a workspace lets people join from, and allows, changes and stops allowing one (`list`, `allow`, `update`, `unregister`); `client.system_tenants` gains `join_domains`, `allow_join_domain`, `update_join_domain`, `unregister_join_domain` and, for a sign-up page, `lookup_join_domains`. The new models are `JoinDomain`, `JoinDomainList`, `AllowJoinDomainBody`, `ChangeJoinDomainBody`, `UnregisterJoinDomainResult`, `JoinDomainLookupBody`, `JoinDomainLookupResult` and `JoinLookupWorkspaceJoin` or `JoinLookupWorkspaceMember`. `join-domain-not-yours` and `join-domains-operator-managed` raise `AuthError` with `reason` `forbidden`.
 - `kindgi`: a person's record (`UserRecord`, `UserCreated`) gains `created_by`, who added them, as ids only: `user:<id>`, `service_account:<id>`, `identity_provider:<providerId>` or `email_domain:<domain>` for someone who joined by domain, or `site:<siteId>`. `None` for the seed user, and from a runtime that doesn't keep it.
 - `kindgi`: **an identity provider can let colleagues join by domain, and a person's grants say when the server's setting makes them a tenant admin.** The identity provider models, and their register and update bodies, gain `join_role` (`viewer`, `runner` or `none`), what someone who joins by domain gets, and `join`'s description says what `domain` now does. `PersonGrants` gains `tenant_admin_from_setting`: the server's `KINDGI_ADMIN_EMAILS` names the person, and taking tenant admin from them, or removing them, is refused with `listed-admin`.
+- `kindgi`: **`client.runs.list(include="waitingFor")` says what each
+  suspended run waits for** (its `waiting_for`, as `client.runs.get` gives
+  it). A page with it holds at most 25 runs. A runtime before Kindgi 0.7.0
+  refuses it with `400 bad-input`.
+- `kindgi`: **an `include` takes a value or a list:
+  `client.runs.list(include=["output", "waitingFor"])`.** The runs list, an
+  agent's test cases, the cost records and the people list send a list as
+  one comma-separated parameter. One value works as before.
 
 ## 0.6.0
 

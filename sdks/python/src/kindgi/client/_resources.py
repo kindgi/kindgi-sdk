@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 from uuid import UUID
 
 from . import _models
-from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
+from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _csv, _segments
 from ._thumbs import AsyncThumbs, Thumbs
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
@@ -1626,7 +1626,9 @@ class RunsResource:
         replays: Literal["exclude", "include", "only"] | None = None,
         test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
-        include: Literal["output"] | None = None,
+        include: Literal["output", "waitingFor"]
+        | list[Literal["output", "waitingFor"]]
+        | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
         | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
@@ -1661,7 +1663,7 @@ class RunsResource:
                 "replays": replays,
                 "testRunId": test_run_id,
                 "triggerId": trigger_id,
-                "include": include,
+                "include": _csv(include),
                 "status": status,
                 "createdAfter": created_after,
                 "createdBefore": created_before,
@@ -3552,7 +3554,7 @@ class AgentsTestSetResource:
         /,
         *,
         project_id: str | UUID,
-        include: Literal["retired"] | None = None,
+        include: Literal["retired"] | list[Literal["retired"]] | None = None,
         kind: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -3567,7 +3569,7 @@ class AgentsTestSetResource:
             path={"agentId": agent_id},
             query={
                 "projectId": project_id,
-                "include": include,
+                "include": _csv(include),
                 "kind": kind,
                 "limit": limit,
                 "cursor": cursor,
@@ -6646,7 +6648,7 @@ class CostRecordsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
@@ -6674,7 +6676,7 @@ class CostRecordsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.CostRecordCollectionPage,
@@ -6686,14 +6688,14 @@ class CostRecordsResource:
         record_id: str | UUID,
         /,
         *,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecord:
         """Fetch a cost record. `GET /v1/cost/records/{recordId}`"""
         return self._client._request(
             _OPERATIONS["cost.records.get"],
             path={"recordId": record_id},
-            query={"include": include},
+            query={"include": _csv(include)},
             headers={},
             response=_models.CostRecord,
             timeout=timeout,
@@ -8095,7 +8097,7 @@ class IdentityUsersResource:
         query: str | None = None,
         include_unregistered: bool | None = None,
         pending: bool | None = None,
-        include: Literal["grants"] | None = None,
+        include: Literal["grants"] | list[Literal["grants"]] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the workspace. `GET /v1/identity/users`
@@ -8111,7 +8113,7 @@ class IdentityUsersResource:
                 "query": query,
                 "includeUnregistered": include_unregistered,
                 "pending": pending,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.UserCollectionPage,
@@ -12783,7 +12785,9 @@ class AsyncRunsResource:
         replays: Literal["exclude", "include", "only"] | None = None,
         test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
-        include: Literal["output"] | None = None,
+        include: Literal["output", "waitingFor"]
+        | list[Literal["output", "waitingFor"]]
+        | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
         | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
@@ -12818,7 +12822,7 @@ class AsyncRunsResource:
                 "replays": replays,
                 "testRunId": test_run_id,
                 "triggerId": trigger_id,
-                "include": include,
+                "include": _csv(include),
                 "status": status,
                 "createdAfter": created_after,
                 "createdBefore": created_before,
@@ -14715,7 +14719,7 @@ class AsyncAgentsTestSetResource:
         /,
         *,
         project_id: str | UUID,
-        include: Literal["retired"] | None = None,
+        include: Literal["retired"] | list[Literal["retired"]] | None = None,
         kind: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -14730,7 +14734,7 @@ class AsyncAgentsTestSetResource:
             path={"agentId": agent_id},
             query={
                 "projectId": project_id,
-                "include": include,
+                "include": _csv(include),
                 "kind": kind,
                 "limit": limit,
                 "cursor": cursor,
@@ -17811,7 +17815,7 @@ class AsyncCostRecordsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
@@ -17839,7 +17843,7 @@ class AsyncCostRecordsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.CostRecordCollectionPage,
@@ -17851,14 +17855,14 @@ class AsyncCostRecordsResource:
         record_id: str | UUID,
         /,
         *,
-        include: Literal["rawUsage"] | None = None,
+        include: Literal["rawUsage"] | list[Literal["rawUsage"]] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecord:
         """Fetch a cost record. `GET /v1/cost/records/{recordId}`"""
         return await self._client._request(
             _OPERATIONS["cost.records.get"],
             path={"recordId": record_id},
-            query={"include": include},
+            query={"include": _csv(include)},
             headers={},
             response=_models.CostRecord,
             timeout=timeout,
@@ -19268,7 +19272,7 @@ class AsyncIdentityUsersResource:
         query: str | None = None,
         include_unregistered: bool | None = None,
         pending: bool | None = None,
-        include: Literal["grants"] | None = None,
+        include: Literal["grants"] | list[Literal["grants"]] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the workspace. `GET /v1/identity/users`
@@ -19284,7 +19288,7 @@ class AsyncIdentityUsersResource:
                 "query": query,
                 "includeUnregistered": include_unregistered,
                 "pending": pending,
-                "include": include,
+                "include": _csv(include),
             },
             headers={},
             response=_models.UserCollectionPage,
