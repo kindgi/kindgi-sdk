@@ -971,6 +971,9 @@ OPERATIONS: dict[str, Operation] = {
     "projects.getDefault": Operation(
         "projects.getDefault", "GET", "/v1/projects/default", "json", False
     ),
+    "projects.listDeleted": Operation(
+        "projects.listDeleted", "GET", "/v1/projects/deleted", "json", False
+    ),
     "projects.list": Operation("projects.list", "GET", "/v1/projects", "json", False),
     "projects.create": Operation("projects.create", "POST", "/v1/projects", "json", True),
     "projects.get": Operation("projects.get", "GET", "/v1/projects/{projectId}", "json", False),
@@ -979,6 +982,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.delete": Operation(
         "projects.delete", "DELETE", "/v1/projects/{projectId}", "empty", True
+    ),
+    "projects.restore": Operation(
+        "projects.restore", "POST", "/v1/projects/{projectId}/restore", "json", True
     ),
     "projects.queueRules.list": Operation(
         "projects.queueRules.list", "GET", "/v1/projects/{projectId}/queue-rules", "json", False
@@ -9868,6 +9874,27 @@ class ProjectsResource:
             timeout=timeout,
         )
 
+    def list_deleted(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeletedProjectCollectionPage:
+        """List the workspace's deleted projects. `GET /v1/projects/deleted`
+
+        Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.listDeleted"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DeletedProjectCollectionPage,
+            timeout=timeout,
+        )
+
     def list(
         self,
         /,
@@ -9880,7 +9907,7 @@ class ProjectsResource:
     ) -> _models.ProjectCollectionPage:
         """List projects in the caller's workspace. `GET /v1/projects`
 
-        Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
+        Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
         """
         return self._client._request(
             _OPERATIONS["projects.list"],
@@ -9907,7 +9934,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -9942,7 +9969,7 @@ class ProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return self._client._request(
             _OPERATIONS["projects.update"],
@@ -9963,13 +9990,34 @@ class ProjectsResource:
     ) -> None:
         """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
 
-        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.
         """
         return self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+    def restore(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Project:
+        """Restore a deleted project. `POST /v1/projects/{projectId}/restore`
+
+        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.restore"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Project,
             timeout=timeout,
         )
 
@@ -20807,6 +20855,27 @@ class AsyncProjectsResource:
             timeout=timeout,
         )
 
+    async def list_deleted(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeletedProjectCollectionPage:
+        """List the workspace's deleted projects. `GET /v1/projects/deleted`
+
+        Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.listDeleted"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DeletedProjectCollectionPage,
+            timeout=timeout,
+        )
+
     async def list(
         self,
         /,
@@ -20819,7 +20888,7 @@ class AsyncProjectsResource:
     ) -> _models.ProjectCollectionPage:
         """List projects in the caller's workspace. `GET /v1/projects`
 
-        Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
+        Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
         """
         return await self._client._request(
             _OPERATIONS["projects.list"],
@@ -20846,7 +20915,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],
@@ -20883,7 +20952,7 @@ class AsyncProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return await self._client._request(
             _OPERATIONS["projects.update"],
@@ -20904,13 +20973,34 @@ class AsyncProjectsResource:
     ) -> None:
         """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
 
-        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.
         """
         return await self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+    async def restore(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Project:
+        """Restore a deleted project. `POST /v1/projects/{projectId}/restore`
+
+        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.restore"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Project,
             timeout=timeout,
         )
 

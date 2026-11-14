@@ -269,6 +269,8 @@
   "Datum5": ["ArtifactCollectionPage.data"],
   "Datum6": ["AuditAuthzListResponse.data"],
   "DeleteArtifactResult": ["DeleteArtifactResult"],
+  "DeletedProject": ["DeletedProject"],
+  "DeletedProjectCollectionPage": ["DeletedProjectCollectionPage"],
   "DeployCheckAgentId": ["DeployCheckAgentId"],
   "DeployCheckBody": ["DeployCheckBody"],
   "DeployCheckBodyBlock": ["DeployCheckBodyBlock"],

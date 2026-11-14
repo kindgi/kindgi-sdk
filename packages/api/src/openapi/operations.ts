@@ -4782,7 +4782,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
-        'The version is not registered, or was unregistered; or the test run is not found.',
+        "The version is not registered, or was unregistered; or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
       ),
       '409': ErrorResponse(
         "`pin-stops-latest`: the pin would take a project that follows Latest now off it, and the body doesn't have `stopFollowingLatest: true`; `details.projects` lists each one, `{ projectId, version }`, with the version it runs now. Nothing is recorded. `nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a workspace- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole workspace, since the pack's files serve every scope.",
@@ -4816,7 +4816,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('The version, the agent or the test run is not found.'),
+      '404': ErrorResponse(
+        "The version, the agent or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
+      ),
       '409': ErrorResponse(
         '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
       ),
@@ -6006,7 +6008,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '409': ErrorResponse(
         '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why. Or Idempotency-Key was reused with a different body.',
@@ -6033,7 +6035,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '409': ErrorResponse(
         '`registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why.',
@@ -6169,7 +6171,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('No such suggested change.'),
+      '404': ErrorResponse(
+        'No such suggested change; or `project-not-found`: its project is deleted.',
+      ),
       '409': ErrorResponse(
         "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `pin-stops-latest`: its project follows Latest, and the body doesn't have `stopFollowingLatest: true`; `details.projects` has `{ projectId, version }` with the version it runs now, and `details.suggestedChangeId`. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
       ),
@@ -8000,7 +8004,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '404': ErrorResponse(
-        'No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).',
+        'No test set with that id under this workspace; or `projectId` names no project of this workspace, or a deleted one (`project-not-found`).',
       ),
       '409': ErrorResponse(
         "`project-suspended`: the project is suspended, so no test run starts in it. Or `suggested-change-nothing-to-check`: an agent's own test set has no cases in the project (`details.projectId`), as a suggested change's check answers. Or Idempotency-Key was reused with a different body.",
@@ -8938,7 +8942,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '503': PLAN_COUNT_BUSY_503,
       '429': ErrorResponse(
@@ -9211,7 +9215,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         `No \`admin\` on the target project. Or \`key-project-mismatch\`: the API key or session is limited to a project, and a promotion reads one project and writes another (\`details.keyProjectId\`, \`details.projectId\`). Or \`signer-not-trusted\`: the key that signed the build is no longer on the workspace's trust list (\`details.signerKeyId\`). Or ${PLAN_LIMIT_REACHED} It counts what the build ships and carries in the target, before the move: nothing moved. With \`pin\`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.`,
       ),
       '404': ErrorResponse(
-        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+        "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
       ),
       '409': ErrorResponse(
         "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
@@ -9259,7 +9263,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         `No \`admin\` on the target project. Or \`key-project-mismatch\`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or \`signer-not-trusted\`: the key that signed the build is no longer trusted. Or, as the promotion answers it, ${PLAN_LIMIT_REACHED}`,
       ),
       '404': ErrorResponse(
-        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+        "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
       ),
       '409': ErrorResponse(
         '`promotion-not-next-environment`, `deployment-superseded`, or a suspension of the source or the target, as on the promotion.',
@@ -10029,12 +10033,38 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/projects/deleted',
+    openapiPath: '/v1/projects/deleted',
+    operationId: 'projects.listDeleted',
+    summary: "List the workspace's deleted projects",
+    description:
+      'Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.',
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of deleted projects.',
+        schema: ref('DeletedProjectCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter.'),
+      '403': ErrorResponse(
+        "No `admin` on the workspace (`permission-denied`). A key or session limited to a project is refused before that, `key-project-mismatch` (`details.keyProjectId`), as on any path under `/v1/projects/` that is not its own project's.",
+      ),
+      '501': ErrorResponse(
+        "`project-restore-unsupported`: this runtime's project binding keeps no deleted projects to list.",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/projects',
     openapiPath: '/v1/projects',
     operationId: 'projects.list',
     summary: "List projects in the caller's workspace",
     description:
-      'Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
+      'Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10068,7 +10098,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10102,7 +10132,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this workspace.'),
+      '404': ErrorResponse('No project with that id under this workspace, or it was deleted.'),
     },
   },
   {
@@ -10112,7 +10142,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
+      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10135,7 +10165,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '409': ErrorResponse(
-        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`), with `details.deletedProject: true` when that project is deleted; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
@@ -10152,7 +10182,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.delete',
     summary: 'Delete a project (idempotent)',
     description:
-      "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
+      "The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -10166,10 +10196,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
-      '204': { description: 'Deleted (or already absent). No body.' },
+      '204': { description: 'Deleted (or already deleted, or absent). No body.' },
       ...CommonAuthErrors,
       '409': ErrorResponse(
-        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first. `project-is-default`: it's the workspace's default project, which can't be deleted (`details.projectId`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/restore',
+    openapiPath: '/v1/projects/{projectId}/restore',
+    operationId: 'projects.restore',
+    summary: 'Restore a deleted project',
+    description:
+      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: 'ProjectId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'The project, live again.', schema: ref('Project') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        withLimitedAbove(
+          "No `admin` on the workspace (`permission-denied`); or the project is in production and the workspace's projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`): it stays deleted until one is taken out of production.",
+        ),
+      ),
+      '404': ErrorResponse(
+        '`project-not-found`: no project, live or deleted, with that id under this workspace.',
+      ),
+      '501': ErrorResponse(
+        "`project-restore-unsupported`: this runtime's project binding can't restore a deleted project.",
       ),
     },
   },

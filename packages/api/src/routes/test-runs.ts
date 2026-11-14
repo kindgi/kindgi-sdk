@@ -50,6 +50,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { type ProjectDeletedCheck, projectGone } from './project-deleted.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame, pause, readingOf } from './sse.js';
 import { parseComparison } from './test-run-comparison.js';
@@ -130,6 +131,11 @@ export function testRunsRouters(
    * `limitedItemRefusal`). Absent: no hold.
    */
   held?: HeldItems,
+  /**
+   * Whether a project is deleted: no test run starts in one, refused `404
+   * project-not-found` before the suspended check. Absent: no check.
+   */
+  projectDeleted?: ProjectDeletedCheck,
 ): TestRunsRouters {
   return {
     start: startRouter(
@@ -143,6 +149,7 @@ export function testRunsRouters(
       testSetFreeze,
       corrections,
       held,
+      projectDeleted,
     ),
     readback: readbackRouter(binding, authorizer, itemRights, held),
   };
@@ -284,6 +291,7 @@ function startRouter(
   testSetFreeze?: TestSetFreezeBinding,
   corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
   held?: HeldItems,
+  projectDeleted?: ProjectDeletedCheck,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -412,6 +420,8 @@ function startRouter(
       ...versionsReferences(parsed.value.comparison?.versions),
     ]);
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    const gone = await projectGone(c, projectDeleted, tenantId, projectId);
+    if (gone !== undefined) return gone;
     if (projectSuspended !== undefined && (await projectSuspended(tenantId, projectId))) {
       c.status(statusFor('project-suspended') as never);
       return c.json(

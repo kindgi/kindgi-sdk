@@ -645,6 +645,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'promote-only-build': 409,
   // Deleting or moving (to another parent) a project that is a member of an environment order.
   'project-in-environment-order': 409,
+  // Deleting the workspace's default project.
+  'project-is-default': 409,
+  // The restore and deleted-list routes on a runtime whose project binding can't restore.
+  'project-restore-unsupported': 501,
   // Deleting an org that is the parent of an environment order; a tenant admin clears the order first.
   'org-has-environment-order': 409,
   // A promotion to a project that isn't the next environment of the

@@ -75,6 +75,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   flow's answer, a deployment, a deploy check, a promotion and its check, and
   a project's production answer; a runtime that doesn't count them leaves it
   out. `DeployCheckBody` gains `flows`.
+- `kindgi`: **a deleted project is kept, and a workspace admin can restore
+  it.** `projects.restore` brings one back as it was, and
+  `projects.list_deleted` lists the workspace's deleted projects, newest first
+  (the new `DeletedProject` model). A webhook delivery to a deleted project
+  answers `skipped: "project-deleted"`, a system deployment retired with its
+  project says `reason: "project-deleted"`, and an audit event's `kind` can be
+  `project-deleted` or `project-restored`.
 
 ## 0.6.0
 

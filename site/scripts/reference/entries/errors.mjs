@@ -3263,7 +3263,7 @@ export const ERROR_ENTRIES = {
   },
   'deployment-not-found': {
     description:
-      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way.",
+      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way, and so is one whose project is deleted.",
     details: [
       {
         key: 'deploymentId',
@@ -3494,7 +3494,7 @@ export const ERROR_ENTRIES = {
   },
   'project-not-found': {
     description:
-      "The project doesn't exist in the workspace, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project.",
+      "The project doesn't exist in the workspace, it was deleted, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project. A workspace admin finds a deleted project at `GET /v1/projects/deleted` and restores it.",
     details: [
       {
         key: 'projectId',
@@ -3519,11 +3519,11 @@ export const ERROR_ENTRIES = {
   },
   'production-limit-reached': {
     description:
-      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again. Restoring a deleted project that's in production counts it again, so at the limit the restore is refused the same way, and the project stays deleted until there's room.",
     details: [
       {
         key: 'projectId',
-        meaning: "the project that wasn't put in production",
+        meaning: "the project that wasn't put in production, or wasn't restored",
       },
       {
         key: 'limit',
@@ -3601,6 +3601,12 @@ export const ERROR_ENTRIES = {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'project-restore-unsupported': {
+    description:
+      "This server can't restore a deleted project or list the deleted ones: its project store keeps no deleted projects for that.",
+    details: [],
+    seeAlso: ['POST /v1/projects/{projectId}/restore', 'GET /v1/projects/deleted'],
   },
   'repo-connection-not-company-github': {
     description:
@@ -3700,6 +3706,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'project-is-default': {
+    description: "The workspace's default project can't be deleted.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the default project',
+      },
+    ],
+    seeAlso: ['DELETE /v1/projects/{projectId}'],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name; an identity provider names a secret of its own instead.",
@@ -3779,7 +3795,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org, until that project is deleted.",
+      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org. A deleted project's slugs stay its own too.",
     details: [
       {
         key: 'resource',
@@ -3793,6 +3809,11 @@ export const ERROR_ENTRIES = {
         key: 'heldAs',
         meaning:
           '`slug` when another has it now; `old-slug` when another project had it before it was renamed. Absent from a runtime that keeps no old slugs',
+      },
+      {
+        key: 'deletedProject',
+        meaning:
+          '`true` when the project holding the slug is deleted; absent otherwise. A workspace admin can restore it (`POST /v1/projects/{projectId}/restore`)',
       },
     ],
     seeAlso: ['POST /v1/orgs', 'POST /v1/projects', 'PATCH /v1/projects/{projectId}'],

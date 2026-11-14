@@ -155,6 +155,11 @@ export const EVIDENCE_KINDS = [
   'suggested-change-pinned',
   'suggested-change-added-as-latest',
   'suggested-change-withdrawn',
+  // A project was deleted (kept, and gone from every read until it's
+  // restored), or restored. The payload names the project by id, never
+  // anything it holds.
+  'project-deleted',
+  'project-restored',
 ] as const;
 
 /**

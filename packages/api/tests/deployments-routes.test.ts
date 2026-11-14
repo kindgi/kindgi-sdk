@@ -7964,6 +7964,37 @@ describe('POST /v1/deployments with projectId: one project per client', () => {
     ).toBe(201);
   });
 
+  test('a deleted project takes no deploy and answers before the suspended check; another project still does', async () => {
+    const deleted = new Set<string>([CLIENT_A]);
+    const asked: string[] = [];
+    const extra = {
+      projectDeleted: async (t: TenantId, projectId: ProjectId) => {
+        asked.push(`${t}/${projectId}`);
+        return deleted.has(projectId);
+      },
+      // Suspended too: the deleted answer must win.
+      projectSuspended: async (_t: TenantId, projectId: ProjectId) => deleted.has(projectId),
+    };
+    const named = clientPack('acme-shop');
+    lastToolRegisterProjectId = undefined;
+    const intoA = makeApp({ fixture: named, extra });
+    const refused = await deploy(intoA.app, { ...named.wire, projectId: CLIENT_A });
+    expect(refused.status).toBe(404);
+    const body = (await refused.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('project-not-found');
+    expect(lastToolRegisterProjectId).toBeUndefined();
+    expect(
+      await intoA.toolRegistry.get({ tenantId, toolId: 'acme-shop.woo.find-orders' as never }),
+    ).toBeNull();
+    expect(asked).toEqual([`${tenantId}/${CLIENT_A}`]);
+
+    const other = clientPack('globex-shop');
+    expect(
+      (await deploy(makeApp({ fixture: other, extra }).app, { ...other.wire, projectId: CLIENT_B }))
+        .status,
+    ).toBe(201);
+  });
+
   test("with an authorizer: admin on the named project deploys there; another project's, or tenant-wide, is refused", async () => {
     const PROJECT_ADMIN = 'deployments-client-a-admin';
     const grants: Readonly<Record<string, readonly string[]>> = {

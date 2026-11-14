@@ -713,7 +713,8 @@ runtime can't make a project's own account."
 - **A tenant admin may unregister it.** The project's triggers that run as
   it then stop, until a project admin takes each over. A take-over with
   `--run-as=project` makes the project a new account.
-- **Deleting the project unregisters it.**
+- **Deleting the project keeps it.** It reaches nothing while the project
+  is deleted, and a restore brings it back with the project.
 - **Without an authorization store,** running a trigger as the project
   takes a tenant-admin key, and its grant is kept as a record only: each
   fire or delivery checks only that the account is registered.

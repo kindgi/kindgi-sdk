@@ -170,6 +170,7 @@ import {
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { type ProjectDeletedCheck, projectGone } from './project-deleted.js';
 import { promoteOnlyBuild } from './promote-only-builds.js';
 import { bodyProjectResourceRef, scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -281,6 +282,12 @@ export interface DeploymentsRouterBindings {
    * for a runtime without project suspension.
    */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * Whether a project is deleted: nothing deploys into one, refused `404
+   * project-not-found` before the suspended check, as for an id with no
+   * project. Absent: no check.
+   */
+  readonly projectDeleted?: ProjectDeletedCheck;
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
   /**
@@ -1186,6 +1193,11 @@ export function deploymentsRouter(
       }
       targetProjectId = defaultProject.id;
     }
+    const gone =
+      targetProjectId === undefined
+        ? undefined
+        : await projectGone(c, bindings.projectDeleted, tenantId, targetProjectId);
+    if (gone !== undefined) return gone;
     if (
       targetProjectId !== undefined &&
       bindings.projectSuspended !== undefined &&
