@@ -57,7 +57,12 @@ import {
   throwAgentTurnFailure,
 } from './errors.js';
 import { admitHistoryFiles, admitToolResultFiles, asMessageFile, callFileStore } from './files.js';
-import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
+import {
+  type GateDecision,
+  TOOL_CALL_GATE_SUBJECT,
+  readGateDecision,
+  withdrawnGateFailure,
+} from './gate-decision.js';
 import { guardrailsAt, markCallRan, recordNote, reusedCallState } from './guardrail-points.js';
 import {
   type RetryFailure,
@@ -1114,11 +1119,7 @@ async function passGate(step: StepCalls, gated: GatedCall): Promise<DecidedCall>
     // the next iteration and can adapt (retry with different args, ask
     // the user, apologize). NOT a run failure — reject is feedback,
     // not termination.
-    const rejected = {
-      status: 'rejected' as const,
-      ...(decision.rationale !== undefined && { rationale: decision.rationale }),
-    };
-    return { kind: 'answered', call, binding, output: rejected };
+    return { kind: 'answered', call, binding, output: rejectedResult(decision) };
   }
 
   // Approved: asked again right before it runs, since access can change
@@ -1393,6 +1394,26 @@ async function finishRun(
         )
       : toolMessage,
   ];
+}
+
+/**
+ * A call its approval blocked: `{ status: 'rejected', by?, rationale? }`,
+ * stored and told to the model like any other result. A reviewer's reject
+ * says a person decided (`by: 'reviewer'`), so the model doesn't put it on
+ * the tool or the system the tool acts on; `rationale` is theirs, when they
+ * gave one. An answer that wasn't a decision was nobody's: it names no
+ * reviewer, and its rationale says why it blocks.
+ */
+function rejectedResult(decision: Extract<GateDecision, { readonly approved: false }>): {
+  readonly status: 'rejected';
+  readonly by?: 'reviewer';
+  readonly rationale?: string;
+} {
+  return {
+    status: 'rejected',
+    ...(decision.reason === 'rejected' && { by: 'reviewer' as const }),
+    ...(decision.rationale !== undefined && { rationale: decision.rationale }),
+  };
 }
 
 /** A denied call's result, `{ status: 'denied', reason }`, stored and told to the model like any other. */
