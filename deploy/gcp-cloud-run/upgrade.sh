@@ -1641,17 +1641,13 @@ EOT
      <name_prefix>-license-renewer (or license_renewer_secret), which
      kindgi license enroll fills once. It gives the server two plain env
      vars, KINDGI_LICENSE_KEY_REF and KINDGI_LICENSE_RENEWER_REF, so its
-     expiry warning names the exact kindgi license renew. Nothing else.
-   - Turn on the renewal job (license_renewal_schedule) after this
-     upgrade, in an apply of its own: its job, schedule and alerts are
-     more than this release's plan check allows.
-EOT
-      ;;
-    0.7.1)
-      cat <<'EOT'
+     expiry warning names the exact kindgi license renew.
    - The plan also changes the server in place: its startup probe allows
      10 minutes, 120 tries 5 s apart, so a first start has that long to run
      the migrations.
+   - Turn on the renewal job (license_renewal_schedule) after this
+     upgrade, in an apply of its own: its job, schedule and alerts are
+     more than this release's plan check allows.
 EOT
       ;;
   esac
@@ -1978,8 +1974,7 @@ plan_allowed_changes() {
           "google_secret_manager_secret.license_renewer (created)" \
           "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_KEY_REF" \
           "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_RENEWER_REF"
-        ;;
-      0.7.1)
+        # The server's startup probe.
         printf '%s\n' "google_cloud_run_v2_service.server template.containers.startup_probe.failure_threshold"
         ;;
     esac

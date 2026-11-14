@@ -1313,12 +1313,7 @@ EOT
      alert (license_key_expiring) in place: its description, and its query,
      which now fires on any "It expires in N days" line the renewal job
      logs, from the key's warning window (30 days before it expires, or
-     fewer when the key sets its own) rather than its last 7 days. Without
-     it, 0.7.0 doesn't change the module.
-EOT
-      ;;
-    0.7.1)
-      cat <<'EOT'
+     fewer when the key sets its own) rather than its last 7 days.
    - The plan also changes the server in place: its startup probe allows
      10 minutes, 120 tries 5 s apart, so a first start has that long to run
      the migrations.
@@ -1381,8 +1376,7 @@ plan_allowed_changes() {
         printf '%s\n' \
           "azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring description" \
           "azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring criteria.query"
-        ;;
-      0.7.1)
+        # The server's startup probe.
         printf '%s\n' "azurerm_container_app.server template.container.startup_probe.failure_count_threshold"
         ;;
     esac

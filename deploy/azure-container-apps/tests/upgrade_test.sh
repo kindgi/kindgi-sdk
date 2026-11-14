@@ -2008,13 +2008,8 @@ assert_absent "$STUB_JOBS_LOG" "a check job"
 SCRIPT="$REAL_SCRIPT"
 
 # 69. The server's startup probe at 10 minutes, 120 tries 5 s apart (from
-# 24), passes the check when the run crosses 0.7.1, the release that ships
-# it, and stops it when it doesn't. The script knows 0.7.1 once the release
-# puts it in KNOWN_RELEASES. Until then the half that crosses it runs on a
-# copy that knows it; once the script does, this row fails, and that half
-# runs on the script itself. The row also fails if the script knows a
-# release after 0.7.1 but not 0.7.1 itself: then that release ships the
-# probe, and the 0.7.1 cases move to its name.
+# 24), passes the check when the run crosses 0.7.0, the release that ships
+# it, and stops it when it doesn't.
 SERVER_PROBE='{"before":{"transport":"HTTP","path":"/health","port":4000,"interval_seconds":5,"timeout":3,"failure_count_threshold":24},"after":{"transport":"HTTP","path":"/health","port":4000,"interval_seconds":5,"timeout":3,"failure_count_threshold":120}}'
 case_start "the server's 10-minute startup probe, on a run that doesn't cross its release"
 reset_env; export STUB_TAGS="0.4.0" STUB_SERVER_PROBE="$SERVER_PROBE"
@@ -2024,24 +2019,14 @@ assert_out "PLAN CHECK: the plan changes more than this upgrade does"
 assert_file_has "$OUT" "    azurerm_container_app.server: changes template.container.startup_probe.failure_count_threshold" "the threshold named"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
-if grep -q '^readonly KNOWN_RELEASES=(.*"0\.7\.1".*)$' "$SCRIPT"; then fail "the script knows 0.7.1 now: run the half that crosses it on the script itself"; else pass; fi
-if ! grep -q '^readonly KNOWN_RELEASES=(.*"0\.7\.1".*)$' "$SCRIPT" && grep -q -E '^readonly KNOWN_RELEASES=\(.*"(0\.7\.([2-9]|[1-9][0-9])|0\.([8-9]|[1-9][0-9])\.[0-9]+|[1-9][0-9]*\.[0-9]+\.[0-9]+)".*\)$' "$SCRIPT"; then fail "the script knows a release after 0.7.1 but not 0.7.1: move the 0.7.1 cases to the release that ships the probe"; else pass; fi
-PROBE_SCRIPT="$TMP/upgrade-0.7.1.sh"
-sed -e 's/^\(readonly KNOWN_RELEASES=(.*\))$/\1 "0.7.1")/' "$SCRIPT" >"$PROBE_SCRIPT"
-chmod +x "$PROBE_SCRIPT"
-if grep -q '^readonly KNOWN_RELEASES=(.* "0.7.1")$' "$PROBE_SCRIPT" && [[ $(grep -c -x ' *0\.7\.1)' "$PROBE_SCRIPT") -eq 2 ]]; then pass; else fail "the copy doesn't know 0.7.1"; fi
-REAL_SCRIPT="$SCRIPT"; SCRIPT="$PROBE_SCRIPT"
-
 case_start "the server's 10-minute startup probe, crossing its release"
-reset_env; export STUB_TAGS="0.7.0" STUB_SERVER_PROBE="$SERVER_PROBE"
-run "yes" --to 0.7.1
+reset_env; export STUB_TAGS="0.6.0" STUB_SERVER_PROBE="$SERVER_PROBE"
+run "yes" --to 0.7.0
 assert_rc 0 "the probe change passes"
-assert_out "crossing: 0.7.1$"
+assert_out "crossing: 0.7.0$"
 assert_out "its startup probe allows"
 assert_out "plan check: it changes the image(s)"
 assert_present "$STUB_MARKER_APPLY" "apply"
-
-SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
