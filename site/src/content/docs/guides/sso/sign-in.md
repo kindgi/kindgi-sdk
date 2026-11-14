@@ -36,7 +36,8 @@ For a Gmail address, Google and GitHub:
 The buttons only point the way. Whichever you choose, you're let in only if
 someone has already added you to a workspace, with the email your provider
 confirms. If you're in several workspaces, the page asks you to **Choose a
-workspace:** (the choice lasts five minutes).
+workspace:** (the choice lasts five minutes). You're then signed in to that
+one: to open another, sign out, sign in again, and choose it.
 
 A link to the sign-in page can fill your email in:
 `https://kindgi.acme.com/console/login#email=pat@acme-live.example`. A

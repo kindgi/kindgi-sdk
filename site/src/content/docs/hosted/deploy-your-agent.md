@@ -18,7 +18,9 @@ providers on `prod`, before and after you go live. So everything here uses
 
 - **A Kindgi Cloud workspace,** where you're an admin. Whoever
   [signs up](https://platform.kindgi.com/cloud/signup) is the workspace's
-  first admin.
+  first admin. An email signs up for one workspace: adding a `+` tag to it
+  doesn't make it another, and neither does moving a Gmail address's dots.
+  To work in another workspace, ask one of its admins to add you.
 - **A pack with an agent,** with its tests passing, and the Kindgi skills
   that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
   with the agent `acme-desk.reply-drafter`.
