@@ -667,7 +667,6 @@ class RunEvent(BaseModel):
     timestamp: AwareDatetime
     kind: Annotated[
         Literal[
-            "run.queued",
             "run.started",
             "run.step-started",
             "run.step-completed",
@@ -675,15 +674,8 @@ class RunEvent(BaseModel):
             "run.step-retry-scheduled",
             "run.iteration-started",
             "run.iteration-completed",
-            "run.tool-invoked",
-            "run.tool-result",
-            "run.model-token",
-            "run.artifact-produced",
-            "run.guardrail-violated",
             "run.wait-suspended",
             "run.wait-resumed",
-            "run.approval-requested",
-            "run.approval-completed",
             "run.completed",
             "run.failed",
             "run.cancelled",

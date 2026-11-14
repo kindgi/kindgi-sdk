@@ -44,6 +44,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
+- `kindgi`: **`RunEvent.kind` lists only the kinds the run stream sends.**
+  Eight it never sent (`run.queued`, `run.tool-invoked`, `run.tool-result`,
+  `run.model-token`, `run.artifact-produced`, `run.guardrail-violated`,
+  `run.approval-requested`, `run.approval-completed`) are gone from its
+  `Literal`. It still takes any string, so nothing you read changes.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
