@@ -21,6 +21,7 @@ import type {
 import { encodeSessionToken } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import type { SessionCreateOutput, SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability, refused } from './denied.js';
@@ -52,6 +53,12 @@ export interface AuthRouterOptions {
    * providers already there, are the same either way.
    */
   readonly providerChanges?: 'tenant' | 'operator';
+  /**
+   * The tenant's model provider keys: a provider's secret references never
+   * name one, nor a reserved `kindgi.` name, as for every registration that
+   * names secrets (`refuseSecretNames`).
+   */
+  readonly providerKeys?: ProviderKeys;
   /** `signed-out` events, best effort. */
   readonly auditEvents?: AuditEventBinding;
 }
@@ -75,6 +82,19 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
   const { sessionStore, identityProvider } = options;
 
   const authed = new Hono<AppEnv>();
+
+  // A reserved `kindgi.` name or a model provider's key is never an identity provider's.
+  const refusedSecret = async (c: Context<AppEnv>, config: ProviderConfig) => {
+    const refusal = await refuseSecretNames(
+      options.providerKeys,
+      c.get('tenantId') as TenantId,
+      providerSecretNames(config),
+      'an identity provider',
+    );
+    if (refusal === undefined) return undefined;
+    c.status(statusFor(refusal.code) as never);
+    return c.json(toWireError(refusal, c.get('requestId')));
+  };
 
   // The provider catalog is tenant-wide: any GET (the list, one provider,
   // its sign-in URLs) needs `read` on the tenant, any change `admin`.
@@ -143,6 +163,9 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         ),
       );
     }
+
+    const refused = await refusedSecret(c, parsed.value);
+    if (refused !== undefined) return refused;
 
     const outcome = await identityProvider.register({ tenantId, config: parsed.value });
     if (outcome.kind === 'needs-secrets-store') {
@@ -253,6 +276,10 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         c.status(statusFor(parsed.error.code) as never);
         return c.json(toWireError(parsed.error, requestId));
       }
+
+      // The whole merged provider, so one that already names such a key is refused too.
+      const refused = await refusedSecret(c, parsed.value);
+      if (refused !== undefined) return refused;
 
       const outcome = await update({ tenantId, config: parsed.value });
       if (outcome.kind === 'not-found') return providerNotFound(c, providerId);
@@ -422,6 +449,23 @@ function needsSecretsStore(c: Context<AppEnv>, providerId: string): Response {
       c.get('requestId'),
     ),
   );
+}
+
+/**
+ * The names a provider's secret references give in the tenant's store. A
+ * reference is `<name>`, or `<env>/<name>` for another environment's, and a
+ * name is checked whatever its environment, as a model provider's key is.
+ */
+function providerSecretNames(config: ProviderConfig): string[] {
+  const refs =
+    config.kind === 'oidc'
+      ? [config.clientSecretRef]
+      : [config.spSigningKeyRef, config.spDecryptionKeyRef];
+  return refs.flatMap((ref) => {
+    if (ref === undefined) return [];
+    const trimmed = ref.trim();
+    return [trimmed.slice(trimmed.indexOf('/') + 1)];
+  });
 }
 
 /** What the issuer's discovery gave: stale once the issuer changes. */

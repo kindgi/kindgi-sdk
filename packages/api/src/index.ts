@@ -1431,6 +1431,7 @@ export {
   guardProviderKeys,
   providerKeyRefusal,
   providerKeysOf,
+  refuseSecretNames,
   usersOfSecret,
 } from './provider-keys.js';
 export type {

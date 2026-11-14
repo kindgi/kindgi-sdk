@@ -141,6 +141,19 @@ describe('guardProviderKeys', () => {
       );
     }
   });
+
+  test('an identity provider is told to store its own secret, not to call a model', async () => {
+    const { binding } = store();
+    const r = await guardProviderKeys(binding, keys, 'an identity provider').resolve({
+      scope,
+      envName,
+      name: 'ANTHROPIC_API_KEY',
+      resolveContext,
+    });
+    expect(r.kind === 'err' && r.error.message).toBe(
+      '`ANTHROPIC_API_KEY` is the key of model provider "anthropic": an identity provider never gets a model provider\'s key. Store the identity provider\'s own secret under its own name and use that name',
+    );
+  });
 });
 
 describe('usersOfSecret: MCP endpoints', () => {
