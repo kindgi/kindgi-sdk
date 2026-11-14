@@ -40,6 +40,9 @@ import type {
  *   - `GET  /v1/identity/users/{userId}/grants` (a person's grants:
  *     tenant admins, or the person) and `POST …/grant|ungrant` (tenant
  *     admin; tenant admins only)
+ *   - `POST /v1/identity/users/{userId}/capabilities` and `DELETE
+ *     …/capabilities/{capability}` (give a tenant admin capabilities
+ *     your own person holds, and take one back; a person may drop their own)
  *   - `POST /v1/identity/users/{userId}/unregister` (remove a person:
  *     their keys, sessions and grants go at once; tenant admins only)
  *   - `POST /v1/identity/users/{userId}/invite` (renew a person's
@@ -141,6 +144,40 @@ export interface UsersClient {
   ungrant(
     id: UserId,
     grant: PersonGrant,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<PersonGrants>;
+
+  /**
+   * Give a tenant admin capabilities your own person holds now, such as
+   * `env:write` or `signing-keys:write` (1 to 32). What a key was minted
+   * with never counts. Refused when your person doesn't hold one
+   * (`403 capability-not-held`), for `secrets:reveal` or a system
+   * capability (`403 capability-not-givable`), and for someone who isn't
+   * a tenant admin (`409 receiver-not-tenant-admin`). Tenant admins only.
+   * Answers with the person's grants after, `capabilities` included.
+   *
+   * @wire `POST /v1/identity/users/{userId}/capabilities` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1capabilities/post`.
+   */
+  giveCapabilities(
+    id: UserId,
+    capabilities: readonly string[],
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<PersonGrants>;
+
+  /**
+   * Take a capability back from a person: a tenant admin whose own person
+   * holds it, or the person themselves with a full API key or session
+   * (not a `member` one, nor one limited to a project). The last holder's
+   * may go. One the person doesn't hold is a no-op. Answers with the
+   * person's grants after, `capabilities` included.
+   *
+   * @wire `DELETE /v1/identity/users/{userId}/capabilities/{capability}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1capabilities~1{capability}/delete`.
+   */
+  takeBackCapability(
+    id: UserId,
+    capability: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<PersonGrants>;
 
@@ -339,6 +376,23 @@ export function makeUsersClient(transport: Transport): UsersClient {
         method: 'POST',
         path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/ungrant`,
         body: grant,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async giveCapabilities(id, capabilities, options) {
+      return transport.request<PersonGrants>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/capabilities`,
+        body: { capabilities },
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async takeBackCapability(id, capability, options) {
+      return transport.request<PersonGrants>({
+        method: 'DELETE',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/capabilities/${encodeURIComponent(capability)}`,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },

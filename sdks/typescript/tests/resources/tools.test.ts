@@ -148,6 +148,39 @@ describe('tools.reinstateVersion', () => {
   });
 });
 
+describe('tools.versions.unregister', () => {
+  const UNREGISTERED = { toolId: 'acme.verify-citation', version: '1.0.0', unregistered: true };
+
+  it('keeps lockedBy, what can still run the version', async () => {
+    const lockedBy = [
+      { kind: 'agent', id: 'acme.triage', version: '1.2.0' },
+      { kind: 'agent', id: 'acme.triage', version: '1.3.0', unregistered: true },
+    ];
+    const stub = jsonFetch({ ...UNREGISTERED, lockedBy });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const result = await client.tools.versions.unregister('acme.verify-citation' as never, '1.0.0');
+    expect(result).toEqual({ ...UNREGISTERED, lockedBy });
+  });
+
+  it('has no lockedBy when the server sends none', async () => {
+    const stub = jsonFetch(UNREGISTERED);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const result = await client.tools.versions.unregister('acme.verify-citation' as never, '1.0.0');
+    expect(result).toEqual(UNREGISTERED);
+    expect('lockedBy' in result).toBe(false);
+  });
+});
+
 describe('tools.invoke / tools.manifests (not yet wired)', () => {
   it('invoke throws not-yet-wired without hitting the network', async () => {
     const stub = recordingFetch([]);

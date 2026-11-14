@@ -376,6 +376,29 @@ describe('kindgi exports create', () => {
     ]);
   });
 
+  test('a removed trigger is read too, with its fires and its versions', async () => {
+    const removed = { triggerId: 'sched-1', unregisteredAt: '2026-10-14T09:00:00.000Z' };
+    const fake = server({
+      '/v1/schedules': (url) =>
+        json(200, {
+          data: url.searchParams.get('includeUnregistered') === 'true' ? [removed] : [],
+          hasMore: false,
+        }),
+      '/v1/schedules/sched-1/fires': [{ runId: 'run-1', version: 1 }],
+      '/v1/schedules/sched-1/versions': [{ triggerId: 'sched-1', version: 1 }],
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(await lines('schedules')).toEqual([removed]);
+    expect(fake.calls).toEqual(
+      expect.arrayContaining([
+        'GET /v1/schedules?includeUnregistered=true&limit=100',
+        'GET /v1/schedules/sched-1/fires?includeUnregistered=true&limit=100',
+        'GET /v1/schedules/sched-1/versions?includeUnregistered=true&limit=100',
+      ]),
+    );
+  });
+
   test('a 429 is waited out; a 5xx is sent again three times, then that kind fails and the rest go on', async () => {
     let flowsTries = 0;
     let agentsTries = 0;

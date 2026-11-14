@@ -667,7 +667,6 @@ class RunEvent(BaseModel):
     timestamp: AwareDatetime
     kind: Annotated[
         Literal[
-            "run.queued",
             "run.started",
             "run.step-started",
             "run.step-completed",
@@ -675,15 +674,8 @@ class RunEvent(BaseModel):
             "run.step-retry-scheduled",
             "run.iteration-started",
             "run.iteration-completed",
-            "run.tool-invoked",
-            "run.tool-result",
-            "run.model-token",
-            "run.artifact-produced",
-            "run.guardrail-violated",
             "run.wait-suspended",
             "run.wait-resumed",
-            "run.approval-requested",
-            "run.approval-completed",
             "run.completed",
             "run.failed",
             "run.cancelled",
@@ -3051,13 +3043,45 @@ class McpExposure(BaseModel):
     """
 
 
-class ConversationPolicy(BaseModel):
+class ToolHitlRule(BaseModel):
+    """
+    A tool's gate, and the reviewer role its approvals need. Without `requiredRole`, the agent's `defaultReviewerRole`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
+    mode: Annotated[Literal["never_ask", "ask_on_first_use", "always_ask"] | str, _open.OPEN]
+    """
+    A tool's gate. `never_ask`: its calls run without asking. `ask_on_first_use`: a call asks the first time the conversation makes it with those arguments, and once approved, the same call runs without asking. `always_ask`: every call asks.
+    """
+    required_role: Annotated[
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None,
+        Field(alias="requiredRole"),
+    ] = None
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+
+
+class SeparateApproverPolicy(BaseModel):
+    """
+    Four eyes per tool.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    default: bool | None = None
+    """
+    For every gated tool `overrides` doesn't name. Default `false`.
+    """
+    overrides: dict[str, bool] | None = None
+    """
+    By tool id. Each names one of the agent's tools.
+    """
 
 
 class TurnBudget(BaseModel):
@@ -3294,63 +3318,6 @@ class FlowVersionOverrides(BaseModel):
     """
 
 
-class PublishAgentBody(BaseModel):
-    """
-    Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str
-    name: str
-    description: str | None = None
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
-    """
-    instructions: Instructions | PromptRef
-    """
-    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
-    """
-    parameters: list[PromptParameter] | None = None
-    settings: list[BlockRef] | None = None
-    """
-    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
-    """
-    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
-    """
-    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
-    """
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    memory: AgentMemoryPolicy | None = None
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
-    """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.
-    """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`). Combined with `preferredProvider` to pin an exact tuple; alone to select a model across every provider that exposes it.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
-    )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
-    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
-    """
-    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
-    """
-    mcp: McpExposure | None = None
-
-
 class Warning(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3409,6 +3376,24 @@ class SetAgentOwnerResult(BaseModel):
     owner: AgentOwner
 
 
+class VersionLock(BaseModel):
+    """
+    An agent or flow version that locks an unregistered tool or agent version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["agent", "flow"] | str, _open.OPEN]
+    id: str
+    version: str
+    unregistered: Literal[True] | None = None
+    """
+    Present (true) when this agent version is unregistered: a registered flow version still runs it.
+    """
+
+
 class UnregisterAgentResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3417,6 +3402,10 @@ class UnregisterAgentResult(BaseModel):
     agent_id: Annotated[str, Field(alias="agentId")]
     version: str
     unregistered: Literal[True]
+    locked_by: Annotated[list[VersionLock] | None, Field(alias="lockedBy")] = None
+    """
+    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.
+    """
 
 
 class ReinstateAgentVersionResult(BaseModel):
@@ -3748,6 +3737,10 @@ class UnregisterToolResult(BaseModel):
     tool_id: Annotated[str, Field(alias="toolId")]
     version: str
     unregistered: Literal[True]
+    locked_by: Annotated[list[VersionLock] | None, Field(alias="lockedBy")] = None
+    """
+    What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.
+    """
 
 
 class ReinstateToolVersionResult(BaseModel):
@@ -8694,6 +8687,22 @@ class PersonGrantBody(BaseModel):
     kind: Literal["tenant-admin"]
 
 
+class Capability6(RootModel[str]):
+    root: Annotated[str, Field(max_length=100, min_length=1)]
+
+
+class PersonCapabilitiesBody(BaseModel):
+    """
+    The capabilities to give: 1 to 32 names, counted as sent; a name sent twice is given once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    capabilities: Annotated[list[Capability6], Field(max_length=32, min_length=1)]
+
+
 class QueueRuleWhen(BaseModel):
     """
     Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
@@ -9281,6 +9290,10 @@ class MyKeyLimits(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
     The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Whether the key only reads: then each project's `role` shows as `viewer`, and each org's and team's `admin` as `member`. Absent from older servers.
     """
 
 
@@ -11679,6 +11692,10 @@ class MailTriggerRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the mail trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.
+    """
 
 
 class RegisterMailTriggerBodyConfig(BaseModel):
@@ -11935,6 +11952,10 @@ class MailTriggerVersion(BaseModel):
     """
     What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
     """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
+    """
     definition: MailTriggerDefinition
 
 
@@ -12112,7 +12133,7 @@ class ConnectionAccount(BaseModel):
     """
     label: str
     """
-    What people see: an email address, a login.
+    What people see: an email address, a login, a Page's name.
     """
 
 
@@ -12187,7 +12208,7 @@ class ConnectionGitHubApp(BaseModel):
 
 class ConnectionApp(BaseModel):
     """
-    A workspace's registration of its own client at an app. Secrets are references, never values.
+    A workspace's registration of an app: its own client there, or Kindgi's own app (`via`). Secrets are references, never values.
     """
 
     model_config = ConfigDict(
@@ -12199,6 +12220,10 @@ class ConnectionApp(BaseModel):
     """
     The app's entry id.
     """
+    via: Annotated[Literal["kindgi"] | str, _open.OPEN] | None = None
+    """
+    `kindgi`: the app connects through Kindgi's own app (its entry's `signIn.kind` is `kindgi-app`). The server makes this registration itself, with no `oauth2` or `githubApp`. Absent: the workspace's own client.
+    """
     label: str | None = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
@@ -12208,11 +12233,11 @@ class ConnectionApp(BaseModel):
     """
     redirect_url: Annotated[AnyUrl, Field(alias="redirectUrl")]
     """
-    Give this to the app as its redirect URL: a GitHub App's Callback URL, with "Request user authorization (OAuth) during installation" ticked.
+    Give this to the app as its redirect URL: a GitHub App's Callback URL, with "Request user authorization (OAuth) during installation" ticked. Nothing to give anyone for a registration `via: 'kindgi'`.
     """
     notices_url: Annotated[AnyUrl, Field(alias="noticesUrl")]
     """
-    Give this to the app as the place it reports removals.
+    Give this to the app as the place it reports removals. Nothing to give anyone for a registration `via: 'kindgi'`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
@@ -12231,7 +12256,7 @@ class ConnectionAppPage(BaseModel):
 
 class CreateConnectionAppBody(BaseModel):
     """
-    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.
+    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes that registration itself.
     """
 
     model_config = ConfigDict(
@@ -12253,7 +12278,7 @@ class CreateConnectionAppBody(BaseModel):
 
 class UpdateConnectionAppBody(BaseModel):
     """
-    Fields to change; absent fields are kept. The app itself cannot change.
+    Fields to change; absent fields are kept. The app itself cannot change. A registration `via: 'kindgi'` has no client of its own: only `label` and `projects`.
     """
 
     model_config = ConfigDict(
@@ -12575,7 +12600,7 @@ class ConnectRequestInstallation(BaseModel):
 
 class StartConnectBody(BaseModel):
     """
-    Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.
+    Optional: a GitHub App's installation to attach, or a new one; or, for an app through Kindgi's own app, the account picked. Leave it out for any other app.
     """
 
     model_config = ConfigDict(
@@ -12591,6 +12616,10 @@ class StartConnectBody(BaseModel):
     new_installation: Annotated[bool | None, Field(alias="newInstallation")] = None
     """
     `true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.
+    """
+    account_id: Annotated[str | None, Field(alias="accountId", max_length=64, min_length=1)] = None
+    """
+    For an app that connects through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.
     """
 
 
@@ -15334,6 +15363,10 @@ class MintTokenBody(BaseModel):
     """
     Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    `true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`.
+    """
 
 
 class MintTokenResult(BaseModel):
@@ -15359,6 +15392,10 @@ class MintTokenResult(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Present and `true` when the key only reads.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -15564,6 +15601,10 @@ class ApiToken(BaseModel):
     """
     The project the key is limited to.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Present and `true` when the key only reads.
+    """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
     Who minted it: `user:<id>` or `service_account:<id>`.
@@ -15607,6 +15648,10 @@ class Datum4(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the key is limited to.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Present and `true` when the key only reads.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -16175,92 +16220,32 @@ class CorrectedTestCaseCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class Agent(BaseModel):
+class ToolHitlPolicy(BaseModel):
+    """
+    The agent's tool gates. A tool `overrides` doesn't name takes `default`. Without `default`, a read-only tool (`mutating: false`) runs without asking and any other tool asks on first use. Without `tools`, the agent's own rules gate no tool.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    default: (
+        Annotated[Literal["never_ask", "ask_on_first_use", "always_ask"] | str, _open.OPEN] | None
+    ) = None
     """
-    AgentId — dotted namespace (e.g. `acme.drafting`).
+    A tool's gate. `never_ask`: its calls run without asking. `ask_on_first_use`: a call asks the first time the conversation makes it with those arguments, and once approved, the same call runs without asking. `always_ask`: every call asks.
     """
-    version: str
+    overrides: (
+        dict[
+            str,
+            ToolHitlRule
+            | Annotated[Literal["never_ask", "ask_on_first_use", "always_ask"] | str, _open.OPEN],
+        ]
+        | None
+    ) = None
     """
-    Semver.
+    By tool id: a mode, or a mode and the reviewer role its approvals need.
     """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    name: str
-    description: str | None = None
-    instructions: Instructions | PromptRef
-    """
-    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
-    """
-    parameters: list[PromptParameter] | None = None
-    settings: list[BlockRef] | None = None
-    """
-    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
-    """
-    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
-    """
-    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
-    """
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    memory: AgentMemoryPolicy | None = None
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
-    """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
-    """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
-    )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
-    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
-    """
-    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
-    """
-    mcp: McpExposure | None = None
-    pins: AgentPins | None = None
-    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
-    """
-    pins_digest: Annotated[
-        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
-    ] = None
-    """
-    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
-    """
-    owner: AgentOwner | None = None
-    """
-    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
-    """
-
-
-class AgentCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Agent]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class HttpToolSpec(BaseModel):
@@ -17217,7 +17202,7 @@ class MyPermissions(BaseModel):
         list[MyEveryoneCanRunProject] | None, Field(alias="everyoneCanRunProjects")
     ] = None
     """
-    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.
+    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone, and a key that only reads, none. Absent when there are none, and from an older server.
     """
     orgs: list[MyOrgAccess]
     """
@@ -18081,6 +18066,10 @@ class ScheduleRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the schedule was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.
+    """
 
 
 class ScheduleCollectionPage(BaseModel):
@@ -18310,6 +18299,10 @@ class WebhookTriggerRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`.
+    """
 
 
 class WebhookTriggerCollectionPage(BaseModel):
@@ -18531,6 +18524,10 @@ class ScheduleVersion(BaseModel):
     """
     What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
     """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
+    """
     definition: ScheduleDefinition
 
 
@@ -18646,6 +18643,10 @@ class WebhookTriggerVersion(BaseModel):
     """
     What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
     """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.
+    """
     definition: WebhookTriggerDefinition
 
 
@@ -18701,7 +18702,10 @@ class SignIn(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
+    kind: Annotated[Literal["oauth2", "github-app", "kindgi-app"] | str, _open.OPEN]
+    """
+    `oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`).
+    """
     tenant: ConnectionEntrySignInTenant | None = None
     """
     Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
@@ -18919,6 +18923,10 @@ class ConnectRequest(BaseModel):
     """
     A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.
     """
+    accounts: list[ConnectionAccount] | None = None
+    """
+    For an app that connects through Kindgi's own app, while the request is `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.
+    """
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
     The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.
@@ -18937,9 +18945,11 @@ class ConnectFinish(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["connected", "declined", "pick-installation"] | str, _open.OPEN]
+    kind: Annotated[
+        Literal["connected", "declined", "pick-installation", "pick-account"] | str, _open.OPEN
+    ]
     """
-    `declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.
+    `declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`. `pick-account`: through Kindgi's own app, the business shared several accounts that fit and none was picked; the request stays `pending` with its `accounts`.
     """
     request: ConnectRequest
     connection: Connection | None = None
@@ -19521,6 +19531,45 @@ class CorrectionCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class ConversationHitlPolicy(BaseModel):
+    """
+    When the agent's turns and tool calls wait for a person's approval: its tool gates, the reviewer role their approvals need, four eyes, how long an approval waits, and the session gate. The workspace's approval rules can only make them stricter.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    after_turns: Annotated[int | None, Field(alias="afterTurns", ge=1)] = None
+    """
+    Once the conversation has this many completed turns, each new turn waits for an approval before it runs. Takes precedence over `hitlAfterTurns`.
+    """
+    tools: ToolHitlPolicy | None = None
+    default_reviewer_role: Annotated[
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None,
+        Field(alias="defaultReviewerRole"),
+    ] = None
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    separate_approver: Annotated[
+        bool | SeparateApproverPolicy | None, Field(alias="separateApprover")
+    ] = None
+    """
+    Four eyes: whether an approval needs someone other than the person who asked for the call. `true` or `false` for every gated tool, or per tool. Default `false`.
+    """
+    timeout_ms: Annotated[int | None, Field(alias="timeoutMs", ge=1)] = None
+    """
+    How long an approval waits for a decision, in milliseconds. Default 24 hours. The workspace's approval rules may cap it.
+    """
+    on_timeout: Annotated[
+        Annotated[Literal["escalate"] | str, _open.OPEN] | None, Field(alias="onTimeout")
+    ] = None
+    """
+    What an approval does when its time runs out: it goes to the next reviewer role, and at `admin` it expires and the turn fails. The only behavior, and the default.
+    """
+
+
 class Tool(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -19861,6 +19910,10 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+    capabilities: list[str] | None = None
+    """
+    The capabilities the person holds, such as `env:write` or `signing-keys:write`. Absent when the runtime doesn't report them: unknown, not none.
+    """
 
 
 class EnvSetOutcome(
@@ -19986,6 +20039,161 @@ class WebhookDeliveryCollectionPage(BaseModel):
     )
     data: list[WebhookDelivery]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConversationPolicy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
+    hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
+    hitl: ConversationHitlPolicy | None = None
+
+
+class Agent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    AgentId — dotted namespace (e.g. `acme.drafting`).
+    """
+    version: str
+    """
+    Semver.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    name: str
+    description: str | None = None
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+    parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
+    """
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
+    """
+    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
+    """
+    mcp: McpExposure | None = None
+    pins: AgentPins | None = None
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+    owner: AgentOwner | None = None
+    """
+    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
+    """
+
+
+class PublishAgentBody(BaseModel):
+    """
+    Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    name: str
+    description: str | None = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
+    """
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+    parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
+    """
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`). Combined with `preferredProvider` to pin an exact tuple; alone to select a model across every provider that exposes it.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
+    """
+    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
+    """
+    mcp: McpExposure | None = None
+
+
+class AgentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Agent]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
@@ -20207,9 +20415,13 @@ class WhoamiResult(BaseModel):
     """
     The project the caller's API key or session is limited to, when it is.
     """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    With `tokenId`: whether the caller's API key only reads. A session has none. Absent from older servers.
+    """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
-    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key, one limited to a project, or one that only reads). A console shows its admin pages by it. Absent from older servers: read `scopes`.
     """
     served_env: Annotated[ServedEnv | None, Field(alias="servedEnv")] = None
     """

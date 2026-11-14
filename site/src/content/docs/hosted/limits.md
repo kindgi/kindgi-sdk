@@ -47,6 +47,10 @@ retry-after: 33
 {"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
+Any call your workspace's keys and sessions make can get it, and the
+[API reference](../../reference/api/) names it on each. It also names
+`Retry-After` on every answer that can send it: whole seconds, at least 1.
+
 A chat app reads a run while it waits for it: about once a second for up to
 25 seconds after it starts the run, then about every 3 seconds, and each read
 counts toward this limit.

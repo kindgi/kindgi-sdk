@@ -40,6 +40,7 @@ import type {
   ToolVersionRow,
 } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import type { VersionLocksBinding } from '../version-locks-binding.js';
 import { includeRetiredOf } from './include-retired.js';
 import { clampLimit } from './pagination.js';
 import {
@@ -51,6 +52,7 @@ import {
 } from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
 import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
+import { lockedByField } from './version-locks.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
@@ -115,6 +117,8 @@ export function toolsRouter(
     readonly referenceScope?: ReferenceScopeBinding;
     /** The tools' pinned versions; absent → no pin routes, and a lock takes the newest version. */
     readonly pinnedVersions?: PinnedVersionBinding;
+    /** What can still run a version, for the unregister answer's `lockedBy`; absent → no `lockedBy`. */
+    readonly versionLocks?: VersionLocksBinding;
   } = {},
 ): Hono<AppEnv> {
   const { itemRights, pinnedVersions } = options;
@@ -626,10 +630,21 @@ export function toolsRouter(
         // See publish path — hooks are advisory.
       }
     }
+    const locks = await lockedByField(
+      c,
+      { versionLocks: options.versionLocks, authorizer, itemRights },
+      {
+        tenantId,
+        kind: 'tool',
+        id: toolId as unknown as string,
+        version: version as unknown as string,
+      },
+    );
     return c.json({
       toolId: toolId as unknown as string,
       version: version as unknown as string,
       unregistered: true,
+      ...locks,
     });
   });
 

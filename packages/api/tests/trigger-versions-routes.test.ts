@@ -9,11 +9,15 @@
  * what a body says, and never changes after. A change's audit entry
  * names the version it made. Reading versions is reading the trigger: who
  * can't read it can't read them, and another tenant's trigger isn't found.
+ * A removed schedule's, webhook trigger's or mail trigger's one version
+ * reads with no flag, carrying when it was removed (`unregisteredAt`), as a
+ * run's `trigger.version` names it; the trigger, its versions and its fires
+ * only with `includeUnregistered=true`, and nothing changes it.
  */
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
@@ -421,13 +425,117 @@ describe.each(KINDS)("a $name's versions", (kind) => {
     },
   );
 
-  test("an unregistered trigger's versions aren't found", async () => {
-    const h = harness();
-    const id = await registered(h);
-    expect((await h.call('POST', `${kind.base}/${id}/unregister`)).status).toBe(200);
-    expect((await h.call('GET', `${kind.base}/${id}/versions`)).status).toBe(404);
-    expect((await h.call('GET', `${kind.base}/${id}/versions/1`)).status).toBe(404);
-  });
+  test.runIf(kind.schema === undefined)(
+    "an unregistered trigger's versions aren't found",
+    async () => {
+      const h = harness();
+      const id = await registered(h);
+      expect((await h.call('POST', `${kind.base}/${id}/unregister`)).status).toBe(200);
+      expect((await h.call('GET', `${kind.base}/${id}/versions`)).status).toBe(404);
+      expect((await h.call('GET', `${kind.base}/${id}/versions/1`)).status).toBe(404);
+    },
+  );
+
+  test.runIf(kind.schema !== undefined)(
+    "a removed trigger's one version reads with no flag, with when it was removed; the rest only when asked",
+    async () => {
+      const h = harness();
+      const id = await registered(h);
+      expect((await h.call('PATCH', `${kind.base}/${id}`, kind.edit)).status).toBe(200);
+      const runId = randomUUID();
+      h.registry.recordFire({
+        triggerId: id as never,
+        kind: kind.fires ?? 'schedule',
+        firedAt: '2026-10-07T10:00:01.000Z',
+        outcome: 'started',
+        runId: runId as never,
+        version: 2,
+      });
+      expect((await h.call('POST', `${kind.base}/${id}/unregister`)).status).toBe(200);
+
+      // The version a run started from, as its `trigger.version` names it.
+      const v1 = await h.call('GET', `${kind.base}/${id}/versions/1`);
+      expect(v1.status, JSON.stringify(v1.body)).toBe(200);
+      expect(validateAgainst(`${kind.schema}Version`, v1.body)).toEqual([]);
+      expect(v1.body).toMatchObject({ triggerId: id, version: 1, cause: 'register' });
+      expect(v1.body.definition).toEqual(kind.definition);
+      const removedAt = v1.body.unregisteredAt as string;
+      expect(Number.isNaN(Date.parse(removedAt))).toBe(false);
+      expect((await h.call('GET', `${kind.base}/${id}/versions/3`)).body.error.code).toBe(
+        'trigger-version-not-found',
+      );
+      // Reading it is reading the trigger: as for a live one.
+      expect((await h.call('GET', `${kind.base}/${id}/versions/1`, undefined, 'eve')).status).toBe(
+        403,
+      );
+      const elsewhere = await h.call('GET', `${kind.base}/${id}/versions/1`, undefined, 'other');
+      expect(elsewhere.body.error.code).toBe('trigger-not-found');
+
+      // Unasked, the rest answers as for a trigger that isn't there.
+      for (const path of ['', '/versions', '/fires']) {
+        const unasked = await h.call('GET', `${kind.base}/${id}${path}`);
+        expect(unasked.status, path).toBe(404);
+        expect(unasked.body.error.code, path).toBe('trigger-not-found');
+      }
+      const listed = await h.call('GET', kind.base);
+      expect(listed.body.data.map((r: { triggerId: string }) => r.triggerId)).not.toContain(id);
+
+      // Asked: the trigger as it was, its versions and its fires.
+      const asked = '?includeUnregistered=true';
+      const record = await h.call('GET', `${kind.base}/${id}${asked}`);
+      expect(record.status, JSON.stringify(record.body)).toBe(200);
+      expect(validateAgainst(`${kind.schema}Record`, record.body)).toEqual([]);
+      expect(record.body).toMatchObject({
+        triggerId: id,
+        status: 'active',
+        version: 2,
+        unregisteredAt: removedAt,
+      });
+      if (kind.name === 'schedule') {
+        // A removed schedule fires no more, so its occurrences to come aren't asked for.
+        const gets = vi.spyOn(h.registry, 'get');
+        const ahead = await h.call('GET', `${kind.base}/${id}${asked}&upcoming=3`);
+        expect(ahead.status, JSON.stringify(ahead.body)).toBe(200);
+        expect(ahead.body).toEqual(record.body);
+        expect(gets.mock.calls.map(([input]) => input.upcoming)).toEqual([undefined]);
+        gets.mockRestore();
+      }
+      const page = await h.call('GET', `${kind.base}/${id}/versions${asked}`);
+      expect(page.status).toBe(200);
+      expect(validateAgainst(`${kind.schema}VersionPage`, page.body)).toEqual([]);
+      expect(
+        page.body.data.map((v: { version: number; unregisteredAt?: string }) => [
+          v.version,
+          v.unregisteredAt,
+        ]),
+      ).toEqual([
+        [2, removedAt],
+        [1, removedAt],
+      ]);
+      const fires = await h.call('GET', `${kind.base}/${id}/fires${asked}`);
+      expect(fires.status).toBe(200);
+      expect(fires.body.data).toMatchObject([{ runId, version: 2 }]);
+      for (const [query, has] of [
+        [asked, true],
+        [`${asked}&status=active`, true],
+        [`${asked}&status=paused`, false],
+      ] as const) {
+        const rows = (await h.call('GET', `${kind.base}${query}`)).body.data as {
+          triggerId: string;
+          unregisteredAt?: string;
+        }[];
+        expect(
+          rows.some((r) => r.triggerId === id && r.unregisteredAt === removedAt),
+          query,
+        ).toBe(has);
+      }
+
+      // Nothing changes it.
+      const patched = await h.call('PATCH', `${kind.base}/${id}${asked}`, kind.edit);
+      expect(patched.status).toBe(404);
+      expect((await h.call('POST', `${kind.base}/${id}/pause${asked}`)).status).toBe(404);
+    },
+  );
 });
 
 describe('the versions list pages', () => {

@@ -86,6 +86,7 @@ import {
   PACK_ENV_PLATFORM_HOLDS,
   PACK_ENV_PROBLEM_CODES,
 } from '../pack-env.js';
+import { RUN_EVENT_KINDS } from '../routes/sse.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
@@ -1521,28 +1522,7 @@ export const RunEventSchema: JsonSchema = {
     timestamp: { type: 'string', format: 'date-time' },
     kind: {
       type: 'string',
-      enum: [
-        'run.queued',
-        'run.started',
-        'run.step-started',
-        'run.step-completed',
-        'run.step-failed',
-        'run.step-retry-scheduled',
-        'run.iteration-started',
-        'run.iteration-completed',
-        'run.tool-invoked',
-        'run.tool-result',
-        'run.model-token',
-        'run.artifact-produced',
-        'run.guardrail-violated',
-        'run.wait-suspended',
-        'run.wait-resumed',
-        'run.approval-requested',
-        'run.approval-completed',
-        'run.completed',
-        'run.failed',
-        'run.cancelled',
-      ],
+      enum: [...RUN_EVENT_KINDS],
     },
     sequence: { type: 'integer', minimum: 0 },
     nodeId: { type: 'string' },
@@ -1624,6 +1604,11 @@ export const MintTokenBodySchema: JsonSchema = {
       description:
         'Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.',
     },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "`true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`.",
+    },
   },
 };
 
@@ -1643,6 +1628,10 @@ export const ApiTokenSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description: 'The project the key is limited to.',
+    },
+    readOnly: {
+      type: 'boolean',
+      description: 'Present and `true` when the key only reads.',
     },
     createdBy: {
       type: 'string',
@@ -3595,6 +3584,97 @@ export const ConversationPolicySchema: JsonSchema = {
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
+    hitl: { $ref: '#/components/schemas/ConversationHitlPolicy' },
+  },
+};
+
+export const ConversationHitlPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "When the agent's turns and tool calls wait for a person's approval: its tool gates, the reviewer role their approvals need, four eyes, how long an approval waits, and the session gate. The workspace's approval rules can only make them stricter.",
+  properties: {
+    afterTurns: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Once the conversation has this many completed turns, each new turn waits for an approval before it runs. Takes precedence over `hitlAfterTurns`.',
+    },
+    tools: { $ref: '#/components/schemas/ToolHitlPolicy' },
+    defaultReviewerRole: { $ref: '#/components/schemas/ReviewerRole' },
+    separateApprover: {
+      oneOf: [{ type: 'boolean' }, { $ref: '#/components/schemas/SeparateApproverPolicy' }],
+      description:
+        'Four eyes: whether an approval needs someone other than the person who asked for the call. `true` or `false` for every gated tool, or per tool. Default `false`.',
+    },
+    timeoutMs: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "How long an approval waits for a decision, in milliseconds. Default 24 hours. The workspace's approval rules may cap it.",
+    },
+    onTimeout: {
+      type: 'string',
+      enum: ['escalate'],
+      description:
+        'What an approval does when its time runs out: it goes to the next reviewer role, and at `admin` it expires and the turn fails. The only behavior, and the default.',
+    },
+  },
+};
+
+export const ToolHitlPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The agent's tool gates. A tool `overrides` doesn't name takes `default`. Without `default`, a read-only tool (`mutating: false`) runs without asking and any other tool asks on first use. Without `tools`, the agent's own rules gate no tool.",
+  properties: {
+    default: { $ref: '#/components/schemas/ToolHitlMode' },
+    overrides: {
+      type: 'object',
+      additionalProperties: {
+        oneOf: [
+          { $ref: '#/components/schemas/ToolHitlMode' },
+          { $ref: '#/components/schemas/ToolHitlRule' },
+        ],
+      },
+      description: 'By tool id: a mode, or a mode and the reviewer role its approvals need.',
+    },
+  },
+};
+
+export const ToolHitlModeSchema: JsonSchema = {
+  type: 'string',
+  enum: ['never_ask', 'ask_on_first_use', 'always_ask'],
+  description:
+    "A tool's gate. `never_ask`: its calls run without asking. `ask_on_first_use`: a call asks the first time the conversation makes it with those arguments, and once approved, the same call runs without asking. `always_ask`: every call asks.",
+};
+
+export const ToolHitlRuleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode'],
+  description:
+    "A tool's gate, and the reviewer role its approvals need. Without `requiredRole`, the agent's `defaultReviewerRole`.",
+  properties: {
+    mode: { $ref: '#/components/schemas/ToolHitlMode' },
+    requiredRole: { $ref: '#/components/schemas/ReviewerRole' },
+  },
+};
+
+export const SeparateApproverPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Four eyes per tool.',
+  properties: {
+    default: {
+      type: 'boolean',
+      description: "For every gated tool `overrides` doesn't name. Default `false`.",
+    },
+    overrides: {
+      type: 'object',
+      additionalProperties: { type: 'boolean' },
+      description: "By tool id. Each names one of the agent's tools.",
+    },
   },
 };
 
@@ -3958,6 +4038,32 @@ export const SetAgentOwnerResultSchema: JsonSchema = {
   },
 };
 
+export const VersionLockSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'An agent or flow version that locks an unregistered tool or agent version.',
+  required: ['kind', 'id', 'version'],
+  properties: {
+    kind: { type: 'string', enum: ['agent', 'flow'] },
+    id: { type: 'string' },
+    version: { type: 'string' },
+    unregistered: {
+      type: 'boolean',
+      const: true,
+      description:
+        'Present (true) when this agent version is unregistered: a registered flow version still runs it.',
+    },
+  },
+};
+
+/** The unregister answers' `lockedBy`. */
+const LOCKED_BY_PROPERTY: JsonSchema = {
+  type: 'array',
+  items: { $ref: '#/components/schemas/VersionLock' },
+  description:
+    'What can still run the version: the registered agent and flow versions that lock it, and the unregistered agent versions a registered flow version still runs. Runs in flight are not listed. Every one the caller may read, sorted by kind, id, then version; `[]` when nothing the caller may read locks it. Absent from older servers, and when the server cannot tell.',
+};
+
 export const UnregisterAgentResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3966,6 +4072,7 @@ export const UnregisterAgentResultSchema: JsonSchema = {
     agentId: { type: 'string' },
     version: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+    lockedBy: LOCKED_BY_PROPERTY,
   },
 };
 
@@ -4606,6 +4713,7 @@ export const UnregisterToolResultSchema: JsonSchema = {
     toolId: { type: 'string' },
     version: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+    lockedBy: LOCKED_BY_PROPERTY,
   },
 };
 
@@ -11472,10 +11580,15 @@ export const WhoamiResultSchema: JsonSchema = {
       type: 'string',
       description: "The project the caller's API key or session is limited to, when it is.",
     },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "With `tokenId`: whether the caller's API key only reads. A session has none. Absent from older servers.",
+    },
     tenantAdmin: {
       type: 'boolean',
       description:
-        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
+        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key, one limited to a project, or one that only reads). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
     servedEnv: {
       type: 'object',
@@ -11778,6 +11891,12 @@ export const PersonGrantsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/PersonTeamRole' },
     },
     reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+    capabilities: {
+      type: 'array',
+      description:
+        "The capabilities the person holds, such as `env:write` or `signing-keys:write`. Absent when the runtime doesn't report them: unknown, not none.",
+      items: { type: 'string' },
+    },
   },
 };
 
@@ -12014,6 +12133,11 @@ export const MyKeyLimitsSchema: JsonSchema = {
       description:
         'The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.',
     },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "Whether the key only reads: then each project's `role` shows as `viewer`, and each org's and team's `admin` as `member`. Absent from older servers.",
+    },
   },
 };
 
@@ -12054,7 +12178,7 @@ export const MyPermissionsSchema: JsonSchema = {
     everyoneCanRunProjects: {
       type: 'array',
       description:
-        'The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.',
+        'The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone, and a key that only reads, none. Absent when there are none, and from an older server.',
       items: { $ref: '#/components/schemas/MyEveryoneCanRunProject' },
     },
     orgs: {
@@ -12508,6 +12632,22 @@ export const PersonGrantBodySchema: JsonSchema = {
   description:
     "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
   properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const PersonCapabilitiesBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['capabilities'],
+  description:
+    'The capabilities to give: 1 to 32 names, counted as sent; a name sent twice is given once.',
+  properties: {
+    capabilities: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 32,
+      items: { type: 'string', minLength: 1, maxLength: 100 },
+    },
+  },
 };
 
 export const UserCollectionPageSchema: JsonSchema = {
@@ -15402,6 +15542,12 @@ export const ScheduleRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the schedule was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.',
+    },
   },
 };
 
@@ -15955,6 +16101,12 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the webhook trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then. Its `receiveUrl` then answers `410 webhook-gone`.',
+    },
   },
 };
 
@@ -16370,6 +16522,12 @@ export const MailTriggerRecordSchema: JsonSchema = {
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the mail trigger was removed: only on a removed one, which a read answers when it asks (`?includeUnregistered=true`). `status` is the one it had then.',
+    },
   },
 };
 
@@ -16562,6 +16720,12 @@ function triggerVersionSchema(
           'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).',
       },
       cause: { $ref: '#/components/schemas/TriggerVersionCause' },
+      unregisteredAt: {
+        type: 'string',
+        format: 'date-time',
+        description:
+          "When the trigger was removed: only on a removed trigger's version. A trigger's versions are never removed one by one: they stay as long as the trigger does.",
+      },
       definition: { $ref: `#/components/schemas/${definition}` },
     },
   };
@@ -16892,7 +17056,10 @@ export const ConnectionAccountSchema: JsonSchema = {
   description: 'Whose account a connection is at the app.',
   properties: {
     id: { type: 'string', description: "The account's stable id at the app." },
-    label: { type: 'string', description: 'What people see: an email address, a login.' },
+    label: {
+      type: 'string',
+      description: "What people see: an email address, a login, a Page's name.",
+    },
   },
 };
 
@@ -16935,7 +17102,12 @@ export const ConnectionEntrySchema: JsonSchema = {
       required: ['kind'],
       description: 'How a person signs in at the app.',
       properties: {
-        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        kind: {
+          type: 'string',
+          enum: ['oauth2', 'github-app', 'kindgi-app'],
+          description:
+            "`oauth2`: with the workspace's own OAuth client. `github-app`: with its own GitHub App. `kindgi-app`: through Kindgi's own app, by Kindgi's connect step. There's no client to register: the server makes the registration itself (`via: 'kindgi'` on `/v1/connection-apps`).",
+        },
         tenant: {
           type: 'object',
           additionalProperties: false,
@@ -17031,10 +17203,16 @@ export const ConnectionAppSchema: JsonSchema = {
   additionalProperties: false,
   required: ['appId', 'app', 'redirectUrl', 'noticesUrl', 'createdAt', 'updatedAt'],
   description:
-    "A workspace's registration of its own client at an app. Secrets are references, never values.",
+    "A workspace's registration of an app: its own client there, or Kindgi's own app (`via`). Secrets are references, never values.",
   properties: {
     appId: { type: 'string', format: 'uuid' },
     app: { type: 'string', description: "The app's entry id." },
+    via: {
+      type: 'string',
+      enum: ['kindgi'],
+      description:
+        "`kindgi`: the app connects through Kindgi's own app (its entry's `signIn.kind` is `kindgi-app`). The server makes this registration itself, with no `oauth2` or `githubApp`. Absent: the workspace's own client.",
+    },
     label: { type: 'string' },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
@@ -17047,12 +17225,13 @@ export const ConnectionAppSchema: JsonSchema = {
       type: 'string',
       format: 'uri',
       description:
-        'Give this to the app as its redirect URL: a GitHub App\'s Callback URL, with "Request user authorization (OAuth) during installation" ticked.',
+        "Give this to the app as its redirect URL: a GitHub App's Callback URL, with \"Request user authorization (OAuth) during installation\" ticked. Nothing to give anyone for a registration `via: 'kindgi'`.",
     },
     noticesUrl: {
       type: 'string',
       format: 'uri',
-      description: 'Give this to the app as the place it reports removals.',
+      description:
+        "Give this to the app as the place it reports removals. Nothing to give anyone for a registration `via: 'kindgi'`.",
     },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -17075,7 +17254,8 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['app'],
-  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  description:
+    "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App. An app that signs in through Kindgi's own app (`signIn.kind` `kindgi-app`) isn't registered here: the server makes that registration itself.",
   properties: {
     app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
     label: { type: 'string', maxLength: 200 },
@@ -17094,7 +17274,8 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
 export const UpdateConnectionAppBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'Fields to change; absent fields are kept. The app itself cannot change.',
+  description:
+    "Fields to change; absent fields are kept. The app itself cannot change. A registration `via: 'kindgi'` has no client of its own: only `label` and `projects`.",
   properties: {
     label: { type: 'string', maxLength: 200 },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
@@ -17522,6 +17703,12 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
     },
+    accounts: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ConnectionAccount' },
+      description:
+        "For an app that connects through Kindgi's own app, while the request is `pending`: the accounts the business shared that fit the app (Facebook Pages, or Instagram accounts), when the finish found several and none was picked. They pick one and start again with `accountId`.",
+    },
     connectionId: {
       type: 'string',
       format: 'uuid',
@@ -17621,7 +17808,7 @@ export const StartConnectBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+    "Optional: a GitHub App's installation to attach, or a new one; or, for an app through Kindgi's own app, the account picked. Leave it out for any other app.",
   properties: {
     installationId: {
       type: 'string',
@@ -17633,6 +17820,13 @@ export const StartConnectBodySchema: JsonSchema = {
       type: 'boolean',
       description:
         "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.",
+    },
+    accountId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description:
+        "For an app that connects through Kindgi's own app: the account to connect, one of the request's `accounts`. Not with `installationId` or `newInstallation`.",
     },
   },
 };
@@ -17681,9 +17875,9 @@ export const ConnectFinishSchema: JsonSchema = {
   properties: {
     kind: {
       type: 'string',
-      enum: ['connected', 'declined', 'pick-installation'],
+      enum: ['connected', 'declined', 'pick-installation', 'pick-account'],
       description:
-        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.",
+        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`. `pick-account`: through Kindgi's own app, the business shared several accounts that fit and none was picked; the request stays `pending` with its `accounts`.",
     },
     request: { $ref: '#/components/schemas/ConnectRequest' },
     connection: {
@@ -18343,6 +18537,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
   ['McpExposure', McpExposureSchema],
   ['ConversationPolicy', ConversationPolicySchema],
+  ['ConversationHitlPolicy', ConversationHitlPolicySchema],
+  ['ToolHitlPolicy', ToolHitlPolicySchema],
+  ['ToolHitlMode', ToolHitlModeSchema],
+  ['ToolHitlRule', ToolHitlRuleSchema],
+  ['SeparateApproverPolicy', SeparateApproverPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
   ['Capability', CapabilitySchema],
   ['ToolRef', ToolRefSchema],
@@ -18361,6 +18560,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentOwner', AgentOwnerSchema],
   ['SetAgentOwnerBody', SetAgentOwnerBodySchema],
   ['SetAgentOwnerResult', SetAgentOwnerResultSchema],
+  ['VersionLock', VersionLockSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],
   ['ReinstateAgentVersionResult', ReinstateAgentVersionResultSchema],
   ['AgentCollectionPage', AgentCollectionPageSchema],
@@ -18634,6 +18834,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
+  ['PersonCapabilitiesBody', PersonCapabilitiesBodySchema],
   ['ExpertQueueRunStatus', ExpertQueueRunStatusSchema],
   ['ExpertQueueState', ExpertQueueStateSchema],
   ['QueueRuleWhen', QueueRuleWhenSchema],

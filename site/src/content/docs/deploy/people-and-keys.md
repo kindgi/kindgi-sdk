@@ -307,8 +307,9 @@ npx --yes @kindgi/cli@0.6 people ungrant <user-id> --tenant-admin
 holds from their next request.
 
 `kindgi people grants <user-id> --table` lists what someone holds, as
-granted directly: tenant admin, tenant member, project and team roles, and a
-reviewer role. What a team or an org gives isn't expanded. Sam, newly added,
+granted directly: tenant admin, tenant member, project and team roles, a
+reviewer role, and the capabilities they hold. What a team or an org gives
+isn't expanded. Sam, newly added,
 holds only the tenant membership:
 
 ```text
@@ -340,13 +341,14 @@ where they aren't an admin. A key they made for another tenant admin, or
 for a service account that's one, keeps working.
 
 Making the first admin a tenant admin again doesn't give their own
-capabilities back, so the console offers them none. A key that carries
-capabilities makes new keys with them
+capabilities back. Another tenant admin who holds them can give them back
+([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)).
+A key that carries capabilities also makes new keys with them
 (`kindgi tokens create --capability=<cap>`, in [API keys](#api-keys)):
 their own keys, once they're an admin again, or one made for another
 tenant admin or a service account that's one. Before you revoke the last
 key that carries a capability, or let it expire, make its replacement with
-it. If the first admin doesn't hold a capability and no key in the workspace
+it. If no tenant admin holds a capability and no key in the workspace
 carries it, contact support.
 
 Make the key that carries these capabilities for a service account that's
@@ -367,6 +369,48 @@ still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
 
+### Give a tenant admin capabilities
+
+A tenant admin gives another tenant admin capabilities their own person
+holds now, such as `env:write` or `signing-keys:write`. What their key was
+made with never counts, so a service account or a system key gives none.
+Make the person a tenant admin first.
+
+In TypeScript, that's `users.giveCapabilities(userId, ['env:write'])` and
+`users.takeBackCapability(userId, 'env:write')`, and in Python
+`identity.users.give_capabilities` and
+`identity.users.take_back_capability`. Over HTTP, it's
+`POST /v1/identity/users/{userId}/capabilities` with
+`{"capabilities": [...]}`, 1 to 32 of them, and
+`DELETE /v1/identity/users/{userId}/capabilities/{capability}`. Each answers
+with the person's grants after, `capabilities` included.
+
+A sign-in session holds what its person holds, read on each request, so a
+change reaches it at once. An API key keeps the capabilities it was made
+with: to take one away from a person's keys too, revoke those keys.
+
+A tenant admin takes back only what their own person holds. A person may
+drop their own capability with a full API key or session, but not with a
+`member` one, nor with one limited to a project. The last holder's may go
+too, so before you take back the last one, give it to someone else first.
+One the person doesn't hold is left as it is.
+
+Giving or taking back is refused in these cases, and nothing changes:
+
+- `403 permission-denied`: you aren't a tenant admin. Taking back your own
+  needs no admin, but it does need a full API key or session: a `member`
+  one, or one limited to a project, is refused, and the message names which.
+- `403 capability-not-held`: your own person doesn't hold one of them now.
+  The message names the ones you lack. Taking back one you don't hold is
+  refused the same way, unless it's your own.
+- `403 capability-not-givable`: `secrets:reveal` or a system capability
+  (`kindgi:system`, `system:*`). No person gives these.
+- `403 caller-not-a-person`: a service account's key or a system key asked.
+- `409 receiver-not-tenant-admin`: the person isn't a tenant admin. Make
+  them one first.
+- `501 person-capabilities-unsupported`: the runtime doesn't give or take
+  back capabilities.
+
 ## What you may do
 
 `GET /v1/identity/me/permissions` answers what you, the caller, may do, with
@@ -380,8 +424,9 @@ a role.
     `assignedTo`, and which is absent without a roster row;
   - the approvals' roles you may decide: your rank and those under it;
   - whether you can decide at all.
-- **`key`:** when you call with an API key, its role and the project it's
-  limited to.
+- **`key`:** when you call with an API key, its role, the project it's
+  limited to, and `readOnly`: whether it only reads
+  ([A key that only reads](#a-key-that-only-reads)).
 - **`tokenCapabilities`:** what your token itself carries for secret, env,
   config-entry and signing-key writes. A sign-in session carries the ones you
   hold as a person.
@@ -424,9 +469,11 @@ a role.
   most 280 characters. Setting it takes `env:write`, as every config entry
   does ([Who can do what](#who-can-do-what)).
 
-A key limited to a project sees that project alone. A `member` key is never
-a tenant admin. You see only what you may read: no project you can't read,
-and no one else's role.
+A key limited to a project sees that project alone (in memory, it also reads
+its person's own facts that name no other project:
+[Who sees what](../../guides/agents/memory-reference/#who-sees-what)). A
+`member` key is never a tenant admin. You see only what you may read: no
+project you can't read, and no one else's role.
 
 The console hides actions by it
 ([The console, by role](../authorization/#the-console-by-role)). The server
@@ -497,6 +544,15 @@ console signed in through SSO, a social sign-in or an emailed link.
   with `permission-denied`, as before. Without a store, a write to an
   existing item by its id is judged as before, except a memory fact's,
   which goes by the fact's scope, as writing one does.
+
+  Such a key reads its project's work and what that work needs: the
+  workspace's release gates and the org its project is in, but no team.
+  The workspace's settings answer it `403`: providers, policies, adapters,
+  capabilities, signing keys and sign-in providers. A row with no project,
+  such as an approval or a cost record with none, is the whole workspace's:
+  a list leaves it out, and asked for alone it answers as another project's
+  row does. A cost total it asks for counts only its project's records, and
+  one for another org's scope answers `403`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -586,6 +642,30 @@ of your keys beyond its limits answers `403`, naming its own limit
 (`key-project-mismatch`, or `permission-denied` for an `admin` key), and
 says nothing about that key. A key or session without limits sees what it
 did before: a tenant admin's, every key; anyone else's, all of their own.
+
+### A key that only reads
+
+A key minted with `readOnly: true` reads and changes nothing: for a tool
+that should look at a workspace and never act in it. The CLI's
+`tokens create` has no flag for it. Mint it with `POST /v1/tokens` and
+`{"readOnly": true}`, or with the TypeScript client's
+`tokens.create({ readOnly: true })`. Its other limits apply as for any key:
+its role, its project and its capabilities.
+
+- Every request it makes but a `GET` or a `HEAD` is refused with
+  `403 read-only-key`, before any route runs. The one exception is an
+  agent's pin check, `POST /v1/agents/{agentId}/pinned/check`, which writes
+  nothing.
+- It mints and revokes no keys, its own included, and it doesn't open a
+  console session: a sign-in with it is refused with `403 read-only-key`,
+  as any other post is.
+- Its record carries `readOnly: true`. Called with it,
+  `GET /v1/identity/whoami` answers `readOnly: true`, and
+  [What you may do](#what-you-may-do) has `key.readOnly` and shows each of
+  its projects' roles as `viewer`, and its org and team `admin` roles as
+  `member`.
+- A server whose key store can't keep the limit makes no such key: the mint
+  answers `501 read-only-unsupported`, with no secret.
 
 ## Service accounts
 

@@ -1153,6 +1153,27 @@ describe("a GitHub App's connect", () => {
       }),
     ).toMatchObject({ kind: 'err', error: { code: 'bad-input', field: 'newInstallation' } });
   });
+
+  test("an account pick is refused: no app here connects through Kindgi's own app", async () => {
+    const made = setup();
+    const mail = await request(made);
+    const repo = await request(made, {
+      app: 'github',
+      owner: 'company',
+      permissions: ['issues.read'],
+    });
+    for (const [requestId, caller] of [
+      [mail.requestId, ana],
+      [repo.requestId, admin],
+    ] as const) {
+      expect(
+        await made.binding.startRequest({ tenantId, requestId, caller, accountId: '1001' }),
+      ).toMatchObject({ kind: 'err', error: { code: 'bad-input', field: 'accountId' } });
+      expect(await made.binding.getRequest({ tenantId, requestId })).toMatchObject({
+        state: 'pending',
+      });
+    }
+  });
 });
 
 describe('disconnects, notices and lists', () => {

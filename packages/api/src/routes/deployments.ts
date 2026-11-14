@@ -461,8 +461,10 @@ export function deploymentsRouter(
   // an agent there does; a tenant-wide deploy, the tenant's. Every read
   // here needs `read` on the tenant, and a read of one deployment `read` on
   // the project it serves as well (`readableDeployment`). (A key limited to
-  // another project was already refused, `refuseOtherProjectForKey`.)
-  const tenantAccess = tenantResourceAccess(authorizer);
+  // another project was already refused, `refuseOtherProjectForKey`.) The
+  // tenant is read here as its projects' root, which a key limited to a
+  // project reads (`projectsRoot`).
+  const tenantAccess = tenantResourceAccess(authorizer, { projectsRoot: true });
   // What this runtime offers a deploy refused as another project's: the fix
   // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
   const packRuntime = {

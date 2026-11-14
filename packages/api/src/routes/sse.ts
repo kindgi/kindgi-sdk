@@ -7,30 +7,37 @@ import type { JournalEntry, JournalKind } from '@kindgi/runtime';
 import type { RunId, TenantId } from '@kindgi/types';
 
 /**
- * Wire-side RunEvent kind — the enum surfaced over SSE.
- *
- * Source of truth: `@kindgi/specs/run-event.schema.json`. Names are dotted
- * `run.<xxx>-<yyy>` (e.g. `run.step-completed`) — matches the
- * conventions doc §6 example. Internal-only kernel journal kinds
- * (e.g. `value.recorded`) and kinds absent from the wire enum
- * (`edge.evaluated`) are dropped by the mapper — the journal endpoint
+ * Wire-side RunEvent kinds: the kinds the SSE stream sends, and so the
+ * `RunEvent.kind` enum (`RunEventSchema`, mirrored by
+ * `@kindgi/specs/run-event.schema.json`). Names are dotted
+ * `run.<xxx>-<yyy>` (e.g. `run.step-completed`), as the conventions
+ * doc's §6 example. Each is what a kernel journal kind maps to
+ * (`KERNEL_TO_WIRE`), and a kind goes on this list only with the mapping
+ * that sends it (tests/run-event-kinds.test.ts). Internal-only kernel
+ * journal kinds (e.g. `value.recorded`) and kinds absent from the wire
+ * enum (`edge.evaluated`) are dropped by the mapper; the journal endpoint
  * still exposes them.
  */
-export type RunEventKind =
-  | 'run.started'
-  | 'run.step-started'
-  | 'run.step-completed'
-  | 'run.step-failed'
-  | 'run.step-retry-scheduled'
-  | 'run.iteration-started'
-  | 'run.iteration-completed'
-  | 'run.wait-suspended'
-  | 'run.wait-resumed'
-  | 'run.completed'
-  | 'run.failed'
-  | 'run.cancelled';
+export const RUN_EVENT_KINDS = [
+  'run.started',
+  'run.step-started',
+  'run.step-completed',
+  'run.step-failed',
+  'run.step-retry-scheduled',
+  'run.iteration-started',
+  'run.iteration-completed',
+  'run.wait-suspended',
+  'run.wait-resumed',
+  'run.completed',
+  'run.failed',
+  'run.cancelled',
+] as const;
 
-const KERNEL_TO_WIRE: Readonly<Partial<Record<JournalKind, RunEventKind>>> = {
+/** One of `RUN_EVENT_KINDS`. */
+export type RunEventKind = (typeof RUN_EVENT_KINDS)[number];
+
+/** The kernel journal kinds the stream sends, and the wire kind each is sent as. */
+export const KERNEL_TO_WIRE: Readonly<Partial<Record<JournalKind, RunEventKind>>> = {
   'run.started': 'run.started',
   'step.started': 'run.step-started',
   'step.completed': 'run.step-completed',

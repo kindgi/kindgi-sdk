@@ -6,7 +6,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { ref } from '@kindgi/authz';
 
 import { isTenantAdmin } from '../caller.js';
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 
@@ -24,9 +24,17 @@ const WITHOUT_STORE_ADMIN =
  * authorization model gives a tenant no `write`, so a tenant-wide change
  * is an admin's. Without an authorizer, reading is anyone's, as a tenant
  * member reads it with one, and a change is still a tenant admin's.
+ *
+ * A setting is the workspace's configuration, which the runtime reads for
+ * a run itself, so a key limited to a project doesn't read it
+ * (`tenantWide`): its work on its project (deploy, deployments, runs)
+ * reads none of it over HTTP. `projectsRoot` is for routes that read
+ * through the tenant as its projects' root (deployments), which such a
+ * key does read.
  */
 export function tenantResourceAccess(
   authorizer: Authorizer | undefined,
+  options: { readonly projectsRoot?: boolean } = {},
 ): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const reading = c.req.method === 'GET' || c.req.method === 'HEAD';
@@ -34,9 +42,10 @@ export function tenantResourceAccess(
       if (reading || (await isTenantAdmin(c, undefined))) return next();
       return withoutStoreRefusal(c, 'Only a tenant admin changes a workspace-wide setting.');
     }
-    return authorizer.authorize(reading ? 'read' : 'admin', (ctx) =>
-      ref('tenant', ctx.get('tenantId') as unknown as string),
-    )(c, next);
+    return authorizer.authorize(reading ? 'read' : 'admin', (ctx) => {
+      const tenantId = ctx.get('tenantId') as unknown as string;
+      return options.projectsRoot === true ? ref('tenant', tenantId) : tenantWide(tenantId);
+    })(c, next);
   };
 }
 

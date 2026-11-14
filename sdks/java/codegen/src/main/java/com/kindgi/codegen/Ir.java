@@ -108,6 +108,8 @@ final class Ir {
     DEDUCED,
     /** A string, or one of some objects. */
     TEXT_OR_OBJECT,
+    /** A plain value (a boolean, an integer or a number), or one of some objects. */
+    SCALAR_OR_OBJECT,
     /** A response whose shape depends on its HTTP status. */
     BY_STATUS
   }
@@ -116,10 +118,16 @@ final class Ir {
     final ClassName name;
     final String description;
     final UnionKind kind;
-    /** TAGGED (also the objects of a TEXT_OR_OBJECT when they're tagged): the tag property. */
+    /**
+     * TAGGED (also the objects of a TEXT_OR_OBJECT or a SCALAR_OR_OBJECT when they're tagged): the
+     * tag property.
+     */
     String tagWire;
     String tagJava;
-    /** How the objects of a TEXT_OR_OBJECT are told apart: TAGGED, DEDUCED, or null (one object). */
+    /**
+     * How the objects of a TEXT_OR_OBJECT or a SCALAR_OR_OBJECT are told apart: TAGGED, DEDUCED, or
+     * null (one object).
+     */
     UnionKind objectKind;
     final List<Variant> variants = new ArrayList<>();
     final List<Decl> nested = new ArrayList<>();
@@ -145,11 +153,28 @@ final class Ir {
       }
       return null;
     }
+
+    /** The plain-value variant of a SCALAR_OR_OBJECT, or null. */
+    Variant scalarVariant() {
+      for (Variant v : variants) {
+        if (v.scalar != null) {
+          return v;
+        }
+      }
+      return null;
+    }
+
+    /** Whether its codec reads it by the JSON token: a TEXT_OR_OBJECT or a SCALAR_OR_OBJECT. */
+    boolean readByToken() {
+      return kind == UnionKind.TEXT_OR_OBJECT || kind == UnionKind.SCALAR_OR_OBJECT;
+    }
   }
 
   /**
-   * One variant of a union: an object type, or (`text`) a string wrapped in a small record. A
-   * text variant may allow only some values (`allowed`).
+   * One variant of a union: an object type, (`text`) a string wrapped in a small record, or
+   * (`scalar`, its Java type) a boolean, an integer or a number wrapped in a small record. A text
+   * variant may allow only some values (`allowed`).
    */
-  record Variant(ClassName type, List<String> tags, List<String> uniqueRequired, boolean text, List<String> allowed) {}
+  record Variant(
+      ClassName type, List<String> tags, List<String> uniqueRequired, boolean text, List<String> allowed, TypeName scalar) {}
 }

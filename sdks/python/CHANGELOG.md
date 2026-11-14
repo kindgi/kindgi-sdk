@@ -37,6 +37,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
   read doesn't change.
+- `kindgi`: **an agent's `ConversationPolicy` has `hitl`.**
+  `ConversationPolicy.hitl` (`ConversationHitlPolicy`, with `ToolHitlPolicy`,
+  `ToolHitlRule` and `SeparateApproverPolicy`) holds the agent's approval
+  rules, as an agent published over the API sets them and reads them back.
 - `kindgi`: **`http_tool` refuses a placeholder in the URL's host or port.**
   There, a run's input or a model's arguments would choose where the runtime
   sends the request. The URL must also start with `http://` or `https://` and
@@ -85,6 +89,25 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
   minted with a removed person's. Each is absent from a runtime that doesn't
   record which key minted which.
+- `kindgi`: **`RunEvent.kind` lists only the kinds the run stream sends.**
+  Eight it never sent (`run.queued`, `run.tool-invoked`, `run.tool-result`,
+  `run.model-token`, `run.artifact-produced`, `run.guardrail-violated`,
+  `run.approval-requested`, `run.approval-completed`) are gone from its
+  `Literal`. It still takes any string, so nothing you read changes.
+- `kindgi`: **a removed schedule, webhook trigger or mail trigger can be read.**
+  `get_version` on `schedules`, `webhooks` and `mail_triggers` answers a
+  removed trigger's version, with `unregistered_at`, so a run's
+  `trigger.version` resolves whatever became of its trigger. `get`, `list`,
+  `list_versions` and `fires` take `include_unregistered=True` for removed
+  ones, and the trigger and version models gain an optional
+  `unregistered_at`.
+- `kindgi`: **unregistering a tool or agent version can say what can still
+  run it.** `UnregisterToolResult.locked_by` and
+  `UnregisterAgentResult.locked_by` list each agent and flow version you
+  can read that locks it, as the new `VersionLock` model (`kind`, `id`, `version`, and
+  `unregistered` for an unregistered agent version a registered flow version
+  still runs). `[]` says nothing you can read locks it. They're `None` when the runtime
+  doesn't send it.
 - `kindgi`: **`python -m kindgi.pack index --strict` exits 1 when a file
   fails to index**, printing each file error, as `kindgi-index --strict`
   does for a TypeScript pack. When a module imports a package that isn't
@@ -107,6 +130,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **an API key can be made to only read.** `MintTokenBody.read_only`, set when the key is made, gives a key whose every request but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. Such a key makes and revokes no keys. `ApiToken`, `MintTokenResult`, `WhoamiResult` and `MyKeyLimits` gain `read_only`. A server whose key store can't keep the limit makes no key (`read-only-unsupported`).
+- `kindgi`: **a tenant admin gives another tenant admin capabilities, and takes them back.** `identity.users.give_capabilities` and `identity.users.take_back_capability` answer with the person's grants after. A person's grants carry the capabilities they hold, when the runtime reports them.
 
 ## 0.6.0
 

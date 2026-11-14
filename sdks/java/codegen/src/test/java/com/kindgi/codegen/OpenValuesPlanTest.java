@@ -140,7 +140,7 @@ class OpenValuesPlanTest {
         unions.add(String.join(".", d.name().simpleNames()));
       }
     }
-    assertThat(unions).containsExactly("TestRunBaseline");
+    assertThat(unions).containsExactlyInAnyOrder("TestRunBaseline", "ToolHitlPolicyOverridesValue");
   }
 
   @Test

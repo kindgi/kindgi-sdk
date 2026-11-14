@@ -32,8 +32,12 @@ const USER_1 = 'user-1-token';
 const USER_2 = 'user-2-token';
 const APP_KEY = 'app-key-token';
 const ADMIN = 'admin-token';
-/** A key limited to project B, of a user who also reads project A and org A. */
+/** A key limited to project B, of a user who writes it and also reads project A and org A. */
 const KEY_B = 'key-b-token';
+/** The same user, signed in with no project limit. */
+const MULTI_1 = 'multi-1-token';
+/** The same user's session, limited to project B. */
+const SESSION_B = 'session-b-token';
 /** A user who writes projects A and B, and their key limited to project B. */
 const WRITER = 'writer-token';
 const WRITER_KEY_B = 'writer-key-b-token';
@@ -44,6 +48,15 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === APP_KEY) return { tenantId, tokenId: 'key-1' as never };
   if (token === ADMIN) return { tenantId, userId: 'admin-1' as UserId };
   if (token === KEY_B) return { tenantId, userId: 'multi-1' as UserId, tokenProjectId: projectB };
+  if (token === MULTI_1) return { tenantId, userId: 'multi-1' as UserId };
+  if (token === SESSION_B) {
+    return {
+      tenantId,
+      userId: 'multi-1' as UserId,
+      tokenProjectId: projectB,
+      sessionId: 'session-b' as never,
+    };
+  }
   if (token === WRITER) return { tenantId, userId: 'writer-1' as UserId };
   if (token === WRITER_KEY_B) {
     return { tenantId, userId: 'writer-1' as UserId, tokenProjectId: projectB };
@@ -57,7 +70,12 @@ const GRANTS: Readonly<Record<string, readonly string[]>> = {
   'user-2': [],
   'key-1': [`read project:${projectA}`, `write project:${projectA}`],
   'admin-1': [`admin tenant:${tenantId}`],
-  'multi-1': [`read project:${projectA}`, `read project:${projectB}`, `read org:${orgA}`],
+  'multi-1': [
+    `read project:${projectA}`,
+    `read project:${projectB}`,
+    `write project:${projectB}`,
+    `read org:${orgA}`,
+  ],
   'writer-1': [
     `read project:${projectA}`,
     `write project:${projectA}`,
@@ -159,6 +177,8 @@ async function seed(h: Harness): Promise<Record<string, string>> {
     projectB: { projectId: projectB },
     user1: { userId: 'user-1' as UserId },
     user2: { userId: 'user-2' as UserId },
+    multi1: { userId: 'multi-1' as UserId },
+    multi1InA: { userId: 'multi-1' as UserId, projectId: projectA },
     participant: { projectId: projectA, participantId: 'end-user-7' },
     thread: { projectId: projectA, threadId: randomUUID() as never },
   };
@@ -214,7 +234,7 @@ describe('API — memory readers', () => {
   test('a tenant admin reads every fact', async () => {
     const h = harness();
     await seed(h);
-    expect(await visibleNames(h, ADMIN)).toHaveLength(8);
+    expect(await visibleNames(h, ADMIN)).toHaveLength(10);
   });
 
   test('with ListObjects the readers come from the listing, not a walk over the projects', async () => {
@@ -228,12 +248,17 @@ describe('API — memory readers', () => {
   test.each([
     ['listing', withList],
     ['checking', checkOnly],
-  ])("a key limited to a project reads only that project's facts (%s)", async (_, authz) => {
-    const h = harness(authz);
-    await seed(h);
-    // Not project A's, nor org A's org-wide facts, though its user may read both.
-    expect(await visibleNames(h, KEY_B)).toEqual(['projectB', 'tenant']);
-  });
+  ])(
+    "a key limited to a project reads its project's facts and its person's own, and no other project's or org's (%s)",
+    async (_, authz) => {
+      const h = harness(authz);
+      await seed(h);
+      // Not project A's, nor org A's org-wide facts, nor its person's fact in
+      // project A, though its user may read all three. Its person's fact with
+      // no project it reads, as the runs it starts in project B recall it.
+      expect(await visibleNames(h, KEY_B)).toEqual(['multi1', 'projectB', 'tenant']);
+    },
+  );
 
   test('every read hands the binding the readers; the reference guard agrees', async () => {
     const h = harness();
@@ -362,5 +387,61 @@ describe('API — memory write checks', () => {
       content: 'changed',
     });
     expect(byPerson.status).toBe(200);
+  });
+
+  test("a key limited to a project writes its person's facts in that project only", async () => {
+    const h = harness();
+    const LIMITED = `This API key is limited to project ${projectB}: it writes memory only in the project or one of its conversations.`;
+    const noProject = await h.call('POST', '/v1/memory/facts', KEY_B, write({ userId: 'multi-1' }));
+    expect(noProject.status).toBe(403);
+    expect(noProject.body.error.code).toBe('permission-denied');
+    expect(noProject.body.error.message).toBe(LIMITED);
+    expect(h.memory.rows).toEqual([]);
+    const inProject = await h.call(
+      'POST',
+      '/v1/memory/facts',
+      KEY_B,
+      write({ userId: 'multi-1', projectId: projectB }),
+    );
+    expect(inProject.status).toBe(201);
+    // A session limited to the project is refused the same way, and named as one.
+    const bySession = await h.call(
+      'POST',
+      '/v1/memory/facts',
+      SESSION_B,
+      write({ userId: 'multi-1' }),
+    );
+    expect(bySession.status).toBe(403);
+    expect(bySession.body.error.message).toBe(
+      `This session is limited to project ${projectB}: it writes memory only in the project or one of its conversations.`,
+    );
+    // The same person, signed in with no project limit, writes one with no project.
+    const signedIn = await h.call(
+      'POST',
+      '/v1/memory/facts',
+      MULTI_1,
+      write({ userId: 'multi-1' }),
+    );
+    expect(signedIn.status).toBe(201);
+  });
+
+  test("a key limited to a project can't change, verify or delete its person's fact with no project", async () => {
+    const h = harness();
+    const ids = await seed(h);
+    const LIMITED = `This API key is limited to project ${projectB}: it writes memory only in the project or one of its conversations.`;
+    // It reads the fact, so each answers 403, not 404.
+    const changed = await h.call('POST', `/v1/memory/facts/${ids.multi1}/supersede`, KEY_B, {
+      content: 'changed',
+    });
+    const verified = await h.call('POST', `/v1/memory/facts/${ids.multi1}/verify`, KEY_B);
+    const deleted = await h.call('DELETE', `/v1/memory/facts/${ids.multi1}`, KEY_B);
+    for (const res of [changed, verified, deleted]) {
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('permission-denied');
+      expect(res.body.error.message).toBe(LIMITED);
+    }
+    const kept = await h.call('GET', `/v1/memory/facts/${ids.multi1}`, KEY_B);
+    expect(kept.status).toBe(200);
+    expect(kept.body.version).toBe(1);
   });
 });

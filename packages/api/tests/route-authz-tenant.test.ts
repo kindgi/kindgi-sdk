@@ -18,7 +18,9 @@
  * `/v1/secrets` ask for the same values; a member key, or a key limited
  * to a project, takes no `admin` action on the tenant, so neither reads it.
  * Changing it still takes the capability of the binding it writes
- * (tenant-config-routes.test.ts).
+ * (tenant-config-routes.test.ts). A key limited to a project reads none of
+ * the settings: it's refused before the PDP is asked. The deployments GETs
+ * ask the tenant as its projects' root, which that key reads.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -193,6 +195,35 @@ describe('tenant-wide routes ask for the tenant', () => {
     for (const [, , needs] of ROUTES) {
       const [action, type] = needs.split(' ') as [Action, ObjectType];
       expect(OBJECT_ACTIONS[type], needs).toContain(action);
+    }
+  });
+});
+
+describe("a key limited to a project reads none of the workspace's settings", () => {
+  const SETTINGS = ROUTES.filter(
+    ([method, path, needs]) =>
+      method === 'GET' && needs === READ && !path.startsWith('/v1/deployments'),
+  );
+
+  test.each(SETTINGS)('%s %s: 403, refused before the PDP is asked', async (method, path) => {
+    const { app, asked } = harness([READ]);
+    const res = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${PROJECT_KEY}` },
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('the API key is limited to project');
+    expect(asked).toEqual([]);
+  });
+
+  test("the deployments GETs ask the tenant as its projects' root, and the key goes past it", async () => {
+    for (const path of ['/v1/deployments', '/v1/deployments/d']) {
+      const { app, asked } = harness([READ]);
+      const res = await app.request(path, { headers: { authorization: `Bearer ${PROJECT_KEY}` } });
+      // Past the tenant's check, the registry (`unreached`) answers.
+      expect(res.status, path).not.toBe(403);
+      expect(asked, path).toEqual([READ]);
     }
   });
 });

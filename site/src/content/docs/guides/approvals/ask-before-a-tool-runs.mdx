@@ -300,6 +300,10 @@ Every pack language sets it the same way: Python's `conversation_policy`,
 and the map Java and Scala pass to `set("conversationPolicy", …)`, take the
 same keys, `separateApprover` included.
 
+An agent published over the API takes the same keys: `POST /v1/agents`
+stores its `conversationPolicy.hitl` as it is, and `GET /v1/agents/{agentId}`
+answers it back.
+
 **When four eyes is on:**
 - **The person who asked isn't offered Approve.** That holds on the
   console's approval page, in its inbox's keyboard decisions ("You asked

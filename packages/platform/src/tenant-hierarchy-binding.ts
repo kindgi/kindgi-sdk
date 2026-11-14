@@ -160,6 +160,15 @@ export interface RemoveProjectMemberParams {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly userId: UserId;
+  /**
+   * When true and the membership holds `owner`, change nothing and answer
+   * `project-member-holds-owner`. The membership routes set it on a
+   * caller's behalf, then ask for `delete` on the project before they
+   * repeat the call without it; other callers leave it out. A binding
+   * that holds project roles must honor it, or a project admin can still
+   * lower or remove an owner through these routes.
+   */
+  readonly stopAtOwner?: boolean;
 }
 
 /** A direct membership's new role. */
@@ -221,8 +230,11 @@ export interface MembershipWriteError {
    * `write-failed`: the row and its tuple couldn't be changed together.
    * `site-person-grants-managed`: the person is one a site signs in, who
    * holds only the grants their site's sign-in writes.
+   * `project-member-holds-owner`: the project membership holds `owner`, and
+   * the call set `stopAtOwner` (answered only by `removeProjectMember` and
+   * `updateProjectMemberRole`).
    */
-  readonly code: 'write-failed' | 'site-person-grants-managed';
+  readonly code: 'write-failed' | 'site-person-grants-managed' | 'project-member-holds-owner';
   readonly message: string;
   readonly cause?: unknown;
 }
@@ -352,11 +364,19 @@ export interface TenantHierarchyBinding {
   updateTeamMemberRole?(
     params: UpdateTeamMemberRoleParams,
   ): Promise<Result<TeamMembershipUpdateRoleOutcome, MembershipWriteError>>;
-  /** Remove a user's direct project membership and its tuple together (see `removeTeamMember`). */
+  /**
+   * Remove a user's direct project membership and its tuple together (see
+   * `removeTeamMember`). With `stopAtOwner`, a membership that holds
+   * `owner` is left as it is, and the answer is `project-member-holds-owner`.
+   */
   removeProjectMember?(
     params: RemoveProjectMemberParams,
   ): Promise<Result<void, MembershipWriteError>>;
-  /** Change a direct project membership's role and replace its tuple together (see `removeTeamMember`). */
+  /**
+   * Change a direct project membership's role and replace its tuple
+   * together (see `removeTeamMember`). `stopAtOwner` stops at an owner as
+   * `removeProjectMember` does.
+   */
   updateProjectMemberRole?(
     params: UpdateProjectMemberRoleParams,
   ): Promise<Result<ProjectMembershipUpdateRoleOutcome, MembershipWriteError>>;

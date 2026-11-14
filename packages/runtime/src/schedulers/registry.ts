@@ -42,12 +42,16 @@ export interface TriggerRegistryBinding {
   /**
    * A trigger's versions, newest first: one for each definition it has
    * had ({@link TriggerVersionRecord}). Empty for a trigger with none yet
-   * (registered before versions, until its first edit or fire), and for
-   * an id the workspace has no trigger with.
+   * (registered before versions, until its first edit or fire), for an
+   * id the workspace has no trigger with, and for a removed trigger's
+   * unless asked (`includeUnregistered`).
    */
   listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage>;
 
-  /** One of a trigger's versions; `null` when the workspace's trigger has no such version. */
+  /**
+   * One of a trigger's versions; `null` when the workspace's trigger has no
+   * such version. A removed trigger's only with `includeUnregistered`.
+   */
   getVersion(input: GetTriggerVersionInput): Promise<TriggerVersionRecord | null>;
 
   /**
@@ -367,6 +371,8 @@ export interface TriggerFire {
 export interface ListTriggerFiresInput {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+  /** A removed trigger's fires too. A registry that ignores it may answer none for one. */
+  readonly includeUnregistered?: boolean;
   readonly limit?: number;
   readonly cursor?: Cursor;
 }
@@ -590,11 +596,17 @@ export interface UpdateMailTriggerInput extends Omit<UpdateBase, 'flowVersion'> 
 interface TriggerRecordBase {
   readonly triggerId: TriggerId;
   readonly tenantId: TenantId;
+  /** A removed trigger's is the one it had when it was removed. */
   readonly status: 'active' | 'paused';
   readonly label: string | null;
   readonly lastFiredAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * When it was removed (`unregister`). Only on a removed trigger, which a
+   * read answers only when it asks for one (`includeUnregistered`).
+   */
+  readonly unregisteredAt?: string;
   /**
    * Its current version: the newest of its {@link TriggerVersionRecord}s,
    * whose definition is this record's. Absent until its first (a trigger
@@ -717,7 +729,13 @@ export type TriggerRecord =
 export interface ListTriggersInput {
   readonly tenantId: TenantId;
   readonly kind?: TriggerKind;
+  /** A removed trigger matches on the status it had when it was removed. */
   readonly status?: 'active' | 'paused';
+  /**
+   * Removed triggers too (`TriggerRecordBase.unregisteredAt`). A registry
+   * that ignores it lists live ones only, as without it.
+   */
+  readonly includeUnregistered?: boolean;
   /**
    * Only the triggers in this project: schedules, webhook triggers and
    * mail triggers, which each have one (event triggers never match). A registry that
@@ -736,6 +754,11 @@ export interface TriggerListPage {
 export interface GetTriggerInput {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+  /**
+   * A removed trigger too (`TriggerRecordBase.unregisteredAt`). A registry
+   * that ignores it answers `null` for one, as without it.
+   */
+  readonly includeUnregistered?: boolean;
   /** A schedule: include its next N occurrences (`CronTriggerRecord.upcoming`), at most 20. */
   readonly upcoming?: number;
 }
@@ -828,6 +851,11 @@ interface TriggerVersionBase {
    */
   readonly createdBy?: string;
   readonly cause: TriggerVersionCause;
+  /**
+   * When its trigger was removed: only on a removed trigger's version. A
+   * trigger's versions are never removed one by one.
+   */
+  readonly unregisteredAt?: string;
 }
 
 export interface CronTriggerVersionRecord extends TriggerVersionBase {
@@ -865,6 +893,11 @@ export type TriggerVersionRecord =
 export interface ListTriggerVersionsInput {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+  /**
+   * A removed trigger's versions too, each with `unregisteredAt`. A
+   * registry that ignores it answers none for one, as without it.
+   */
+  readonly includeUnregistered?: boolean;
   readonly limit?: number;
   readonly cursor?: Cursor;
 }
@@ -878,6 +911,8 @@ export interface GetTriggerVersionInput {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
   readonly version: number;
+  /** As `ListTriggerVersionsInput.includeUnregistered`: `null` for one without it. */
+  readonly includeUnregistered?: boolean;
 }
 
 // ---------- errors ----------

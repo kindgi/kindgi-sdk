@@ -127,7 +127,8 @@ export async function memoryReadersFor(
  *   - a conversation's fact outside a project, `write` on the conversation;
  *   - a user's fact, being that user (or a tenant admin).
  * A key or session limited to a project writes only inside it
- * (`keyProjectProblem`).
+ * (`keyProjectProblem`): a user's fact with no project reaches that
+ * user's runs in every project.
  */
 export async function memoryWriteProblem(
   c: Context<AppEnv>,

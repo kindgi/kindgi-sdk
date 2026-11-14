@@ -103,6 +103,13 @@ const NEEDS: ConnectionChoiceNeeds['data'] = [
     set: { allowed: false, reason: 'accounts-input' },
   },
 ];
+/** An app that connects through Kindgi's own app, by its entry id. */
+const THROUGH_KINDGI = 'acme-meta';
+/** The Pages a business shared with Kindgi's own app, when the finish found several. */
+const PAGES = [
+  { id: '1001', label: 'Acme Bakery' },
+  { id: '1002', label: 'Acme Books' },
+];
 
 /** A binding that keeps everything in maps, and records what the routes pass it. */
 function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
@@ -440,6 +447,12 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       if (request.startedBy !== `${input.caller.kind}:${input.caller.id}`) {
         return refuse('connection-not-yours', 'Only whoever started it finishes it');
       }
+      if (request.app === THROUGH_KINDGI && input.code === undefined && input.error === undefined) {
+        // Kindgi's connect step sent back `state` alone; the business shared several Pages.
+        const pending = { ...request, accounts: PAGES };
+        requests.set(request.requestId, pending);
+        return { kind: 'ok', value: { kind: 'pick-account', request: pending } };
+      }
       if (input.code === 'several') {
         const installations = [
           { installationId: '101', account: { id: '1', label: 'acme' } },
@@ -525,7 +538,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     return connection;
   }
 
-  return { binding, calls, connected, requests, choices };
+  return { binding, calls, connected, requests, choices, apps };
 }
 
 const runHandler = {} as RunHandlerBinding;
@@ -650,6 +663,24 @@ describe('GET /v1/connection-entries', () => {
       notices: 'google-risc',
     });
   });
+
+  test("an app through Kindgi's own app signs in with `kindgi-app`, names no directory, and fits the schema", async () => {
+    // Google's entry with that sign-in: the routes copy an entry's kind as it is.
+    const throughKindgi: AppEntry = {
+      ...google,
+      id: THROUGH_KINDGI,
+      owners: ['company'],
+      signIn: { kind: 'kindgi-app' } as unknown as SignIn,
+      removal: {},
+    };
+    const { app } = makeApp({ entries: [throughKindgi] });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    expect(res.status).toBe(200);
+    const [entry] = res.json.data;
+    expect(entry.id).toBe(THROUGH_KINDGI);
+    expect(entry.signIn).toEqual({ kind: 'kindgi-app' });
+    expect(validateAgainst('ConnectionEntry', entry)).toEqual([]);
+  });
 });
 
 describe('/v1/connection-apps', () => {
@@ -684,6 +715,40 @@ describe('/v1/connection-apps', () => {
     expect(res.status).toBe(201);
     expect(res.json.oauth2).toEqual(oauth2);
     expect(calls.createApp?.[0]).toMatchObject({ oauth2: { tenant: 'acme.onmicrosoft.com' } });
+  });
+
+  test("the registration the server makes for an app through Kindgi's own app shows `via` and no client; the workspace's own shows no `via`", async () => {
+    const { app, apps } = makeApp();
+    const appId = randomUUID();
+    apps.set(appId, {
+      appId,
+      tenantId: tenantA,
+      app: THROUGH_KINDGI,
+      via: 'kindgi',
+      redirectUrl: 'https://kindgi.acme.example/console/connect/callback',
+      noticesUrl: `https://kindgi.acme.example/v1/connection-notices/${tenantA}/${appId}`,
+      createdAt: at,
+      updatedAt: at,
+    });
+    const made = await call(app, 'admin', 'GET', `/v1/connection-apps/${appId}`);
+    expect(made.status).toBe(200);
+    expect(made.json).toMatchObject({ appId, app: THROUGH_KINDGI, via: 'kindgi' });
+    expect(made.json).not.toHaveProperty('oauth2');
+    expect(made.json).not.toHaveProperty('githubApp');
+    const own = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: SECRET },
+    });
+    expect(own.status).toBe(201);
+    expect(own.json).not.toHaveProperty('via');
+    const listed = await call(app, 'admin', 'GET', '/v1/connection-apps');
+    expect(listed.json.data.map((a: Record<string, any>) => [a.app, a.via])).toEqual([
+      [THROUGH_KINDGI, 'kindgi'],
+      ['google', undefined],
+    ]);
+    for (const shape of [made.json, own.json]) {
+      expect(validateAgainst('ConnectionApp', shape), shape.app).toEqual([]);
+    }
   });
 
   test("without an authorizer, a key's tenant-admin scope decides: a member key neither registers nor re-points an app", async () => {
@@ -1144,6 +1209,28 @@ describe('a connect request: read, start and finish', () => {
     }
   });
 
+  test("a start through Kindgi's own app takes the account picked; the request lists the ones to pick", async () => {
+    const { app, calls, requests } = makeApp();
+    const requestId = await requested(app, 'admin', 'company');
+    requests.set(requestId, {
+      ...(requests.get(requestId) as ConnectRequestRecord),
+      app: THROUGH_KINDGI,
+      accounts: PAGES,
+    });
+    const read = await call(app, 'admin', 'GET', `/v1/connections/requests/${requestId}`);
+    expect(read.status).toBe(200);
+    expect(read.json).toMatchObject({ state: 'pending', accounts: PAGES });
+    expect(read.json).not.toHaveProperty('installations');
+    expect(validateAgainst('ConnectRequest', read.json)).toEqual([]);
+
+    const path = `/v1/connections/requests/${requestId}/start`;
+    expect((await call(app, 'admin', 'POST', path, { accountId: '1002' })).status).toBe(200);
+    const [picked] = calls.startRequest ?? [];
+    expect(picked).toMatchObject({ accountId: '1002' });
+    expect(picked).not.toHaveProperty('installationId');
+    expect(picked).not.toHaveProperty('newInstallation');
+  });
+
   test("a start's body is checked for shape before the binding sees it", async () => {
     const { app, calls } = makeApp();
     const requestId = await requested(app, 'ana');
@@ -1154,6 +1241,11 @@ describe('a connect request: read, start and finish', () => {
       [{ installationId: 101 }, 'installationId'],
       [{ newInstallation: 'yes' }, 'newInstallation'],
       [{ installationId: '101', newInstallation: true }, 'newInstallation'],
+      [{ accountId: '' }, 'accountId'],
+      [{ accountId: 'x'.repeat(65) }, 'accountId'],
+      [{ accountId: 1001 }, 'accountId'],
+      [{ accountId: '1001', installationId: '101' }, 'accountId'],
+      [{ accountId: '1001', newInstallation: true }, 'accountId'],
       [{ installation: '101' }, 'installation'],
     ] as const) {
       const res = await call(app, 'ana', 'POST', path, body);
@@ -1273,6 +1365,25 @@ describe('a connect request: read, start and finish', () => {
       details: { connectRequestId: requestId },
     });
     expect(recorded).toEqual([`write tenant:${tenantA}`]);
+  });
+
+  test("a finish through Kindgi's own app: the step sends back `state` alone, and a business that shared several accounts gets `pick-account`", async () => {
+    const { app, calls, requests } = makeApp();
+    const requestId = await requested(app, 'admin', 'company');
+    requests.set(requestId, {
+      ...(requests.get(requestId) as ConnectRequestRecord),
+      app: THROUGH_KINDGI,
+    });
+    await call(app, 'admin', 'POST', `/v1/connections/requests/${requestId}/start`);
+    const pick = await call(app, 'admin', 'POST', '/v1/connections/finish', { state: 's-1' });
+    expect(pick.status).toBe(200);
+    expect(pick.json).toMatchObject({
+      kind: 'pick-account',
+      request: { requestId, state: 'pending', accounts: PAGES },
+    });
+    expect(pick.json.connection).toBeUndefined();
+    expect(calls.finishRequest?.[0]).not.toHaveProperty('code');
+    expect(validateAgainst('ConnectFinish', pick.json)).toEqual([]);
   });
 
   test('a finish needs the state the app sent back, and takes only what the app sends', async () => {

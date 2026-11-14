@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { actsForOf } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
@@ -102,11 +102,14 @@ export function artifactsRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const { authorizer } = deps;
-  /** The artifact's project; a blob stored before projects were recorded answers to the tenant. */
+  /**
+   * The artifact's project; a blob stored before projects were recorded answers
+   * to the whole workspace (`tenantWide`), which a key limited to a project doesn't read.
+   */
   const scopeOf = (c: Context<AppEnv>, m: BlobMeta): ResourceRef =>
     m.projectId !== undefined
       ? ref('project', m.projectId as unknown as string)
-      : ref('tenant', c.get('tenantId') as unknown as string);
+      : tenantWide(c.get('tenantId') as unknown as string);
   const may = async (c: Context<AppEnv>, action: 'read' | 'write', m: BlobMeta) =>
     authorizer === undefined || (await authorizer.can(c, action, scopeOf(c, m)));
   /** The run, when it's the caller's own (`isOwnRun`). */

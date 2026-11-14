@@ -140,6 +140,9 @@ run:
 
 A `!` line is a warning: it doesn't fail, and things work now, but read it.
 
+With a key limited to a project, which doesn't read the workspace's providers,
+the Provider check is skipped and says so.
+
 The Provider check also asks the runtime about each registered provider. A
 registration the runtime can't build a provider from
 (one stored before the runtime checked registrations, say) is a warning, and a
