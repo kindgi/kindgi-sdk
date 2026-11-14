@@ -38,6 +38,7 @@ import { programPath } from '../program-path.js';
 import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
+import { devConnectionKeys, removeDevConnectionKeys } from './connection-keys.js';
 import { judgeFlowGraphs, writeIndexFile } from './flow-graphs.js';
 import { idShapeWarnings } from './id-shape.js';
 import { createJavaPackBuilder } from './java-builder.js';
@@ -73,6 +74,7 @@ import type {
   IndexerRunOptions,
   PackBuilder,
   RunningApiServer,
+  RuntimeConnections,
   StartApiServerOptions,
   StartServicesResult,
   StartedServicesHandle,
@@ -94,6 +96,8 @@ import {
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
+  RUNTIME_SECRETS_AAD_KEY,
+  RUNTIME_SECRETS_LOCAL_KEY,
   buildRuntimeEnv,
   runtimeEnvPath,
   shellReferencesOf,
@@ -572,6 +576,12 @@ export async function startApiServerContainerReal(
       exportSigningKeyPath: RUNTIME_EXPORT_SIGNING_KEY,
     }),
     ...(googleCredentials !== undefined && { googleCredentialsPath: RUNTIME_GOOGLE_CREDENTIALS }),
+    ...(opts.connectionKeys !== undefined && {
+      connectionKeys: {
+        localKeyPath: RUNTIME_SECRETS_LOCAL_KEY,
+        aadKeyPath: RUNTIME_SECRETS_AAD_KEY,
+      },
+    }),
     // kindgi dev reads the container's output as records and shows them.
     log: { ...opts.logLevels, KINDGI_LOG_FORMAT: 'json' },
     tenantEgress: tenantEgressOf(opts.hostEnv),
@@ -598,6 +608,12 @@ export async function startApiServerContainerReal(
     ...(opts.exportSigningKeyPath !== undefined && {
       exportSigningKey: opts.exportSigningKeyPath,
     }),
+    ...(opts.connectionKeys !== undefined && {
+      connectionKeys: {
+        localKey: opts.connectionKeys.localKeyPath,
+        aadKey: opts.connectionKeys.aadKeyPath,
+      },
+    }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
     ...(opts.owner !== undefined && { owner: opts.owner }),
@@ -612,6 +628,7 @@ export async function startApiServerContainerReal(
     if (!project.ok || typeof body.id !== 'string') {
       throw new Error(`the runtime has no default project (${project.status})`);
     }
+    const connections = await runtimeConnectionsOf(runtime.baseUrl, opts.token);
     return {
       baseUrl: runtime.baseUrl,
       port: opts.port,
@@ -621,6 +638,7 @@ export async function startApiServerContainerReal(
       token: opts.token,
       banner: runtime.banner,
       consoleMounted: true,
+      ...(connections !== undefined && { connections }),
       shutdown: () => runtime.stop(),
     };
   } catch (err) {
@@ -710,6 +728,7 @@ export async function attachToRuntimeReal(
   const consoleServed = await fetch(`${baseUrl}/console/`)
     .then((r) => r.ok)
     .catch(() => false);
+  const connections = await runtimeConnectionsOf(baseUrl, opts.token);
   return {
     baseUrl,
     port,
@@ -719,8 +738,34 @@ export async function attachToRuntimeReal(
     token: opts.token,
     banner: '',
     consoleMounted: consoleServed,
+    ...(connections !== undefined && { connections }),
     shutdown: async () => undefined,
   };
+}
+
+/**
+ * Whether the runtime serves connections, from its `GET /v1/runtime`:
+ * `unsaid` when it has no `connections` field (an image from before
+ * it), undefined when it can't be read.
+ */
+async function runtimeConnectionsOf(
+  baseUrl: string,
+  token: string,
+): Promise<RuntimeConnections | 'unsaid' | undefined> {
+  const res = await fetch(`${baseUrl}/v1/runtime`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => undefined);
+  if (res === undefined || !res.ok) return undefined;
+  const body: unknown = await res.json().catch(() => undefined);
+  if (typeof body !== 'object' || body === null) return undefined;
+  const connections: unknown = (body as { readonly connections?: unknown }).connections;
+  if (connections === undefined) return 'unsaid';
+  if (typeof connections !== 'object' || connections === null) return undefined;
+  const { on, reason } = connections as { readonly on?: unknown; readonly reason?: unknown };
+  if (on === true) return { on: true };
+  if (on !== false) return undefined;
+  return typeof reason === 'string' ? { on: false, reason } : { on: false };
 }
 
 /** The runtime `kindgi dev` talks to: a container, or the developer's own (`--runtime-url`). */
@@ -1461,6 +1506,8 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
   detectSandbox: (env) => detectDevSandbox(process.platform, probeReal, env),
+  connectionKeys: devConnectionKeys,
+  removeConnectionKeys: removeDevConnectionKeys,
   checkPackPython,
   checkPackJvm,
   publishIndex: publishIndexReal,

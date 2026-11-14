@@ -29,6 +29,8 @@ import {
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
+  RUNTIME_SECRETS_AAD_KEY,
+  RUNTIME_SECRETS_LOCAL_KEY,
 } from './runtime-env.js';
 import { registryOf } from './runtime-image.js';
 import {
@@ -364,6 +366,8 @@ export interface RuntimeContainerOptions {
   readonly googleCredentials?: string;
   readonly publicTokenKey?: string;
   readonly exportSigningKey?: string;
+  /** The connections' key files for this database (`dev/connection-keys.ts`), by host path. */
+  readonly connectionKeys?: { readonly localKey: string; readonly aadKey: string };
   /** Every line the runtime writes, with the stream it came on. */
   readonly onLog: (line: string, stream: 'stdout' | 'stderr') => void;
   /** A stop while it starts: the container is stopped and removed, and the wait throws `RuntimeStartStopped`. */
@@ -471,6 +475,10 @@ export function runtimeRunArgs(name: string, options: RuntimeContainerOptions): 
   }
   if (options.exportSigningKey !== undefined) {
     args.push('--volume', `${options.exportSigningKey}:${RUNTIME_EXPORT_SIGNING_KEY}:ro`);
+  }
+  if (options.connectionKeys !== undefined) {
+    args.push('--volume', `${options.connectionKeys.localKey}:${RUNTIME_SECRETS_LOCAL_KEY}:ro`);
+    args.push('--volume', `${options.connectionKeys.aadKey}:${RUNTIME_SECRETS_AAD_KEY}:ro`);
   }
   if (options.network === 'host-network') {
     args.push('--network', 'host');

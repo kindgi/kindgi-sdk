@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -74,6 +76,17 @@ describe('runtimeRunArgs', () => {
       '/home/dev/keys/public-token.pem:/run/kindgi/public-token-signing.pem:ro',
     );
     expect(args).toContain('/home/dev/keys/export-signing.pem:/run/kindgi/export-signing.pem:ro');
+  });
+
+  test("connections: the database's key pair mounted read-only, only when given", () => {
+    const folder = '/home/dev/.kindgi/dev/connections/kindgi_acme';
+    const args = runtimeRunArgs('n', {
+      ...OPTIONS,
+      connectionKeys: { localKey: `${folder}/local.key`, aadKey: `${folder}/aad.key` },
+    });
+    expect(args).toContain(`${folder}/local.key:/run/kindgi/secrets-local.key:ro`);
+    expect(args).toContain(`${folder}/aad.key:/run/kindgi/secrets-aad.key:ro`);
+    expect(runtimeRunArgs('n', OPTIONS).join(' ')).not.toContain('/run/kindgi/secrets-');
   });
 
   test('one container per pack directory', () => {
@@ -193,6 +206,72 @@ describe('a stop while kindgi dev waits for its runtime (T176)', () => {
       expect(Date.now() - started).toBeLessThan(5_000);
     } finally {
       await rm(packDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("connections: the runtime's answer, from its GET /v1/runtime", () => {
+  /** Attach to a runtime whose `GET /v1/runtime` answers `status` with `body` to the session's bearer. */
+  async function attachAnswering(status: number, body: string) {
+    const packDir = await mkdtemp(join(tmpdir(), 'kindgi-attach-'));
+    const server = createServer((req, res) => {
+      const bearer = req.headers.authorization === 'Bearer kgi_bt_test';
+      if (req.url === '/health') {
+        res.writeHead(200).end('ok');
+      } else if (req.url === '/v1/projects/default' && bearer) {
+        res.writeHead(200, { 'content-type': 'application/json' }).end('{"id":"proj_1"}');
+      } else if (req.url === '/v1/runtime' && bearer) {
+        res.writeHead(status, { 'content-type': 'application/json' }).end(body);
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      return await attachToRuntimeReal({
+        runtimeUrl: `http://127.0.0.1:${port}`,
+        port,
+        databaseUrl: 'postgres://kindgi@127.0.0.1:5432/acme',
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        token: 'kgi_bt_test',
+        userId: '00000000-0000-4000-8000-000000000002',
+        packDir,
+        hostEnv: {},
+        packService: { url: 'http://127.0.0.1:1', token: 'pack-token' },
+        runtimeImage: 'quay.io/kindgi/runtime:test',
+      });
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      await rm(packDir, { recursive: true, force: true });
+    }
+  }
+
+  test.each([
+    ['on', { connections: { on: true } }, { on: true }],
+    [
+      'off, with its reason',
+      { connections: { on: false, reason: 'they need KINDGI_PUBLIC_URL' } },
+      { on: false, reason: 'they need KINDGI_PUBLIC_URL' },
+    ],
+    ['off, with none', { connections: { on: false } }, { on: false }],
+    ['unsaid: an image from before the field', { version: '0.6.0' }, 'unsaid'],
+  ])('%s', async (_, body, connections) => {
+    const attached = await attachAnswering(200, JSON.stringify(body));
+    expect(attached.connections).toEqual(connections);
+  });
+
+  test("an answer that can't be read: nothing said of connections", async () => {
+    for (const [status, body] of [
+      [500, '{"connections":{"on":true}}'],
+      [200, 'not json'],
+      [200, 'null'],
+      [200, '{"connections":"on"}'],
+      [200, '{"connections":{"on":"true"}}'],
+    ] as const) {
+      const attached = await attachAnswering(status, body);
+      expect('connections' in attached, `${status} ${body}`).toBe(false);
     }
   });
 });
