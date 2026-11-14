@@ -102,6 +102,12 @@ export interface OperationSpec {
    * Python client yields its chunks.
    */
   readonly streamed?: true;
+  /**
+   * The operation is going: its description's first paragraph names the
+   * one to use instead and the release that removes it. Emitted as
+   * `deprecated: true`, which the clients mark.
+   */
+  readonly deprecated?: true;
 }
 
 // ---------------- shared parameters ----------------
@@ -1656,6 +1662,54 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   ),
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
+
+// ---------------- files: shared parameters and answers ----------------
+
+const FileIdPathParam: ParameterSpec = {
+  name: 'fileId',
+  in: 'path',
+  required: true,
+  description: "The file's id: the `blobId` of its version 1's bytes.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+/** A version number from 1, or `latest`. */
+const FileVersionSelectorSchema: JsonSchema = {
+  type: 'string',
+  pattern: '^([1-9][0-9]*|latest)$',
+};
+
+const FileVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: 'A version number from 1, or `latest`.',
+  schema: FileVersionSelectorSchema,
+};
+
+const FileVersionNumberPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: 'A version number from 1.',
+  schema: { type: 'integer', minimum: 1 },
+};
+
+/** A files read's description, with who may make it. */
+const FILE_READ_RULE = (text: string): string =>
+  `${text} Needs \`read\` on the file's project, or \`run\` there for a file of the caller's own: one they made, or one a run that acts for them made.`;
+
+const FileNotFound: ResponseSpec = ErrorResponse(
+  "`file-not-found`: no such file in this workspace, a deleted one, or one in a project the caller can't read that isn't a file of their own.",
+);
+
+const FileVersionNotFound: ResponseSpec = ErrorResponse(
+  '`file-not-found` as on the file; or `file-version-not-found`: no such version, or, for its bytes, a restore or a pin, one deleted or purged.',
+);
+
+const FileVersionConflict: ResponseSpec = ErrorResponse(
+  "`file-version-conflict`: `expectedVersion` isn't Latest (`details.expectedVersion`, `details.latestVersion`). Nothing was written.",
+);
 
 /** A change a schedule's owner rule refuses (`trigger-owners.ts`). */
 const ScheduleChangeRefused: ResponseSpec = ErrorResponse(
@@ -6132,7 +6186,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.list',
     summary: 'List artifact metadata',
     description:
-      "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
+      "Use `files.list`. Removed in 0.8.0.\n\nCursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -6173,7 +6228,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+      "Use `files.create`. Removed in 0.8.0.\n\nMultipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6211,7 +6267,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.download',
     summary: 'Download an artifact (stream)',
     description:
-      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
+      "Use `files.versions.download`. Removed in 0.8.0.\n\nStreams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -6242,7 +6299,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.head',
     summary: 'Fetch artifact metadata (no body)',
     description:
-      'Same headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.',
+      "Use `files.versions.get` for the version's record, or a `HEAD` on `files.versions.download`. Removed in 0.8.0.\n\nSame headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.",
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -6270,7 +6328,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.delete',
     summary: 'Delete an artifact',
     description:
-      'Idempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).',
+      'Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.\n\nIdempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).',
+    deprecated: true,
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -6289,6 +6348,321 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "An artifact in a project the caller can't read that isn't a file of their own (`blob-not-found`).",
       ),
+      '409': ErrorResponse(
+        "`artifact-in-file`: on a runtime that keeps file versions, the bytes are a pinned version's, or more than one version's (`details.fileId`); delete the version or the file instead. Bytes that are one file's only version delete it.",
+      ),
+    },
+  },
+
+  // ---------- files and their versions ----------
+  {
+    method: 'get',
+    honoPath: '/v1/files',
+    openapiPath: '/v1/files',
+    operationId: 'files.list',
+    summary: 'List files',
+    description:
+      "Cursor-paginated, newest change first. Each file with its Latest (no bytes). Deleted files aren't listed. Filters: `?ownerRunId=`, `?projectId=`, `?contentType=` (Latest's, exactly). With authorization on, only files in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too. On a runtime that doesn't keep files, `/v1/files` isn't served (`404 route-not-found`).",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'ownerRunId',
+        in: 'query',
+        required: false,
+        description: 'Only the files whose version 1 this run made.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only one project's files (its id, a UUID).",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'contentType',
+        in: 'query',
+        required: false,
+        description: 'Only the files whose Latest has this type, exactly.',
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of files.', schema: ref('StoredFileCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`ownerRunId` or `projectId` is not an id (a UUID).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/files',
+    openapiPath: '/v1/files',
+    operationId: 'files.create',
+    summary: 'Create a file',
+    description:
+      "Multipart upload of a new file's version 1. The `file` part carries the bytes; the other form fields are `name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId` and `expectedHash`. The file's id is the new bytes' `blobId`. It belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project. Creating needs `write` there, and a key limited to a project creates in that project only; a person with `run` there and no `write` may create a file that names no `ownerRunId`: an input for a run they start. An upload over the runtime's cap (default 100 MiB) is `413 file-too-large`.",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: {
+      required: true,
+      contentType: 'multipart/form-data',
+      schema: ref('CreateFileBody'),
+      encoding: {
+        file: { contentType: 'application/octet-stream' },
+        tags: { contentType: 'application/json' },
+      },
+    },
+    responses: {
+      '201': { description: 'The file, at version 1.', schema: ref('FileVersionWrite') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed multipart body, bad tag JSON, hash mismatch (`blob-hash-mismatch`), declared size mismatch (`blob-size-mismatch`), or a `projectId` that isn't the owner run's.",
+      ),
+      '403': ErrorResponse(
+        "No `write` on the project, and no `run` there for a file of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
+      ),
+      '404': ErrorResponse('No such owner run (`run-not-found`).'),
+      '413': ErrorResponse(
+        'Over the upload cap (`file-too-large`; `details.maxBytes` says how much).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/files/:fileId',
+    openapiPath: '/v1/files/{fileId}',
+    operationId: 'files.get',
+    summary: 'Get a file',
+    description: FILE_READ_RULE('The file, with its Latest (no bytes).'),
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam],
+    responses: {
+      '200': { description: 'The file.', schema: ref('StoredFile') },
+      ...CommonAuthErrors,
+      '404': FileNotFound,
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/files/:fileId',
+    openapiPath: '/v1/files/{fileId}',
+    operationId: 'files.delete',
+    summary: 'Delete a file',
+    description:
+      'Deletes the file and every version: a soft delete, kept until a retention policy for `file_version` purges it. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after (already gone). Refused while any version is pinned. Needs `write` on its project.',
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Delete acknowledged.', schema: ref('DeleteFileResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': ErrorResponse(
+        "`file-not-found`: no such file in this workspace, or one in a project the caller can't read that isn't a file of their own. A deleted file answers `{ deleted: false }`.",
+      ),
+      '409': ErrorResponse(
+        '`file-version-pinned`: a version is pinned (`details.version`, the lowest); unpin it first.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/files/:fileId/versions',
+    openapiPath: '/v1/files/{fileId}/versions',
+    operationId: 'files.versions.list',
+    summary: "List a file's versions",
+    description: FILE_READ_RULE(
+      'Cursor-paginated, newest first. Every version, deleted and purged ones included: a number is never left out of the history. An own file shows all its versions, including ones others added.',
+    ),
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'A page of versions.', schema: ref('FileVersionCollectionPage') },
+      ...CommonAuthErrors,
+      '404': FileNotFound,
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/files/:fileId/versions',
+    openapiPath: '/v1/files/{fileId}/versions',
+    operationId: 'files.versions.add',
+    summary: 'Add a version',
+    description:
+      "Multipart upload of a file's next version, which becomes Latest. The `file` part carries the bytes; the other form fields are `name` (a new name for the file), `contentType`, `tags` (JSON), `expectedVersion` and `expectedHash`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`, and nothing is written; without it, the last write wins, and the version in between stays in the history. Bytes that are already Latest's add no version (`200`, `created: false`); bytes an earlier version has are kept once. Needs `write` on the file's project, even for a file of the caller's own. Over the runtime's cap is `413 file-too-large`.",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, IdempotencyKeyParam],
+    requestBody: {
+      required: true,
+      contentType: 'multipart/form-data',
+      schema: ref('AddFileVersionBody'),
+      encoding: {
+        file: { contentType: 'application/octet-stream' },
+        tags: { contentType: 'application/json' },
+      },
+    },
+    responses: {
+      '201': { description: 'The new version.', schema: ref('FileVersionWrite') },
+      '200': {
+        description: "The bytes were already Latest's: Latest, with `created: false`.",
+        schema: ref('FileVersionWrite'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed multipart body, bad tag JSON, an `expectedVersion` that is not a version number, an `ownerRunId` or `projectId` (a version stays in its file's project), hash mismatch (`blob-hash-mismatch`), or declared size mismatch (`blob-size-mismatch`).",
+      ),
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': FileNotFound,
+      '409': FileVersionConflict,
+      '413': ErrorResponse(
+        'Over the upload cap (`file-too-large`; `details.maxBytes` says how much).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/files/:fileId/versions/:version',
+    openapiPath: '/v1/files/{fileId}/versions/{version}',
+    operationId: 'files.versions.get',
+    summary: 'Get a version',
+    description: FILE_READ_RULE(
+      "One version's record, without its bytes: a deleted or purged one too. `latest` names Latest.",
+    ),
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, FileVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('FileVersion') },
+      ...CommonAuthErrors,
+      '404': FileVersionNotFound,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/files/:fileId/versions/:version/content',
+    openapiPath: '/v1/files/{fileId}/versions/{version}/content',
+    operationId: 'files.versions.download',
+    summary: "Download a version's bytes (stream)",
+    description: FILE_READ_RULE(
+      "Streams one version's raw bytes, as a download. `latest` names Latest. A deleted or purged version is `404 file-version-not-found`: a fixed version never falls back to Latest. Response headers: `Content-Type` (as declared when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded name), and `X-Kindgi-File-Version` (the number served).",
+    ),
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, FileVersionPathParam],
+    responses: {
+      '200': {
+        description: 'Raw bytes. See headers for metadata.',
+        contentType: 'application/octet-stream',
+        schema: { type: 'string', format: 'binary' },
+      },
+      ...CommonAuthErrors,
+      '404': FileVersionNotFound,
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/files/:fileId/versions/:version/restore',
+    openapiPath: '/v1/files/{fileId}/versions/{version}/restore',
+    operationId: 'files.versions.restore',
+    summary: 'Restore a version',
+    description:
+      "Makes a new version, Latest, from this version's bytes, with `restoredFrom` set. Nothing is removed. A deleted or purged version is `404 file-version-not-found`. With `expectedVersion`, a Latest that isn't it is `409 file-version-conflict`. A version whose bytes are already Latest's adds none (`200`, `created: false`). Needs `write` on the file's project.",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, FileVersionNumberPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('RestoreFileVersionBody') },
+    responses: {
+      '201': { description: 'The new version.', schema: ref('FileVersionWrite') },
+      '200': {
+        description: "The bytes were already Latest's: Latest, with `created: false`.",
+        schema: ref('FileVersionWrite'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': FileVersionNotFound,
+      '409': FileVersionConflict,
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/files/:fileId/versions/:version',
+    openapiPath: '/v1/files/{fileId}/versions/{version}',
+    operationId: 'files.versions.delete',
+    summary: 'Delete a version',
+    description:
+      "Deletes one version: a soft delete, kept until a retention policy for `file_version` purges it. Its number is never reused. Deleting Latest moves Latest to the next live version down. Idempotent: `{ deleted: true }` the first time, `{ deleted: false }` after. Needs `write` on the file's project.",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, FileVersionNumberPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Delete acknowledged.', schema: ref('DeleteFileResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': FileVersionNotFound,
+      '409': ErrorResponse(
+        "`file-version-pinned`: the version is pinned; unpin it first. `file-last-version`: it's the file's last live version; delete the file instead.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/files/:fileId/versions/:version/pin',
+    openapiPath: '/v1/files/{fileId}/versions/{version}/pin',
+    operationId: 'files.versions.pin',
+    summary: 'Pin a version',
+    description:
+      "A keep mark on one version, with who and why: it can't be deleted, and retention never purges it. A pin never moves Latest, and doesn't change what a run gets. Pinning a pinned version changes nothing, and a deleted or purged one is `404 file-version-not-found`. Each pin is kept in the file's pin history. Needs `write` on the file's project.",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, FileVersionNumberPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('PinFileVersionBody') },
+    responses: {
+      '200': { description: 'The version, with its pin.', schema: ref('FileVersion') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': FileVersionNotFound,
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/files/:fileId/versions/:version/unpin',
+    openapiPath: '/v1/files/{fileId}/versions/{version}/unpin',
+    operationId: 'files.versions.unpin',
+    summary: 'Unpin a version',
+    description:
+      "Takes a version's pin off, kept in the file's pin history with who and why. Unpinning a version with no pin changes nothing. Needs `write` on the file's project.",
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, FileVersionNumberPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('PinFileVersionBody') },
+    responses: {
+      '200': { description: 'The version, without a pin.', schema: ref('FileVersion') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': FileVersionNotFound,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/files/:fileId/pin-history',
+    openapiPath: '/v1/files/{fileId}/pin-history',
+    operationId: 'files.pinHistory',
+    summary: "A file's pin history",
+    description: FILE_READ_RULE('Every pin and unpin of its versions, newest first.'),
+    tags: ['files'],
+    security: 'bearer',
+    parameters: [FileIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'A page of pin changes.', schema: ref('FilePinChangeCollectionPage') },
+      ...CommonAuthErrors,
+      '404': FileNotFound,
     },
   },
 

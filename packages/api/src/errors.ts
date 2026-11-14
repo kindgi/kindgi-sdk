@@ -249,6 +249,20 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'blob-hash-mismatch': 400,
   'blob-size-mismatch': 400,
   'blob-storage-error': 500,
+  /** Deleting a blob a file's versions still need (pinned, or shared by two versions); `details.fileId`. */
+  'artifact-in-file': 409,
+  // Files and their versions.
+  'file-not-found': 404,
+  /** No such version, or one deleted or purged: a fixed version never falls back to Latest. */
+  'file-version-not-found': 404,
+  /** `expectedVersion` isn't Latest; `details.expectedVersion` and `details.latestVersion`. Nothing was written. */
+  'file-version-conflict': 409,
+  /** Deleting a pinned version, or a file with one (`details.version`). */
+  'file-version-pinned': 409,
+  /** Deleting a file's last live version alone: delete the file. */
+  'file-last-version': 409,
+  /** A file upload over the runtime's cap; `details.maxBytes` says how much. */
+  'file-too-large': 413,
   // Admin plane — capabilities + providers.
   'capability-not-found': 404,
   'provider-not-found': 404,
