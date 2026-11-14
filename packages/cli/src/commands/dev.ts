@@ -88,6 +88,12 @@ import {
   refusedHere,
 } from '../dev/blocked.js';
 import {
+  type DevConnectionKeys,
+  changedKeyHint,
+  connectRedirectUri,
+  notePort,
+} from '../dev/connection-keys.js';
+import {
   DEV_LOCK_FILE,
   type DevLockOutcome,
   type HeldDevLock,
@@ -703,6 +709,18 @@ async function runDevForPack(
         };
       }
       emitProgress(`🧹 --reset: dropped ${project.database}`);
+      // Its connections' token sets went with it, so their keys go too: the
+      // next start makes a new pair. One left behind is harmless, since
+      // nothing is stored under it any more.
+      try {
+        if (await dev.removeConnectionKeys(homeFolder(ctx.env.HOME), project.database)) {
+          emitProgress(`🧹 --reset: removed ${project.database}'s connection keys`);
+        }
+      } catch (err) {
+        emitProblem(
+          `⚠ --reset: couldn't remove ${project.database}'s connection keys (${(err as Error).message}); the next start keeps them`,
+        );
+      }
     }
     const ensured = await projectDatabases.ensure(project, CLI_VERSION);
     if (ensured.kind === 'refused' || ensured.kind === 'error') {
@@ -892,6 +910,16 @@ async function runDevForPack(
       ? `Using the Kindgi runtime at ${args.runtimeUrl}...`
       : `Starting the Kindgi runtime (${args.runtimeImage})...`,
   );
+  // Connections keep their token sets in this database, under a key pair
+  // kept for it on this machine (`dev/connection-keys.ts`). A runtime the
+  // developer runs (`--runtime-url`) has its own settings.
+  const connectionKeys: DevConnectionKeys | undefined =
+    args.runtimeUrl === undefined
+      ? await dev.connectionKeys(
+          homeFolder(ctx.env.HOME),
+          project !== undefined ? { bundled: project.database } : { url: databaseUrl },
+        )
+      : undefined;
   let server: RunningApiServer;
   // Each phase of the start as it happens, with its time (`dev/start-phases.ts`).
   const startPhases = createStartPhases({ emit: emitProgress });
@@ -921,6 +949,12 @@ async function runDevForPack(
       ...(google.credentials !== undefined && {
         googleCredentialsPath: google.credentials.path,
       }),
+      ...(connectionKeys?.kind === 'on' && {
+        connectionKeys: {
+          localKeyPath: connectionKeys.keys.localKeyPath,
+          aadKeyPath: connectionKeys.keys.aadKeyPath,
+        },
+      }),
       runtimeImage: args.runtimeImage,
       ...(licenseKey !== undefined && { licenseKey }),
       ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
@@ -946,7 +980,7 @@ async function runDevForPack(
     if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return {
       kind: 'error',
-      stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}${previewRefusalHint((err as Error).message, devRuntimeSource(args))}\n`,
+      stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}${previewRefusalHint((err as Error).message, devRuntimeSource(args))}${changedKeyHint((err as Error).message, connectionKeys, project !== undefined)}\n`,
       exitCode: 1,
     };
   }
@@ -1078,9 +1112,11 @@ async function runDevForPack(
   // Where the token is in full: the banners show only its ends.
   const tokenFile = kindgircWritten ? '.kindgirc.json' : join('.kindgi', 'dev', 'runtime.env');
 
+  const connectionsLine = describeConnections(server.baseUrl, connectionKeys, server.connections);
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
     consoleMounted: server.consoleMounted === true,
+    ...(connectionsLine !== undefined && { connections: connectionsLine }),
     tenantId: server.tenantId,
     token: server.token,
     tokenFile,
@@ -1114,6 +1150,20 @@ async function runDevForPack(
     for (const line of renderConsoleLines(server.baseUrl)) emitProgress(line);
   }
   emitProgress(`  API        ${server.baseUrl}`);
+  if (connectionsLine !== undefined) emitProgress(`  Connections  ${connectionsLine}`);
+  // A port connections haven't run on for this database has a new redirect
+  // URI, so each app needs it added at its provider. Said once per port,
+  // and under --quiet too: it's only said once.
+  if (
+    connectionKeys?.kind === 'on' &&
+    typeof server.connections === 'object' &&
+    server.connections.on &&
+    (await notePort(connectionKeys.keys.folder, server.port).catch(() => true))
+  ) {
+    emitProblem(
+      `⚠ Connections: port ${server.port} is new for this database. Each of your apps needs ${connectRedirectUri(server.baseUrl)} among its redirect URIs at its provider, or its sign-in fails with redirect_uri_mismatch.`,
+    );
+  }
   if (project !== undefined) {
     emitProgress(`  Project    ${project.name} · database ${project.database}`);
   }
@@ -2242,6 +2292,8 @@ interface DevBannerInputs {
   readonly baseUrl: string;
   /** The runtime serves the console (`/console/`). */
   readonly consoleMounted?: boolean;
+  /** The Connections line (`describeConnections`). Absent: the line is left out. */
+  readonly connections?: string;
   readonly tenantId: string;
   readonly token: string;
   /** The file in the pack that has the token in full (see `describeDevToken`). */
@@ -2277,6 +2329,25 @@ export function describeDevToken(token: string, tokenFile: string): string {
     ? scrubbed
     : `…${token.length >= 16 ? token.slice(-4) : ''}`;
   return `${shown}   (in full in the pack's ${tokenFile})`;
+}
+
+/**
+ * The Connections line: on, with the redirect URI the developer's apps
+ * need, or off and why. The runtime's own answer (`GET /v1/runtime`) says
+ * which, unless `kindgi dev` had no key pair to give it: then its own reason.
+ * An image from before the answer says nothing, so it's off without a
+ * reason, never a wrong "on". `undefined` when the answer couldn't be read.
+ */
+export function describeConnections(
+  baseUrl: string,
+  keys: DevConnectionKeys | undefined,
+  answer: RunningApiServer['connections'],
+): string | undefined {
+  if (keys?.kind === 'off') return `off: ${keys.reason}`;
+  if (answer === undefined) return undefined;
+  if (answer === 'unsaid') return "off, this runtime image doesn't say";
+  if (!answer.on) return answer.reason !== undefined ? `off: ${answer.reason}` : 'off';
+  return `on · redirect URI ${connectRedirectUri(baseUrl)} · register your app in the console (Connection apps)`;
 }
 
 /** The browser origins line: who may follow runs with public run tokens (`KINDGI_CORS_ORIGINS`). */
@@ -2323,6 +2394,9 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
     lines.push(`    Console            ${consoleUrlOf(inputs.baseUrl)}`);
   }
   lines.push(`    API server         ${inputs.baseUrl}`);
+  if (inputs.connections !== undefined) {
+    lines.push(`    Connections        ${inputs.connections}`);
+  }
   lines.push(`    Tenant             ${inputs.tenantId}`);
   lines.push(`    Bearer token       ${describeDevToken(inputs.token, inputs.tokenFile)}`);
   lines.push(`    Pack dir           ${inputs.packDir}`);

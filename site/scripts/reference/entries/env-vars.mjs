@@ -158,6 +158,7 @@ export const ENV_DEFAULTS = {
   KINDGI_SECRETS_BACKEND:
     "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
+  KINDGI_CONNECTIONS_STORE: '`none`: connections are off under the `dotenv` backend',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',
   KINDGI_SECRETS_AAD_KEY: 'none: same as `KINDGI_SECRETS_AAD_KEY_PATH`',

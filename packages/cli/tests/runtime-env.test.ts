@@ -98,6 +98,34 @@ describe('buildRuntimeEnv', () => {
     });
   });
 
+  test("connections: token sets in the dev database, under this database's key pair", () => {
+    const env = buildRuntimeEnv({
+      ...BASE,
+      connectionKeys: {
+        localKeyPath: '/run/kindgi/secrets-local.key',
+        aadKeyPath: '/run/kindgi/secrets-aad.key',
+      },
+    });
+    expect(env).toMatchObject({
+      KINDGI_SECRETS_BACKEND: 'dotenv',
+      KINDGI_CONNECTIONS_STORE: 'postgres',
+      KINDGI_SECRETS_BACKEND_KMS: 'libsodium',
+      KINDGI_SECRETS_LOCAL_KEY_PATH: '/run/kindgi/secrets-local.key',
+      KINDGI_SECRETS_AAD_KEY_PATH: '/run/kindgi/secrets-aad.key',
+      KINDGI_SECRETS_LOCAL_KEY_ACK: 'single-node',
+    });
+    const off = buildRuntimeEnv(BASE);
+    for (const name of [
+      'KINDGI_CONNECTIONS_STORE',
+      'KINDGI_SECRETS_BACKEND_KMS',
+      'KINDGI_SECRETS_LOCAL_KEY_PATH',
+      'KINDGI_SECRETS_AAD_KEY_PATH',
+      'KINDGI_SECRETS_LOCAL_KEY_ACK',
+    ]) {
+      expect(off[name], name).toBeUndefined();
+    }
+  });
+
   test("shell values for the files' references ride along, never over the runtime's own settings", () => {
     const env = buildRuntimeEnv({
       ...BASE,
@@ -121,6 +149,7 @@ describe('buildRuntimeEnv', () => {
       publicTokenKeyPath: '/k.pem',
       exportSigningKeyPath: '/e.pem',
       googleCredentialsPath: '/g.json',
+      connectionKeys: { localKeyPath: '/l.key', aadKeyPath: '/a.key' },
     });
     const hostNetwork = buildRuntimeEnv({ ...BASE, apiHost: '127.0.0.1' });
     for (const name of [...Object.keys(env), ...Object.keys(hostNetwork)]) {
