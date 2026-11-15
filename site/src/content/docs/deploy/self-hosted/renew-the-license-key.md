@@ -199,8 +199,8 @@ A renewal that goes without counts still exits `0`, whether it renews the
 key or answers `unchanged`, so your scheduler's alerting doesn't see it.
 To hear about it, match `counts: not sent (` in `renew`'s output, and
 leave out `counts: not sent (a production key's renewal carries no counts)`,
-which is expected. On Azure, with `license_usage_key_secret` set, the
-module raises this alert itself ([On a schedule](#on-a-schedule)).
+which is expected. On Cloud Run and Azure, with `license_usage_key_secret`
+set, the module raises this alert itself ([On a schedule](#on-a-schedule)).
 
 In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
@@ -284,9 +284,9 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
 - **The key comes back once,** in the answer's `token`. Keep it where
   `--runtime-token` can read it
   ([Where the keys are kept](#where-the-keys-are-kept)), and give `renew`
-  that reference. On Azure, the module's README puts it in the vault without
-  printing it. A mint sent again with the same `Idempotency-Key` doesn't
-  return it: mint another.
+  that reference. On Cloud Run and Azure, the module's README puts it in
+  Secret Manager or the vault without printing it. A mint sent again with
+  the same `Idempotency-Key` doesn't return it: mint another.
 - **On a runtime serving many tenants,** the same call mints it, with the
   runtime's own token or a system key holding `kindgi:system`.
 - **List the keys, and revoke one,** with the runtime's own token too. The
@@ -315,23 +315,31 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
 Any scheduler that can run the CLI will do: cron, a CI schedule, or a
 scheduled job. Once a day is plenty.
 
-**On Azure,** the Terraform module runs it for you
-([Azure Container Apps](../azure-container-apps/)). Enroll first. Then set
+**On Cloud Run and Azure,** the Terraform module runs it for you
+([Cloud Run](../cloud-run/#8-renew-the-license-key),
+[Azure Container Apps](../azure-container-apps/)). Enroll first. Then set
 `license_renewal_schedule`, a cron in UTC, and apply:
 
-- The module adds a Container Apps job that runs `kindgi license renew` on
-  the runtime image, as an identity of its own. That identity reads the
-  license key and the renewer's key, and can only set the license key.
-- Two alerts come with it: a run that failed, and a key within 7 days of its
-  end.
-- `license_usage_key_secret` names the vault secret holding a
+- The module adds a job that runs `kindgi license renew` on the runtime
+  image, as an identity of its own: on Cloud Run, a Cloud Run job that Cloud
+  Scheduler starts, and on Azure, a Container Apps job. That identity reads
+  the license key and the renewer's key, and can only set the license key.
+- Two alerts come with it: a run that failed, and a run that says the key
+  is inside its warning window (its line `⚠ It expires in <days> days`), so
+  from 30 days before the key expires, or fewer if the key sets its own
+  warning. On Cloud Run, `alert_notification_channels` sends them on.
+- `license_usage_key_secret` names the secret holding a
   [key for the counts](#a-key-for-the-counts), which you put there before
   you apply. With it, the job reads that secret too, and its renewals carry
   counts. A third alert comes with it: a run that sent none, other than a
-  production key's. Terraform never holds the key.
-- `license_renewer_secret` names the renewer's secret, `license-renewer` by
-  default. The outputs `license_enroll_command` and `license_renew_command`
-  print the two commands for this deployment.
+  production key's. Terraform never holds the key. On Cloud Run, it needs a
+  server that takes calls without Cloud Run IAM (`server_public` or
+  `server_invoker_iam_disabled`).
+- `license_renewer_secret` names the renewer's secret: by default
+  `<name_prefix>-license-renewer` on Cloud Run, which the module creates
+  empty, and `license-renewer` on Azure. The outputs
+  `license_enroll_command` and `license_renew_command` print the two
+  commands for this deployment.
 
 The module's README has the details.
 
@@ -379,8 +387,8 @@ with how to renew:
 - **For a non-production key from access.kindgi.com,** that's the `renew`
   command, or signing in at access.kindgi.com unless a deployment is renewing
   the key. The command has this deployment's `--key` and `--renewer` when it
-  sets `KINDGI_LICENSE_KEY_REF` and `KINDGI_LICENSE_RENEWER_REF`, as the Azure
-  module does.
+  sets `KINDGI_LICENSE_KEY_REF` and `KINDGI_LICENSE_RENEWER_REF`, as the Cloud
+  Run and Azure modules do.
 - **For a production key,** it's contact@kindgi.com.
 
 A tenant admin sees a line on every console page too.
@@ -391,7 +399,8 @@ A tenant admin sees a line on every console page too.
   what happens when one expires.
 - [Plan limits](../plan-limits/): how the runtime counts the flows and
   agents in production against the key's plan.
-- [Azure Container Apps](../azure-container-apps/): the module that renews
+- [Cloud Run](../cloud-run/#8-renew-the-license-key) and
+  [Azure Container Apps](../azure-container-apps/): the modules that renew
   on a schedule.
 - [Operate a self-hosted runtime](../operate/): health, backups, upgrades and
   rotating keys.
