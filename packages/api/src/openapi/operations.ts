@@ -7947,7 +7947,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        `Validation failed (see \`details.reason\`); a \`connection\` auth's own reasons are \`unknown-app\`, \`origin-not-listed\`, \`owner-not-allowed\`, \`unknown-permission\`, \`catalog-connection-required\`, \`invalid-catalog-connection-id\`, \`catalog-connection-without-connection-auth\`, \`catalog-connection-not-found\`, \`catalog-connection-not-yours\`, \`resource-metadata-unreadable\` and \`issuer-mismatch\`. Or \`provider-key-refused\`: \`secretRef\` names a model provider's key (\`details.secret\`, \`details.providerId\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`).`,
+        `Validation failed (see \`details.reason\`); a \`connection\` auth's own reasons are \`unknown-app\`, \`origin-not-listed\`, \`owner-not-allowed\`, \`unknown-permission\`, \`catalog-connection-required\`, \`invalid-catalog-connection-id\`, \`catalog-connection-without-connection-auth\`, \`catalog-connection-not-found\`, \`catalog-connection-not-yours\`, \`resource-metadata-unreadable\`, \`issuer-mismatch\` and \`resource-mismatch\`. Or \`provider-key-refused\`: \`secretRef\` names a model provider's key (\`details.secret\`, \`details.providerId\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`).`,
       ),
       '403': ErrorResponse(
         withLimitedAbove(

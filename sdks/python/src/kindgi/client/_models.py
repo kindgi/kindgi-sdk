@@ -6799,7 +6799,7 @@ class MCPOAuth2ClientCredentialsAuth(BaseModel):
 
 class MCPConnectionAuth(BaseModel):
     """
-    A connection to the app whose own MCP server this is (HubSpot's, Asana's): each tool call sends the access token of the connection the call runs with, minted for the server's `resource` (RFC 8707), and renewed once on a `401`. No secret is stored. The app's entry must list the endpoint's origin in its `mcpServers`, so a token goes to that origin only (reason `origin-not-listed`), and the server's Protected Resource Metadata must name the entry's authorization server (reason `issuer-mismatch`, or `resource-metadata-unreadable`). Needs `catalogConnectionId`. Each of the server's tools needs a connection to `app` (`needsSpec.connections`, named for the app), so a call without one waits for its person to connect, or is refused as a pack tool's need would be.
+    A connection to the app whose own MCP server this is (HubSpot's, Asana's): each tool call sends the access token of the connection the call runs with, minted for the server's `resource` (RFC 8707), and renewed once on a `401`. No secret is stored. The app's entry must list the endpoint's origin in its `mcpServers`, so a token goes to that origin only (reason `origin-not-listed`), and the server's Protected Resource Metadata must name the entry's `resource` and authorization server (reasons `resource-mismatch` and `issuer-mismatch`, or `resource-metadata-unreadable`). Needs `catalogConnectionId`. Each of the server's tools needs a connection to `app` (`needsSpec.connections`, named for the app), so a call without one waits for its person to connect, or is refused as a pack tool's need would be.
     """
 
     model_config = ConfigDict(
