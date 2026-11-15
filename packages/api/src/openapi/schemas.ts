@@ -9307,13 +9307,46 @@ export const MCPHeaderAuthSchema: JsonSchema = {
   },
 };
 
+export const MCPConnectionAuthSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scheme', 'app', 'as'],
+  description:
+    "A connection to the app whose own MCP server this is (HubSpot's, Asana's): each tool call sends the access token of the connection the call runs with, minted for the server's `resource` (RFC 8707), and renewed once on a `401`. No secret is stored. The app's entry must list the endpoint's origin in its `mcpServers`, so a token goes to that origin only (reason `origin-not-listed`), and the server's Protected Resource Metadata must name the entry's `resource` and authorization server (reasons `resource-mismatch` and `issuer-mismatch`, or `resource-metadata-unreadable`). Needs `catalogConnectionId`. Each of the server's tools needs a connection to `app` (`needsSpec.connections`, named for the app), so a call without one waits for its person to connect, or is refused as a pack tool's need would be.",
+  properties: {
+    scheme: { const: 'connection' },
+    app: {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9-]{1,31}$',
+      description:
+        "The app's entry id (`hubspot`, `asana`), one the server knows (`GET /v1/connections/entries`; reason `unknown-app`).",
+    },
+    as: {
+      type: 'string',
+      enum: ['person', 'company'],
+      description:
+        "Whose connection a call uses: `person`, the account of the person the run acts for; `company`, the company's one account, which runs no person started (a webhook's, a schedule's) can use. The entry must allow that owner (reason `owner-not-allowed`).",
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 64,
+      uniqueItems: true,
+      items: { type: 'string', pattern: '^[a-z][a-z0-9_.-]{0,63}$' },
+      description:
+        "The entry's permission keys the tools need, one set for every tool of the endpoint. Each must be the entry's (reason `unknown-permission`). Absent: each of the entry's permissions.",
+    },
+  },
+};
+
 export const MCPEndpointAuthSchema: JsonSchema = {
   description:
-    "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme names its secret by reference; the runtime resolves it, and no value is stored or answered.",
+    "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme but `connection` names its secret by reference; the runtime resolves it, and no value is stored or answered. `connection` stores none: the token is the call's connection's.",
   oneOf: [
     { $ref: '#/components/schemas/MCPBasicAuth' },
     { $ref: '#/components/schemas/MCPOAuth2ClientCredentialsAuth' },
     { $ref: '#/components/schemas/MCPHeaderAuth' },
+    { $ref: '#/components/schemas/MCPConnectionAuth' },
   ],
   discriminator: {
     propertyName: 'scheme',
@@ -9321,6 +9354,7 @@ export const MCPEndpointAuthSchema: JsonSchema = {
       basic: '#/components/schemas/MCPBasicAuth',
       'oauth2-client-credentials': '#/components/schemas/MCPOAuth2ClientCredentialsAuth',
       header: '#/components/schemas/MCPHeaderAuth',
+      connection: '#/components/schemas/MCPConnectionAuth',
     },
   },
 };
@@ -9407,7 +9441,13 @@ export const MCPEndpointSchema: JsonSchema = {
     auth: {
       $ref: '#/components/schemas/MCPEndpointAuth',
       description:
-        "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.",
+        "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials`, `header` or `connection`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic`, `oauth2-client-credentials` and `connection` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` or `connection` scheme as `invalid-auth`.",
+    },
+    catalogConnectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "With a `connection` auth only, and needed with one: the connection the runtime lists the server's tools with (`connectionId`, from `GET /v1/connections`). It only lists tools, and never calls one. A live connection to `auth.app`, under the env the runtime serves (reason `catalog-connection-not-found`), and the registrant's own or the company's (reason `catalog-connection-not-yours`). Without a `connection` auth it's refused (reason `catalog-connection-without-connection-auth`); missing with one, reason `catalog-connection-required`; not a UUID, reason `invalid-catalog-connection-id`. While it needs reconnecting, the endpoint keeps the tools it last listed. An older runtime refuses the field as unknown.",
     },
     secretEnv: {
       type: 'object',
@@ -20413,6 +20453,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MCPBasicAuth', MCPBasicAuthSchema],
   ['MCPOAuth2ClientCredentialsAuth', MCPOAuth2ClientCredentialsAuthSchema],
   ['MCPHeaderAuth', MCPHeaderAuthSchema],
+  ['MCPConnectionAuth', MCPConnectionAuthSchema],
   ['MCPAuthHeader', MCPAuthHeaderSchema],
   ['MCPEndpointCollectionPage', MCPEndpointCollectionPageSchema],
   ['RegisterMCPEndpointBody', RegisterMCPEndpointBodySchema],

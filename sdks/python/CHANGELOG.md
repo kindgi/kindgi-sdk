@@ -13,7 +13,17 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
-- `kindgi`: the deprecated `client.artifacts` methods and the old version calls are removed in 0.9.0, not 0.8.0: their deprecation warnings say so.
+- `kindgi`: **an MCP endpoint can sign in as a connection.** The client's
+  models gain `MCPConnectionAuth` (`scheme` `connection`, with `app`, `as_`
+  and `permissions`), a variant of an endpoint's `auth`: each call sends a
+  token minted for the endpoint's server from the connection of the person
+  the run acts for, or the company's, to an app whose entry lists the
+  server, such as `hubspot` or `asana`. `MCPEndpoint` and
+  `RegisterMCPEndpointBody` gain `catalog_connection_id`
+  (`catalogConnectionId` on the wire), the connection the endpoint lists its
+  tools with, required with a `connection` auth.
+- `kindgi`: the deprecated `client.artifacts` methods and the old version
+  calls are removed in 0.9.0, not 0.8.0: their deprecation warnings say so.
 
 ## 0.7.0
 

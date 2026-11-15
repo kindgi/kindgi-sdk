@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-models`, `kindgi-client`: **an MCP endpoint can sign in as a connection.** `MCPEndpointAuth` gains `MCPConnectionAuth` (`scheme` `connection`, with `app`, `as` and `permissions`): each call sends a token minted for the endpoint's server from the connection of the person the run acts for, or the company's, to an app whose entry lists the server, such as `hubspot` or `asana`. `MCPEndpoint` and `RegisterMCPEndpointBody` gain `catalogConnectionId`, the connection the endpoint lists its tools with, required with a `connection` auth.
+
 ## 0.7.0
 
 - `kindgi-client`: **the client takes the URL and the token from the running `kindgi dev` together, or not at all.** With `KINDGI_API_TOKEN` set (or the builder's `token`) and no URL, `Kindgi.create()` and `Kindgi.builder().build()` no longer send that token to the URL in the nearest `.kindgirc.json`: they throw `IllegalStateException`, naming the file and what to set. With `KINDGI_API_URL` set (or the builder's `baseUrl`) and no token, they take the file's token only when the URL is the file's own, and throw the same way for another URL. Set both in your env file, or neither to use the running `kindgi dev`.

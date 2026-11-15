@@ -15438,7 +15438,12 @@
           },
           "auth": {
             "$ref": "#/components/schemas/MCPEndpointAuth",
-            "description": "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`."
+            "description": "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials`, `header` or `connection`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic`, `oauth2-client-credentials` and `connection` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` or `connection` scheme as `invalid-auth`."
+          },
+          "catalogConnectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "With a `connection` auth only, and needed with one: the connection the runtime lists the server's tools with (`connectionId`, from `GET /v1/connections`). It only lists tools, and never calls one. A live connection to `auth.app`, under the env the runtime serves (reason `catalog-connection-not-found`), and the registrant's own or the company's (reason `catalog-connection-not-yours`). Without a `connection` auth it's refused (reason `catalog-connection-without-connection-auth`); missing with one, reason `catalog-connection-required`; not a UUID, reason `invalid-catalog-connection-id`. While it needs reconnecting, the endpoint keeps the tools it last listed. An older runtime refuses the field as unknown."
           },
           "secretEnv": {
             "type": "object",
@@ -15569,7 +15574,7 @@
         }
       },
       "MCPEndpointAuth": {
-        "description": "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme names its secret by reference; the runtime resolves it, and no value is stored or answered.",
+        "description": "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme but `connection` names its secret by reference; the runtime resolves it, and no value is stored or answered. `connection` stores none: the token is the call's connection's.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/MCPBasicAuth"
@@ -15579,6 +15584,9 @@
           },
           {
             "$ref": "#/components/schemas/MCPHeaderAuth"
+          },
+          {
+            "$ref": "#/components/schemas/MCPConnectionAuth"
           }
         ],
         "discriminator": {
@@ -15586,7 +15594,8 @@
           "mapping": {
             "basic": "#/components/schemas/MCPBasicAuth",
             "oauth2-client-credentials": "#/components/schemas/MCPOAuth2ClientCredentialsAuth",
-            "header": "#/components/schemas/MCPHeaderAuth"
+            "header": "#/components/schemas/MCPHeaderAuth",
+            "connection": "#/components/schemas/MCPConnectionAuth"
           }
         }
       },
@@ -15684,6 +15693,45 @@
             "items": {
               "$ref": "#/components/schemas/MCPAuthHeader"
             }
+          }
+        }
+      },
+      "MCPConnectionAuth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scheme",
+          "app",
+          "as"
+        ],
+        "description": "A connection to the app whose own MCP server this is (HubSpot's, Asana's): each tool call sends the access token of the connection the call runs with, minted for the server's `resource` (RFC 8707), and renewed once on a `401`. No secret is stored. The app's entry must list the endpoint's origin in its `mcpServers`, so a token goes to that origin only (reason `origin-not-listed`), and the server's Protected Resource Metadata must name the entry's `resource` and authorization server (reasons `resource-mismatch` and `issuer-mismatch`, or `resource-metadata-unreadable`). Needs `catalogConnectionId`. Each of the server's tools needs a connection to `app` (`needsSpec.connections`, named for the app), so a call without one waits for its person to connect, or is refused as a pack tool's need would be.",
+        "properties": {
+          "scheme": {
+            "const": "connection"
+          },
+          "app": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,31}$",
+            "description": "The app's entry id (`hubspot`, `asana`), one the server knows (`GET /v1/connections/entries`; reason `unknown-app`)."
+          },
+          "as": {
+            "type": "string",
+            "enum": [
+              "person",
+              "company"
+            ],
+            "description": "Whose connection a call uses: `person`, the account of the person the run acts for; `company`, the company's one account, which runs no person started (a webhook's, a schedule's) can use. The entry must allow that owner (reason `owner-not-allowed`)."
+          },
+          "permissions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+            },
+            "description": "The entry's permission keys the tools need, one set for every tool of the endpoint. Each must be the entry's (reason `unknown-permission`). Absent: each of the entry's permissions."
           }
         }
       },
@@ -15855,7 +15903,12 @@
           },
           "auth": {
             "$ref": "#/components/schemas/MCPEndpointAuth",
-            "description": "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`."
+            "description": "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials`, `header` or `connection`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic`, `oauth2-client-credentials` and `connection` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` or `connection` scheme as `invalid-auth`."
+          },
+          "catalogConnectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "With a `connection` auth only, and needed with one: the connection the runtime lists the server's tools with (`connectionId`, from `GET /v1/connections`). It only lists tools, and never calls one. A live connection to `auth.app`, under the env the runtime serves (reason `catalog-connection-not-found`), and the registrant's own or the company's (reason `catalog-connection-not-yours`). Without a `connection` auth it's refused (reason `catalog-connection-without-connection-auth`); missing with one, reason `catalog-connection-required`; not a UUID, reason `invalid-catalog-connection-id`. While it needs reconnecting, the endpoint keeps the tools it last listed. An older runtime refuses the field as unknown."
           },
           "secretEnv": {
             "type": "object",
@@ -61967,7 +62020,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
+            "description": "Validation failed (see `details.reason`); a `connection` auth's own reasons are `unknown-app`, `origin-not-listed`, `owner-not-allowed`, `unknown-permission`, `catalog-connection-required`, `invalid-catalog-connection-id`, `catalog-connection-without-connection-auth`, `catalog-connection-not-found`, `catalog-connection-not-yours`, `resource-metadata-unreadable`, `issuer-mismatch` and `resource-mismatch`. Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62062,7 +62115,7 @@
             }
           }
         },
-        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`) or an identity provider's secret (`400 identity-provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`), and so is one of MCP's own headers in `config.headers` (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-…`; reason `transport-header-in-config`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`) or an identity provider's secret (`400 identity-provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`), and so is one of MCP's own headers in `config.headers` (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-…`; reason `transport-header-in-config`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. An `auth` with `scheme: connection` names no secret: it's checked against the server's app entries and connections (the app, its `mcpServers`, its owners and permissions, and `catalogConnectionId`), and the runtime reads the server's Protected Resource Metadata through its egress guard; each refusal is `400 invalid-mcp-endpoint` with its reason. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
         "parameters": [
           {
             "name": "Idempotency-Key",

@@ -29,10 +29,36 @@ shape. In brief:
 }
 ```
 
+## Connection presets
+
+A preset with `"auth": "connection"` is a vendor's own MCP server that
+signs in as a connection to an app entry in `@kindgi/connections`.
+`kindgi mcp add <kind>` registers it at the runtime the CLI points at
+(`POST /v1/mcp/endpoints`) instead of writing `.mcp.json`, and the
+launcher never runs it:
+
+```json
+{
+  "kind": "hubspot",                         // must match filename stem
+  "description": "one-line summary",         // shown by `kindgi mcp presets`
+  "auth": "connection",
+  "app": "hubspot",                          // the app entry's id
+  "name": "HubSpot",                         // the endpoint's name, and the app's in messages
+  "url": "https://mcp.hubspot.com"           // the server's streamable-HTTP URL, https
+}
+```
+
+`url` must be on an origin the entry lists in its `mcpServers`, or the
+runtime refuses the registration. A connection preset has no `runtime`,
+`package`, `envMap`, `defaultArgs`, `hostRemap` or `audit`: no secret
+reaches the server through the CLI, and the runtime mints each token
+from the connection.
+
 ## Adding a preset
 
 1. Create `<kind>.json` (filename == the `kind` field).
-2. Fill in the fields above. Start with `audit.urlLeakInErrors: "pending"` —
+2. Fill in the fields above (for a preset the launcher runs; a connection
+   preset needs no audit). Start with `audit.urlLeakInErrors: "pending"` —
    never claim `"verified-safe"` without a real inspection.
 3. If the underlying MCP server is Docker + you're targeting local dev on
    Mac / Windows, set `"hostRemap": "docker-desktop"` so the launcher

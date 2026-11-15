@@ -1,18 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { ref, tuplesForCreate } from '@kindgi/authz';
+import {
+  APP_ID_PATTERN,
+  type AppEntry,
+  type AppMcpServer,
+  PERMISSION_KEY_PATTERN,
+} from '@kindgi/connections';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, OrgId, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
+import { callerPrincipal } from '../caller.js';
+import type { ConnectionBinding } from '../connection-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import {
   type MCPAuthHeader,
   type MCPAuthScheme,
   type MCPBasicAuth,
   type MCPClientProbeBinding,
+  type MCPConnectionAuth,
   type MCPEndpoint,
   type MCPEndpointAuth,
   type MCPEndpointConfig,
@@ -25,6 +34,7 @@ import {
   type MCPTransport,
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
+  MCP_CONNECTION_PERMISSIONS_MAX,
   MCP_OAUTH_CLIENT_AUTH,
   MCP_READ_ONLY_TOOLS_MAX,
   MCP_READ_ONLY_TOOL_NAME_MAX,
@@ -55,6 +65,7 @@ import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
+import { UUID_RE } from './uuid-param.js';
 
 /** A prompt's render, `POST /endpoints/:endpointId/prompts/:name`. */
 const PROMPT_PATH_RE = /\/endpoints\/[^/]+\/prompts\/[^/]+$/;
@@ -100,6 +111,17 @@ export function mcpRouter(
      * (`refuseUnservedReference`). Absent: any env.
      */
     readonly servedEnv?: ServedEnvRule;
+    /**
+     * The entries and connections a `connection` auth is checked against:
+     * the app, its MCP server, its owners and permissions, and the
+     * connection the server's tools are listed with, which must be under
+     * `envName`, the env this runtime serves, when it's given. Absent,
+     * every `connection` auth is refused (reason `unknown-app`).
+     */
+    readonly connections?: {
+      readonly binding: Pick<ConnectionBinding, 'entries' | 'get'>;
+      readonly envName?: EnvName;
+    };
   },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -325,6 +347,12 @@ export function mcpRouter(
       });
     }
 
+    // A `connection` auth: its app, server, owner and permissions, and the
+    // connection its tools are listed with, as this server holds them.
+    const checked = await checkedConnectionAuth(c, options.connections, tenantId, validation.value);
+    if (checked.kind === 'err') return invalidEndpoint(c, requestId, checked);
+    const { mcpServer } = checked;
+
     // Policy/config: register requires an explicit scope. Wire
     // shape mirrors the query-param triplet used by list routes —
     // `scopeKind + scopeId` in the body — for uniformity.
@@ -350,6 +378,7 @@ export function mcpRouter(
       endpoint:
         secretScopes === undefined ? validation.value : { ...validation.value, secretScopes },
       scope: registerScope,
+      ...(mcpServer !== undefined && { mcpServer }),
       enqueueTuples: (endpointId) =>
         tuplesForCreate({
           kind: 'mcp_endpoint',
@@ -371,6 +400,7 @@ export function mcpRouter(
         ),
       );
     }
+    if (outcome.kind === 'resource-metadata-refused') return invalidEndpoint(c, requestId, outcome);
     if (outcome.kind === 'project-not-found') {
       c.status(statusFor('scope-invalid') as never);
       return c.json(
@@ -748,6 +778,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     config: redactedConfig(e.config),
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
     ...(e.auth !== undefined && { auth: e.auth }),
+    ...(e.catalogConnectionId !== undefined && { catalogConnectionId: e.catalogConnectionId }),
     ...(e.secretEnv !== undefined && { secretEnv: e.secretEnv }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
@@ -798,6 +829,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'config',
   'secretRef',
   'auth',
+  'catalogConnectionId',
   'secretEnv',
   'instructions',
   'metadata',
@@ -912,6 +944,8 @@ function validateMCPEndpoint(
       : checkedAuth(b.endpointId, b.transport as MCPTransport, b, configResult.value);
   if (authResult?.kind === 'err') return authResult;
   const auth = authResult?.value;
+  const catalogRefusal = catalogConnectionRefusal(b.endpointId, auth, b.catalogConnectionId);
+  if (catalogRefusal !== undefined) return { kind: 'err', error: catalogRefusal };
   const secretEnvResult =
     b.secretEnv === undefined
       ? undefined
@@ -970,6 +1004,9 @@ function validateMCPEndpoint(
     config: configResult.value,
     ...(secretRef !== undefined && { secretRef: secretRef.value }),
     ...(auth !== undefined && { auth }),
+    ...(b.catalogConnectionId !== undefined && {
+      catalogConnectionId: b.catalogConnectionId as string,
+    }),
     ...(secretEnv !== undefined && { secretEnv }),
     ...(b.instructions !== undefined && { instructions: b.instructions as string }),
     ...(b.metadata !== undefined && {
@@ -1013,6 +1050,199 @@ function parseReadOnlyTools(
     seen.add(name);
   }
   return { kind: 'ok', value: [...seen] };
+}
+
+/**
+ * `catalogConnectionId`: a connection id with a `connection` auth, and
+ * nothing without one. Whose connection it is, and to which app, is
+ * checked against the server's connections (`checkedConnectionAuth`).
+ */
+function catalogConnectionRefusal(
+  endpointId: string,
+  auth: MCPEndpointAuth | undefined,
+  raw: unknown,
+): { readonly message: string; readonly reason: string } | undefined {
+  if (auth?.scheme !== 'connection') {
+    return raw === undefined
+      ? undefined
+      : {
+          message: `endpoint "${endpointId}" sets catalogConnectionId without a connection auth: it names the connection the server's tools are listed with, so it needs auth.scheme "connection".`,
+          reason: 'catalog-connection-without-connection-auth',
+        };
+  }
+  if (raw === undefined) {
+    return {
+      message: `endpoint "${endpointId}" has a connection auth but no catalogConnectionId: name the connection to "${auth.app}" the server's tools are listed with, your own or the company's (GET /v1/connections).`,
+      reason: 'catalog-connection-required',
+    };
+  }
+  if (typeof raw !== 'string' || !UUID_RE.test(raw)) {
+    return {
+      message: `endpoint "${endpointId}" catalogConnectionId must be a connection's id (a UUID, GET /v1/connections)`,
+      reason: 'invalid-catalog-connection-id',
+    };
+  }
+  return undefined;
+}
+
+type ConnectionAuthCheck =
+  | { readonly kind: 'ok'; readonly mcpServer?: AppMcpServer }
+  | { readonly kind: 'err'; readonly message: string; readonly reason: string };
+
+type ConnectionsOption =
+  | {
+      readonly binding: Pick<ConnectionBinding, 'entries' | 'get'>;
+      readonly envName?: EnvName;
+    }
+  | undefined;
+
+/** `400 invalid-mcp-endpoint`, with the refusal's reason. */
+function invalidEndpoint(
+  c: Context<AppEnv>,
+  requestId: string,
+  refusal: { readonly message: string; readonly reason: string },
+) {
+  c.status(statusFor('invalid-mcp-endpoint') as never);
+  return c.json(
+    toWireError(
+      { code: 'invalid-mcp-endpoint', message: refusal.message, reason: refusal.reason },
+      requestId,
+    ),
+  );
+}
+
+/**
+ * A `connection` auth against the server's entries and connections, with
+ * the entry's MCP server the endpoint is on; any other auth passes as is:
+ * - the app is an entry it knows (`unknown-app`);
+ * - the endpoint's URL is on one of the entry's MCP servers, so a token
+ *   only ever goes to the origin the entry lists (`origin-not-listed`);
+ * - the entry allows the owner `as` asks for (`owner-not-allowed`);
+ * - each permission is one of the entry's (`unknown-permission`);
+ * - `catalogConnectionId` is a live connection to that app, under the
+ *   served env (`catalog-connection-not-found`), and the registrant's own
+ *   or the company's (`catalog-connection-not-yours`).
+ */
+async function checkedConnectionAuth(
+  c: Context<AppEnv>,
+  connections: ConnectionsOption,
+  tenantId: TenantId,
+  endpoint: MCPEndpoint,
+): Promise<ConnectionAuthCheck> {
+  const auth = endpoint.auth;
+  if (auth?.scheme !== 'connection') return { kind: 'ok' };
+  const at = (refusal: Refusal): ConnectionAuthCheck => ({
+    kind: 'err',
+    message: `endpoint "${endpoint.endpointId}" ${refusal.message}`,
+    reason: refusal.reason,
+  });
+  const entry = connections?.binding.entries().find((e) => e.id === auth.app);
+  if (connections === undefined || entry === undefined) {
+    return at({
+      message:
+        connections === undefined
+          ? `auth.app "${auth.app}": this server serves no connections`
+          : `auth.app "${auth.app}" is no app this server knows (GET /v1/connections/entries)`,
+      reason: 'unknown-app',
+    });
+  }
+  const server = entryServer(entry, endpoint.config, auth);
+  if ('reason' in server) return at(server);
+  const refusal = await catalogConnectionProblem(c, connections, tenantId, entry, endpoint);
+  if (refusal !== undefined) return at(refusal);
+  return { kind: 'ok', mcpServer: server.mcpServer };
+}
+
+interface Refusal {
+  readonly message: string;
+  readonly reason: string;
+}
+
+/** The entry's MCP server the endpoint is on, for the owner and permissions `auth` asks for. */
+function entryServer(
+  entry: AppEntry,
+  config: MCPEndpointConfig,
+  auth: MCPConnectionAuth,
+): { readonly mcpServer: AppMcpServer } | Refusal {
+  const origins = new Set(endpointUrls(config).map(originOf));
+  const mcpServer = entry.mcpServers?.find((server) => origins.has(server.origin));
+  if (mcpServer === undefined || origins.size !== 1) {
+    const listed = entry.mcpServers?.map((server) => server.origin) ?? [];
+    return {
+      message:
+        listed.length === 0
+          ? `auth.app "${auth.app}": ${entry.name} lists no MCP server, so no endpoint signs in with its connections`
+          : `config.url is on ${[...origins].join(' and ')}: ${entry.name}'s connections sign in only to ${listed.join(', ')}`,
+      reason: 'origin-not-listed',
+    };
+  }
+  const owner = auth.as === 'person' ? 'member' : 'company';
+  if (!entry.owners.includes(owner)) {
+    return {
+      message: `auth.as "${auth.as}": ${entry.name} connects ${owner === 'member' ? "only the company's account" : "only a person's own account"}`,
+      reason: 'owner-not-allowed',
+    };
+  }
+  const unknown = auth.permissions?.find((key) => !Object.hasOwn(entry.permissions, key));
+  if (unknown !== undefined) {
+    return {
+      message: `auth.permissions: "${unknown}" is no permission of ${entry.name}'s (${Object.keys(entry.permissions).join(', ')})`,
+      reason: 'unknown-permission',
+    };
+  }
+  return { mcpServer };
+}
+
+/**
+ * Why `catalogConnectionId` can't list the endpoint's tools, or `undefined`
+ * when it can: a live connection to the entry's app, under the served env,
+ * the registrant's own or the company's.
+ */
+async function catalogConnectionProblem(
+  c: Context<AppEnv>,
+  connections: NonNullable<ConnectionsOption>,
+  tenantId: TenantId,
+  entry: AppEntry,
+  endpoint: MCPEndpoint,
+): Promise<Refusal | undefined> {
+  const connectionId = endpoint.catalogConnectionId as string;
+  const connection = await connections.binding.get({ tenantId, connectionId });
+  const servedEnv = connections.envName;
+  const live =
+    connection !== null &&
+    connection.app === entry.id &&
+    connection.state !== 'removing' &&
+    connection.state !== 'removed' &&
+    (servedEnv === undefined || connection.envName === servedEnv);
+  if (!live) {
+    return {
+      message: `catalogConnectionId "${connectionId}" is no live connection to ${entry.name}${servedEnv === undefined ? '' : ` under ${servedEnv}`}: connect ${entry.name}, yours or the company's, and name that connection's connectionId (GET /v1/connections)`,
+      reason: 'catalog-connection-not-found',
+    };
+  }
+  if (connection.owner.kind === 'company') return undefined;
+  const caller = callerPrincipal(c);
+  if (caller?.kind === 'user' && caller.userId === connection.owner.userId) return undefined;
+  return {
+    message: `catalogConnectionId "${connectionId}" is another person's connection: the server's tools are listed with yours, or with the company's`,
+    reason: 'catalog-connection-not-yours',
+  };
+}
+
+function endpointUrls(config: MCPEndpointConfig): readonly string[] {
+  if (config.transport === 'stdio') return [];
+  if (config.transport === 'http-sse' && config.sseUrl !== undefined) {
+    return [config.url, config.sseUrl];
+  }
+  return [config.url];
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
 }
 
 /** `auth`, parsed and checked against the rest of the endpoint. */
@@ -1209,6 +1439,7 @@ const AUTH_FIELDS: Readonly<Record<MCPAuthScheme, ReadonlySet<string>>> = {
     'clientAuth',
   ]),
   header: new Set(['scheme', 'headers']),
+  connection: new Set(['scheme', 'app', 'as', 'permissions']),
 };
 const AUTH_HEADER_FIELDS = new Set(['name', 'secretRef', 'prefix']);
 /** An HTTP field name: an RFC 9110 token. */
@@ -1285,6 +1516,7 @@ function parseAuth(endpointId: string, raw: unknown): AuthParse {
     return bad(`auth: unknown field \`auth.${unknown}\` for scheme ${scheme}`);
   }
   if (scheme === 'header') return parseHeaderAuth(a.headers, bad);
+  if (scheme === 'connection') return parseConnectionAuth(a, bad);
   const secretRef = parseSecretRef(a.secretRef, 'auth.secretRef');
   if (secretRef.kind === 'err') return bad(`auth: ${secretRef.message}`, 'invalid-secret-ref');
   return a.scheme === 'basic'
@@ -1353,6 +1585,37 @@ function printable(text: string): boolean {
     if (code < 0x20 || code === 0x7f) return false;
   }
   return true;
+}
+
+/** A `connection` auth: an entry id, whose connection, and the entry's permission keys if given. */
+function parseConnectionAuth(a: Record<string, unknown>, bad: AuthRefusal): AuthParse {
+  if (typeof a.app !== 'string' || !APP_ID_PATTERN.test(a.app)) {
+    return bad(`auth.app must be an app's entry id, matching ${APP_ID_PATTERN.source}`);
+  }
+  if (a.as !== 'person' && a.as !== 'company') {
+    return bad('auth.as must be "person" or "company"');
+  }
+  if (a.permissions !== undefined) {
+    const p = a.permissions;
+    if (
+      !Array.isArray(p) ||
+      p.length === 0 ||
+      p.length > MCP_CONNECTION_PERMISSIONS_MAX ||
+      p.some((key) => typeof key !== 'string' || !PERMISSION_KEY_PATTERN.test(key))
+    ) {
+      return bad(
+        `auth.permissions must list 1 to ${MCP_CONNECTION_PERMISSIONS_MAX} of the entry's permission keys, each matching ${PERMISSION_KEY_PATTERN.source}`,
+      );
+    }
+    if (new Set(p).size !== p.length) return bad('auth.permissions lists a permission twice');
+  }
+  const value: MCPConnectionAuth = {
+    scheme: 'connection',
+    app: a.app,
+    as: a.as,
+    ...(a.permissions !== undefined && { permissions: [...(a.permissions as string[])] }),
+  };
+  return { kind: 'ok', value };
 }
 
 function parseBasicAuth(

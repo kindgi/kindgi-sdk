@@ -875,6 +875,7 @@ export type {
   McpEndpointAuth,
   McpEndpointSecretRef,
   McpHeaderAuth,
+  McpConnectionAuth,
   McpOAuth2ClientCredentialsAuth,
   McpServerInfo,
   McpTransport,

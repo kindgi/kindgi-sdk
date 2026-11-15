@@ -7,10 +7,11 @@
  * hit real filesystem.
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { buildMcpServerEntry, defaultServerName } from '../src/commands/mcp.js';
@@ -412,6 +413,271 @@ describe('kindgi mcp --quiet', () => {
 });
 
 // ---------------------------------------------------------------------
+// `kindgi mcp add` with a connection preset
+// ---------------------------------------------------------------------
+
+const ANA_HUBSPOT = '3f1a9b77-3333-4c5d-8e6f-000000000003';
+const COMPANY_ASANA = '3f1a9b77-3333-4c5d-8e6f-000000000005';
+
+function connection(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    connectionId: ANA_HUBSPOT,
+    envName: 'prod',
+    appId: 'hubspot',
+    app: 'hubspot',
+    owner: { kind: 'member', userId: 'user-ana' },
+    account: { id: 'user-ana', label: 'HubSpot' },
+    permissions: ['mcp.tools'],
+    state: 'working',
+    connectedAt: '2026-11-15T01:00:00.000Z',
+    createdAt: '2026-11-15T01:00:00.000Z',
+    createdBy: 'user-ana',
+    updatedAt: '2026-11-15T01:00:00.000Z',
+    ...overrides,
+  };
+}
+
+interface FakeRuntime {
+  readonly client: Record<string, unknown>;
+  readonly listed: unknown[];
+  readonly registered: unknown[];
+  readonly unregistered: string[];
+}
+
+function fakeRuntime(
+  connections: readonly Record<string, unknown>[],
+  register: (input: unknown) => Promise<unknown> = async () => ({}),
+): FakeRuntime {
+  const listed: unknown[] = [];
+  const registered: unknown[] = [];
+  const unregistered: string[] = [];
+  const client = {
+    connections: {
+      list: async (query: unknown) => {
+        listed.push(query);
+        return { data: connections, hasMore: false };
+      },
+    },
+    mcp: {
+      endpoints: {
+        register: async (input: unknown) => {
+          registered.push(input);
+          return register(input);
+        },
+        unregister: async (endpointId: string) => {
+          unregistered.push(endpointId);
+        },
+      },
+    },
+  };
+  return { client, listed, registered, unregistered };
+}
+
+function addWith(runtime: FakeRuntime, argv: readonly string[]) {
+  return runCli(
+    baseInputs(['mcp', 'add', ...argv, '--url=https://x', '--token=t'], {
+      clientFactory: () => runtime.client as never,
+    }),
+  );
+}
+
+function alreadyRegistered(): KindgiApiError {
+  return new KindgiApiError(
+    fromWire(
+      { code: 'mcp-endpoint-already-registered', message: 'Endpoint "hubspot" is registered' },
+      409,
+    ),
+  );
+}
+
+describe('kindgi mcp add — connection presets', () => {
+  test('hubspot registers at the runtime, signing in as each person, its tools listed with yours', async () => {
+    const runtime = fakeRuntime([connection({})]);
+    const out = await addWith(runtime, ['hubspot']);
+    expect(out.exitCode).toBe(0);
+    expect(runtime.listed).toEqual([
+      { app: 'hubspot', owner: 'me', ownerKind: 'member', limit: 100 },
+    ]);
+    expect(runtime.registered).toEqual([
+      {
+        endpointId: 'hubspot',
+        name: 'HubSpot',
+        transport: 'streamable-http',
+        config: { transport: 'streamable-http', url: 'https://mcp.hubspot.com' },
+        auth: { scheme: 'connection', app: 'hubspot', as: 'person' },
+        catalogConnectionId: ANA_HUBSPOT,
+        scope: { kind: 'tenant' },
+      },
+    ]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      endpointId: 'hubspot',
+      preset: 'hubspot',
+      app: 'hubspot',
+      as: 'person',
+      url: 'https://mcp.hubspot.com',
+      scope: 'tenant',
+      catalogConnectionId: ANA_HUBSPOT,
+      replaced: false,
+    });
+    expect(out.stderr).toContain("it signs in as each person's own HubSpot connection");
+    expect(out.stderr).toContain(`Its tools are listed with yours (${ANA_HUBSPOT})`);
+    await expect(access(join(packDir, '.mcp.json'))).rejects.toThrow();
+  });
+
+  test('asana --as=company, in a project, under its own id', async () => {
+    const runtime = fakeRuntime([
+      connection({
+        connectionId: COMPANY_ASANA,
+        appId: 'asana',
+        app: 'asana',
+        owner: { kind: 'company' },
+        account: { id: 'company', label: 'Asana' },
+      }),
+    ]);
+    const out = await addWith(runtime, [
+      'asana',
+      '--as=company',
+      '--scope=project:p1',
+      '--server-name=asana-ops',
+    ]);
+    expect(out.exitCode).toBe(0);
+    expect(runtime.listed).toEqual([{ app: 'asana', ownerKind: 'company', limit: 100 }]);
+    expect(runtime.registered).toEqual([
+      {
+        endpointId: 'asana-ops',
+        name: 'Asana',
+        transport: 'streamable-http',
+        config: { transport: 'streamable-http', url: 'https://mcp.asana.com/v2/mcp' },
+        auth: { scheme: 'connection', app: 'asana', as: 'company' },
+        catalogConnectionId: COMPANY_ASANA,
+        scope: { kind: 'project', projectId: 'p1' },
+      },
+    ]);
+    expect(out.stderr).toContain("it signs in as the company's Asana connection");
+    expect(out.stderr).toContain(`listed with the company's (${COMPANY_ASANA})`);
+  });
+
+  test('a connection that needs reconnecting is used, with the hint to reconnect it', async () => {
+    const runtime = fakeRuntime([connection({ state: 'needs-reconnecting' })]);
+    const out = await addWith(runtime, ['hubspot']);
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(`kindgi connections connect hubspot --reconnect=${ANA_HUBSPOT}`);
+  });
+
+  test('with no connection of yours, it says how to connect, and registers nothing', async () => {
+    const runtime = fakeRuntime([]);
+    const out = await addWith(runtime, ['hubspot']);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'No HubSpot connection of yours to list its tools with. Run `kindgi connections connect hubspot` first',
+    );
+    expect(runtime.registered).toEqual([]);
+  });
+
+  test("with no company connection, it says a tenant admin connects the company's", async () => {
+    const runtime = fakeRuntime([]);
+    const out = await addWith(runtime, ['asana', '--as=company', '--env=prod']);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'No Asana connection of the company\'s in env "prod" to list its tools with. Run `kindgi connections connect asana --for-company` (a tenant admin) first',
+    );
+    expect(runtime.registered).toEqual([]);
+  });
+
+  test("removed and removing connections, another app's and another owner's are not used", async () => {
+    const runtime = fakeRuntime([
+      connection({ state: 'removed' }),
+      connection({ state: 'removing' }),
+      connection({ app: 'asana', appId: 'asana' }),
+      connection({ owner: { kind: 'company' } }),
+    ]);
+    const out = await addWith(runtime, ['hubspot']);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No HubSpot connection of yours');
+    expect(runtime.registered).toEqual([]);
+  });
+
+  test('connections in two envs need --env, which picks one', async () => {
+    const staging = '3f1a9b77-3333-4c5d-8e6f-000000000006';
+    const both = [connection({}), connection({ connectionId: staging, envName: 'staging' })];
+    const refused = await addWith(fakeRuntime(both), ['hubspot']);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain(
+      "More than one HubSpot connection of yours, in envs prod, staging. Name the runtime's env with --env=<name>.",
+    );
+    const runtime = fakeRuntime(both);
+    const out = await addWith(runtime, ['hubspot', '--env=staging']);
+    expect(out.exitCode).toBe(0);
+    expect(runtime.registered).toMatchObject([{ catalogConnectionId: staging }]);
+  });
+
+  test('an endpoint already registered is kept without --force, and replaced with it', async () => {
+    const kept = fakeRuntime([connection({})], async () => {
+      throw alreadyRegistered();
+    });
+    const refused = await addWith(kept, ['hubspot']);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain(
+      'Endpoint "hubspot" is already registered. Re-run with --force to replace it, or pick a different --server-name.',
+    );
+    expect(kept.unregistered).toEqual([]);
+
+    let calls = 0;
+    const replaced = fakeRuntime([connection({})], async () => {
+      calls += 1;
+      if (calls === 1) throw alreadyRegistered();
+      return {};
+    });
+    const out = await addWith(replaced, ['hubspot', '--force']);
+    expect(out.exitCode).toBe(0);
+    expect(replaced.unregistered).toEqual(['hubspot']);
+    expect(replaced.registered).toHaveLength(2);
+    expect(JSON.parse(out.stdout)).toMatchObject({ replaced: true });
+  });
+
+  test("the runtime's refusal is passed on", async () => {
+    const runtime = fakeRuntime([connection({})], async () => {
+      throw new KindgiApiError(
+        fromWire(
+          {
+            code: 'invalid-mcp-endpoint',
+            message: "The server does not name the entry's issuer",
+            details: { reason: 'issuer-mismatch' },
+          },
+          400,
+        ),
+      );
+    });
+    const out = await addWith(runtime, ['hubspot']);
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain("The server does not name the entry's issuer");
+  });
+
+  test.each([
+    [['--secret=HUBSPOT_TOKEN'], '--secret is for a preset the launcher runs'],
+    [['--path=.'], '--path is for a preset the launcher runs'],
+    [['--as=team'], 'Bad --as "team". Accepted: person | company.'],
+    [['--scope=team:1'], 'Bad --scope "team:1"'],
+  ])('refuses %j', async (flags, message) => {
+    const runtime = fakeRuntime([connection({})]);
+    const out = await addWith(runtime, ['hubspot', ...flags]);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(message);
+    expect(runtime.listed).toEqual([]);
+  });
+
+  test('--as on a preset the launcher runs is refused', async () => {
+    const out = await runCli(
+      baseInputs(['mcp', 'add', 'postgres', '--secret=GRIEVANCE_DB_URL', '--as=person']),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(
+      '--as is only for a connection preset (asana, hubspot). "postgres" is run by the launcher',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------
 // `kindgi mcp presets`
 // ---------------------------------------------------------------------
 
@@ -427,5 +693,20 @@ describe('kindgi mcp presets', () => {
     const postgres = parsed.presets.find((p) => p.kind === 'postgres');
     expect(postgres?.runtime).toBe('docker');
     expect(postgres?.package).toBe('crystaldba/postgres-mcp');
+  });
+
+  test('lists the hubspot and asana connection presets with their app and URL', async () => {
+    const out = await runCli(baseInputs(['mcp', 'presets']));
+    const parsed = JSON.parse(out.stdout) as { presets: Array<Record<string, unknown>> };
+    expect(parsed.presets.find((p) => p.kind === 'hubspot')).toMatchObject({
+      auth: 'connection',
+      app: 'hubspot',
+      url: 'https://mcp.hubspot.com',
+    });
+    expect(parsed.presets.find((p) => p.kind === 'asana')).toMatchObject({
+      auth: 'connection',
+      app: 'asana',
+      url: 'https://mcp.asana.com/v2/mcp',
+    });
   });
 });

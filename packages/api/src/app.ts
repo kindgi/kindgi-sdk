@@ -2471,6 +2471,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+        ...(input.connections !== undefined && {
+          connections: {
+            binding: input.connections,
+            ...(servedEnv !== undefined && { envName: servedEnv }),
+          },
+        }),
       }),
     );
   }

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
+import type { AppMcpServer } from '@kindgi/connections';
 import type { Scope } from '@kindgi/platform';
 import { type Cursor, type EnvName, type TenantId, isCredentialName } from '@kindgi/types';
 
@@ -121,7 +122,12 @@ export interface MCPEndpointSecretRef {
 }
 
 /** How an endpoint signs in, beyond the plain bearer `secretRef` sends. */
-export const MCP_AUTH_SCHEMES = ['basic', 'oauth2-client-credentials', 'header'] as const;
+export const MCP_AUTH_SCHEMES = [
+  'basic',
+  'oauth2-client-credentials',
+  'header',
+  'connection',
+] as const;
 export type MCPAuthScheme = (typeof MCP_AUTH_SCHEMES)[number];
 
 /** How a client authenticates to an OAuth 2 token endpoint (RFC 6749 §2.3.1). */
@@ -186,10 +192,46 @@ export interface MCPHeaderAuth {
   readonly headers: readonly MCPAuthHeader[];
 }
 
-export type MCPEndpointAuth = MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth;
+/** The most permissions a `connection` auth names. */
+export const MCP_CONNECTION_PERMISSIONS_MAX = 64;
 
-/** The secrets an endpoint's `auth` names: its password, client secret, or each header's. */
+/**
+ * A connection's token, from Connections: each call to the server carries the
+ * token of the connection the call runs with, as its bearer, so the server
+ * acts as that account. `as: 'person'` is the run's person's own connection
+ * to `app`; `as: 'company'` is the workspace's. The app's entry lists the
+ * server's origin (its `mcpServers`), and the runtime asks for each token for
+ * that server's `resource` (RFC 8707). No secret is stored on the endpoint.
+ * HTTP transports only, and with `catalogConnectionId`: the connection the
+ * runtime lists the server's tools with.
+ */
+export interface MCPConnectionAuth {
+  readonly scheme: 'connection';
+  /** The app's entry id: `'hubspot'`, `'asana'`. */
+  readonly app: string;
+  /** Whose connection each call runs with: the run's person's, or the company's. */
+  readonly as: 'person' | 'company';
+  /**
+   * The entry's permission keys every tool of the server needs: 1 to
+   * `MCP_CONNECTION_PERMISSIONS_MAX`, no repeats. Absent: each of the
+   * entry's permissions.
+   */
+  readonly permissions?: readonly string[];
+}
+
+export type MCPEndpointAuth =
+  | MCPBasicAuth
+  | MCPOAuth2ClientCredentialsAuth
+  | MCPHeaderAuth
+  | MCPConnectionAuth;
+
+/**
+ * The secrets an endpoint's `auth` names: its password, client secret, or
+ * each header's. A `connection` auth names none: its token is the
+ * connection's.
+ */
 export function mcpAuthSecretRefs(auth: MCPEndpointAuth): readonly MCPEndpointSecretRef[] {
+  if (auth.scheme === 'connection') return [];
   return auth.scheme === 'header' ? auth.headers.map((h) => h.secretRef) : [auth.secretRef];
 }
 
@@ -284,12 +326,23 @@ export interface MCPEndpoint {
   readonly secretRef?: MCPEndpointSecretRef;
   /**
    * How the endpoint signs in when it isn't a plain bearer: `basic` (a user
-   * name and a password secret) or `oauth2-client-credentials` (a token the
-   * runtime fetches and refreshes). Each names its secret by reference. Not
-   * with `secretRef`, and not on a `stdio` endpoint. Absent: `secretRef`'s
-   * bearer, or no credential.
+   * name and a password secret), `oauth2-client-credentials` (a token the
+   * runtime fetches and refreshes), `header` (headers of the server's own,
+   * each with a secret) or `connection` (each call carries the token of the
+   * connection it runs with). Each names its secret by reference, and
+   * `connection` names none. Not with `secretRef`, and not on a `stdio`
+   * endpoint. Absent: `secretRef`'s bearer, or no credential.
    */
   readonly auth?: MCPEndpointAuth;
+  /**
+   * With a `connection` auth, and only with one: the connection the runtime
+   * lists the server's tools with when it syncs the catalog, by its
+   * `connectionId` (`GET /v1/connections`). The registrant's own connection
+   * to `auth.app`, or a company connection to it where the app's entry
+   * allows company owners. Tool calls don't use it: each runs with its own
+   * run's connection.
+   */
+  readonly catalogConnectionId?: string;
   /**
    * A stdio server's secrets, as env variables of its process: each name
    * (`GITHUB_TOKEN`) with the secret its value is read from when the runtime
@@ -396,6 +449,15 @@ export interface MCPEndpointRegisterInput {
    * See `AgentPublishInput.enqueueTuples` for the design rationale.
    */
   readonly enqueueTuples: TupleEnqueueHook;
+  /**
+   * With a `connection` auth: the entry's server the endpoint's URL is on,
+   * as the route checked it (`AppEntry.mcpServers`). The binding reads that
+   * server's Protected Resource Metadata (RFC 9728) through its egress
+   * guard, and answers `resource-metadata-refused` unless its
+   * `authorization_servers` names `mcpServer.issuer`. A call's token is
+   * minted for `mcpServer.resource` (RFC 8707). Absent for every other auth.
+   */
+  readonly mcpServer?: AppMcpServer;
 }
 
 export interface MCPEndpointUnregisterInput {
@@ -420,7 +482,35 @@ export type MCPEndpointRegisterOutcome =
       readonly kind: 'org-not-found';
       readonly endpointId: string;
       readonly orgId: import('@kindgi/types').OrgId;
+    }
+  | {
+      /**
+       * A `connection` auth's server failed the metadata check
+       * (`MCPEndpointRegisterInput.mcpServer`): the route answers `400
+       * invalid-mcp-endpoint` with `reason`. `message` says what the server
+       * answered, never a token or a secret.
+       */
+      readonly kind: 'resource-metadata-refused';
+      readonly endpointId: string;
+      readonly reason: MCPResourceMetadataRefusal;
+      readonly message: string;
     };
+
+/**
+ * Why a `connection` auth's server was refused at registration:
+ * - `resource-metadata-unreadable`: its Protected Resource Metadata couldn't
+ *   be read (no answer, not `200`, not JSON, or no `authorization_servers`);
+ * - `issuer-mismatch`: it names authorization servers, but not the entry's
+ *   issuer;
+ * - `resource-mismatch`: its `resource` isn't the entry's server's
+ *   `resource`, exactly (RFC 9728).
+ */
+export const MCP_RESOURCE_METADATA_REFUSALS = [
+  'resource-metadata-unreadable',
+  'issuer-mismatch',
+  'resource-mismatch',
+] as const;
+export type MCPResourceMetadataRefusal = (typeof MCP_RESOURCE_METADATA_REFUSALS)[number];
 
 export type MCPEndpointUnregisterOutcome = {
   readonly unregistered: boolean;
