@@ -50,7 +50,7 @@ export interface AppMcpServer {
    * The server's `resource` (RFC 8707), as its metadata names it: an https
    * URL on `origin`, without a query, fragment or user. Each call's token
    * is minted for it, and kept per connection and resource. Compared and
-   * sent exactly as written: `'https://mcp.asana.com/v2'`.
+   * sent exactly as written: `'https://mcp.asana.com/v2/mcp'`.
    */
   readonly resource: string;
   /**

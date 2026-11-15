@@ -78,8 +78,11 @@ describe('loadPresets — happy path', () => {
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(Object.keys(result.presets).sort()).toEqual(['other', 'postgres']);
-    expect(result.presets.other?.runtime).toBe('npx');
-    expect(result.presets.other?.hostRemap).toBeUndefined();
+    const other = result.presets.other;
+    if (other === undefined || isConnectionPreset(other))
+      throw new Error('other is a launched preset');
+    expect(other.runtime).toBe('npx');
+    expect(other.hostRemap).toBeUndefined();
   });
 
   test('description is optional', async () => {
@@ -96,7 +99,10 @@ describe('loadPresets — happy path', () => {
     const result = await loadPresets(dir);
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
-    expect(result.presets.postgres?.audit.notes).toBeUndefined();
+    const pg = result.presets.postgres;
+    if (pg === undefined || isConnectionPreset(pg))
+      throw new Error('postgres is a launched preset');
+    expect(pg.audit.notes).toBeUndefined();
   });
 });
 

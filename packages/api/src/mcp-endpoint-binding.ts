@@ -501,11 +501,14 @@ export type MCPEndpointRegisterOutcome =
  * - `resource-metadata-unreadable`: its Protected Resource Metadata couldn't
  *   be read (no answer, not `200`, not JSON, or no `authorization_servers`);
  * - `issuer-mismatch`: it names authorization servers, but not the entry's
- *   issuer.
+ *   issuer;
+ * - `resource-mismatch`: its `resource` isn't the entry's server's
+ *   `resource`, exactly (RFC 9728).
  */
 export const MCP_RESOURCE_METADATA_REFUSALS = [
   'resource-metadata-unreadable',
   'issuer-mismatch',
+  'resource-mismatch',
 ] as const;
 export type MCPResourceMetadataRefusal = (typeof MCP_RESOURCE_METADATA_REFUSALS)[number];
 

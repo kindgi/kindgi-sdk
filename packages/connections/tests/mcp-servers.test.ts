@@ -73,13 +73,15 @@ describe('defineApp: MCP servers, scopes set by the registration, and no account
   });
 
   it('takes no account lookup with scopes asked at the sign-in, and no MCP server', () => {
-    const { mcpServers: _none, ...entry } = acme;
+    const { mcpServers: _none, signIn, ...entry } = acme;
+    if (signIn.kind !== 'oauth2') throw new Error('acme signs in with oauth2');
+    const { scopesFrom: _default, ...oauth2 } = signIn;
     expect(() =>
       defineApp({
         ...entry,
-        signIn: { ...acme.signIn, scopesFrom: undefined },
+        signIn: oauth2,
         permissions: { 'notes.read': { grants: 'notes:read', says: 'Read', changes: false } },
-      } as AppEntry),
+      }),
     ).not.toThrow();
   });
 

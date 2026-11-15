@@ -306,7 +306,7 @@ sends it again, and `users.list({ pending: true })` lists the invited.
 ### Let people at your domain join
 
 Rather than add each person, a tenant admin can let everyone at the
-company's email domain join the workspace (runtime 0.8.0 or later, with an
+company's email domain join the workspace (runtime 0.7.0 or later, with an
 authorization store). Someone who signs in with a mailbox at an allowed
 domain, by a way that proves it, and whom the workspace doesn't have yet,
 is offered the workspace and joins with a press:
